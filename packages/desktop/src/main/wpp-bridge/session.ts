@@ -39,12 +39,29 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
   })
 }
 
+let loginWindow: BrowserWindow | null = null
+
 export function openWppLogin(url = WPP_WORKSPACE_ORIGIN) {
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.focus()
+    return loginWindow
+  }
   const win = createWorkerWindow({ show: true })
   win.webContents.setWindowOpenHandler(() => ({
     action: "allow",
     overrideBrowserWindowOptions: { webPreferences: { partition: WPP_PARTITION } },
   }))
+  win.on("closed", () => { if (loginWindow === win) loginWindow = null })
   void win.loadURL(url)
+  loginWindow = win
   return win
+}
+
+// View-menu toggle: close the login window if it's open, else open it.
+export function toggleWppLogin(url = WPP_WORKSPACE_ORIGIN) {
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.close()
+    return
+  }
+  openWppLogin(url)
 }

@@ -31,6 +31,9 @@ export class ExtensionBridge {
     this.workerPool = null;
     this.workerPoolUrl = null;
     this.auth = { required: false, reason: null, detectedAt: null };
+    // Set by the proxy server to openWppLogin; fired once when auth first goes required so a
+    // failed job auto-pops the SSO window instead of silently flipping the status banner.
+    this.onAuthRequired = null;
   }
 
   // Publish a cumulative progress frame for a job. Frames carry a monotonic seq and the full
@@ -281,7 +284,12 @@ export class ExtensionBridge {
   }
 
   markAuthRequired(reason) {
+    const wasRequired = this.auth.required;
     this.auth = { required: true, reason, detectedAt: new Date().toISOString() };
+    // Fire only on the false->true edge so repeated failed jobs don't spawn a window each.
+    if (!wasRequired && typeof this.onAuthRequired === "function") {
+      Promise.resolve(this.onAuthRequired()).catch(() => {});
+    }
   }
 
   clearAuthRequired() {

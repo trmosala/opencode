@@ -12,6 +12,7 @@ export async function startServer(options = {}) {
 }
 
 export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAULT_PORT, openLogin = null } = {}) {
+  if (typeof openLogin === "function") extensionBridge.onAuthRequired = openLogin;
   const server = http.createServer(async (request, response) => {
     try {
       await route(request, response, { openLogin });
