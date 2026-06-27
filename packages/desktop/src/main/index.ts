@@ -38,6 +38,7 @@ import { createWslServersController } from "./wsl/servers"
 import { registerWslIpcHandlers } from "./wsl/ipc"
 import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
+import { startWppBridge } from "./wpp-bridge"
 
 const APP_NAMES: Record<string, string> = {
   dev: "OpenCode Dev",
@@ -268,6 +269,26 @@ const main = Effect.gen(function* () {
     recordFatalRendererError: (error) => writeLog("renderer", "fatal renderer error", { ...error }, "error"),
   })
   registerWslIpcHandlers(wslServers)
+  // Boot the in-process WPP bridge proxy (dep-free server.mjs) alongside the OpenCode sidecar.
+  // Fire-and-forget: server.mjs self-handles EADDRINUSE, and a failure here must not block the
+  // app from coming up — it surfaces in logs and the renderer's connection panel instead.
+  void startWppBridge().catch((error) => logger.error("wpp bridge proxy failed to start", error))
+  // ponytail: one-time Phase-3 gate scaffolding (dev only). WPP_LOGIN=1 opens a visible
+  // persist:wpp window for interactive SSO; WPP_RECORDER_URL=<chat url> runs the recorder probe
+  // against the now-authenticated partition. Separate runs — log in first, probe on a later
+  // launch. Both go away once the renderer login panel (Phase 5) lands.
+  if (process.env.WPP_LOGIN === "1" || process.env.WPP_RECORDER_URL) {
+    void import("./wpp-bridge/recorder-prototype")
+      .then(async ({ openWppLogin, runRecorderPrototype }) => {
+        if (process.env.WPP_LOGIN === "1") openWppLogin()
+        const probeUrl = process.env.WPP_RECORDER_URL
+        if (probeUrl) {
+          const probe = await runRecorderPrototype(probeUrl)
+          logger.log("wpp recorder probe", { armed: probe.armed, frames: probe.events.length })
+        }
+      })
+      .catch((error) => logger.error("wpp dev gate failed", error))
+  }
   void updater.start()
   const updateTimer = setInterval(() => void updater.check(), 10 * 60 * 1000)
   updateTimer.unref()
