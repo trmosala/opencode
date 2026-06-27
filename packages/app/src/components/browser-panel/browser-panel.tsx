@@ -5,31 +5,24 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
-import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { usePrompt } from "@/context/prompt"
 import { Persist, persisted } from "@/utils/persist"
-import { uuid } from "@/utils/uuid"
 import { showToast } from "@/utils/toast"
 import {
-  type BrowserElementSelection,
   formatBrowserElementContext,
   formatBrowserSelectionContext,
   formatBrowserUrlContext,
   normalizeBrowserUrl,
 } from "./browser-context"
-
-type WebviewElement = HTMLElement & {
-  src: string
-  getTitle?: () => string
-  getURL?: () => string
-  canGoBack?: () => boolean
-  canGoForward?: () => boolean
-  goBack?: () => void
-  goForward?: () => void
-  reload?: () => void
-  stop?: () => void
-  capturePage?: () => Promise<{ toDataURL: () => string }>
-  executeJavaScript?: <T>(code: string) => Promise<T>
-}
+import {
+  type WebviewElement,
+  addImage,
+  appendText,
+  captureScreenshot,
+  navigate,
+  pickElement,
+  readSelectionText,
+} from "./browser-actions"
 
 type BrowserStore = {
   url: string
@@ -45,101 +38,6 @@ declare module "solid-js" {
       }
     }
   }
-}
-
-function appendText(prompt: ReturnType<typeof usePrompt>, text: string) {
-  const target = prompt.capture()
-  const current = target.current()
-  const last = current[current.length - 1]
-  const prefix = last && "content" in last && last.content.trim() ? "\n\n" : ""
-  const content = `${prefix}${text}`
-  target.set([...current, { type: "text", content, start: 0, end: content.length }], target.cursor())
-}
-
-function imagePart(dataUrl: string): ImageAttachmentPart | undefined {
-  if (!dataUrl.startsWith("data:image/png;base64,")) return
-  return {
-    type: "image",
-    id: uuid(),
-    filename: `browser-screenshot-${Date.now()}.png`,
-    mime: "image/png",
-    dataUrl,
-  }
-}
-
-function addImage(prompt: ReturnType<typeof usePrompt>, part: ImageAttachmentPart) {
-  const target = prompt.capture()
-  target.set([...target.current(), part], target.cursor())
-}
-
-function pickElementScript() {
-  return `(() => new Promise((resolve) => {
-  const previous = window.__cookieMonsterCancelPickElement
-  if (previous) previous()
-
-  let hovered
-  let previousOutline = ""
-  const previousCursor = document.documentElement.style.cursor
-  const compact = (value) => String(value || "").replace(/\\s+/g, " ").trim().slice(0, 2000)
-  const describe = (el) => {
-    if (!el) return undefined
-    const ariaLabel = el.getAttribute("aria-label")
-    const title = el.getAttribute("title")
-    const label = ariaLabel || title || ""
-    return {
-      tag: el.tagName.toLowerCase(),
-      text: compact(el.innerText || el.textContent || el.value || ""),
-      role: compact(el.getAttribute("role") || ""),
-      label: compact(label),
-      id: compact(el.id || ""),
-      className: compact(typeof el.className === "string" ? el.className : ""),
-    }
-  }
-  const unhover = () => {
-    if (!hovered) return
-    if (hovered.style) hovered.style.outline = previousOutline
-    hovered = undefined
-    previousOutline = ""
-  }
-  const cleanup = () => {
-    unhover()
-    document.documentElement.style.cursor = previousCursor
-    document.removeEventListener("mousemove", move, true)
-    document.removeEventListener("click", click, true)
-    document.removeEventListener("keydown", keydown, true)
-    delete window.__cookieMonsterCancelPickElement
-  }
-  const move = (event) => {
-    const next = document.elementFromPoint(event.clientX, event.clientY)
-    if (!next || next === hovered) return
-    unhover()
-    hovered = next
-    previousOutline = hovered.style?.outline || ""
-    if (hovered.style) hovered.style.outline = "2px solid #0ea5e9"
-  }
-  const click = (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const picked = describe(document.elementFromPoint(event.clientX, event.clientY) || event.target)
-    cleanup()
-    resolve(picked)
-  }
-  const keydown = (event) => {
-    if (event.key !== "Escape") return
-    event.preventDefault()
-    event.stopPropagation()
-    cleanup()
-    resolve(undefined)
-  }
-  window.__cookieMonsterCancelPickElement = () => {
-    cleanup()
-    resolve(undefined)
-  }
-  document.documentElement.style.cursor = "crosshair"
-  document.addEventListener("mousemove", move, true)
-  document.addEventListener("click", click, true)
-  document.addEventListener("keydown", keydown, true)
-}))()`
 }
 
 export function BrowserPanel(props: { sessionKey: string }) {
@@ -211,10 +109,8 @@ export function BrowserPanel(props: { sessionKey: string }) {
   const addSelection = async () => {
     if (!webview?.executeJavaScript || state.selecting) return
 
-    const selection = await (webview.executeJavaScript
-      ? webview.executeJavaScript<string>("window.getSelection()?.toString() ?? ''").catch(() => "")
-      : "")
-    const text = formatBrowserSelectionContext(page(), selection ?? "")
+    const selection = await readSelectionText(webview)
+    const text = formatBrowserSelectionContext(page(), selection)
     if (text) {
       appendText(prompt, text)
       return
@@ -225,9 +121,7 @@ export function BrowserPanel(props: { sessionKey: string }) {
       title: language.t("browser.toast.selectionMode.title"),
       description: language.t("browser.toast.selectionMode.description"),
     })
-    const picked = await webview
-      .executeJavaScript<BrowserElementSelection | undefined>(pickElementScript())
-      .catch(() => undefined)
+    const picked = await pickElement(webview)
     setState("selecting", false)
     const elementText = formatBrowserElementContext(page(), picked)
     if (!elementText) {
@@ -241,11 +135,7 @@ export function BrowserPanel(props: { sessionKey: string }) {
   }
 
   const addScreenshot = async () => {
-    const dataUrl = await webview
-      ?.capturePage?.()
-      .then((image) => image.toDataURL())
-      .catch(() => "")
-    const part = imagePart(dataUrl ?? "")
+    const part = await captureScreenshot(webview)
     if (!part) {
       showToast({
         variant: "error",
@@ -304,7 +194,7 @@ export function BrowserPanel(props: { sessionKey: string }) {
             variant="ghost"
             class="h-7 w-7"
             disabled={!state.canGoBack}
-            onClick={() => webview?.goBack?.()}
+            onClick={() => navigate(webview, "back")}
             aria-label={language.t("browser.action.back")}
           />
         </Tooltip>
@@ -315,7 +205,7 @@ export function BrowserPanel(props: { sessionKey: string }) {
             variant="ghost"
             class="h-7 w-7"
             disabled={!state.canGoForward}
-            onClick={() => webview?.goForward?.()}
+            onClick={() => navigate(webview, "forward")}
             aria-label={language.t("browser.action.forward")}
           />
         </Tooltip>
@@ -325,7 +215,7 @@ export function BrowserPanel(props: { sessionKey: string }) {
             icon={state.loading ? "stop" : "reset"}
             variant="ghost"
             class="h-7 w-7"
-            onClick={() => (state.loading ? webview?.stop?.() : webview?.reload?.())}
+            onClick={() => navigate(webview, state.loading ? "stop" : "reload")}
             aria-label={state.loading ? language.t("browser.action.stop") : language.t("browser.action.reload")}
           />
         </Tooltip>

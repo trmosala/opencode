@@ -51,6 +51,17 @@ describe("browser context formatting", () => {
     ).toBe("Browser element from App:\nhttps://example.com\n\nLabel: Save\nElement: button\nText:\nSave project")
   })
 
+  test("formats picked element with all fields in declared order", () => {
+    expect(
+      formatBrowserElementContext(
+        { title: "App", url: "https://example.com" },
+        { tag: "input", role: "textbox", label: "Email", id: "email", className: "field lg", text: "a@b.com" },
+      ),
+    ).toBe(
+      "Browser element from App:\nhttps://example.com\n\nLabel: Email\nRole: textbox\nElement: input\nID: email\nClass: field lg\nText:\na@b.com",
+    )
+  })
+
   test("returns undefined for empty picked element", () => {
     expect(formatBrowserElementContext({ url: "https://example.com" }, undefined)).toBeUndefined()
   })
