@@ -1,6 +1,5 @@
 (() => {
 const ASSISTANT_HOSTS = new Set([
-  "ogilvy.os.wpp.com",
   "open-web-assistant-cs.wpp.ai",
   "open-web-deeplink-cs.wpp.ai"
 ]);
@@ -55,16 +54,16 @@ if (!globalThis[INSTALL_KEY]) {
   globalThis[INSTALL_KEY] = true;
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window) {
-      return;
-    }
-
     const data = event.data;
     if (!data) {
       return;
     }
 
     if (data.source === PAGE_SOURCE) {
+      if (event.source !== window) {
+        return;
+      }
+
       if (data.type === "O1_CODE_BRIDGE_NETWORK_RECORD") {
         const record = data.record;
         if (record?.runId && record?.id) {
@@ -82,6 +81,9 @@ if (!globalThis[INSTALL_KEY]) {
     }
 
     if (data.source === CONTROLLER_SOURCE) {
+      if (!ASSISTANT_HOSTS.has(location.hostname)) {
+        return;
+      }
       handleControllerMessage(data);
     }
   });

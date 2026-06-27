@@ -1,6 +1,9 @@
+import { WorkerPool } from "../worker-pool";
+
 const DEFAULT_EXTENSION_TIMEOUT_MS = Number(process.env.O1_CODE_EXTENSION_TIMEOUT_MS || process.env.O1_CODE_TIMEOUT_MS || 900000);
 const DEFAULT_CLIENT_TTL_MS = Number(process.env.O1_CODE_CLIENT_TTL_MS || 10 * 60 * 1000);
 const MAX_RECENT_JOBS = 20;
+const DEFAULT_CHAT_URL = "https://ogilvy.os.wpp.com/agent/workspace";
 
 export class ExtensionBridge {
   constructor() {
@@ -23,6 +26,8 @@ export class ExtensionBridge {
     // frame arrives can be replayed immediately (covers the enqueue->subscribe race).
     this.progressListeners = new Map();
     this.lastProgress = new Map();
+    this.workerPool = null;
+    this.workerPoolUrl = null;
   }
 
   enqueue(payload, options = {}) {
@@ -406,6 +411,14 @@ export class ExtensionBridge {
   // once the job settles — so callers never touch subscribeProgress and no late frame can land
   // after the turn is done.
   async run(prompt, options = {}) {
+    if (process.env.O1_CODE_WORKER_POOL !== "0") {
+      return this.runInWorkerPool(prompt, options);
+    }
+
+    return this.runViaQueue(prompt, options);
+  }
+
+  async runViaQueue(prompt, options = {}) {
     const startedAt = new Date().toISOString();
     let unsubscribe = null;
 
@@ -432,6 +445,86 @@ export class ExtensionBridge {
         unsubscribe();
       }
     }
+  }
+
+  async runInWorkerPool(prompt, options = {}) {
+    const startedAt = new Date().toISOString();
+    const timeoutMs = Number(options.timeoutMs || DEFAULT_EXTENSION_TIMEOUT_MS);
+    const job = this.createWorkerJob(prompt, options, timeoutMs);
+    this.jobs.set(job.id, job);
+    this.counters.enqueued += 1;
+    this.leaseJob(job, "worker-pool");
+
+    try {
+      const result = await withTimeout(
+        this.poolFor(job.payload.url).run(job, (frame) => {
+          this.pushProgress(job.id, frame);
+          options.onProgress?.(frame);
+        }),
+        timeoutMs,
+      );
+      if (result?.ok === false) {
+        const error = new Error(result.error || "O1-Code worker job failed.");
+        error.statusCode = result.statusCode || 502;
+        error.type = result.type || "o1_code_worker_pool_error";
+        error.bridgeResult = result;
+        throw error;
+      }
+      this.jobs.delete(job.id);
+      this.teardownProgress(job.id);
+      this.finishJob(job, "succeeded", result);
+      return buildRunEnvelope(prompt, options, { ...result, id: job.id, jobId: job.id }, startedAt, "worker");
+    } catch (error) {
+      this.jobs.delete(job.id);
+      this.teardownProgress(job.id);
+      this.finishJob(job, error.type === "o1_code_extension_timeout" ? "expired" : "failed", {
+        ok: false,
+        error: error.message,
+        statusCode: error.statusCode || 502,
+        type: error.type || "o1_code_worker_pool_error",
+        diagnostics: error.diagnostics || null
+      });
+      throw error;
+    }
+  }
+
+  createWorkerJob(prompt, options, timeoutMs) {
+    const createdAtMs = Date.now();
+    const url = options.url || process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || DEFAULT_CHAT_URL;
+    return {
+      id: crypto.randomUUID(),
+      type: "ask",
+      createdAt: new Date(createdAtMs).toISOString(),
+      createdAtMs,
+      timeoutMs,
+      payload: {
+        prompt,
+        images: options.images || [],
+        target: options.target || process.env.O1_CODE_TARGET || "coding-agent",
+        url,
+        model: options.model || "OgilvyOneCoder",
+        verboseRecorder: process.env.O1_CODE_VERBOSE_RECORDER === "1"
+      },
+      state: "queued",
+      leaseId: null,
+      clientId: null,
+      leasedAt: null,
+      leasedAtMs: null,
+      attempts: 0,
+      completedAt: null,
+      completedAtMs: null,
+      durationMs: null,
+      diagnostics: null,
+      resultSummary: null
+    };
+  }
+
+  poolFor(url) {
+    if (this.workerPool && this.workerPoolUrl === url) return this.workerPool;
+    this.workerPool?.destroy();
+    this.workerPoolUrl = url;
+    this.workerPool = new WorkerPool({ chatUrl: url, maxSize: this.maxConcurrent });
+    return this.workerPool;
   }
 }
 
@@ -573,10 +666,10 @@ export const extensionBridge = new ExtensionBridge();
 // Shape the raw extension `complete()` result into the one run envelope callers consume. The
 // single place the ambiguous finalText/toolCallParts location (top-level vs nested under
 // response) is reconciled, so handleChatCompletions reads a defined shape instead of dual-reading.
-function buildRunEnvelope(prompt, options, result, startedAt) {
+function buildRunEnvelope(prompt, options, result, startedAt, transport = "extension") {
   return {
     ok: true,
-    transport: "extension",
+    transport,
     prompt,
     images: (options.images || []).map((image) => ({
       id: image.id,
@@ -615,4 +708,18 @@ function buildRunEnvelope(prompt, options, result, startedAt) {
     },
     allRequests: []
   };
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timeout;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error(`Timed out waiting for O1-Code worker result after ${timeoutMs} ms.`);
+      error.statusCode = 504;
+      error.type = "o1_code_extension_timeout";
+      reject(error);
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
 }

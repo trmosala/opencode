@@ -21,8 +21,10 @@ export async function runRecorderPrototype(url: string, settleMs = 8000): Promis
 
   try {
     await installRecorder(win.webContents, (event) => events.push(event))
-    await win.webContents.loadURL(url)
-    await new Promise((resolve) => setTimeout(resolve, settleMs))
+    const settled = new Promise((resolve) => setTimeout(resolve, settleMs))
+    // ponytail: WPP entrypoints can keep redirecting/streaming and never resolve loadURL.
+    // The probe only needs document-start frames, so bound navigation to the settle window.
+    await Promise.race([win.webContents.loadURL(url).catch(() => undefined), settled])
 
     // "ready" is posted by pageRecorder at install time; a "reset" only follows a job's
     // RECORDER_RESET, so for a bare navigation "ready" alone proves the main-world patch ran.

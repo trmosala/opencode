@@ -13,6 +13,7 @@ export const WPP_PARTITION = "persist:wpp"
 // background.js ASSISTANT_ORIGINS / WORKSPACE_ORIGIN).
 export const WPP_WORKSPACE_ORIGIN = "https://ogilvy.os.wpp.com"
 export const WPP_ASSISTANT_ORIGINS = [
+  "https://open-web-agents-cs.wpp.ai",
   "https://open-web-assistant-cs.wpp.ai",
   "https://open-web-deeplink-cs.wpp.ai",
 ]
@@ -27,6 +28,8 @@ export function wppSession(): Session {
 export function createWorkerWindow({ show = false } = {}): BrowserWindow {
   return new BrowserWindow({
     show,
+    width: 1440,
+    height: 1000,
     webPreferences: {
       partition: WPP_PARTITION,
       contextIsolation: true,
