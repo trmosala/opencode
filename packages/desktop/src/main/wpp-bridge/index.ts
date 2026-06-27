@@ -6,8 +6,8 @@
 //
 // The proxy keeps serving its HTTP /v1 surface (the OpenCode server sidecar reaches it over
 // localhost; its server-to-server fetch sends no Origin, which the proxy's origin guard allows).
-// The /bridge/* endpoints stay mounted for the status page; later phases can collapse that hop to
-// direct extensionBridge calls now that the queue and the webview pool share this process.
+// The extension job queue (/bridge/jobs|results|...) is gone: jobs run in-process via the webview
+// worker pool. Only /bridge/health and /bridge/login remain, feeding the diagnostic status page.
 
 import { startServer } from "./proxy/server.mjs"
 

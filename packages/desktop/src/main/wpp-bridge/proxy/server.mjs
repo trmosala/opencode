@@ -86,51 +86,6 @@ async function route(request, response, actions = {}) {
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/bridge/jobs") {
-    writeCors(response, request);
-    const job = extensionBridge.poll(url.searchParams.get("client") || "extension");
-
-    if (!job) {
-      response.writeHead(204);
-      response.end();
-      return;
-    }
-
-    writeJson(response, 200, job);
-    return;
-  }
-
-
-  if (request.method === "POST" && url.pathname === "/bridge/client-status") {
-    writeCors(response, request);
-    const body = await readJson(request);
-    writeJson(response, 200, extensionBridge.updateClientStatus(body.client || url.searchParams.get("client") || "extension", body));
-    return;
-  }
-
-  if (request.method === "POST" && url.pathname === "/bridge/jobs/running") {
-    writeCors(response, request);
-    const body = await readJson(request);
-    writeJson(response, 200, extensionBridge.markRunning(body.id || body.jobId, body.diagnostics || null));
-    return;
-  }
-
-  if (request.method === "POST" && url.pathname === "/bridge/jobs/progress") {
-    writeCors(response, request);
-    const body = await readJson(request);
-    writeJson(response, 200, extensionBridge.pushProgress(body.id || body.jobId, {
-      seq: body.seq,
-      finalText: body.finalText
-    }));
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/bridge/results") {
-    writeCors(response, request);
-    const body = await readJson(request);
-    writeJson(response, 200, extensionBridge.complete(body));
-    return;
-  }
-
   if (request.method === "GET" && url.pathname === "/v1/models") {
     writeCors(response, request);
     writeJson(response, 200, listModels());
