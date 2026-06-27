@@ -38,3 +38,13 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
     },
   })
 }
+
+export function openWppLogin(url = WPP_WORKSPACE_ORIGIN) {
+  const win = createWorkerWindow({ show: true })
+  win.webContents.setWindowOpenHandler(() => ({
+    action: "allow",
+    overrideBrowserWindowOptions: { webPreferences: { partition: WPP_PARTITION } },
+  }))
+  void win.loadURL(url)
+  return win
+}

@@ -28,6 +28,8 @@ export function renderStatusPage() {
   .err { background: var(--red); }
   .label { color: var(--muted); width: 140px; flex-shrink: 0; }
   .val { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .banner { display: none; border-color: var(--red); }
+  .banner.show { display: block; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   button { background: transparent; color: var(--accent); border: 1px solid var(--border);
@@ -41,13 +43,18 @@ export function renderStatusPage() {
 <h1>O1-Code Bridge</h1>
 <div class="sub">OpenAI-compatible proxy for O1-Code. <span id="updated"></span></div>
 
+<div class="card banner" id="authBanner">
+  <div class="row"><div class="dot err"></div><div class="label">WPP login</div><div class="val" id="authVal">required</div></div>
+  <div class="row"><button onclick="openLogin()">Sign in to WPP</button></div>
+</div>
+
 <div class="card">
   <div class="row"><div id="proxyDot" class="dot warn"></div><div class="label">Proxy</div><div class="val" id="proxyVal">checking…</div></div>
-  <div class="row"><div id="bridgeDot" class="dot warn"></div><div class="label">Extension bridge</div><div class="val" id="bridgeVal">checking…</div></div>
+  <div class="row"><div id="bridgeDot" class="dot warn"></div><div class="label">Worker bridge</div><div class="val" id="bridgeVal">checking…</div></div>
   <div class="row"><div class="label">Pending jobs</div><div class="val" id="pendingVal">—</div></div>
   <div class="row"><div class="label">In-flight</div><div class="val" id="inflightVal">—</div></div>
   <div class="row"><div class="label">Active job</div><div class="val" id="jobVal">—</div></div>
-  <div class="row"><div class="label">Last extension poll</div><div class="val" id="clientVal">—</div></div>
+  <div class="row"><div class="label">Last legacy poll</div><div class="val" id="clientVal">—</div></div>
   <div class="row"><div class="label">Bridge counters</div><div class="val" id="bridgeCountersVal">—</div></div>
   <div class="row"><div class="label">Executor phase</div><div class="val" id="executorPhaseVal">—</div></div>
   <div class="row"><div class="label">Executor counters</div><div class="val" id="executorCountersVal">—</div></div>
@@ -74,15 +81,18 @@ async function refresh() {
       fetch('/bridge/health').then(r => r.json())
     ]);
     setDot('proxyDot', 'ok'); setText('proxyVal', 'listening on 127.0.0.1:8787');
+    const auth = bridgeRes.auth || {};
+    document.getElementById('authBanner').className = 'card banner' + (auth.required ? ' show' : '');
+    setText('authVal', auth.reason || 'required');
     const lastSeen = bridgeRes.clients && bridgeRes.clients[0]
       ? new Date(bridgeRes.clients[0].lastSeenAt)
       : null;
     const inFlight = (bridgeRes.inFlightJobs ?? 0) > 0;
     const recent = inFlight || (lastSeen && (Date.now() - lastSeen.getTime() < 15000));
-    setDot('bridgeDot', recent ? 'ok' : 'warn');
+    setDot('bridgeDot', auth.required ? 'err' : (recent || bridgeRes.recentJobs?.length ? 'ok' : 'warn'));
     setText('bridgeVal', inFlight
-      ? 'running job (extension polling)'
-      : (lastSeen ? (recent ? 'polling' : 'last seen ' + ago(lastSeen)) : 'no extension has polled yet'));
+      ? 'running worker job'
+      : (auth.required ? 'WPP login required' : (bridgeRes.recentJobs?.length ? 'ready' : 'no worker jobs yet')));
     setText('pendingVal', String(bridgeRes.pendingJobs ?? 0));
     setText('inflightVal', String(bridgeRes.inFlightJobs ?? 0));
     setText('jobVal', formatJob(bridgeRes.jobs && bridgeRes.jobs[0]));
@@ -97,6 +107,9 @@ async function refresh() {
     setDot('bridgeDot', 'err'); setText('bridgeVal', 'unknown');
   }
   document.getElementById('updated').textContent = '— updated ' + new Date().toLocaleTimeString();
+}
+async function openLogin() {
+  await fetch('/bridge/login', { method: 'POST' }).catch(() => null);
 }
 function setDot(id, state) {
   const el = document.getElementById(id);

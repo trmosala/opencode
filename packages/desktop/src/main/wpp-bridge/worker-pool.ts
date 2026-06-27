@@ -13,6 +13,7 @@ import type { BrowserWindow } from "electron"
 import { createWorkerWindow } from "./session"
 import { installController, type Controller, type ProgressFrame } from "./controller-injection"
 import { installRecorder } from "./recorder-injection"
+import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
 import { selectWorkerSlot, type WorkerView } from "./worker-slot"
 
 const DEFAULT_MAX_SIZE = Math.max(1, Number(process.env.O1_CODE_MAX_TABS) || 5)
@@ -94,22 +95,25 @@ export class WorkerPool {
   // and the relay before any page script runs. Navigating after install is what makes that hold.
   private async spawn(agent: string): Promise<Worker> {
     const window = createWorkerWindow()
-    await installRecorder(window.webContents)
-    const controller = await installController(window.webContents)
-    await window.webContents.loadURL(this.chatUrl)
-    await openAssistantPopover(window.webContents)
-    await waitForAssistantBridge(controller)
+    return cleanupWindowOnFailure(window, async () => {
+      await installRecorder(window.webContents)
+      const controller = await installController(window.webContents)
+      await window.webContents.loadURL(this.chatUrl)
+      await throwIfAuthRequired(window.webContents)
+      await openAssistantPopover(window.webContents)
+      await waitForAssistantBridge(window.webContents, controller)
 
-    const worker: Worker = {
-      id: window.webContents.id,
-      window,
-      controller,
-      agent,
-      busy: false,
-      lastUsed: Date.now(),
-    }
-    this.workers.set(worker.id, worker)
-    return worker
+      const worker: Worker = {
+        id: window.webContents.id,
+        window,
+        controller,
+        agent,
+        busy: false,
+        lastUsed: Date.now(),
+      }
+      this.workers.set(worker.id, worker)
+      return worker
+    })
   }
 
   // Drop workers whose window was destroyed (closed, crashed) so a dead id is never handed out —
@@ -164,17 +168,32 @@ async function openAssistantPopover(contents: BrowserWindow["webContents"]) {
     await wait(500)
   }
 
+  await throwIfAuthRequired(contents)
   throw new Error("Timed out opening WPP AI Assistant popover.")
 }
 
-async function waitForAssistantBridge(controller: Controller) {
+async function waitForAssistantBridge(contents: BrowserWindow["webContents"], controller: Controller) {
   const deadline = Date.now() + 30000
   while (Date.now() < deadline) {
     const state = await controller.inspectChat(2000).catch(() => null) as { ok?: boolean; ready?: boolean } | null
     if (state?.ok && state.ready) return
     await wait(500)
   }
+  await throwIfAuthRequired(contents)
   throw new Error("Timed out waiting for WPP AI Assistant bridge readiness.")
+}
+
+async function throwIfAuthRequired(contents: BrowserWindow["webContents"]) {
+  const state = await readStartupAuthState(contents)
+  const reason = classifyWppAuthState(state)
+  if (reason) throw wppAuthRequiredError(reason, state)
+}
+
+async function readStartupAuthState(contents: BrowserWindow["webContents"]) {
+  const text = await contents.executeJavaScript(`
+    (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
+  `, true).catch(() => "")
+  return { url: contents.getURL(), text: String(text || "") }
 }
 
 function wait(ms: number) {

@@ -2,14 +2,19 @@ import http from "node:http";
 import { handleChatCompletions, listModels, writeJson } from "./openaiCompat.mjs";
 import { extensionBridge } from "./extensionBridge.mjs";
 import { renderStatusPage } from "./statusPage.mjs";
+import { shouldIgnoreListenError } from "./server-startup.mjs";
 
 const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787);
 
-export async function startServer({ host = DEFAULT_HOST, port = DEFAULT_PORT } = {}) {
+export async function startServer(options = {}) {
+  return startServerWithActions(options);
+}
+
+export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAULT_PORT, openLogin = null } = {}) {
   const server = http.createServer(async (request, response) => {
     try {
-      await route(request, response);
+      await route(request, response, { openLogin });
     } catch (error) {
       writeJson(response, error.statusCode || 500, {
         error: {
@@ -29,11 +34,9 @@ export async function startServer({ host = DEFAULT_HOST, port = DEFAULT_PORT } =
       });
     });
   } catch (error) {
-    if (error?.code === "EADDRINUSE") {
-      // A proxy is already listening on this port — that's the desired end state, so exit
-      // cleanly instead of crashing (and avoid a service-manager restart loop).
+    if (shouldIgnoreListenError(error)) {
       console.log(`o1-code-openai-proxy: already running on http://${host}:${port}/ — nothing to do.`);
-      process.exit(0);
+      return;
     }
 
     throw error;
@@ -42,7 +45,7 @@ export async function startServer({ host = DEFAULT_HOST, port = DEFAULT_PORT } =
   console.log(`o1-code-openai-proxy listening on http://${host}:${port}/v1`);
 }
 
-async function route(request, response) {
+async function route(request, response, actions = {}) {
   const url = new URL(request.url, "http://127.0.0.1");
 
   if (!enforceBrowserOrigin(request, response)) {
@@ -69,6 +72,17 @@ async function route(request, response) {
 
   if (request.method === "GET" && url.pathname === "/bridge/health") {
     writeJson(response, 200, extensionBridge.health());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/bridge/login") {
+    if (typeof actions.openLogin !== "function") {
+      writeJson(response, 501, { ok: false, error: "WPP login window is not available." });
+      return;
+    }
+
+    await actions.openLogin();
+    writeJson(response, 200, { ok: true });
     return;
   }
 

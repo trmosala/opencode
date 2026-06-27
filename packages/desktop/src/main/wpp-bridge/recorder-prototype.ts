@@ -6,7 +6,7 @@
 // "ready" and/or "reset" frame, the fetch/XHR patch landed before page scripts — the make-or-break
 // guarantee — and we can confidently build the full webview pool on top of it.
 
-import { createWorkerWindow, WPP_PARTITION, WPP_WORKSPACE_ORIGIN } from "./session"
+import { createWorkerWindow, openWppLogin } from "./session"
 import { installRecorder, type RecorderEvent } from "./recorder-injection"
 
 export type RecorderProbeResult = {
@@ -35,18 +35,4 @@ export async function runRecorderPrototype(url: string, settleMs = 8000): Promis
   }
 }
 
-// One-time interactive SSO. Opens a VISIBLE persist:wpp window at the WPP workspace origin so a
-// human can complete SSO once; the partition persists cookies across restarts, so the hidden
-// worker pool is authenticated afterward. ponytail: dev scaffolding for the Phase-3 gate —
-// superseded by the first-class renderer login panel (Phase 5).
-export function openWppLogin(url = WPP_WORKSPACE_ORIGIN) {
-  const win = createWorkerWindow({ show: true })
-  // Some enterprise IdPs complete login in a popup; allow it and keep it on the same partition
-  // so the popup shares the session it is authenticating.
-  win.webContents.setWindowOpenHandler(() => ({
-    action: "allow",
-    overrideBrowserWindowOptions: { webPreferences: { partition: WPP_PARTITION } },
-  }))
-  void win.loadURL(url)
-  return win
-}
+export { openWppLogin }

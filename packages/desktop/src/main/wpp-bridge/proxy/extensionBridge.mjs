@@ -28,6 +28,7 @@ export class ExtensionBridge {
     this.lastProgress = new Map();
     this.workerPool = null;
     this.workerPoolUrl = null;
+    this.auth = { required: false, reason: null, detectedAt: null };
   }
 
   enqueue(payload, options = {}) {
@@ -227,6 +228,7 @@ export class ExtensionBridge {
       jobs: activeJobs.map((job) => this.jobHealth(job, now)),
       recentJobs: this.recentJobs.map((job) => this.jobHealth(job, now)),
       counters: { ...this.counters },
+      auth: { ...this.auth },
       clients: Array.from(this.clients.entries()).map(([id, client]) => ({
         id,
         lastSeenAt: client.lastSeenAt,
@@ -470,11 +472,18 @@ export class ExtensionBridge {
         error.bridgeResult = result;
         throw error;
       }
+      this.clearAuthRequired();
       this.jobs.delete(job.id);
       this.teardownProgress(job.id);
       this.finishJob(job, "succeeded", result);
       return buildRunEnvelope(prompt, options, { ...result, id: job.id, jobId: job.id }, startedAt, "worker");
     } catch (error) {
+      if (error.type === "wpp_auth_required") {
+        this.markAuthRequired(error.message);
+        this.workerPool?.destroy();
+        this.workerPool = null;
+        this.workerPoolUrl = null;
+      }
       this.jobs.delete(job.id);
       this.teardownProgress(job.id);
       this.finishJob(job, error.type === "o1_code_extension_timeout" ? "expired" : "failed", {
@@ -486,6 +495,15 @@ export class ExtensionBridge {
       });
       throw error;
     }
+  }
+
+  markAuthRequired(reason) {
+    this.auth = { required: true, reason, detectedAt: new Date().toISOString() };
+  }
+
+  clearAuthRequired() {
+    if (!this.auth.required) return;
+    this.auth = { required: false, reason: null, detectedAt: null };
   }
 
   createWorkerJob(prompt, options, timeoutMs) {

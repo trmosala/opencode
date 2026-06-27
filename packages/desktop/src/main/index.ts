@@ -39,6 +39,7 @@ import { registerWslIpcHandlers } from "./wsl/ipc"
 import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { startWppBridge } from "./wpp-bridge"
+import { openWppLogin } from "./wpp-bridge/session"
 
 const APP_NAMES: Record<string, string> = {
   dev: "OpenCode Dev",
@@ -272,7 +273,7 @@ const main = Effect.gen(function* () {
   // Boot the in-process WPP bridge proxy (dep-free server.mjs) alongside the OpenCode sidecar.
   // Fire-and-forget: server.mjs self-handles EADDRINUSE, and a failure here must not block the
   // app from coming up — it surfaces in logs and the renderer's connection panel instead.
-  void startWppBridge().catch((error) => logger.error("wpp bridge proxy failed to start", error))
+  void startWppBridge({ openLogin: () => { openWppLogin() } }).catch((error) => logger.error("wpp bridge proxy failed to start", error))
   // ponytail: one-time Phase-3 gate scaffolding (dev only). WPP_LOGIN=1 opens a visible
   // persist:wpp window for interactive SSO; WPP_RECORDER_URL=<chat url> runs the recorder probe
   // against the now-authenticated partition. Separate runs — log in first, probe on a later

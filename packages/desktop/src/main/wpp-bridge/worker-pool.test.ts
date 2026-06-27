@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
 import { selectWorkerSlot, type WorkerView } from "./worker-slot"
 
 const worker = (id: number, agent: string, busy: boolean, lastUsed: number): WorkerView => ({
@@ -51,5 +52,36 @@ describe("selectWorkerSlot", () => {
   test("matches only untagged free workers for a blank agent request", () => {
     const slot = selectWorkerSlot([worker(1, "GPT", false, 1), worker(2, "", false, 2)], 5, "")
     expect(slot).toEqual({ action: "reuse", id: 2 })
+  })
+})
+
+describe("worker startup helpers", () => {
+  test("destroys a created window when startup fails", async () => {
+    let destroyed = false
+    const window = {
+      isDestroyed: () => destroyed,
+      destroy: () => {
+        destroyed = true
+      },
+    }
+
+    await expect(cleanupWindowOnFailure(window, async () => {
+      throw new Error("startup failed")
+    })).rejects.toThrow("startup failed")
+
+    expect(destroyed).toBe(true)
+  })
+
+  test("classifies login-like WPP startup states as auth required", () => {
+    expect(classifyWppAuthState({ url: "https://idp.example.com/oauth/authorize" })).toContain("login")
+    expect(classifyWppAuthState({ text: "Your session expired. Sign in again." })).toContain("sign-in")
+    expect(classifyWppAuthState({ url: "https://ogilvy.os.wpp.com/agent/workspace", text: "AI Assistant" })).toBe(null)
+
+    const error = wppAuthRequiredError("WPP page is asking for sign-in") as Error & {
+      statusCode: number
+      type: string
+    }
+    expect(error.statusCode).toBe(401)
+    expect(error.type).toBe("wpp_auth_required")
   })
 })
