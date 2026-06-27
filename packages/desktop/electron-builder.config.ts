@@ -106,6 +106,20 @@ const getBase = (appId: string): Configuration => ({
   },
 })
 
+// Optional fork branding (CM_BRAND=1): rename the app so it never collides with a real OpenCode
+// install and strip publish so a fork build can never auto-update to upstream. Channel stays "dev"
+// internally, keeping the icon/server prebuild pipeline and resolveChannel() unchanged.
+function applyBranding(cfg: Configuration): Configuration {
+  if (!process.env.CM_BRAND) return cfg
+  return {
+    ...cfg,
+    appId: "com.ogilvy.cookiemonster",
+    productName: "CookieMonster",
+    artifactName: "cookiemonster-${os}-${arch}.${ext}",
+    publish: null,
+  }
+}
+
 function getConfig() {
   const appId = APP_IDS[channel]
   const base = getBase(appId)
@@ -143,4 +157,4 @@ function getConfig() {
   }
 }
 
-export default getConfig()
+export default applyBranding(getConfig() as Configuration)
