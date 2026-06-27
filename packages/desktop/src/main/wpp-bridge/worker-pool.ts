@@ -13,9 +13,14 @@ import { installController, type Controller, type ProgressFrame } from "./contro
 import { installRecorder } from "./recorder-injection"
 import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, type WorkerView } from "./worker-slot"
+import { SpawnGate } from "./spawn-gate"
 
 const IDLE_WORKER_TTL_MS = 10 * 60 * 1000
 const REAP_INTERVAL_MS = 60 * 1000
+// Total workers stay unbounded (one job per worker = full parallelism); this only caps how many
+// heavy spawns (page load + CDP inject + SSO + bridge wait) run at once so a burst doesn't open
+// every authenticated window simultaneously. A grow past the cap waits for a slot, never fails.
+const MAX_CONCURRENT_SPAWNS = Math.max(1, Number(process.env.O1_CODE_MAX_SPAWNS) || 3)
 
 type Worker = {
   id: number
@@ -32,6 +37,7 @@ export class WorkerPool {
   private readonly workers = new Map<number, Worker>()
   private readonly chatUrl: string
   private readonly reapTimer: NodeJS.Timeout
+  private readonly spawnGate = new SpawnGate(MAX_CONCURRENT_SPAWNS)
 
   constructor(options: WorkerPoolOptions) {
     this.chatUrl = options.chatUrl
@@ -53,18 +59,33 @@ export class WorkerPool {
     }
   }
 
-  // Reserve a worker for `agent`, spawning one when no matching idle worker is available.
+  // Reserve a worker for `agent`, spawning one when no matching idle worker is available. Spawns
+  // are gated by spawnGate so a concurrent burst opens windows in waves, not all at once.
+  // ponytail: select->claim is kept await-free so single-threaded JS serializes it — that, not a
+  // mutex, is what prevents two callers double-booking one free worker. Do NOT insert an await
+  // between selectWorkerSlot and claim() or the race becomes real.
   async acquire(agent: string): Promise<Worker> {
     this.prune()
-    const slot = selectWorkerSlot(this.view(), agent)
+    let slot = selectWorkerSlot(this.view(), agent)
+    if (slot.action === "reuse") return this.claim(slot.id, agent)
 
-    if (slot.action === "grow") {
+    await this.spawnGate.acquire()
+    try {
+      // A worker may have freed (or been spawned for this agent) while we waited for a spawn slot.
+      this.prune()
+      slot = selectWorkerSlot(this.view(), agent)
+      if (slot.action === "reuse") return this.claim(slot.id, agent)
+
       const worker = await this.spawn(agent)
       worker.busy = true
       return worker
+    } finally {
+      this.spawnGate.release()
     }
+  }
 
-    const worker = this.workers.get(slot.id)!
+  private claim(id: number, agent: string): Worker {
+    const worker = this.workers.get(id)!
     worker.busy = true
     worker.agent = agent
     return worker
