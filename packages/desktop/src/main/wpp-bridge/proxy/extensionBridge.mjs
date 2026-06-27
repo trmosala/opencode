@@ -7,7 +7,6 @@ const DEFAULT_CHAT_URL = "https://ogilvy.os.wpp.com/agent/workspace";
 
 export class ExtensionBridge {
   constructor() {
-    this.maxConcurrent = Math.max(1, Number(process.env.O1_CODE_MAX_TABS) || 5);
     this.jobs = new Map();
     // ponytail: vestigial since the extension HTTP queue was axed — nothing populates pendingJobs,
     // waiters or clients now; expireJob/health/cleanupStaleClients still read them as empties.
@@ -325,7 +324,7 @@ export class ExtensionBridge {
     if (this.workerPool && this.workerPoolUrl === url) return this.workerPool;
     this.workerPool?.destroy();
     this.workerPoolUrl = url;
-    this.workerPool = new WorkerPool({ chatUrl: url, maxSize: this.maxConcurrent });
+    this.workerPool = new WorkerPool({ chatUrl: url });
     return this.workerPool;
   }
 }

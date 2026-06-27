@@ -1,22 +1,21 @@
 // Worker-window pool — the Electron port of the MV3 background.js tab pool. Each worker is one
 // hidden BrowserWindow (session.ts) hosting an authenticated WPP assistant page, with the recorder
-// and controller relay installed at document-start. The pool runs up to maxSize jobs concurrently,
-// one per worker, so parallel sub-agents fan out instead of serializing.
+// and controller relay installed at document-start. The pool runs one job per worker, so parallel
+// sub-agents fan out instead of serializing.
 //
 // Soft per-agent affinity mirrors background.js acquireFreeTab: prefer a free worker already pinned
 // to the requested agent (or an untagged one); else grow the pool so the agent gets its own worker;
-// only when the pool is full do we re-tag the LRU free worker, which costs one composer pill switch
-// in content.js. Affinity is in-memory only — durable affinity + last-good chat URL persistence is
-// handoff item 3.
+// affinity is in-memory only — durable affinity + last-good chat URL persistence is handoff item 3.
 
 import type { BrowserWindow } from "electron"
 import { createWorkerWindow } from "./session"
 import { installController, type Controller, type ProgressFrame } from "./controller-injection"
 import { installRecorder } from "./recorder-injection"
 import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
-import { selectWorkerSlot, type WorkerView } from "./worker-slot"
+import { selectWorkerSlot, shouldReapWorker, type WorkerView } from "./worker-slot"
 
-const DEFAULT_MAX_SIZE = Math.max(1, Number(process.env.O1_CODE_MAX_TABS) || 5)
+const IDLE_WORKER_TTL_MS = 10 * 60 * 1000
+const REAP_INTERVAL_MS = 60 * 1000
 
 type Worker = {
   id: number
@@ -27,16 +26,17 @@ type Worker = {
   lastUsed: number
 }
 
-export type WorkerPoolOptions = { chatUrl: string; maxSize?: number }
+export type WorkerPoolOptions = { chatUrl: string }
 
 export class WorkerPool {
   private readonly workers = new Map<number, Worker>()
-  private readonly maxSize: number
   private readonly chatUrl: string
+  private readonly reapTimer: NodeJS.Timeout
 
   constructor(options: WorkerPoolOptions) {
-    this.maxSize = Math.max(1, options.maxSize ?? DEFAULT_MAX_SIZE)
     this.chatUrl = options.chatUrl
+    this.reapTimer = setInterval(() => this.prune(), REAP_INTERVAL_MS)
+    this.reapTimer.unref()
   }
 
   // Acquire + run + release in one call — the single entry point a caller (extensionBridge) needs.
@@ -53,16 +53,10 @@ export class WorkerPool {
     }
   }
 
-  // Reserve a worker for `agent`, spawning one if the pool can still grow. Throws when the pool is
-  // saturated (every worker busy) — extensionBridge already caps concurrency at maxSize, so this is
-  // a safety net, not the normal path.
-  // ponytail: assumes serialized acquire (extensionBridge.poll's pollInProgress guard). Add a
-  // reservation counter before the spawn await if a concurrent caller is ever introduced.
+  // Reserve a worker for `agent`, spawning one when no matching idle worker is available.
   async acquire(agent: string): Promise<Worker> {
     this.prune()
-    const slot = selectWorkerSlot(this.view(), this.maxSize, agent)
-
-    if (slot.action === "wait") throw new Error("WPP worker pool is full and every worker is busy.")
+    const slot = selectWorkerSlot(this.view(), agent)
 
     if (slot.action === "grow") {
       const worker = await this.spawn(agent)
@@ -84,6 +78,7 @@ export class WorkerPool {
   }
 
   destroy() {
+    clearInterval(this.reapTimer)
     for (const worker of this.workers.values()) {
       if (!worker.window.isDestroyed()) worker.window.destroy()
     }
@@ -116,11 +111,17 @@ export class WorkerPool {
     })
   }
 
-  // Drop workers whose window was destroyed (closed, crashed) so a dead id is never handed out —
-  // the Electron equivalent of background.js resolveOwnedTargets pruning closed tabs.
+  // Drop workers whose window was destroyed or sat idle past the TTL so a dead or stale id is never
+  // handed out.
   private prune() {
+    const now = Date.now()
     for (const [id, worker] of this.workers) {
-      if (worker.window.isDestroyed()) this.workers.delete(id)
+      if (worker.window.isDestroyed()) {
+        this.workers.delete(id)
+      } else if (shouldReapWorker(worker, now, IDLE_WORKER_TTL_MS)) {
+        worker.window.destroy()
+        this.workers.delete(id)
+      }
     }
   }
 

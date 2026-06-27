@@ -8,13 +8,10 @@ export type WorkerView = { id: number; agent: string; busy: boolean; lastUsed: n
 export type Slot =
   | { action: "reuse"; id: number }
   | { action: "grow" }
-  | { action: "retag"; id: number }
-  | { action: "wait" }
 
 // Which worker (if any) runs the next job for `agent`: prefer a free worker already pinned to the
-// agent (or an untagged one); else grow while capacity remains so the agent gets its own worker;
-// else re-tag the LRU free worker (one composer pill switch in content.js); else wait.
-export function selectWorkerSlot(workers: WorkerView[], maxSize: number, agent: string): Slot {
+// agent (or an untagged one); else grow so parallel jobs never fail on a local tab cap.
+export function selectWorkerSlot(workers: WorkerView[], agent: string): Slot {
   const free = workers
     .filter((worker) => !worker.busy)
     .sort((a, b) => a.lastUsed - b.lastUsed)
@@ -23,9 +20,9 @@ export function selectWorkerSlot(workers: WorkerView[], maxSize: number, agent: 
     ?? free.find((worker) => !worker.agent)
   if (preferred) return { action: "reuse", id: preferred.id }
 
-  if (workers.length < maxSize) return { action: "grow" }
+  return { action: "grow" }
+}
 
-  if (free.length) return { action: "retag", id: free[0].id }
-
-  return { action: "wait" }
+export function shouldReapWorker(worker: WorkerView, now: number, idleTtlMs: number) {
+  return !worker.busy && now - worker.lastUsed >= idleTtlMs
 }
