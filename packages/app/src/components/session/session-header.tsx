@@ -144,7 +144,7 @@ export function SessionHeader() {
   const settings = useSettings()
   const sync = useSync()
   const terminal = useTerminal()
-  const { params, view } = useSessionLayout()
+  const { params, tabs, view } = useSessionLayout()
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
   const project = createMemo(() => {
@@ -219,6 +219,15 @@ export function SessionHeader() {
     focusTerminalById(id)
   }
 
+  const browserOpen = createMemo(() => tabs().active() === "browser" || tabs().all().includes("browser"))
+  const toggleBrowser = () => {
+    if (tabs().active() === "browser") {
+      tabs().close("browser")
+      return
+    }
+    void tabs().open("browser")
+  }
+
   const [prefs, setPrefs] = persisted(Persist.global("open.app"), createStore({ app: "finder" as OpenApp }))
   const [menu, setMenu] = createStore({ open: false })
   const [openRequest, setOpenRequest] = createStore({
@@ -244,6 +253,10 @@ export function SessionHeader() {
     reviewVisible: isDesktop(),
     reviewOpened: view().reviewPanel.opened(),
     onReviewToggle: () => view().reviewPanel.toggle(),
+    browserVisible: isDesktop() && platform.browserPanel === true && !!params.id,
+    browserOpened: browserOpen(),
+    browserLabel: language.t("command.browser.toggle"),
+    onBrowserToggle: toggleBrowser,
   }))
 
   const selectApp = (app: OpenApp) => {
@@ -465,6 +478,28 @@ export function SessionHeader() {
                     </TooltipKeybind>
 
                     <div class="hidden md:flex items-center gap-1 shrink-0">
+                      <Show when={platform.browserPanel && params.id}>
+                        <Tooltip placement="bottom" value={language.t("command.browser.toggle")}>
+                          <Button
+                            variant="ghost"
+                            class="titlebar-icon w-8 h-6 p-0 box-border"
+                            onClick={toggleBrowser}
+                            aria-label={language.t("command.browser.toggle")}
+                            aria-expanded={browserOpen()}
+                            aria-controls="review-panel"
+                          >
+                            <Icon
+                              size="small"
+                              name="window-cursor"
+                              classList={{
+                                "text-icon-strong": browserOpen(),
+                                "text-icon-weak": !browserOpen(),
+                              }}
+                            />
+                          </Button>
+                        </Tooltip>
+                      </Show>
+
                       <TooltipKeybind
                         title={language.t("command.review.toggle")}
                         keybind={command.keybind("review.toggle")}
@@ -527,6 +562,10 @@ type SessionHeaderV2ActionsState = {
   reviewVisible: boolean
   reviewOpened: boolean
   onReviewToggle: () => void
+  browserVisible: boolean
+  browserOpened: boolean
+  browserLabel: string
+  onBrowserToggle: () => void
 }
 
 function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
@@ -538,6 +577,22 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
         <Tooltip placement="bottom" value={props.state.statusLabel}>
           <StatusPopoverV2 />
         </Tooltip>
+      </Show>
+      <Show when={props.state.browserVisible}>
+        <TooltipV2 placement="bottom" value={props.state.browserLabel}>
+          <IconButtonV2
+            type="button"
+            variant="ghost-muted"
+            size="large"
+            class="!w-9 shrink-0"
+            state={props.state.browserOpened ? "pressed" : undefined}
+            onClick={props.state.onBrowserToggle}
+            aria-label={props.state.browserLabel}
+            aria-expanded={props.state.browserOpened}
+            aria-controls="review-panel"
+            icon={<IconV2 name="monitor" />}
+          />
+        </TooltipV2>
       </Show>
       <Show when={props.state.reviewVisible}>
         <TooltipV2

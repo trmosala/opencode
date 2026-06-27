@@ -135,6 +135,7 @@ const createPlatform = (): Platform => {
   return {
     platform: "desktop",
     os,
+    browserPanel: true,
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {

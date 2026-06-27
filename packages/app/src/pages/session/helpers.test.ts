@@ -186,4 +186,26 @@ describe("createSessionTabs", () => {
       dispose()
     })
   })
+
+  test("treats browser as a special non-file tab", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "browser" as string | undefined,
+        all: ["browser", "file://src/a.ts"],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: (tab) => (tab.startsWith("file://") ? tab.slice("file://".length) : undefined),
+        normalizeTab: (tab) => (tab.startsWith("file://") ? `norm:${tab.slice("file://".length)}` : tab),
+      })
+
+      expect(result.browserOpen()).toBe(true)
+      expect(result.openedTabs()).toEqual(["norm:src/a.ts"])
+      expect(result.activeTab()).toBe("browser")
+      expect(result.activeFileTab()).toBeUndefined()
+      expect(result.closableTab()).toBe("browser")
+      dispose()
+    })
+  })
 })
