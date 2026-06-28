@@ -159,3 +159,47 @@ const table = sqliteTable("session", {
 - Keep delivery vocabulary explicit. Prompts steer by default and promote at the next safe provider-turn boundary while the current drain requires continuation. An explicit `queue` input remains pending until the Session would otherwise become idle; promote one queued input at that boundary, then reevaluate continuation before promoting another. Promoting any new user input resets the selected agent's provider-turn allowance; a batch of steers resets it once.
 - Keep EventV2 replay owner claims separate from clustered Session execution ownership.
 - Keep the System Context algebra, registry, and built-ins in `src/system-context`; keep Context Source producers with their observed domains, and keep Session History selection plus Context Epoch persistence Session-owned.
+
+## CookieMonster Desktop (this fork)
+
+This repo adds an Electron desktop shell ("CookieMonster") on top of upstream OpenCode. Bun 1.3+ workspaces + Turborepo; lockfile `bun.lock`; lint = oxlint, format = Prettier (no semicolons, 120 cols).
+
+Key packages beyond the upstream core:
+- `packages/desktop` — Electron shell: `src/main`, `src/preload`, `src/renderer`. Hosts the WPP bridge.
+- `packages/app` — shared Solid.js UI (session layout, prompt input, browser panel) used by web and desktop.
+
+Common commands:
+```bash
+bun dev                 # OpenCode CLI (packages/opencode); `bun dev <dir>`, `bun dev serve` (:4096)
+bun run dev:desktop     # Electron app (electron-vite dev)
+bun run dev:web         # web UI (needs a server running)
+bun run lint            # oxlint
+```
+Desktop packaging (from `packages/desktop`): `bun run build` then `bun run package:win` / `package:mac` / `package:linux`.
+
+### The WPP bridge (read multiple files to understand)
+
+Everything custom lives in `packages/desktop/src/main/wpp-bridge/`. It turns authenticated **WPP Open** browser sessions (`ogilvy.os.wpp.com` — Ogilvy/WPP's AI platform, NOT WhatsApp) into an OpenAI-compatible model backend.
+
+1. `proxy/server.mjs` — HTTP server (default :8787): `POST /v1/chat/completions` (model id `o1-code`), `GET /v1/models`, `POST /bridge/login`, `GET /bridge/health`, `GET /status`. `proxy/openaiCompat.mjs` adapts OpenAI request/response shapes.
+2. `proxy/extensionBridge.mjs` queues jobs onto a `WorkerPool` (`worker-pool.ts`).
+3. Each worker is a hidden Electron BrowserWindow (`session.ts`) on the persistent `persist:wpp` partition (SSO cookies survive restarts — log in once). `controller-injection.ts` injects a job handler (`injected/content.js`) via CDP into the page's main world; `recorder-injection.ts` records traffic for diagnostics.
+4. `WorkerPool.run(job, onProgress)` is the single entry point: `acquire(agent)` (soft per-agent affinity) → `spawn()` if needed → `controller.runJob()` → stream progress → `release()`.
+
+Concurrency: `SpawnGate` serializes *heavy* spawns (page load + CDP inject + SSO) via a semaphore — `MAX_CONCURRENT_SPAWNS` from `O1_CODE_MAX_SPAWNS` (default 3). Total workers are unbounded (one per job); only the spawn step is throttled. Idle workers (>10 min, `IDLE_WORKER_TTL_MS`) are reaped on a 60s prune.
+
+Auth: a job hitting auth-required calls `markAuthRequired` → fire-once `openWppLogin()` shows a *visible* BrowserWindow for interactive SSO; the `persist:wpp` partition then keeps the session for subsequent headless workers. The login callback is wired from `main/index.ts` at boot.
+
+Serialiser caveat: `openaiCompat.mjs` translates the OpenCode session into what the WPP Open page receives. Keep role structure intact — flattening the transcript into one user turn (with embedded `[system]`/tool-result text) is what makes the backend treat it as prompt injection.
+
+The `*.mjs` files in `wpp-bridge/proxy/` are plain ESM (not TS-compiled) and run in the Electron main process — edit them directly.
+
+### Electron process split
+
+- `src/preload/index.ts` — context-isolated bridge; renderer reaches main only via `ipcRenderer.invoke` (file pickers, electron-store, server URL, WSL servers, updater, debug logs).
+- `src/main/index.ts` — app lifecycle, spawns the OpenCode sidecar child process, boots the WPP bridge, registers IPC handlers (`ipc.ts`).
+- `src/renderer/index.tsx` — builds the `platform` object (desktop pickers, electron-store storage, `browserPanel: true`) and mounts `packages/app`; connects to the sidecar over WebSocket and waits on a `serverReady` deferred before init.
+
+### Browser panel
+
+`packages/app/src/components/browser-panel/` — an Electron `<webview>` mounted in the session side panel (only when `platform.browserPanel`). `browser-actions.ts` drives the webview via `executeJavaScript` (element picker, read selection, screenshot); `browser-context.ts` formats URL/selection/screenshot into prompt context so the agent can reason about the live page.
