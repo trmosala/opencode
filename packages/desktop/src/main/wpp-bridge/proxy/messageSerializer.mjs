@@ -54,7 +54,10 @@ function stringifyContent(content, state = { imageIndex: 0 }) {
   return JSON.stringify(content);
 }
 
-export function serializeChatCompletionRequest(body, { provenance = true } = {}) {
+// `sinceIndex` > 0 selects delta mode: continue an existing WPP thread by forwarding only the
+// non-system messages after that index. The tab already holds the preamble, system prompt, tool
+// schema and prior turns from the first ("fresh") turn, so they are all omitted here.
+export function serializeChatCompletionRequest(body, { provenance = true, sinceIndex = 0 } = {}) {
   const allMessages = Array.isArray(body.messages) ? body.messages : [];
   const systemMessages = allMessages.filter((m) => m.role === "system");
   const nonSystemMessages = allMessages.filter((m) => m.role !== "system");
@@ -63,31 +66,35 @@ export function serializeChatCompletionRequest(body, { provenance = true } = {})
   const { toolFormat } = resolveModelProfile(body.model);
   const state = { imageIndex: 0 };
   const lines = [];
+  const delta = sinceIndex > 0;
 
-  const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-  const hasReplayedFraming = systemMessages.length > 0 || hasTools ||
-    nonSystemMessages.some((m) => m.tool_call_id ||
-      (Array.isArray(m.tool_calls) && m.tool_calls.length > 0));
-  if (provenance && toolFormat === "xml" && hasReplayedFraming) {
-    lines.push(SERIALIZED_SESSION_PREAMBLE);
-  }
+  if (!delta) {
+    const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+    const hasReplayedFraming = systemMessages.length > 0 || hasTools ||
+      nonSystemMessages.some((m) => m.tool_call_id ||
+        (Array.isArray(m.tool_calls) && m.tool_calls.length > 0));
+    if (provenance && toolFormat === "xml" && hasReplayedFraming) {
+      lines.push(SERIALIZED_SESSION_PREAMBLE);
+    }
 
-  for (const msg of systemMessages) {
-    const content = stringifyContent(msg.content, state);
-    if (content.trim()) {
-      lines.push(`[system]\n${content}`);
+    for (const msg of systemMessages) {
+      const content = stringifyContent(msg.content, state);
+      if (content.trim()) {
+        lines.push(`[system]\n${content}`);
+      }
+    }
+
+    const toolBlock = buildToolSchemaBlock(body.tools);
+    if (toolBlock) {
+      lines.push(`[harness]\n${toolFormat === "json" ? TOOL_CALL_SYSTEM_REMINDER_JSON : TOOL_CALL_SYSTEM_REMINDER}`);
+      lines.push(toolBlock);
     }
   }
 
-  const toolBlock = buildToolSchemaBlock(body.tools);
-  if (toolBlock) {
-    lines.push(`[harness]\n${toolFormat === "json" ? TOOL_CALL_SYSTEM_REMINDER_JSON : TOOL_CALL_SYSTEM_REMINDER}`);
-  }
-  if (toolBlock) {
-    lines.push(toolBlock);
-  }
-
-  for (const message of nonSystemMessages) {
+  // ponytail: a delta may restate the model's own prior tool-call block (already in the thread) —
+  // harmless duplication; trim it later only if the agent ever conflates it with new instruction.
+  const turnMessages = delta ? nonSystemMessages.slice(sinceIndex) : nonSystemMessages;
+  for (const message of turnMessages) {
     const role = message.role || "user";
     const content = stringifyContent(message.content, state);
 
@@ -113,7 +120,8 @@ export function serializeChatCompletionRequest(body, { provenance = true } = {})
     lines.push(`[${role}]\n${content}`);
   }
 
-  if (systemMessages.length === 0 && !toolBlock && lines.length === 1 && lines[0].startsWith("[user]\n")) {
+  // A lone [user] turn (every plain follow-up, and most deltas) goes in as bare composer text.
+  if (lines.length === 1 && lines[0].startsWith("[user]\n")) {
     return lines[0].slice("[user]\n".length).trim();
   }
 

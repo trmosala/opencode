@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, type WorkerView } from "./worker-slot"
 
-const worker = (id: number, agent: string, busy: boolean, lastUsed: number): WorkerView => ({
+const worker = (id: number, agent: string, busy: boolean, lastUsed: number, sessionKey = ""): WorkerView => ({
   id,
   agent,
+  sessionKey,
   busy,
   lastUsed,
 })
@@ -51,6 +52,37 @@ describe("selectWorkerSlot", () => {
 
   test("matches only untagged free workers for a blank agent request", () => {
     const slot = selectWorkerSlot([worker(1, "GPT", false, 1), worker(2, "", false, 2)], "")
+    expect(slot).toEqual({ action: "reuse", id: 2 })
+  })
+
+  test("reuses the session's own pinned tab over an idle unpinned worker", () => {
+    const slot = selectWorkerSlot(
+      [worker(1, "Opus", false, 1), worker(2, "Opus", false, 9, "sess-A::Opus")],
+      "Opus",
+      "sess-A::Opus",
+    )
+    expect(slot).toEqual({ action: "reuse", id: 2 })
+  })
+
+  test("never steals a tab pinned to a different session — grows instead", () => {
+    const slot = selectWorkerSlot([worker(1, "Opus", false, 1, "sess-B::Opus")], "Opus", "sess-A::Opus")
+    expect(slot).toEqual({ action: "grow" })
+  })
+
+  test("adopts an unpinned agent-matching worker when the session has no tab yet", () => {
+    const slot = selectWorkerSlot(
+      [worker(1, "GPT", false, 1), worker(2, "Opus", false, 2)],
+      "Opus",
+      "sess-A::Opus",
+    )
+    expect(slot).toEqual({ action: "reuse", id: 2 })
+  })
+
+  test("a sessionless request does not steal a session-pinned worker", () => {
+    const slot = selectWorkerSlot(
+      [worker(1, "Opus", false, 1, "sess-A::Opus"), worker(2, "", false, 5)],
+      "Opus",
+    )
     expect(slot).toEqual({ action: "reuse", id: 2 })
   })
 

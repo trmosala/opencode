@@ -2,8 +2,8 @@
 //
 // All WPP traffic lives in a dedicated persistent partition so SSO cookies survive restarts
 // (the "one-time login" requirement) and stay fully isolated from the oc://renderer session.
-// Worker windows are created hidden — the only time one is ever shown is the first-run
-// interactive SSO login, handled by a later phase.
+// Worker windows are created hidden; they are shown only for the first-run interactive SSO login,
+// or for debugging when O1_CODE_SHOW_WORKERS=1 (the pool calls showInactive on spawn).
 
 import { BrowserWindow, session, type Session } from "electron"
 

@@ -1,4 +1,5 @@
 import { serializeChatCompletionRequest, serializableMessagesForRequest } from "./messageSerializer.mjs";
+import { decideThreadMode, commitThread, resetThread, threadContinuityEnabled } from "./sessionThreads.mjs";
 import { extensionBridge } from "./extensionBridge.mjs";
 import { chooseAssistantResponse } from "./toolCallNormalizer.mjs";
 import { StreamGate } from "./streamGate.mjs";
@@ -39,6 +40,17 @@ function maxPromptChars() {
 function promptTooLargeMessage(prompt) {
   return `Serialized prompt is ${prompt.length} chars, over the ${maxPromptChars()} char cap `
     + "(O1_CODE_MAX_PROMPT_CHARS). Reduce the conversation/context or raise the cap.";
+}
+
+// OpenCode tags every model call with its session id (packages/opencode/src/session/llm/request.ts):
+// `x-session-affinity` + `X-Session-Id` for plain providers, `x-opencode-session` for opencode ones.
+// Node lowercases header names. First present wins; "" when none (no pinning, agent affinity only).
+function sessionIdFromHeaders(headers = {}) {
+  for (const name of ["x-session-affinity", "x-opencode-session", "x-session-id"]) {
+    const value = headers[name];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
 }
 
 // Image attachments come only from the latest user turn (see handleChatCompletions).
@@ -114,7 +126,24 @@ export async function handleChatCompletions(request, response, body, { bridge = 
 
   const isCompaction = isCompactionRequest(body);
   const serializableMessages = serializableMessagesForRequest(body);
-  const prompt = serializeChatCompletionRequest(body, { provenance: !isCompaction });
+
+  // Route by the OpenAI model id (o1-code -> OgilvyOneCoder, o1-code-builder ->
+  // OgilvyOneCoder_Builder). An explicit o1_code_model still overrides the mapping.
+  const agentName = body.o1_code_model || resolveModelProfile(model).agentName;
+  // OpenCode tags every call with its session id (request.ts). Pin session+agent to one WPP worker
+  // tab so its thread holds context across turns; a mid-session model switch forks a new thread.
+  // Compaction is a one-shot summarization: route it to an unpinned worker (sessionKey "") so it
+  // never New-Chats and wipes the live thread, and always serialize it fresh.
+  const sessionId = sessionIdFromHeaders(request.headers);
+  const sessionKey = isCompaction || !sessionId ? "" : `${sessionId}::${agentName}`;
+  const continuity = Boolean(sessionKey) && threadContinuityEnabled();
+  // "continue" forwards only the new turn into the live thread; "fresh" replays the whole transcript
+  // into a New Chat (first turn, prefix mismatch from a retry/edit/compaction, or a dead tab).
+  const thread = continuity
+    ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
+    : { mode: "fresh", sinceIndex: 0 };
+  const continueThread = thread.mode === "continue";
+  const prompt = serializeChatCompletionRequest(body, { provenance: !isCompaction, sinceIndex: thread.sinceIndex });
   // The full conversation is replayed, but images are only attached for the
   // latest user turn — earlier images remain text placeholders in the serialized history.
   const images = collectImageInputs(latestUserMessages(body));
@@ -163,9 +192,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     timeoutMs: body.o1_code_timeout_ms,
     target,
     url: body.o1_code_url,
-    // Route by the OpenAI model id (o1-code -> OgilvyOneCoder, o1-code-builder ->
-    // OgilvyOneCoder_Builder). An explicit o1_code_model still overrides the mapping.
-    model: body.o1_code_model || resolveModelProfile(model).agentName,
+    model: agentName,
+    sessionKey,
+    continueThread,
     images,
     // React to live progress frames by streaming prose deltas as they land. The bridge owns the
     // subscription lifecycle (subscribe on enqueue, unsubscribe when the job settles), so a late
@@ -187,6 +216,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     try {
       o1CodeRun = await waitForBridgeWithKeepAlive(bridge.run(prompt, bridgeOptions), response);
     } catch (error) {
+      // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
+      // watermark so the next turn replays fresh rather than extending a delta we can't trust.
+      if (continuity) resetThread(sessionKey);
       await writeRunLog({
         id,
         startedAt,
@@ -235,6 +267,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     try {
       o1CodeRun = await bridge.run(prompt, bridgeOptions);
     } catch (error) {
+      if (continuity) resetThread(sessionKey);
       const logPath = await writeRunLog({
         id,
         startedAt,
@@ -266,6 +299,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       return;
     }
   }
+  // The tab now holds the full current transcript — record it as the baseline so the next turn can
+  // forward just its delta. Skipped for compaction/no-session (sessionKey "" -> continuity false).
+  if (continuity) commitThread(sessionKey, body);
+
   const finalText = o1CodeRun.response.finalText;
   const toolCallParts = o1CodeRun.response.toolCallParts;
   // Compaction summaries must be returned as clean content (no tool_calls) so OpenCode

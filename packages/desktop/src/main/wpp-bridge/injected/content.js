@@ -147,12 +147,15 @@ async function runJobWithProgress(job, jobId) {
   const prompt = String(job?.payload?.prompt || "");
   const verboseRecorder = job?.payload?.verboseRecorder === true;
   const expectedAgent = String(job?.payload?.model || "OgilvyOneCoder").trim();
+  // Continue the pinned thread: the proxy sent only the delta turn and the tab already holds prior
+  // context, so we must NOT click New Chat (that wipes it) nor reselect the agent (already set).
+  const continueThread = job?.payload?.continueThread === true;
 
   if (!prompt.trim()) {
     throw new Error("Bridge job prompt is empty.");
   }
 
-  const freshChat = await startFreshChat();
+  const freshChat = continueThread ? await continueExistingChat() : await startFreshChat();
   const ignoredAssistantErrorText = inspectAssistantUi().error?.text || null;
   await dismissAssistantUiErrors();
   const capture = beginNetworkCapture({ verboseRecorder });
@@ -167,9 +170,11 @@ async function runJobWithProgress(job, jobId) {
   // submitting. OgilvyOneCoder is an Agent (not a base model) under the "Agents and Models"
   // picker — selection state is read from the composer pill label, which is the authoritative
   // signal (the network model field reports the agent's underlying base model).
-  const agentSelection = await ensureAgentSelected(expectedAgent, textarea);
+  const agentSelection = continueThread
+    ? { ok: true, label: expectedAgent, skipped: true }
+    : await ensureAgentSelected(expectedAgent, textarea);
 
-  if (!agentSelection.ok || !agentLabelMatches(agentSelection.label, expectedAgent)) {
+  if (!continueThread && (!agentSelection.ok || !agentLabelMatches(agentSelection.label, expectedAgent))) {
     const selectedLabel = agentSelection.label || agentSelection.afterLabel || agentSelection.beforeLabel || "(unknown)";
     // Diagnostic dump: surface what the agent scan actually saw so the next real failure is
     // self-describing instead of guessed-at (the picker lives in a cross-origin iframe we can't
@@ -502,6 +507,24 @@ async function waitForRecorderReset(runId, timeoutMs) {
   }
 
   throw new Error("Network recorder did not arm before prompt submission. Reload the extension and refresh the O1-Code assistant page.");
+}
+
+// Continue the pinned thread instead of starting a new one. The proxy only sends this mode when it
+// believes the tab still holds prior context, but a tab can be reaped/crashed and respawned empty
+// between turns. If the transcript is empty we cannot continue (the delta has no context to build
+// on), so fail with a typed error: the proxy drops the watermark and the next turn replays fresh.
+async function continueExistingChat() {
+  if (isTranscriptEmpty()) {
+    const error = new Error(
+      "Thread continuity lost: the pinned WPP tab is empty, so the delta turn has no prior context. "
+      + "A full resync is required."
+    );
+    error.statusCode = 409;
+    error.type = "o1_code_thread_desync";
+    throw error;
+  }
+
+  return { ok: true, clicked: false, reason: "continue-thread" };
 }
 
 async function startFreshChat() {

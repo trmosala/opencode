@@ -312,6 +312,11 @@ export class ExtensionBridge {
         target: options.target || process.env.O1_CODE_TARGET || "coding-agent",
         url,
         model: options.model || "OgilvyOneCoder",
+        // Pins this turn to the OpenCode session's worker tab so its WPP thread holds context.
+        sessionKey: options.sessionKey || "",
+        // When true, content.js continues the pinned thread (no New Chat) — the proxy has sent only
+        // the delta turn. False replays the full transcript into a fresh chat.
+        continueThread: options.continueThread === true,
         verboseRecorder: process.env.O1_CODE_VERBOSE_RECORDER === "1"
       },
       state: "queued",
@@ -326,6 +331,13 @@ export class ExtensionBridge {
       diagnostics: null,
       resultSummary: null
     };
+  }
+
+  // Is a live worker tab pinned to this session? The proxy checks before deciding to send a delta —
+  // there's one active pool at a time (poolFor destroys the old when the url changes), so the
+  // current pool is authoritative.
+  hasSession(sessionKey) {
+    return this.workerPool ? this.workerPool.hasSession(sessionKey) : false;
   }
 
   poolFor(url) {

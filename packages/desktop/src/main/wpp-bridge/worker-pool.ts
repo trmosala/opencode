@@ -16,17 +16,31 @@ import { selectWorkerSlot, shouldReapWorker, type WorkerView } from "./worker-sl
 import { SpawnGate } from "./spawn-gate"
 
 const IDLE_WORKER_TTL_MS = 10 * 60 * 1000
+// A session-pinned tab holds that session's WPP thread (browser-held context), so reaping it throws
+// away context a continuing turn would reuse. Give pinned tabs a much longer idle grace; when one is
+// finally reaped, the proxy's liveness check fails and the next turn resyncs fresh — no corruption.
+const PINNED_WORKER_TTL_MS = 30 * 60 * 1000
 const REAP_INTERVAL_MS = 60 * 1000
 // Total workers stay unbounded (one job per worker = full parallelism); this only caps how many
 // heavy spawns (page load + CDP inject + SSO + bridge wait) run at once so a burst doesn't open
 // every authenticated window simultaneously. A grow past the cap waits for a slot, never fails.
 const MAX_CONCURRENT_SPAWNS = Math.max(1, Number(process.env.O1_CODE_MAX_SPAWNS) || 3)
+// Debug: surface the normally-hidden worker windows so you can watch the serialized prompt land in
+// each WPP composer and see which session each tab serves (window title = session · agent).
+const SHOW_WORKERS = process.env.O1_CODE_SHOW_WORKERS === "1"
+
+function workerTitle(agent: string, sessionKey: string): string {
+  return `o1-code worker — ${agent}${sessionKey ? ` · ${sessionKey}` : " · unpinned"}`
+}
 
 type Worker = {
   id: number
   window: BrowserWindow
   controller: Controller
   agent: string
+  // The OpenCode session this worker's WPP tab is pinned to ("" = unpinned). Set on claim so later
+  // turns of the same session reuse the same authenticated thread.
+  sessionKey: string
   busy: boolean
   lastUsed: number
 }
@@ -48,10 +62,13 @@ export class WorkerPool {
   // Acquire + run + release in one call — the single entry point a caller (extensionBridge) needs.
   // The agent string doubles as the affinity key; content.js reselects the composer pill to match.
   async run(
-    job: { id?: string; payload?: { model?: string } },
+    job: { id?: string; payload?: { model?: string; sessionKey?: string } },
     onProgress?: (frame: ProgressFrame) => void,
   ): Promise<unknown> {
-    const worker = await this.acquire(String(job.payload?.model || "OgilvyOneCoder").trim())
+    const worker = await this.acquire(
+      String(job.payload?.model || "OgilvyOneCoder").trim(),
+      String(job.payload?.sessionKey || "").trim(),
+    )
     try {
       return await worker.controller.runJob(job, onProgress)
     } finally {
@@ -64,19 +81,19 @@ export class WorkerPool {
   // ponytail: select->claim is kept await-free so single-threaded JS serializes it — that, not a
   // mutex, is what prevents two callers double-booking one free worker. Do NOT insert an await
   // between selectWorkerSlot and claim() or the race becomes real.
-  async acquire(agent: string): Promise<Worker> {
+  async acquire(agent: string, sessionKey = ""): Promise<Worker> {
     this.prune()
-    let slot = selectWorkerSlot(this.view(), agent)
-    if (slot.action === "reuse") return this.claim(slot.id, agent)
+    let slot = selectWorkerSlot(this.view(), agent, sessionKey)
+    if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey)
 
     await this.spawnGate.acquire()
     try {
       // A worker may have freed (or been spawned for this agent) while we waited for a spawn slot.
       this.prune()
-      slot = selectWorkerSlot(this.view(), agent)
-      if (slot.action === "reuse") return this.claim(slot.id, agent)
+      slot = selectWorkerSlot(this.view(), agent, sessionKey)
+      if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey)
 
-      const worker = await this.spawn(agent)
+      const worker = await this.spawn(agent, sessionKey)
       worker.busy = true
       return worker
     } finally {
@@ -84,10 +101,12 @@ export class WorkerPool {
     }
   }
 
-  private claim(id: number, agent: string): Worker {
+  private claim(id: number, agent: string, sessionKey: string): Worker {
     const worker = this.workers.get(id)!
     worker.busy = true
     worker.agent = agent
+    if (sessionKey) worker.sessionKey = sessionKey
+    if (SHOW_WORKERS && !worker.window.isDestroyed()) worker.window.setTitle(workerTitle(worker.agent, worker.sessionKey))
     return worker
   }
 
@@ -109,8 +128,12 @@ export class WorkerPool {
   // Recorder + controller must be installed BEFORE the first navigation: both register
   // Page.addScriptToEvaluateOnNewDocument, the document-start hook that arms the fetch/XHR recorder
   // and the relay before any page script runs. Navigating after install is what makes that hold.
-  private async spawn(agent: string): Promise<Worker> {
+  private async spawn(agent: string, sessionKey: string): Promise<Worker> {
     const window = createWorkerWindow()
+    if (SHOW_WORKERS) {
+      window.showInactive()
+      window.setTitle(workerTitle(agent, sessionKey))
+    }
     return cleanupWindowOnFailure(window, async () => {
       await installRecorder(window.webContents)
       const controller = await installController(window.webContents)
@@ -124,6 +147,7 @@ export class WorkerPool {
         window,
         controller,
         agent,
+        sessionKey,
         busy: false,
         lastUsed: Date.now(),
       }
@@ -137,19 +161,31 @@ export class WorkerPool {
   private prune() {
     const now = Date.now()
     for (const [id, worker] of this.workers) {
+      const ttl = worker.sessionKey ? PINNED_WORKER_TTL_MS : IDLE_WORKER_TTL_MS
       if (worker.window.isDestroyed()) {
         this.workers.delete(id)
-      } else if (shouldReapWorker(worker, now, IDLE_WORKER_TTL_MS)) {
+      } else if (shouldReapWorker(worker, now, ttl)) {
         worker.window.destroy()
         this.workers.delete(id)
       }
     }
   }
 
+  // Does a live tab pinned to this session exist? The proxy uses this to decide whether it can send
+  // a delta into an existing thread instead of replaying the full transcript.
+  hasSession(sessionKey: string): boolean {
+    if (!sessionKey) return false
+    for (const worker of this.workers.values()) {
+      if (worker.sessionKey === sessionKey && !worker.window.isDestroyed()) return true
+    }
+    return false
+  }
+
   private view(): WorkerView[] {
     return Array.from(this.workers.values(), (worker) => ({
       id: worker.id,
       agent: worker.agent,
+      sessionKey: worker.sessionKey,
       busy: worker.busy,
       lastUsed: worker.lastUsed,
     }))
