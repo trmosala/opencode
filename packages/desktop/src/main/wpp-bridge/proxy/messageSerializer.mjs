@@ -14,6 +14,11 @@ import { imagePlaceholderText } from "./imageInputs.mjs";
 // own session, respond as the next assistant turn" reads as coercion and made the model balk.)
 // The durable fix is the OgilvyOneCoder agent's real system prompt, configured WPP-side, not here.
 // GPT (the json/builder profile) has no such reflex, so this stays xml-only.
+//
+// RETAINED ON PURPOSE (currently unused): injection is commented out in serializeChatCompletionRequest
+// because we now rely on the WPP-side agent system prompt. Kept here so it can be re-enabled verbatim
+// if needed. Do not delete.
+// eslint-disable-next-line no-unused-vars -- retained for restore; injection is commented out below.
 const SERIALIZED_SESSION_PREAMBLE =
   "This message is relayed by a local proxy the user runs on their own machine, connecting you " +
   "(the OgilvyOneCoder agent) to OpenCode, an open-source coding assistant, as its model backend. " +
@@ -57,7 +62,9 @@ function stringifyContent(content, state = { imageIndex: 0 }) {
 // `sinceIndex` > 0 selects delta mode: continue an existing WPP thread by forwarding only the
 // non-system messages after that index. The tab already holds the preamble, system prompt, tool
 // schema and prior turns from the first ("fresh") turn, so they are all omitted here.
-export function serializeChatCompletionRequest(body, { provenance = true, sinceIndex = 0 } = {}) {
+// `provenance` is still accepted (callers pass it) but currently unused: it only gated the
+// now-disabled preamble. Kept in the signature so callers and a future restore need no changes.
+export function serializeChatCompletionRequest(body, { provenance: _provenance = true, sinceIndex = 0 } = {}) {
   const allMessages = Array.isArray(body.messages) ? body.messages : [];
   const systemMessages = allMessages.filter((m) => m.role === "system");
   const nonSystemMessages = allMessages.filter((m) => m.role !== "system");
@@ -69,13 +76,19 @@ export function serializeChatCompletionRequest(body, { provenance = true, sinceI
   const delta = sinceIndex > 0;
 
   if (!delta) {
-    const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-    const hasReplayedFraming = systemMessages.length > 0 || hasTools ||
-      nonSystemMessages.some((m) => m.tool_call_id ||
-        (Array.isArray(m.tool_calls) && m.tool_calls.length > 0));
-    if (provenance && toolFormat === "xml" && hasReplayedFraming) {
-      lines.push(SERIALIZED_SESSION_PREAMBLE);
-    }
+    // NOTE: proxy-injected preamble disabled. We now rely on the OgilvyOneCoder agent's real
+    // system prompt configured WPP-side (the durable home noted on SERIALIZED_SESSION_PREAMBLE)
+    // instead of pushing a disclosure into the user channel. The constant and the gating logic
+    // below are kept (commented) so this can be restored verbatim if the WPP-side prompt is ever
+    // unavailable and Claude starts balking at the serialized framing again.
+    //
+    // const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+    // const hasReplayedFraming = systemMessages.length > 0 || hasTools ||
+    //   nonSystemMessages.some((m) => m.tool_call_id ||
+    //     (Array.isArray(m.tool_calls) && m.tool_calls.length > 0));
+    // if (provenance && toolFormat === "xml" && hasReplayedFraming) {
+    //   lines.push(SERIALIZED_SESSION_PREAMBLE);
+    // }
 
     for (const msg of systemMessages) {
       const content = stringifyContent(msg.content, state);

@@ -53,6 +53,14 @@ function sessionIdFromHeaders(headers = {}) {
   return "";
 }
 
+// A sub-agent (child) session carries x-parent-session-id (OpenCode sets it from session.parentID,
+// see request.ts); a top-level interactive session never does. Sub-agents are throw-away, so the
+// pool reaps their pinned tabs on a shorter TTL.
+function hasParentSession(headers = {}) {
+  const value = headers["x-parent-session-id"];
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 // Image attachments come only from the latest user turn (see handleChatCompletions).
 function latestUserMessages(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
@@ -136,6 +144,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   // never New-Chats and wipes the live thread, and always serialize it fresh.
   const sessionId = sessionIdFromHeaders(request.headers);
   const sessionKey = isCompaction || !sessionId ? "" : `${sessionId}::${agentName}`;
+  // Sub-agent turns are still pinned (so the sub-agent keeps thread continuity across its own run)
+  // but the pool reaps their tabs sooner — they never resume once the sub-agent returns.
+  const subagent = Boolean(sessionKey) && hasParentSession(request.headers);
   const continuity = Boolean(sessionKey) && threadContinuityEnabled();
   // "continue" forwards only the new turn into the live thread; "fresh" replays the whole transcript
   // into a New Chat (first turn, prefix mismatch from a retry/edit/compaction, or a dead tab).
@@ -143,11 +154,11 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
     : { mode: "fresh", sinceIndex: 0 };
   const continueThread = thread.mode === "continue";
-  const prompt = serializeChatCompletionRequest(body, { provenance: !isCompaction, sinceIndex: thread.sinceIndex });
+  let prompt = serializeChatCompletionRequest(body, { provenance: !isCompaction, sinceIndex: thread.sinceIndex });
   // The full conversation is replayed, but images are only attached for the
   // latest user turn — earlier images remain text placeholders in the serialized history.
   const images = collectImageInputs(latestUserMessages(body));
-  const context = buildContextMetrics(body, { prompt, serializableMessages, images });
+  let context = buildContextMetrics(body, { prompt, serializableMessages, images });
 
   if (prompt.length > maxPromptChars()) {
     const logPath = await writeRunLog({
@@ -186,15 +197,16 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const streamBase = streamChunkBase({ id, model, created });
   // Live streaming is gated off for compaction: its summary must be sanitized as a whole
   // (sanitizeCompactionSummary) before any text is emitted, so we never stream it incrementally.
-  const streamSession = body.stream && !isCompaction ? createStreamSession() : null;
+  let streamSession = body.stream && !isCompaction ? createStreamSession() : null;
 
-  const bridgeOptions = {
+  const bridgeOptionsFor = (runContinueThread) => ({
     timeoutMs: body.o1_code_timeout_ms,
     target,
     url: body.o1_code_url,
     model: agentName,
     sessionKey,
-    continueThread,
+    subagent,
+    continueThread: runContinueThread,
     images,
     // React to live progress frames by streaming prose deltas as they land. The bridge owns the
     // subscription lifecycle (subscribe on enqueue, unsubscribe when the job settles), so a late
@@ -205,98 +217,151 @@ export async function handleChatCompletions(request, response, body, { bridge = 
           if (delta) {
             writeContentDelta(response, streamBase, delta);
           }
-        }
+      }
       : undefined
+  });
+  const runBridgeTurn = (runPrompt, runContinueThread) => {
+    const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread));
+    return body.stream ? waitForBridgeWithKeepAlive(run, response) : run;
   };
+  const freshRetryPrompt = () => {
+    const value = serializeChatCompletionRequest(body, { provenance: !isCompaction, sinceIndex: 0 });
+    if (value.length <= maxPromptChars()) return value;
+    const error = new Error(promptTooLargeMessage(value));
+    error.statusCode = 413;
+    error.type = "o1_code_prompt_too_large";
+    throw error;
+  };
+  let retryCount = 0;
   let o1CodeRun;
 
   if (body.stream) {
     openChatCompletionStream(response, { id, model, created });
 
     try {
-      o1CodeRun = await waitForBridgeWithKeepAlive(bridge.run(prompt, bridgeOptions), response);
+      o1CodeRun = await runBridgeTurn(prompt, continueThread);
     } catch (error) {
-      // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
-      // watermark so the next turn replays fresh rather than extending a delta we can't trust.
-      if (continuity) resetThread(sessionKey);
-      await writeRunLog({
-        id,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        request: redact(body),
-        prompt,
-        context,
-        images: imageLogSummary(images),
-        error: {
-          message: error.message,
-          type: error.type || "o1_code_proxy_error",
-          statusCode: error.statusCode || 500
-        },
-        bridgeResult: error.bridgeResult ? redact(error.bridgeResult) : undefined
-      }).catch(() => null);
-
-      // If prose was already streamed live we can't restart the turn cleanly, so append the
-      // error as a trailing content delta and close. Otherwise emit it as the whole body.
-      if (streamSession && streamSession.hasStreamed()) {
-        writeContentDelta(response, streamBase, `\n\n${error.message}`);
-        finishChatCompletion(response, streamBase, {
-          finishReason: "stop",
-          usage: buildUsage({
-            promptTokens: context.input.estimatedTokens,
-            completionText: error.message
-          }),
-          includeUsage: shouldIncludeStreamUsage(body)
-        });
-      } else {
-        writeChatCompletionBody(response, {
-          id,
-          model,
-          created,
-          content: error.message,
-          finishReason: "stop",
-          usage: buildUsage({
-            promptTokens: context.input.estimatedTokens,
-            completionText: error.message
-          }),
-          includeUsage: shouldIncludeStreamUsage(body)
-        });
+      let failure = error;
+      if (shouldRetryCaptureFailure(error, { streamSession, isCompaction })) {
+        if (continuity) resetThread(sessionKey);
+        retryCount = 1;
+        prompt = freshRetryPrompt();
+        context = buildContextMetrics(body, { prompt, serializableMessages, images });
+        streamSession = createStreamSession();
+        try {
+          o1CodeRun = await runBridgeTurn(prompt, false);
+          failure = null;
+        } catch (retryError) {
+          failure = retryError;
+        }
       }
-      return;
+      if (failure) {
+        // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
+        // watermark so the next turn replays fresh rather than extending a delta we can't trust.
+        if (continuity) resetThread(sessionKey);
+        await writeRunLog({
+          id,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          request: redact(body),
+          prompt,
+          context,
+          images: imageLogSummary(images),
+          error: {
+            message: failure.message,
+            type: failure.type || "o1_code_proxy_error",
+            statusCode: failure.statusCode || 500,
+            kind: failure.kind || undefined,
+            capture: failure.capture || failure.diagnostics?.capture || undefined,
+            retryCount
+          },
+          bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined
+        }).catch(() => null);
+
+        // If prose was already streamed live we can't restart the turn cleanly, so append the
+        // error as a trailing content delta and close. Otherwise emit it as the whole body.
+        if (streamSession && streamSession.hasStreamed()) {
+          writeContentDelta(response, streamBase, `\n\n${failure.message}`);
+          finishChatCompletion(response, streamBase, {
+            finishReason: "stop",
+            usage: buildUsage({
+              promptTokens: context.input.estimatedTokens,
+              completionText: failure.message
+            }),
+            includeUsage: shouldIncludeStreamUsage(body)
+          });
+        } else {
+          writeChatCompletionBody(response, {
+            id,
+            model,
+            created,
+            content: failure.message,
+            finishReason: "stop",
+            usage: buildUsage({
+              promptTokens: context.input.estimatedTokens,
+              completionText: failure.message
+            }),
+            includeUsage: shouldIncludeStreamUsage(body)
+          });
+        }
+        return;
+      }
     }
   } else {
     try {
-      o1CodeRun = await bridge.run(prompt, bridgeOptions);
+      o1CodeRun = await runBridgeTurn(prompt, continueThread);
     } catch (error) {
-      if (continuity) resetThread(sessionKey);
-      const logPath = await writeRunLog({
-        id,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        request: redact(body),
-        prompt,
-        context,
-        images: imageLogSummary(images),
-        error: {
-          message: error.message,
-          type: error.type || "o1_code_proxy_error",
-          statusCode: error.statusCode || 500
-        },
-        bridgeResult: error.bridgeResult ? redact(error.bridgeResult) : undefined
-      });
-
-      if (logPath) {
-        response.setHeader("x-o1-code-proxy-log", logPath);
-      }
-
-      writeJson(response, error.statusCode || 500, {
-        error: {
-          message: error.message,
-          type: error.type || "o1_code_proxy_error",
-          log: logPath || undefined,
-          run_id: id
+      let failure = error;
+      if (shouldRetryCaptureFailure(error, { streamSession, isCompaction })) {
+        if (continuity) resetThread(sessionKey);
+        retryCount = 1;
+        prompt = freshRetryPrompt();
+        context = buildContextMetrics(body, { prompt, serializableMessages, images });
+        try {
+          o1CodeRun = await runBridgeTurn(prompt, false);
+          failure = null;
+        } catch (retryError) {
+          failure = retryError;
         }
-      });
-      return;
+      }
+      if (failure) {
+        if (continuity) resetThread(sessionKey);
+        const logPath = await writeRunLog({
+          id,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          request: redact(body),
+          prompt,
+          context,
+          images: imageLogSummary(images),
+          error: {
+            message: failure.message,
+            type: failure.type || "o1_code_proxy_error",
+            statusCode: failure.statusCode || 500,
+            kind: failure.kind || undefined,
+            capture: failure.capture || failure.diagnostics?.capture || undefined,
+            retryCount
+          },
+          bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined
+        });
+
+        if (logPath) {
+          response.setHeader("x-o1-code-proxy-log", logPath);
+        }
+
+        writeJson(response, failure.statusCode || 500, {
+          error: {
+            message: failure.message,
+            type: failure.type || "o1_code_proxy_error",
+            kind: failure.kind || undefined,
+            capture: failure.capture || failure.diagnostics?.capture || undefined,
+            retryCount,
+            log: logPath || undefined,
+            run_id: id
+          }
+        });
+        return;
+      }
     }
   }
   // The tab now holds the full current transcript — record it as the baseline so the next turn can
@@ -328,6 +393,13 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     completionText: assistantOutputForUsage(normalized)
   });
 
+  // Per-turn capture path: "network" = byte-exact recorder, "dom" = innerText DOM fallback, which is
+  // whitespace-lossy and thus unreliable for byte-sensitive tool-call output. Promoted to a top-level
+  // log field (instead of being buried in o1Code) so a failing turn can be attributed at a glance.
+  const responseSource = o1CodeRun.response?.source || null;
+  const capture = o1CodeRun.response?.capture || o1CodeRun.extension?.capture || null;
+  const lowFidelity = responseSource === "dom" || capture?.lowFidelity === true;
+
   const logRecord = {
     id,
     startedAt,
@@ -335,6 +407,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     request: redact(body),
     prompt,
     context,
+    responseSource,
+    lowFidelity,
+    capture: capture ? { ...capture, retryCount } : null,
     responseMetrics,
     images: imageLogSummary(images),
     o1Code: o1CodeRun,
@@ -349,8 +424,11 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     ? await writeRunLog(logRecord).catch(() => null)
     : await writeRunLog(logRecord);
 
-  if (logPath && !body.stream) {
-    response.setHeader("x-o1-code-proxy-log", logPath);
+  // Streaming already flushed its head, so headers can only be attached on the non-stream path; the
+  // run log still records responseSource for streaming turns either way.
+  if (!body.stream) {
+    if (responseSource) response.setHeader("x-o1-code-response-source", responseSource);
+    if (logPath) response.setHeader("x-o1-code-proxy-log", logPath);
   }
 
   if (body.stream) {
@@ -401,6 +479,12 @@ export async function waitForBridgeWithKeepAlive(bridgePromise, response, interv
   } finally {
     clearInterval(timer);
   }
+}
+
+function shouldRetryCaptureFailure(error, { streamSession, isCompaction }) {
+  return error?.type === "o1_code_capture_failure"
+    && !isCompaction
+    && !(streamSession && streamSession.hasStreamed());
 }
 
 // Wrap a StreamGate with the small amount of session state the SSE handler needs: a `streamed`

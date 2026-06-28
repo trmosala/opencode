@@ -314,6 +314,8 @@ export class ExtensionBridge {
         model: options.model || "OgilvyOneCoder",
         // Pins this turn to the OpenCode session's worker tab so its WPP thread holds context.
         sessionKey: options.sessionKey || "",
+        // True when this session is a sub-agent (child) — the pool reaps its tab on a shorter TTL.
+        subagent: options.subagent === true,
         // When true, content.js continues the pinned thread (no New Chat) — the proxy has sent only
         // the delta turn. False replays the full transcript into a fresh chat.
         continueThread: options.continueThread === true,
@@ -360,6 +362,7 @@ function compactDiagnostics(diagnostics) {
     thinkingText: diagnostics.thinkingText || "",
     responseSource: diagnostics.responseSource || null,
     finalTextLength: diagnostics.finalTextLength ?? null,
+    capture: diagnostics.capture || null,
     staleTab: diagnostics.staleTab ?? null,
     expectedAgent: diagnostics.expectedAgent || null,
     selectedAgent: diagnostics.selectedAgent || null,
@@ -427,6 +430,7 @@ function summarizeResult(result) {
     finalTextChars: String(finalText || "").length,
     toolCallCount: Object.values(toolCallParts || {}).filter((part) => part?.name).length,
     recorder: result.recorder || null,
+    capture: result.capture || null,
     counts: responseCounts(result.response)
   };
 }
@@ -477,6 +481,7 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
       finalText: result.finalText || result.response?.finalText || "",
       toolCallParts: result.toolCallParts || result.response?.toolCallParts || {},
       source: result.responseSource || null,
+      capture: result.capture || null,
       chunks: result.response?.chunks || [],
       events: result.response?.events || [],
       unparsed: result.response?.unparsed || []
@@ -486,6 +491,7 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
       tabId: result.tabId,
       frameId: result.frameId,
       responseSource: result.responseSource || null,
+      capture: result.capture || null,
       recorder: result.recorder || null,
       counts: responseCounts(result.response),
       startedAt,

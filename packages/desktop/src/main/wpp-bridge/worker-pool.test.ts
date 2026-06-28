@@ -1,11 +1,19 @@
 import { describe, expect, test } from "bun:test"
 import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
-import { selectWorkerSlot, shouldReapWorker, type WorkerView } from "./worker-slot"
+import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 
-const worker = (id: number, agent: string, busy: boolean, lastUsed: number, sessionKey = ""): WorkerView => ({
+const worker = (
+  id: number,
+  agent: string,
+  busy: boolean,
+  lastUsed: number,
+  sessionKey = "",
+  subagent = false,
+): WorkerView => ({
   id,
   agent,
   sessionKey,
+  subagent,
   busy,
   lastUsed,
 })
@@ -92,6 +100,41 @@ describe("selectWorkerSlot", () => {
     expect(shouldReapWorker(worker(1, "Opus", false, now - ttl), now, ttl)).toBe(true)
     expect(shouldReapWorker(worker(2, "Opus", false, now - ttl + 1), now, ttl)).toBe(false)
     expect(shouldReapWorker(worker(3, "Opus", true, now - ttl), now, ttl)).toBe(false)
+  })
+})
+
+describe("ttlForWorker", () => {
+  const ttls = { idle: 10, pinned: 30, subagent: 5 }
+
+  test("unpinned worker uses the idle TTL", () => {
+    expect(ttlForWorker(worker(1, "Opus", false, 0), ttls)).toBe(10)
+  })
+
+  test("session-pinned worker uses the pinned TTL", () => {
+    expect(ttlForWorker(worker(1, "Opus", false, 0, "sess-A::Opus"), ttls)).toBe(30)
+  })
+
+  test("sub-agent pinned worker uses the shorter subagent TTL", () => {
+    expect(ttlForWorker(worker(1, "Opus", false, 0, "sub-A::Opus", true), ttls)).toBe(5)
+  })
+
+  test("subagent flag only matters when pinned", () => {
+    // An unpinned worker is scratch regardless of the flag — it never holds a sub-agent thread.
+    expect(ttlForWorker(worker(1, "Opus", false, 0, "", true), ttls)).toBe(10)
+  })
+
+  test("a sub-agent tab is reaped while a same-age interactive tab survives", () => {
+    const now = 100_000
+    const lastUsed = now - 6 * 60 * 1000 // idle 6 min
+    const idle = 10 * 60 * 1000
+    const pinned = 30 * 60 * 1000
+    const subagent = 5 * 60 * 1000
+
+    const sub = worker(1, "Opus", false, lastUsed, "sub-A::Opus", true)
+    const interactive = worker(2, "Opus", false, lastUsed, "sess-A::Opus")
+
+    expect(shouldReapWorker(sub, now, ttlForWorker(sub, { idle, pinned, subagent }))).toBe(true)
+    expect(shouldReapWorker(interactive, now, ttlForWorker(interactive, { idle, pinned, subagent }))).toBe(false)
   })
 })
 

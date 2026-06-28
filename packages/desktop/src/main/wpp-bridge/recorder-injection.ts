@@ -14,6 +14,7 @@
 
 import type { WebContents } from "electron"
 import { installInRootAndChildTargets } from "./cdp-targets"
+import { MODEL_REQUEST_FILTER_SOURCE } from "./model-request-filter"
 import recorderSource from "./injected/pageRecorder.js?raw"
 
 const PROBE_PREFIX = "__wppRecorderProbe:"
@@ -67,6 +68,10 @@ export async function installRecorder(
     // runImmediately covers the case where a document already exists when we attach.
     await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
       source: PROBE_SOURCE,
+      runImmediately: true,
+    }, sessionId)
+    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
+      source: MODEL_REQUEST_FILTER_SOURCE,
       runImmediately: true,
     }, sessionId)
     await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {

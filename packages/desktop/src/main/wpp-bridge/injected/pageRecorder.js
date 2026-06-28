@@ -117,6 +117,12 @@ function describeFetchRequest(args) {
 }
 
 function shouldRecordRequest(request) {
+  if (typeof window.__o1CodeShouldRecordRequest === "function") {
+    try {
+      return window.__o1CodeShouldRecordRequest(request);
+    } catch {}
+  }
+
   if (request.method !== "POST") {
     return false;
   }

@@ -3,7 +3,16 @@
 // can't evaluate outside Electron, so a test importing the pool directly fails to load. Mirrors
 // the three tiers of background.js acquireFreeTab.
 
-export type WorkerView = { id: number; agent: string; sessionKey?: string; busy: boolean; lastUsed: number }
+export type WorkerView = {
+  id: number
+  agent: string
+  sessionKey?: string
+  // True when this worker serves a sub-agent (child) session rather than a top-level interactive
+  // one. Sub-agents are throw-away, so the pool reaps their pinned tabs on a shorter TTL.
+  subagent?: boolean
+  busy: boolean
+  lastUsed: number
+}
 
 export type Slot =
   | { action: "reuse"; id: number }
@@ -34,4 +43,15 @@ export function selectWorkerSlot(workers: WorkerView[], agent: string, sessionKe
 
 export function shouldReapWorker(worker: WorkerView, now: number, idleTtlMs: number) {
   return !worker.busy && now - worker.lastUsed >= idleTtlMs
+}
+
+// Idle TTL for a worker by its pin tier. Unpinned workers are pure LRU scratch (shortest reuse
+// window is fine). A session-pinned tab holds that session's WPP thread, so it earns a long grace —
+// unless it serves a throw-away sub-agent, which never resumes once done and so is reaped sooner.
+export function ttlForWorker(
+  worker: WorkerView,
+  ttls: { idle: number; pinned: number; subagent: number },
+): number {
+  if (!worker.sessionKey) return ttls.idle
+  return worker.subagent ? ttls.subagent : ttls.pinned
 }

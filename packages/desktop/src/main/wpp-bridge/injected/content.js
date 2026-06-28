@@ -36,6 +36,13 @@ const MESSAGE_BUBBLE_SELECTOR = [
   "[class*='chat-message']",
   "[role='listitem']"
 ].join(",");
+// Conversation transcript container — a sibling of the composer, holding the message list. Used to
+// scope emptiness checks away from the `.chat-input` wrapper. Heuristic; widen if WPP markup shifts.
+const MESSAGE_CONTAINER_SELECTOR = [
+  "[class*='messages-container']",
+  "[class*='chat-messages']",
+  "[data-testid='conversation-layout']"
+].join(",");
 const networkRecords = new Map();
 const progressDispatchers = new Map();
 const recorderStatus = {
@@ -552,16 +559,21 @@ async function startFreshChat() {
   );
 }
 
-// Best-effort emptiness check. The message-bubble selectors are heuristic and may need
-// tuning against the live WPP assistant DOM. Returning true only when NO message-like node
-// is found is the conservative side for the "already-empty" tolerance above; the common
-// path (a New Chat control exists and is clicked) does not depend on this.
+// Best-effort emptiness check. Scope to the transcript, NOT chatRootFor(textarea): in the WPP
+// assistant DOM that resolves to the `.chat-input` composer wrapper, which is a SIBLING of the
+// message list, so it never contains bubbles and would report every populated thread as empty
+// (spurious o1_code_thread_desync on every continue turn). Search an explicit messages container
+// when present, else fall back to the whole document. Returning true only when NO message-like
+// node is found is the conservative side for the "already-empty" tolerance above.
 function isTranscriptEmpty() {
-  const textarea = findVisibleTextarea();
-  const root = textarea ? chatRootFor(textarea) : document;
+  const root = transcriptRootFor();
   const bubbles = Array.from(root.querySelectorAll(MESSAGE_BUBBLE_SELECTOR)).filter(isVisible);
 
   return bubbles.length === 0;
+}
+
+function transcriptRootFor() {
+  return document.querySelector(MESSAGE_CONTAINER_SELECTOR) || document;
 }
 
 // Baseline of composer thumbnails captured pre-attach so waitForAttachmentReady can tell a
@@ -2112,14 +2124,22 @@ function shouldReturnDomFallback({ candidate, before, nowMs, stableSinceMs, domS
 }
 
 function domRecordFromSnapshot(snapshot) {
+  // DOM fallback is inherently lower fidelity than the network recorder: assistant text is read via
+  // innerText (render-aware, collapses whitespace), so tool-call code/heredocs may not survive
+  // byte-for-byte. Use the whitespace-preserving rawText for the payload, and flag the result
+  // lowFidelity so the proxy/harness never silently trusts it for byte-sensitive edits.
+  try {
+    console.warn("[o1-code] assistant response recovered via DOM fallback (low fidelity); network capture missed this turn.");
+  } catch {}
   return {
     id: `dom_${Date.now()}`,
     runId: null,
     url: "extension://o1-code-dom-fallback",
     method: "DOM_FALLBACK",
     responseSource: "dom",
+    lowFidelity: true,
     responseStatus: 200,
-    finalText: snapshot.text,
+    finalText: snapshot.rawText || snapshot.text,
     finishReason: "stop",
     toolCallParts: {},
     done: true,
@@ -2178,7 +2198,12 @@ function messageSnapshotForElement(el, textarea) {
     return null;
   }
 
-  const text = normalizeAssistantMessageText(el.innerText || el.textContent || "");
+  const rawSource = el.innerText || el.textContent || "";
+  const text = normalizeAssistantMessageText(rawSource);
+  // Whitespace-preserving copy for the actual payload. `text` above is normalized only so snapshot
+  // comparison/dedup/stability detection stays stable; it must NOT be the payload, because its
+  // trailing-whitespace strip and blank-line collapse mutate whitespace-significant tool-call code.
+  const rawText = preserveAssistantPayloadText(rawSource);
 
   if (!isUsableAssistantMessageText(text)) {
     return null;
@@ -2195,6 +2220,7 @@ function messageSnapshotForElement(el, textarea) {
   return {
     key: messageElementKey(el, text),
     text,
+    rawText,
     order: documentOrder(el),
     tag: el.tagName ? el.tagName.toLowerCase() : "",
     id: el.id || null,
@@ -2202,12 +2228,25 @@ function messageSnapshotForElement(el, textarea) {
   };
 }
 
+// COMPARE-ONLY normalization. The trailing-whitespace strip and blank-line collapse here exist to
+// keep snapshot diffing stable across render flicker; they are LOSSY and must never touch the
+// payload that the harness executes (see preserveAssistantPayloadText / snapshot.rawText).
 function normalizeAssistantMessageText(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+// PAYLOAD normalization. Whitespace-preserving: only collapses non-breaking spaces (a render
+// artifact) and strips edge newlines. Keeps trailing spaces and blank lines intact so the model's
+// tool-call code/heredocs survive DOM extraction byte-for-byte as far as innerText allows. Still
+// inherently lower fidelity than the network recorder (innerText is render-aware) \u2014 callers flag it.
+function preserveAssistantPayloadText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/^\n+|\n+$/g, "");
 }
 
 function isUsableAssistantMessageText(text) {
