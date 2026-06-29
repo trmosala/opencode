@@ -41,4 +41,26 @@ describe("decideCaptureVerdict", () => {
       witness: witness(),
     })).toMatchObject({ accept: false, kind: "submit_or_ui_failure" })
   })
+
+  test("inlines branch-deciding witness facts in the failure message", () => {
+    const verdict = decideCaptureVerdict({
+      responseSource: "dom",
+      pageRecorderRequestSeen: false,
+      witness: witness({
+        cdpRequestSeen: true,
+        cdpFinished: true,
+        cdpStatus: 200,
+        cdpBytes: 1234,
+        requestType: "Fetch",
+        mimeType: "text/event-stream",
+        targetType: "worker",
+        url: "https://abc.lambda-url.eu-west-1.on.aws/",
+      }),
+    })
+    expect(verdict.kind).toBe("recorder_parser_miss")
+    expect(verdict.message).toContain("recorderSawRequest=false")
+    expect(verdict.message).toContain("cdpTarget=worker")
+    expect(verdict.message).toContain("cdpMime=text/event-stream")
+    expect(verdict.message).toContain("host=abc.lambda-url.eu-west-1.on.aws")
+  })
 })
