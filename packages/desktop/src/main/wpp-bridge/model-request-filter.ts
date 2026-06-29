@@ -15,8 +15,12 @@ export function isWppModelRequest(request: ModelRequestLike, baseUrl = DEFAULT_B
   return !(
     host.includes("datadoghq") ||
     host.startsWith("dataplane.rum.") ||
+    host.includes("heap-api") ||
+    host.includes("heapanalytics") ||
     requestUrl.includes("datadoghq") ||
     requestUrl.includes("dataplane.rum.") ||
+    requestUrl.includes("heap-api") ||
+    requestUrl.includes("heapanalytics") ||
     requestUrl.includes("/v1/project/") ||
     requestUrl.includes("/v1/tools/") ||
     requestUrl.includes("/v1/oauth/")
@@ -49,8 +53,12 @@ export const MODEL_REQUEST_FILTER_SOURCE = `
     return !(
       host.includes("datadoghq") ||
       host.startsWith("dataplane.rum.") ||
+      host.includes("heap-api") ||
+      host.includes("heapanalytics") ||
       requestUrl.includes("datadoghq") ||
       requestUrl.includes("dataplane.rum.") ||
+      requestUrl.includes("heap-api") ||
+      requestUrl.includes("heapanalytics") ||
       requestUrl.includes("/v1/project/") ||
       requestUrl.includes("/v1/tools/") ||
       requestUrl.includes("/v1/oauth/")

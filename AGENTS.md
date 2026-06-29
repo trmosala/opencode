@@ -3,6 +3,7 @@
 - Keep runtime dependencies directed from Schema to Core and Protocol, then from Core and Protocol to Server. Client runtime code may depend on Schema and Protocol but never Core or Server; `sdk-next` composes Client, Core, and Server.
 - The default branch in this repo is `dev`.
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
+- Adding a dependency: `bunfig.toml` sets `minimumReleaseAge` (3 days), so a just-published package version is skipped by the installer until it is 3 days old unless its name is in `minimumReleaseAgeExcludes`.
 
 ## Branch Names
 
@@ -146,7 +147,12 @@ const table = sqliteTable("session", {
 
 ## Type Checking
 
-- Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
+- Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly. Root `bun run typecheck` runs `turbo typecheck` across every package. The desktop package's `typecheck` is `tsgo -b` (TS native preview), not `tsc`.
+
+## Linting
+
+- Run oxlint from the repo root only: `bun run lint` (bare `oxlint`). `.oxlintrc.json` sets `options.typeAware`, which oxlint accepts only in the root config, so invoking `oxlint`/`bunx oxlint` from inside a package fails with a config-parse error. To scope, pass a path from root: `oxlint packages/desktop/src/main/wpp-bridge`.
+- Root `bun run lint` walks the whole repo and can take minutes; scope it to a path when iterating.
 
 ## V2 Session Core
 
@@ -183,10 +189,12 @@ Everything custom lives in `packages/desktop/src/main/wpp-bridge/`. It turns aut
 
 1. `proxy/server.mjs` — HTTP server (default :8787): `POST /v1/chat/completions` (model id `o1-code`), `GET /v1/models`, `POST /bridge/login`, `GET /bridge/health`, `GET /status`. `proxy/openaiCompat.mjs` adapts OpenAI request/response shapes.
 2. `proxy/extensionBridge.mjs` queues jobs onto a `WorkerPool` (`worker-pool.ts`).
-3. Each worker is a hidden Electron BrowserWindow (`session.ts`) on the persistent `persist:wpp` partition (SSO cookies survive restarts — log in once). `controller-injection.ts` injects a job handler (`injected/content.js`) via CDP into the page's main world; `recorder-injection.ts` records traffic for diagnostics.
+3. Each worker is a hidden Electron BrowserWindow (`session.ts`) on the persistent `persist:wpp` partition (SSO cookies survive restarts — log in once). `controller-injection.ts` injects a job handler (`injected/content.js`) via CDP into the page's main world; `recorder-injection.ts` injects the main-world `injected/pageRecorder.js` (the SSE/JSON parser) at document-start.
 4. `WorkerPool.run(job, onProgress)` is the single entry point: `acquire(agent)` (soft per-agent affinity) → `spawn()` if needed → `controller.runJob()` → stream progress → `release()`.
 
-Concurrency: `SpawnGate` serializes *heavy* spawns (page load + CDP inject + SSO) via a semaphore — `MAX_CONCURRENT_SPAWNS` from `O1_CODE_MAX_SPAWNS` (default 3). Total workers are unbounded (one per job); only the spawn step is throttled. Idle workers (>10 min, `IDLE_WORKER_TTL_MS`) are reaped on a 60s prune.
+Capture pipeline (three layers, arbitrated — see `HANDOVER-wpp-dual-capture.md`): `pageRecorder.js` parses the model response (`responseSource:"network"`); `cdp-network-recorder.ts` is an independent main-process CDP witness (metadata only) that says whether the POST to the assistant origin actually happened/finished/failed; DOM scraping in `content.js` is a last-resort, whitespace-lossy `lowFidelity` fallback. `WorkerPool.run` calls `capture-verdict.ts` to arbitrate: a non-network result that the witness can't corroborate throws a typed `o1_code_capture_failure` (`wpp_request_failed` | `recorder_parser_miss` | `submit_or_ui_failure`), the worker is discarded, and `openaiCompat.mjs` retries once as a fresh replay before surfacing a 502. Never treat DOM-fallback output as byte-exact. The model-request predicate is duplicated (TS `isWppModelRequest` + injected `MODEL_REQUEST_FILTER_SOURCE` string) in `model-request-filter.ts` and must be kept in sync.
+
+Concurrency: `SpawnGate` serializes *heavy* spawns (page load + CDP inject + SSO) via a semaphore — `MAX_CONCURRENT_SPAWNS` from `O1_CODE_MAX_SPAWNS` (default 3). Total workers are unbounded (one per job); only the spawn step is throttled. The 60s prune reaps idle workers on three TTL tiers (`worker-slot.ts` `ttlForWorker`): unpinned scratch (10 min, `IDLE_WORKER_TTL_MS`); session-pinned interactive tabs (4h backstop, `O1_CODE_PINNED_TTL_MS` — meant to live for the app run, destroyed on quit); and sub-agent tabs (5 min, `O1_CODE_SUBAGENT_TTL_MS`). A turn is classed sub-agent when the request carries `x-parent-session-id` (OpenCode sets it from `session.parentID` for child sessions).
 
 Auth: a job hitting auth-required calls `markAuthRequired` → fire-once `openWppLogin()` shows a *visible* BrowserWindow for interactive SSO; the `persist:wpp` partition then keeps the session for subsequent headless workers. The login callback is wired from `main/index.ts` at boot.
 

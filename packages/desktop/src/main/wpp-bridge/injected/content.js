@@ -181,7 +181,11 @@ async function runJobWithProgress(job, jobId) {
     ? { ok: true, label: expectedAgent, skipped: true }
     : await ensureAgentSelected(expectedAgent, textarea);
 
-  if (!continueThread && (!agentSelection.ok || !agentLabelMatches(agentSelection.label, expectedAgent))) {
+  // Trust agentSelection.ok as authoritative: ensureAgentSelected already confirms selection
+  // internally (old UI: pill label matches; new UI: the name-matched option was clicked and the
+  // picker dismissed). Re-checking the pill label here would reject the new UI, whose model button is
+  // icon-only ("(unknown)") even when the correct agent is selected.
+  if (!continueThread && !agentSelection.ok) {
     const selectedLabel = agentSelection.label || agentSelection.afterLabel || agentSelection.beforeLabel || "(unknown)";
     // Diagnostic dump: surface what the agent scan actually saw so the next real failure is
     // self-describing instead of guessed-at (the picker lives in a cross-origin iframe we can't
@@ -1133,6 +1137,12 @@ function composerRootFor(textarea) {
 // label looks like a model/agent name. Smallest-text wins so we pick the pill itself, not a
 // large container that happens to include the label.
 function findModelPill(expectedAgent, textarea = null) {
+  // New WPP UI: the trigger is a text-less icon button [data-testid="chat-model-button"]. Match it by
+  // testid first — the old text-token match (model/agent name) can never fit an empty-text button,
+  // which is what produced the "(unknown)" / model-pill-not-found agent-selection failures.
+  const modelButton = deepQueryAll("[data-testid='chat-model-button']", document).find(isVisible);
+  if (modelButton) return modelButton;
+
   const tokens = new RegExp(`${escapeRegExp(expectedAgent)}|${MODEL_PILL_TOKENS.source}`, "i");
   const roots = [composerRootFor(textarea), document].filter(Boolean);
   const seenRoots = new Set();
@@ -1655,6 +1665,38 @@ async function waitForRosterReady(pickerRoot, expectedAgent) {
 // Ensure the OgilvyOneCoder agent is selected before submitting. This is intentionally
 // fail-closed: if the extension cannot prove the composer pill changed to the required agent,
 // the prompt is not submitted.
+// The mode popover shown after clicking the new chat-model-button (model-select__mode-menu), or null.
+function findModeMenu() {
+  return deepQueryAll("[data-testid='model-select-mode-menu'], [class*='model-select__mode-menu']", document)
+    .find(isVisible) || null;
+}
+
+// New WPP UI step: the model-button popover lists routing modes (Auto / Premium) and, below a
+// divider, a "Select model or agent" navigation row (with a › chevron) that opens the searchable,
+// grouped agent list. Click that row so the rest of ensureAgentSelected can search + pick the agent.
+// "Select model or agent" is NOT one of the routing-mode options, so target it by its text, not the
+// model-select-mode-option-* testids (those are Auto/Premium). Returns the activation method, or ""
+// when the searchable picker is already open. Best-effort: never throws.
+async function chooseModelOrAgentMode() {
+  const deadline = Date.now() + 2500;
+  const isSelectRow = (el) => /^\s*select model or agent\s*$/i.test(elementText(el));
+  while (Date.now() < deadline) {
+    if (findAgentSearchInput(document)) return "";
+    // Smallest-text-subtree match resolves the actual label row over its wrapper ancestors.
+    const rows = deepQueryAll("button, [role='menuitem'], [role='option'], [role='button'], a, li, div", document)
+      .filter((el) => isVisible(el) && isSelectRow(el))
+      .sort((left, right) => left.querySelectorAll("*").length - right.querySelectorAll("*").length);
+    const row = rows[0];
+    if (row) {
+      const target = clickableFor(row) || row;
+      const method = await activateElement(target, () => Boolean(findAgentSearchInput(document)), { timeoutMs: 1600 });
+      return method || "clicked";
+    }
+    await wait(150);
+  }
+  return "";
+}
+
 async function ensureAgentSelected(expectedAgent, textarea) {
   const state = {
     ok: false,
@@ -1705,9 +1747,15 @@ async function ensureAgentSelected(expectedAgent, textarea) {
   }
 
   const openMethod = await activateElement(pill, () =>
-    Boolean(findModelPickerRoot(expectedAgent) || findAgentSearchInput(document)),
+    Boolean(findModelPickerRoot(expectedAgent) || findAgentSearchInput(document) || findModeMenu()),
   { timeoutMs: 1600 });
   state.activationMethod = `open:${openMethod}`;
+
+  // New WPP UI inserts a MODE step: clicking the model button opens a popover (model-select__mode-menu)
+  // offering "Auto" vs "Select model or agent" rather than the picker directly. Choose the
+  // model/agent option to reveal the searchable, grouped list the rest of this function expects.
+  const modeMethod = await chooseModelOrAgentMode();
+  if (modeMethod) state.activationMethod += `;mode:${modeMethod}`;
 
   let pickerRoot = findModelPickerRoot(expectedAgent);
   state.pickerOpened = Boolean(pickerRoot || findAgentSearchInput(document));
@@ -1775,19 +1823,26 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     return finish(false, reason, pickerRoot);
   }
 
-  const optionMethod = await activateElement(option.element, () =>
-    agentLabelMatches(readPill(), expectedAgent),
-  { timeoutMs: 2500 });
+  // New WPP UI: once an agent is chosen the model button shows only an icon — no name text, no
+  // tooltip — so we CANNOT confirm selection by pill text (agentLabelMatches would never pass). The
+  // option was matched by name via findAgentOption(expectedAgent), so clicking it selects the right
+  // agent; confirm the click APPLIED by the picker dismissing (search input + mode menu gone and the
+  // option no longer visible). Fall back to pill-text match for the old UI where the name is shown.
+  const selectionApplied = () =>
+    agentLabelMatches(readPill(), expectedAgent)
+    || (!findAgentSearchInput(document) && !findModeMenu() && !isVisible(option.element));
+
+  const optionMethod = await activateElement(option.element, selectionApplied, { timeoutMs: 2500 });
   state.activationMethod = `${state.activationMethod};option:${optionMethod}`;
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (agentLabelMatches(readPill(), expectedAgent)) {
+    if (selectionApplied()) {
       return finish(true, "", pickerRoot);
     }
     await wait(250);
   }
 
-  return finish(false, "pill-did-not-change-after-option-activation", pickerRoot);
+  return finish(false, "agent-picker-did-not-dismiss-after-option-activation", pickerRoot);
 }
 
 function chatRootFor(textarea) {

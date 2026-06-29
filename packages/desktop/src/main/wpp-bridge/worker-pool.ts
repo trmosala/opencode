@@ -84,12 +84,36 @@ export class WorkerPool {
     try {
       const startedAt = Date.now()
       const result = await worker.controller.runJob(job, onProgress)
+      // content.js reported its OWN failure (agent selection, missing composer, chat busy, …). Surface
+      // it verbatim so extensionBridge converts it to the real typed error (e.g. o1_code_wrong_agent)
+      // with content.js's diagnostics. Running the capture verdict here instead would relabel every
+      // such error as a generic submit_or_ui_failure and discard the real reason.
+      if (result && typeof result === "object" && (result as Record<string, unknown>).ok === false) {
+        return result
+      }
       const enriched = attachCaptureVerdict(result, worker.netWitness.summarizeWindow(startedAt))
       if (enriched.captureVerdict.accept) return enriched.result
 
       this.discard(worker.id)
       const error = captureFailureError(enriched.captureVerdict, enriched.result.capture)
-      if (error) throw error
+      if (error) {
+        // Surface content.js's own submit view on the failure so the log distinguishes "prompt never
+        // landed in the composer" (submitted.valueLength === 0) from "typed + sent but no model
+        // request fired" (valueLength > 0, sendButtonFound). Rides the already-logged bridgeResult.
+        const r = enriched.result as Record<string, unknown>
+        ;(error as Error & { bridgeResult?: unknown }).bridgeResult = {
+          ok: r.ok ?? null,
+          contentError: r.error ?? null,
+          contentType: r.type ?? null,
+          contentStatusCode: r.statusCode ?? null,
+          submitted: r.submitted ?? null,
+          recorder: r.recorder ?? null,
+          responseSource: r.responseSource ?? null,
+          freshChat: r.freshChat ?? null,
+          diagnostics: r.diagnostics ?? null,
+        }
+        throw error
+      }
       throw new Error("Unexpected capture verdict failure.")
     } finally {
       this.release(worker.id)
@@ -265,6 +289,10 @@ async function openAssistantPopover(contents: BrowserWindow["webContents"]) {
     const state = await contents.executeJavaScript(`
       (() => {
         const iframe = document.querySelector("#assistant-iframe");
+        // NOTE: iframe.src is the element attribute and keeps its initial /external?target=/chat
+        // value even after the assistant SPA client-side-routes to /chat — so it is NOT a reliable
+        // "settled on chat" signal. Settledness is gated downstream by composer readiness inside the
+        // iframe (waitForAssistantBridge), which is the only cross-origin-safe truth.
         if (iframe && String(iframe.src || "").includes("open-web-assistant-cs.wpp.ai")) {
           return { open: true, src: iframe.src };
         }
@@ -298,9 +326,20 @@ async function openAssistantPopover(contents: BrowserWindow["webContents"]) {
 
 async function waitForAssistantBridge(contents: BrowserWindow["webContents"], controller: Controller) {
   const deadline = Date.now() + 30000
+  // Require the composer to report ready for two CONSECUTIVE polls before declaring the bridge
+  // usable. inspectChat runs inside the assistant iframe, so its readiness reflects the real chat
+  // composer (the only cross-origin-safe truth — the host-page iframe.src attribute is stale under
+  // SPA routing). A single transient "ready" can be seen mid-redirect, after which the navigation
+  // wipes the composer we then fill → post-login submit_or_ui_failure. Stability debounces that.
+  let stable = 0
   while (Date.now() < deadline) {
     const state = await controller.inspectChat(2000).catch(() => null) as { ok?: boolean; ready?: boolean } | null
-    if (state?.ok && state.ready) return
+    if (state?.ok && state.ready) {
+      stable += 1
+      if (stable >= 2) return
+    } else {
+      stable = 0
+    }
     await wait(500)
   }
   await throwIfAuthRequired(contents)
