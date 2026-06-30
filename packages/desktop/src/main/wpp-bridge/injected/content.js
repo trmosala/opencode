@@ -1544,6 +1544,16 @@ function isExpanded(el) {
 }
 
 async function expandAgentGroups(root, expectedAgent, optionProbe = () => null) {
+  // WPP's search auto-reveals matching groups: after typing the agent name the "Project Agents"
+  // group is already aria-expanded="true" with its card visible. Clicking that toggle again
+  // COLLAPSES the group and hides the card (verified via CDP against the composer iframe), so the
+  // subsequent agent click lands on a hidden/re-rendered row and the picker never dismisses — the
+  // agent-picker-did-not-dismiss-after-option-activation failure. If the option is already
+  // revealed, never touch a group toggle.
+  if (optionProbe()) {
+    return { expanded: true, anyToggleOpened: false, method: "already-visible", count: 0 };
+  }
+
   const groups = findExpandableAgentGroups(root, expectedAgent);
   let method = "";
   let anyToggleOpened = false;
@@ -1982,11 +1992,12 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     return finish(false, reason, pickerRoot);
   }
 
-  // New WPP UI: once an agent is chosen the model button shows only an icon — no name text, no
-  // tooltip — so we CANNOT confirm selection by pill text (agentLabelMatches would never pass). The
-  // option was matched by name via findAgentOption(expectedAgent), so clicking it selects the right
-  // agent; confirm the click APPLIED by the picker dismissing (search input + mode menu gone and the
-  // option no longer visible). Fall back to pill-text match for the old UI where the name is shown.
+  // Live WPP UI (verified via CDP against the open-web-deeplink-cs.wpp.ai composer iframe): clicking
+  // the matched agent card commits on a SINGLE click, and the model button then shows the agent name
+  // ("OgilvyOneCoder") — so agentLabelMatches(readPill()) IS the primary commit signal. The
+  // picker-dismissed + option-hidden check remains a fallback for any variant that shows only an
+  // icon, and the drill handling below covers a two-step variant where the agent click opens a
+  // base-model sub-list instead of committing.
   const pickerOpen = () => Boolean(findAgentSearchInput(document) || findModeMenu());
   const selectionApplied = () =>
     agentLabelMatches(readPill(), expectedAgent)
@@ -2016,22 +2027,22 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     if (selectionApplied()) {
       return finish(true, "", pickerRoot);
     }
-    // The WPP picker keeps the agent row AND the search box visible after drilling into the agent's
-    // base-model sub-list, so "the agent row went invisible" is NOT a reliable drill signal (it was
-    // the false negative behind agent-picker-did-not-dismiss-after-option-activation with
-    // drilledModel=""). Detect the drill positively: the picker is still open and a model leaf
-    // distinct from the agent row has appeared. Clicking that leaf commits the agent and dismisses.
-    if (pickerOpen()) {
+    // Live WPP commits the agent on a single click (verified via CDP against the composer iframe), so
+    // this loop normally returns on the selectionApplied() check above. The drill branch only handles
+    // a two-step variant where the agent click REPLACES the agent row with a base-model sub-list, so
+    // gate it on the agent row being gone — NOT merely "picker open". The search results keep model
+    // cards (e.g. "Gemini 3.5 Flash") visible while the agent row is still present; clicking one of
+    // those would select a raw model and could latch a false-positive commit via selectionApplied()'s
+    // picker-dismissed fallback.
+    if (pickerOpen() && !isVisible(option.element)) {
+      drillSeen = true;
       const modelRoot = findModelPickerRoot(expectedAgent) || pickerRoot;
       const modelOption = findDrilledModelOption(modelRoot, expectedAgent);
-      if (modelOption) {
-        drillSeen = true;
-        if (modelOption.element !== clickedModel) {
-          clickedModel = modelOption.element;
-          state.drilledModelText = modelOption.text;
-          const modelMethod = await activateElement(modelOption.element, selectionApplied, { timeoutMs: 2500 });
-          state.activationMethod = `${state.activationMethod};model:${modelMethod}`;
-        }
+      if (modelOption && modelOption.element !== clickedModel) {
+        clickedModel = modelOption.element;
+        state.drilledModelText = modelOption.text;
+        const modelMethod = await activateElement(modelOption.element, selectionApplied, { timeoutMs: 2500 });
+        state.activationMethod = `${state.activationMethod};model:${modelMethod}`;
       }
     }
     await wait(250);
