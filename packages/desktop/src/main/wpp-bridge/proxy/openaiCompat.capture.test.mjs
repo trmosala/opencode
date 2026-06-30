@@ -66,6 +66,48 @@ describe("handleChatCompletions capture retry", () => {
   });
 });
 
+describe("handleChatCompletions token usage", () => {
+  test("maps WPP's cumulative token pill onto prompt_tokens", async () => {
+    commitThread(KEY, body(user("hello")));
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => true,
+      run: async () => bridgeRun("done", { usage: { cumulativeTokens: 117219, source: "dom-pill", lowFidelity: true } }),
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      response,
+      body(user("hello"), user("more")),
+      { bridge },
+    ));
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).usage.prompt_tokens).toBe(117219);
+  });
+
+  test("falls back to the heuristic prompt tokens when no pill is present", async () => {
+    commitThread(KEY, body(user("hello")));
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => true,
+      run: async () => bridgeRun("done"),
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      response,
+      body(user("hello"), user("more")),
+      { bridge },
+    ));
+
+    const promptTokens = JSON.parse(response.body).usage.prompt_tokens;
+    expect(Number.isFinite(promptTokens)).toBe(true);
+    expect(promptTokens).toBeGreaterThan(0);
+    expect(promptTokens).not.toBe(117219);
+  });
+});
+
 function body(...messages) {
   return { model: "o1-code", stream: false, messages };
 }
@@ -74,7 +116,7 @@ function user(content) {
   return { role: "user", content };
 }
 
-function bridgeRun(content) {
+function bridgeRun(content, extraResponse = {}) {
   return {
     response: {
       finalText: content,
@@ -85,6 +127,7 @@ function bridgeRun(content) {
         lowFidelity: false,
         verdict: "network",
       },
+      ...extraResponse,
     },
   };
 }

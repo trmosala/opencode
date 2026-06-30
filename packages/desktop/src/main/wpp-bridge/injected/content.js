@@ -368,6 +368,10 @@ async function runJobWithProgress(job, jobId) {
       toolCallParts,
       finishReason: networkResponse.finishReason || null,
       responseStatus: networkResponse.responseStatus || null,
+      // WPP's real (cumulative) token count, scraped from the conversation pill, or null when the
+      // pill is absent/unparseable. The proxy maps cumulativeTokens onto prompt_tokens and falls
+      // back to the chars/token heuristic when this is null. See scrapeTokenPill for the contract.
+      usage: scrapeTokenPill(),
       eventCount: Number(networkResponse.eventCount) || 0,
       byteCount: Number(networkResponse.byteCount) || 0,
       counts: networkResponse.counts || {
@@ -2495,6 +2499,91 @@ function inspectAssistantUi(root) {
   };
 }
 
+// Scrape WPP's conversation token-count pill (e.g. "19,547 tokens"). WPP's model-completion SSE
+// does NOT carry token usage (verified across many captured streams — the only fields are
+// model/content/messageId/toolCalls/finishReason), so this DOM pill is the only surface exposing
+// WPP's own count. It is a CUMULATIVE conversation total, not per-turn; the proxy maps it onto
+// prompt_tokens (treating the latest message as current context occupancy, matching overflow.ts)
+// which also preserves the existing over-estimate safety bias. Whitespace/format-fragile by
+// nature, so the result is marked lowFidelity and any miss falls back to the chars/token
+// heuristic upstream.
+//
+// Strictness is deliberate: we accept ONLY an element whose entire trimmed text is
+// "<number> tokens" with nothing else. This rejects used/limit displays like
+// "19,547 / 200,000 tokens" (we will not guess which half is the live count) and assistant reply
+// prose that merely mentions "tokens" — a miss is safe (heuristic fallback), a wrong number is not.
+//
+// The live pill is `<span class="cs-message-tokens" data-testid="message-tokens"><svg/>N tokens</span>`
+// (the SVG icon contributes no text, so textContent is exactly "N tokens"). We query that precise
+// hook first and only fall back to a generic strict scan if WPP drops the testid/class.
+const TOKEN_PILL_TEXT = /^([\d][\d,]*)\s*tokens?$/i;
+const TOKEN_PILL_SELECTOR = "[data-testid='message-tokens'], .cs-message-tokens";
+
+function scrapeTokenPill(root = document) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const best = pickTokenPill(deepQueryAll(TOKEN_PILL_SELECTOR, root))
+    || pickTokenPill(deepQueryAll("*", root));
+
+  if (!best) {
+    return null;
+  }
+
+  return {
+    cumulativeTokens: best.value,
+    raw: best.text,
+    source: "dom-pill",
+    lowFidelity: true
+  };
+}
+
+function pickTokenPill(elements) {
+  let best = null;
+
+  for (const el of elements) {
+    let text;
+    try {
+      text = String(el.textContent || "").trim();
+    } catch {
+      continue;
+    }
+
+    if (text.length > 24) {
+      continue;
+    }
+
+    const match = text.match(TOKEN_PILL_TEXT);
+    if (!match) {
+      continue;
+    }
+
+    // Ignore numbers rendered inside the message transcript (assistant prose / code blocks).
+    if (el.closest?.(MESSAGE_BUBBLE_SELECTOR)) {
+      continue;
+    }
+
+    if (!isVisible(el)) {
+      continue;
+    }
+
+    const value = Number(match[1].replace(/,/g, ""));
+    if (!Number.isFinite(value) || value <= 0) {
+      continue;
+    }
+
+    // Prefer the deepest/most-specific match: the pill's leaf element over any wrapper that
+    // happens to contain only the pill, so `raw` reflects the actual pill node.
+    const depth = el.querySelectorAll ? el.querySelectorAll("*").length : 0;
+    if (!best || depth < best.depth) {
+      best = { value, text, depth };
+    }
+  }
+
+  return best;
+}
+
 function buildBridgeDiagnostics({
   phase = "unknown",
   runId = null,
@@ -2739,6 +2828,8 @@ if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.no
     isChatReadyForNextMessage,
     inspectChatState,
     inspectAssistantUi,
+    scrapeTokenPill,
+    pickTokenPill,
     findAssistantUiError,
     findAssistantUiWarning,
     shouldReturnCapturedRecordDespiteAssistantUiError,

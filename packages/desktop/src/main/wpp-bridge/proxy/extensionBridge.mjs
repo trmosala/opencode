@@ -482,6 +482,9 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
       toolCallParts: result.toolCallParts || result.response?.toolCallParts || {},
       source: result.responseSource || null,
       capture: result.capture || null,
+      // WPP's real (cumulative) token count scraped from the conversation pill, or null. The
+      // proxy maps it onto prompt_tokens; null falls back to the chars/token heuristic.
+      usage: result.response?.usage || null,
       chunks: result.response?.chunks || [],
       events: result.response?.events || [],
       unparsed: result.response?.unparsed || []
