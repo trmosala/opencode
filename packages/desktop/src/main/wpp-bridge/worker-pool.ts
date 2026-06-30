@@ -35,7 +35,25 @@ const REAP_INTERVAL_MS = 60 * 1000
 const MAX_CONCURRENT_SPAWNS = Math.max(1, Number(process.env.O1_CODE_MAX_SPAWNS) || 3)
 // Debug: surface the normally-hidden worker windows so you can watch the serialized prompt land in
 // each WPP composer and see which session each tab serves (window title = session · agent).
-const SHOW_WORKERS = process.env.O1_CODE_SHOW_WORKERS === "1"
+// Initialized from O1_CODE_SHOW_WORKERS for launch-time control, but mutable so the View ▸ "Show
+// Worker Windows" menu item can toggle the authenticated tabs at runtime (see toggleWorkerWindows).
+let workersVisible = process.env.O1_CODE_SHOW_WORKERS === "1"
+
+// Every live pool registers here so the runtime toggle can reach each pool's worker windows. poolFor()
+// destroys the old pool when the chat URL changes, so this is usually a single entry.
+const livePools = new Set<WorkerPool>()
+
+export function areWorkerWindowsVisible(): boolean {
+  return workersVisible
+}
+
+// Flip worker-window visibility and apply it to every live worker tab. Returns the new state so the
+// menu action can reflect it. Newly spawned workers honor the flag on their own via spawn().
+export function toggleWorkerWindows(): boolean {
+  workersVisible = !workersVisible
+  for (const pool of livePools) pool.applyWorkerVisibility()
+  return workersVisible
+}
 
 function workerTitle(agent: string, sessionKey: string, subagent = false): string {
   return `o1-code worker — ${agent}${sessionKey ? ` · ${sessionKey}` : " · unpinned"}${subagent ? " (subagent)" : ""}`
@@ -68,6 +86,21 @@ export class WorkerPool {
     this.chatUrl = options.chatUrl
     this.reapTimer = setInterval(() => this.prune(), REAP_INTERVAL_MS)
     this.reapTimer.unref()
+    livePools.add(this)
+  }
+
+  // Show or hide every live worker window to match the current visibility flag. Driven by the runtime
+  // toggle (toggleWorkerWindows); spawn() applies the flag to newly created workers itself.
+  applyWorkerVisibility() {
+    for (const worker of this.workers.values()) {
+      if (worker.window.isDestroyed()) continue
+      if (workersVisible) {
+        worker.window.showInactive()
+        worker.window.setTitle(workerTitle(worker.agent, worker.sessionKey, worker.subagent))
+      } else {
+        worker.window.hide()
+      }
+    }
   }
 
   // Acquire + run + release in one call — the single entry point a caller (extensionBridge) needs.
@@ -153,7 +186,7 @@ export class WorkerPool {
     // Classification follows the turn that claimed the worker: an adopted unpinned worker takes the
     // current turn's tier, and a pinned worker keeps its session's tier across reuse.
     worker.subagent = subagent
-    if (SHOW_WORKERS && !worker.window.isDestroyed()) {
+    if (workersVisible && !worker.window.isDestroyed()) {
       worker.window.setTitle(workerTitle(worker.agent, worker.sessionKey, worker.subagent))
     }
     return worker
@@ -175,6 +208,7 @@ export class WorkerPool {
 
   destroy() {
     clearInterval(this.reapTimer)
+    livePools.delete(this)
     for (const worker of this.workers.values()) {
       if (!worker.window.isDestroyed()) worker.window.destroy()
     }
@@ -186,7 +220,7 @@ export class WorkerPool {
   // and the relay before any page script runs. Navigating after install is what makes that hold.
   private async spawn(agent: string, sessionKey: string, subagent: boolean): Promise<Worker> {
     const window = createWorkerWindow()
-    if (SHOW_WORKERS) {
+    if (workersVisible) {
       window.showInactive()
       window.setTitle(workerTitle(agent, sessionKey, subagent))
     }

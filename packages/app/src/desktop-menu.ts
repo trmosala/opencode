@@ -17,6 +17,7 @@ export type DesktopMenuAction =
   | "view.zoomOut"
   | "view.toggleFullscreen"
   | "view.toggleLoginBrowser"
+  | "view.toggleWorkerWindows"
   | "window.new"
   | "window.close"
   | "window.minimize"
@@ -160,6 +161,7 @@ export const DESKTOP_MENU: DesktopMenu[] = [
       { type: "item", label: "Zoom Out", action: "view.zoomOut", role: "zoomOut", accelerator: { windows: "Ctrl+-" } },
       { type: "separator" },
       { type: "item", label: "Toggle Login Browser", action: "view.toggleLoginBrowser" },
+      { type: "item", label: "Toggle Worker Windows", action: "view.toggleWorkerWindows" },
       { type: "item", label: "Toggle Full Screen", action: "view.toggleFullscreen", role: "togglefullscreen" },
     ],
   },

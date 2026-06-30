@@ -2,6 +2,7 @@ import { BrowserWindow } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import { createMainWindow, updateTitlebar } from "./windows"
 import { toggleWppLogin } from "./wpp-bridge/session"
+import { toggleWorkerWindows } from "./wpp-bridge/worker-pool"
 
 export type DesktopMenuActionHandlers = Partial<{
   checkForUpdates: () => void
@@ -56,6 +57,9 @@ export function runDesktopMenuAction(
       return
     case "view.toggleLoginBrowser":
       toggleWppLogin()
+      return
+    case "view.toggleWorkerWindows":
+      toggleWorkerWindows()
       return
     case "edit.undo":
       win?.webContents.undo()
