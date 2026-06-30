@@ -231,6 +231,7 @@ async function runJobWithProgress(job, jobId) {
         + ` [diag searchFound=${agentSelection.searchFound} groupCount=${agentSelection.groupCount}`
         + ` groupExpanded=${agentSelection.groupExpanded} toggleOpened=${agentSelection.groupToggleOpened}`
         + ` optionFound=${agentSelection.optionFound}`
+        + ` drilledModel=${JSON.stringify(agentSelection.drilledModelText || "")}`
         + ` options=${JSON.stringify(roster.optionSample || [])}`
         + ` picker="${(roster.subtreeSignature || agentSelection.pickerText || "").slice(0, 200)}"]`
       : "";
@@ -1375,6 +1376,53 @@ function findAgentOption(rootOrExpectedAgent, maybeExpectedAgent = null) {
 function findAgentOptionCard(expectedAgent) {
   return findAgentOption(expectedAgent)?.element || null;
 }
+
+// Breadcrumb/category labels the drilled-in model view renders alongside the selectable model
+// ("Models", "Google") — clicking these re-navigates instead of committing, so exclude them.
+// MAINTENANCE: the provider names below are a hardcoded denylist. If WPP adds a base-model provider
+// its bare breadcrumb (e.g. "Meta", "Mistral") must be added here or it could be mistaken for a
+// selectable leaf. The regex is anchored (^...$), so it only ever excludes a leaf whose ENTIRE text
+// is one of these words — a real model name ("Mistral Large") is unaffected — and the length cap +
+// MODEL_PILL_TOKENS + looksLikeGroupHeader guards in findDrilledModelOption further limit the risk.
+const DRILL_BREADCRUMB_RE = /^(models?|agents?|providers?|google|openai|anthropic|meta|mistral|xai)$/i;
+
+// New WPP two-step picker: choosing the OgilvyOneCoder agent no longer dismisses the picker — it
+// drills into the agent's base-model sub-list (e.g. "Gemini 3.5 Flash") and stays open until a
+// model leaf is clicked, which commits the agent and closes the picker. Resolve that leaf: prefer
+// an already-highlighted (aria-selected/checked) model, then a real interactive option role, then
+// the shortest model-named text (the name itself, not its longer description card).
+function findDrilledModelOption(root = document) {
+  const scope = root || document;
+  const candidates = deepQueryAll(MODEL_OPTION_SELECTOR, scope)
+    .filter((el) => {
+      if (!isVisible(el)) {
+        return false;
+      }
+      const text = elementText(el);
+      return text.length > 0 && text.length < 120
+        && MODEL_PILL_TOKENS.test(text)
+        && !DRILL_BREADCRUMB_RE.test(text)
+        && !looksLikeGroupHeader(text);
+    })
+    .map((el) => {
+      const interactive = clickableFor(el);
+      const target = interactive || el;
+      const selected = /^true$/i.test(
+        target.getAttribute?.("aria-selected") || target.getAttribute?.("aria-checked") || ""
+      );
+      const roleOption = Boolean(
+        target.matches?.("button, [role='button'], [role='option'], [role='menuitem'], [role='listitem']")
+      );
+      // rank: higher first. An already-highlighted leaf beats a plain interactive option, which
+      // beats anything else; ties break toward the shortest text (the model name, not its longer
+      // description card). Score the booleans explicitly rather than subtracting them in the sort.
+      const rank = (selected ? 2 : 0) + (roleOption ? 1 : 0);
+      return { element: target, text: elementText(el), rank };
+    })
+    .sort((left, right) => right.rank - left.rank || left.text.length - right.text.length);
+
+  return candidates[0] || null;
+}
 // The visible group label ("Project Agents (1)") is often a slotted text node inside a WPP
 // web component, while the actual expand control (the element carrying aria-expanded, or a
 // chevron/icon button) is a separate node. Clicking the label does not always bubble to the
@@ -1812,6 +1860,7 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     groupCount: 0,
     groupToggleOpened: false,
     optionText: "",
+    drilledModelText: "",
     activationMethod: "",
     failureReason: "",
     pickerText: "",
@@ -1928,21 +1977,58 @@ async function ensureAgentSelected(expectedAgent, textarea) {
   // option was matched by name via findAgentOption(expectedAgent), so clicking it selects the right
   // agent; confirm the click APPLIED by the picker dismissing (search input + mode menu gone and the
   // option no longer visible). Fall back to pill-text match for the old UI where the name is shown.
+  const pickerOpen = () => Boolean(findAgentSearchInput(document) || findModeMenu());
   const selectionApplied = () =>
     agentLabelMatches(readPill(), expectedAgent)
-    || (!findAgentSearchInput(document) && !findModeMenu() && !isVisible(option.element));
+    || (!pickerOpen() && !isVisible(option.element));
 
-  const optionMethod = await activateElement(option.element, selectionApplied, { timeoutMs: 2500 });
+  // Old UI: clicking the agent option dismisses the picker. Newest UI: it instead DRILLS into the
+  // agent's base-model sub-list and keeps the picker open until a model leaf is clicked. So treat
+  // "the agent option went away" (selection committed OR drilled in) as the click landing, then
+  // handle the drilled commit below — rather than firing redundant pointer/keyboard activations
+  // (which would land on the now-hidden option) waiting for a dismissal that never comes.
+  const optionMethod = await activateElement(
+    option.element,
+    () => selectionApplied() || !isVisible(option.element),
+    { timeoutMs: 2500 }
+  );
   state.activationMethod = `${state.activationMethod};option:${optionMethod}`;
 
+  // Two-step picker: the agent click drilled into its base-model list rather than committing. Click
+  // the revealed model leaf (e.g. "Gemini 3.5 Flash") to commit the agent and dismiss the picker.
+  // Click the leaf at most once and then just poll for the commit to latch: activateElement already
+  // carries its own 2500ms success probe, so re-clicking each tick would fire redundant clicks at an
+  // already-selected leaf while a slow (not failed) commit settles. Re-click only if the resolved
+  // leaf changed (the sub-list re-rendered and offers a different model element).
+  let clickedModel = null;
+  let drillSeen = false;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     if (selectionApplied()) {
       return finish(true, "", pickerRoot);
     }
+    if (pickerOpen() && !isVisible(option.element)) {
+      drillSeen = true;
+      const modelRoot = findModelPickerRoot(expectedAgent) || pickerRoot;
+      const modelOption = findDrilledModelOption(modelRoot);
+      if (modelOption && modelOption.element !== clickedModel) {
+        clickedModel = modelOption.element;
+        state.drilledModelText = modelOption.text;
+        const modelMethod = await activateElement(modelOption.element, selectionApplied, { timeoutMs: 2500 });
+        state.activationMethod = `${state.activationMethod};model:${modelMethod}`;
+      }
+    }
     await wait(250);
   }
 
-  return finish(false, "agent-picker-did-not-dismiss-after-option-activation", pickerRoot);
+  // Self-describing failure: separate "drilled into the model sub-list but never found a clickable
+  // leaf" from "drilled and clicked a leaf but the commit never latched" from the non-drill case
+  // where the picker simply never dismissed after the agent click.
+  const failureReason = !drillSeen
+    ? "agent-picker-did-not-dismiss-after-option-activation"
+    : clickedModel
+      ? "drilled-model-leaf-clicked-but-selection-never-applied"
+      : "drilled-model-leaf-not-found";
+  return finish(false, failureReason, pickerRoot);
 }
 
 function chatRootFor(textarea) {
