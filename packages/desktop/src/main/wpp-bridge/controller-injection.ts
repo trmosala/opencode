@@ -76,7 +76,13 @@ export async function installController(contents: WebContents): Promise<Controll
     const payload = params as { name?: string; payload?: string }
     if (payload.name !== OUT_BINDING) return
     const frame = parseFrame(payload.payload)
-    if (frame) routeOutboundFrame(frame, pending, progress)
+    if (!frame) return
+    // Page-initiated request that only the main process can fulfill (e.g. a trusted image paste).
+    if (frame.type === "O1_CODE_BRIDGE_MAIN_REQUEST") {
+      void handleMainRequest(contents, dbg, frame as MainRequestFrame)
+      return
+    }
+    routeOutboundFrame(frame, pending, progress)
   })
 
   await installInRootAndChildTargets(contents, async (sessionId) => {
@@ -152,4 +158,67 @@ function parseFrame(payload?: string) {
     // (owned by the caller / extensionBridge), so dropping it here is safe.
     return null
   }
+}
+
+type PasteImage = { name?: string; mimeType?: string; data?: string }
+type MainRequestFrame = { requestId?: string; action?: string; payload?: { images?: PasteImage[] } }
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+// Fulfill a page-initiated main-process request and post the result back into the page. Currently
+// just "pasteImages": content.js can't synthesize a trusted paste (only untrusted DOM events),
+// which WPP routes to its generic file path (no vision). The main process can, via the system
+// clipboard + webContents.paste(), reproducing exactly what a human Cmd+V does.
+async function handleMainRequest(contents: WebContents, dbg: WebContents["debugger"], frame: MainRequestFrame) {
+  let result: unknown = null
+  let error: string | null = null
+  try {
+    if (frame.action === "pasteImages") result = await pasteImagesIntoComposer(contents, frame.payload?.images ?? [])
+    else throw new Error(`Unknown main action: ${frame.action}`)
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e)
+  }
+  postToController(dbg, { type: "O1_CODE_BRIDGE_MAIN_RESPONSE", requestId: frame.requestId, result, error })
+}
+
+// Paste each image into the currently focused composer via a TRUSTED paste. content.js focuses the
+// composer textarea before calling this, so webContents.paste() targets it (works even while the
+// worker window is hidden — it's an edit command to the focused frame, not OS-level input). The
+// user's clipboard is saved and restored around the operation.
+async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage[]) {
+  // Lazy import so test-time consumers of this module (e.g. routeOutboundFrame) don't pull electron's
+  // runtime exports, which aren't resolvable outside the Electron runtime.
+  const { clipboard, nativeImage } = await import("electron")
+  const savedImage = clipboard.readImage()
+  const savedText = savedImage.isEmpty() ? clipboard.readText() : ""
+  const pasted: { name: string; ok: boolean; reason?: string }[] = []
+  try {
+    for (const image of images) {
+      const name = image.name || "image"
+      const buffer = Buffer.from(String(image.data || ""), "base64")
+      const native = nativeImage.createFromBuffer(buffer)
+      if (native.isEmpty()) {
+        pasted.push({ name, ok: false, reason: "decode-failed" })
+        continue
+      }
+      clipboard.writeImage(native)
+      contents.paste()
+      // Give WPP's paste handler time to read the clipboard before the next image overwrites it.
+      await delay(800)
+      pasted.push({ name, ok: true })
+    }
+  } finally {
+    if (!savedImage.isEmpty()) clipboard.writeImage(savedImage)
+    else if (savedText) clipboard.writeText(savedText)
+    else clipboard.clear()
+  }
+  return { requested: images.length, pasted }
+}
+
+// Fire-and-forget post of a CONTROLLER_SOURCE frame into the page's main world (top frame + every
+// child frame), mirroring send()'s expression but without awaiting a reply. Used for MAIN_RESPONSE.
+function postToController(dbg: WebContents["debugger"], frame: Record<string, unknown>) {
+  const json = JSON.stringify({ source: CONTROLLER_SOURCE, ...frame })
+  const expression = `(() => { const frame = ${json}; window.postMessage(frame, "*"); for (let i = 0; i < window.frames.length; i += 1) { try { window.frames[i].postMessage(frame, "*"); } catch (_e) {} } })()`
+  dbg.sendCommand("Runtime.evaluate", { expression }).catch(() => {})
 }

@@ -99,6 +99,18 @@ if (!globalThis[INSTALL_KEY]) {
 // Inbound job/inspect requests from the main process. Each carries a requestId the main side
 // uses to match the BRIDGE_OUT_SOURCE reply (the postMessage equivalent of MV3's sendResponse).
 function handleControllerMessage(message) {
+  // Response to a page-initiated main-process action (e.g. trusted image paste). Matched by
+  // requestId to the awaiting requestMainAction() promise.
+  if (message.type === "O1_CODE_BRIDGE_MAIN_RESPONSE") {
+    const waiter = pendingMainRequests.get(message.requestId);
+    if (waiter) {
+      pendingMainRequests.delete(message.requestId);
+      if (message.error) waiter.reject(new Error(message.error));
+      else waiter.resolve(message.result);
+    }
+    return;
+  }
+
   if (message.type === "O1_CODE_BRIDGE_INSPECT_CHAT") {
     emitToController({
       type: "O1_CODE_BRIDGE_INSPECT_RESULT",
@@ -132,6 +144,27 @@ function handleControllerMessage(message) {
         })
       }
     }));
+}
+
+// Page-initiated requests to the main process (the inverse of handleControllerMessage's job flow).
+// content.js can only do untrusted DOM work; a real image paste needs a TRUSTED event, which only
+// the Electron main process can synthesize (clipboard.writeImage + webContents.paste). This RPC
+// lets the page ask main to do that and await the outcome. Matched by requestId.
+const pendingMainRequests = new Map();
+
+function requestMainAction(action, payload, timeoutMs = 30000) {
+  const requestId = `main-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingMainRequests.delete(requestId);
+      reject(new Error(`Timed out waiting for main action "${action}" after ${timeoutMs} ms.`));
+    }, timeoutMs);
+    pendingMainRequests.set(requestId, {
+      resolve: (result) => { clearTimeout(timer); resolve(result); },
+      reject: (error) => { clearTimeout(timer); reject(error); }
+    });
+    emitToController({ type: "O1_CODE_BRIDGE_MAIN_REQUEST", requestId, action, payload });
+  });
 }
 
 function emitToController(payload) {
@@ -596,11 +629,47 @@ async function attachImages(images, textarea, timeoutMs) {
   // Snapshot composer thumbnails before attaching so waitForAttachmentReady can distinguish a
   // freshly-decoded upload thumbnail from any image already present in the composer/transcript.
   attachmentBaselineImages = composerImageFingerprints(textarea);
+  const baselineChips = composerAttachmentChipCount(textarea);
 
+  // PRIMARY: a TRUSTED paste, driven by the Electron main process. WPP routes a real (isTrusted)
+  // paste through its image/vision pipeline — the model receives actual pixels. A programmatic
+  // input[type=file] upload (the fallback below) is treated as a generic *file*: it uploads to
+  // WPP's bucket but the agent only gets a file reference (no vision), which is the bug this fixes.
+  // Only the main process can synthesize a trusted paste (clipboard.writeImage + webContents.paste),
+  // so we focus the composer and hand off via requestMainAction. See controller-injection.ts.
+  let pasteResult = null;
+  try {
+    textarea.focus();
+    pasteResult = await requestMainAction("pasteImages", {
+      images: images.map((image) => ({ name: image.name, mimeType: image.mimeType, data: image.data }))
+    }, Math.max(20000, Math.min(Number(timeoutMs) || 60000, 60000)));
+  } catch (error) {
+    pasteResult = { ok: false, error: error.message };
+  }
+
+  const pastedOk = pasteResult && Array.isArray(pasteResult.pasted)
+    ? pasteResult.pasted.filter((entry) => entry && entry.ok).length
+    : 0;
+
+  if (pastedOk > 0) {
+    // Wait until the pasted upload chips register (count rose past baseline) so we don't submit
+    // before WPP has taken the attachment. waitForAttachmentReady (chip-aware) then gates submit.
+    await waitForAttachmentChips(textarea, baselineChips + pastedOk, Math.min(Number(timeoutMs) || 15000, 15000));
+    return {
+      requested: images.length,
+      attached: pastedOk,
+      method: "paste",
+      names: images.map((image) => image.name)
+    };
+  }
+
+  // FALLBACK: legacy file-input upload. Better than dropping the turn, but WPP treats it as a file
+  // (no vision) — surfaced as method:"file-input" so the verdict/log shows when we degraded.
   const input = await waitForImageFileInput(textarea, Math.min(timeoutMs, 5000));
 
   if (!input) {
-    throw new Error("Image input requested, but no O1-Code attachment file input was found. Open the visible assistant chat and confirm image uploads are available.");
+    throw new Error("Image input requested, but neither a trusted paste nor an O1-Code attachment file input was available."
+      + (pasteResult?.error ? ` Paste failed: ${pasteResult.error}` : ""));
   }
 
   if (typeof DataTransfer === "undefined" || typeof File === "undefined") {
@@ -626,8 +695,29 @@ async function attachImages(images, textarea, timeoutMs) {
   return {
     requested: images.length,
     attached: transfer.files.length,
+    method: "file-input",
+    pasteError: pasteResult?.error || null,
     names: images.map((image) => image.name)
   };
+}
+
+// Count the composer's file-attachment chips (WPP renders every attachment — including pasted
+// images — as a named "file-upload-list-item", not an inline <img>). Used to detect that a paste
+// registered (count rose past the pre-attach baseline).
+function composerAttachmentChipCount(textarea) {
+  const root = chatRootFor(textarea);
+  return root.querySelectorAll("[class*='file-upload-list-item'], [class*='file-upload-name']").length;
+}
+
+async function waitForAttachmentChips(textarea, targetCount, timeoutMs) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (composerAttachmentChipCount(textarea) >= targetCount && !hasUploadProgressIndicator(textarea)) {
+      return true;
+    }
+    await wait(150);
+  }
+  return false;
 }
 
 // Matches upload-progress affordances by class/label/title text. Paired with the explicit
@@ -687,11 +777,13 @@ function hasUploadProgressIndicator(textarea) {
   });
 }
 
-// "Ready" = a freshly decoded upload thumbnail has appeared AND no upload-progress affordance
-// remains. Requiring both is deliberately conservative; either signal disappearing from the UI
-// just falls through to waitForAttachmentReady's timeout fallback (submit anyway).
+// "Ready" = the attachment has registered AND no upload-progress affordance remains. WPP renders a
+// pasted/uploaded image as a named file-upload chip (NOT an inline <img>), so accept EITHER a freshly
+// decoded thumbnail OR a present file chip — keying only on the thumbnail made this always miss and
+// burn the full timeout. Requiring no progress affordance still waits out an in-flight upload.
 function isAttachmentReady(textarea) {
-  return hasFreshDecodedThumbnail(textarea) && !hasUploadProgressIndicator(textarea);
+  const hasAttachment = hasFreshDecodedThumbnail(textarea) || composerAttachmentChipCount(textarea) > 0;
+  return hasAttachment && !hasUploadProgressIndicator(textarea);
 }
 
 // Poll for the upload-ready signal, returning as soon as it holds across two consecutive ticks
