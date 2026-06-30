@@ -342,6 +342,14 @@ export class ExtensionBridge {
     return this.workerPool ? this.workerPool.hasSession(sessionKey) : false;
   }
 
+  // Best-effort: does the live WPP session look logged out? Returns a reason string when a live
+  // worker's page classifies as logged out, else null (incl. no pool / no live worker). The proxy
+  // calls this after a turn fails so a stale-session failure is reported as "log in" rather than a
+  // bare capture/recorder error. Never spawns — probes only an already-live worker.
+  checkAuthState() {
+    return this.workerPool ? this.workerPool.checkAuthState() : Promise.resolve(null);
+  }
+
   poolFor(url) {
     if (this.workerPool && this.workerPoolUrl === url) return this.workerPool;
     this.workerPool?.destroy();

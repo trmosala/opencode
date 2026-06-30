@@ -118,6 +118,24 @@ export class WorkerPool {
       // with content.js's diagnostics. Running the capture verdict here instead would relabel every
       // such error as a generic submit_or_ui_failure and discard the real reason.
       if (result && typeof result === "object" && (result as Record<string, unknown>).ok === false) {
+        // Pre-submit failures (recorder never armed; pinned thread lost) mean this tab is structurally
+        // dead but NO model request was sent — so discarding it and replaying once is duplicate-safe.
+        // Discard is mandatory: a released worker stays eligible, so acquire() could re-select this same
+        // dead tab on the retry and fail identically. openaiCompat.shouldRetryFreshReplay does the replay.
+        const failureType = (result as Record<string, unknown>).type
+        if (failureType === "o1_code_recorder_not_armed" || failureType === "o1_code_thread_desync") {
+          this.discard(worker.id)
+          const r = result as Record<string, unknown>
+          const error = new Error(String(r.error || "O1-Code worker reported a pre-submit failure.")) as Error & {
+            statusCode?: number
+            type?: string
+            bridgeResult?: unknown
+          }
+          error.statusCode = typeof r.statusCode === "number" ? r.statusCode : 502
+          error.type = failureType
+          error.bridgeResult = r
+          throw error
+        }
         return result
       }
       const enriched = attachCaptureVerdict(result, worker.netWitness.summarizeWindow(startedAt))
@@ -262,6 +280,18 @@ export class WorkerPool {
         this.workers.delete(id)
       }
     }
+  }
+
+  // Best-effort login probe for openaiCompat's post-failure path: read a live worker's page and
+  // classify it as logged-out or not. Returns a reason string when the WPP session looks logged out,
+  // else null. Auth is partition-wide (persist:wpp), so ANY live worker's page answers the question.
+  // ponytail: reads an already-live worker only — it will NOT spawn one just to probe (spawn is
+  // heavy, and a hard logout already surfaces as wpp_auth_required on the retry's own spawn).
+  async checkAuthState(): Promise<string | null> {
+    const live = Array.from(this.workers.values()).find((worker) => !worker.window.isDestroyed())
+    if (!live) return null
+    const state = await readStartupAuthState(live.window.webContents).catch(() => null)
+    return state ? classifyWppAuthState(state) : null
   }
 
   // Does a live tab pinned to this session exist? The proxy uses this to decide whether it can send

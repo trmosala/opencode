@@ -555,7 +555,13 @@ async function waitForRecorderReset(runId, timeoutMs) {
     await wait(50);
   }
 
-  throw new Error("Network recorder did not arm before prompt submission. Reload the extension and refresh the O1-Code assistant page.");
+  // Pre-submit failure: the recorder never acked its reset, so no model request has been sent yet.
+  // Type it so the worker pool discards this (structurally dead) tab and the proxy replays once on a
+  // fresh worker — retrying is duplicate-safe because submitPrompt hasn't run. See worker-pool.run.
+  const error = new Error("Network recorder did not arm before prompt submission. Reload the extension and refresh the O1-Code assistant page.");
+  error.statusCode = 502;
+  error.type = "o1_code_recorder_not_armed";
+  throw error;
 }
 
 // Continue the pinned thread instead of starting a new one. The proxy only sends this mode when it

@@ -242,7 +242,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       o1CodeRun = await runBridgeTurn(prompt, continueThread);
     } catch (error) {
       let failure = error;
-      if (shouldRetryCaptureFailure(error, { streamSession, isCompaction })) {
+      if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
         if (continuity) resetThread(sessionKey);
         retryCount = 1;
         prompt = freshRetryPrompt();
@@ -259,6 +259,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
         // watermark so the next turn replays fresh rather than extending a delta we can't trust.
         if (continuity) resetThread(sessionKey);
+        // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
+        // instead of a bare capture/recorder error.
+        failure = await loginRequiredFailure(bridge, failure);
         await writeRunLog({
           id,
           startedAt,
@@ -312,7 +315,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       o1CodeRun = await runBridgeTurn(prompt, continueThread);
     } catch (error) {
       let failure = error;
-      if (shouldRetryCaptureFailure(error, { streamSession, isCompaction })) {
+      if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
         if (continuity) resetThread(sessionKey);
         retryCount = 1;
         prompt = freshRetryPrompt();
@@ -326,6 +329,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       }
       if (failure) {
         if (continuity) resetThread(sessionKey);
+        // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
+        // instead of a bare capture/recorder error.
+        failure = await loginRequiredFailure(bridge, failure);
         const logPath = await writeRunLog({
           id,
           startedAt,
@@ -485,10 +491,40 @@ export async function waitForBridgeWithKeepAlive(bridgePromise, response, interv
   }
 }
 
-function shouldRetryCaptureFailure(error, { streamSession, isCompaction }) {
-  return error?.type === "o1_code_capture_failure"
+// Failure types that one fresh replay can heal. All three are duplicate-safe to retry: a capture
+// failure means the witness couldn't corroborate a trusted response (no usable answer was returned),
+// and both recorder-not-armed and thread-desync are raised PRE-submit (no model request was sent).
+// The retry path resets thread continuity and replays the full transcript into a fresh worker.
+const FRESH_REPLAY_RETRY_TYPES = new Set([
+  "o1_code_capture_failure",
+  "o1_code_recorder_not_armed",
+  "o1_code_thread_desync",
+]);
+
+export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
+  return FRESH_REPLAY_RETRY_TYPES.has(error?.type)
     && !isCompaction
     && !(streamSession && streamSession.hasStreamed());
+}
+
+// After a turn (and its one fresh replay) has failed, probe whether the real cause is a logged-out
+// WPP session. When it is, mark auth-required (pops the SSO window via the bridge's fire-once edge)
+// and return a typed wpp_auth_required error so the operator is told to log in instead of seeing a
+// bare capture/recorder failure. Returns the original failure unchanged when already auth-typed, the
+// session looks logged in, or the bridge can't probe (e.g. test doubles without checkAuthState).
+async function loginRequiredFailure(bridge, failure) {
+  if (failure?.type === "wpp_auth_required") return failure;
+
+  const probe = bridge.checkAuthState?.();
+  const reason = probe ? await probe.catch(() => null) : null;
+  if (!reason) return failure;
+
+  bridge.markAuthRequired?.(reason);
+  const error = new Error(`WPP login required: ${reason}. Original failure: ${failure.message}`);
+  error.statusCode = 401;
+  error.type = "wpp_auth_required";
+  error.diagnostics = failure.diagnostics || undefined;
+  return error;
 }
 
 // Wrap a StreamGate with the small amount of session state the SSE handler needs: a `streamed`
