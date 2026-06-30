@@ -181,7 +181,7 @@ bun run dev:desktop     # Electron app (electron-vite dev)
 bun run dev:web         # web UI (needs a server running)
 bun run lint            # oxlint
 ```
-Desktop packaging (from `packages/desktop`): `bun run build` then `bun run package:win` / `package:mac` / `package:linux`.
+Desktop packaging (from `packages/desktop`): `bun run build` then `bun run package:win` / `package:mac` / `package:linux`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, `cookiemonster-<os>-<arch>.<ext>`, auto-update stripped) — without it you get an unbranded `OpenCode Dev` build that collides with a real OpenCode install. e.g. `CM_BRAND=1 bun run package:win`.
 
 ### The WPP bridge (read multiple files to understand)
 
