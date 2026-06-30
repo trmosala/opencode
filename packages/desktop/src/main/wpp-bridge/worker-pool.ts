@@ -35,17 +35,13 @@ const REAP_INTERVAL_MS = 60 * 1000
 const MAX_CONCURRENT_SPAWNS = Math.max(1, Number(process.env.O1_CODE_MAX_SPAWNS) || 3)
 // Debug: surface the normally-hidden worker windows so you can watch the serialized prompt land in
 // each WPP composer and see which session each tab serves (window title = session · agent).
-// Initialized from O1_CODE_SHOW_WORKERS for launch-time control, but mutable so the View ▸ "Show
+// Initialized from O1_CODE_SHOW_WORKERS for launch-time control, but mutable so the View ▸ "Toggle
 // Worker Windows" menu item can toggle the authenticated tabs at runtime (see toggleWorkerWindows).
 let workersVisible = process.env.O1_CODE_SHOW_WORKERS === "1"
 
 // Every live pool registers here so the runtime toggle can reach each pool's worker windows. poolFor()
 // destroys the old pool when the chat URL changes, so this is usually a single entry.
 const livePools = new Set<WorkerPool>()
-
-export function areWorkerWindowsVisible(): boolean {
-  return workersVisible
-}
 
 // Flip worker-window visibility and apply it to every live worker tab. Returns the new state so the
 // menu action can reflect it. Newly spawned workers honor the flag on their own via spawn().

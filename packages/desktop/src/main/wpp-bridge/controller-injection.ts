@@ -10,6 +10,7 @@
 
 import type { WebContents } from "electron"
 import { installInRootAndChildTargets } from "./cdp-targets"
+import { SpawnGate } from "./spawn-gate"
 import contentSource from "./injected/content.js?raw"
 
 const CONTROLLER_SOURCE = "o1-code-bridge-controller"
@@ -165,6 +166,11 @@ type MainRequestFrame = { requestId?: string; action?: string; payload?: { image
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+// The system clipboard is a singleton OS resource, but workers are unbounded and parallel sub-agents
+// fan out — so two image turns can reach pasteImagesIntoComposer concurrently. SpawnGate(1) is a
+// plain FIFO mutex that serializes the whole snapshot→write→paste→restore sequence (see Fix below).
+const clipboardGate = new SpawnGate(1)
+
 // Fulfill a page-initiated main-process request and post the result back into the page. Currently
 // just "pasteImages": content.js can't synthesize a trusted paste (only untrusted DOM events),
 // which WPP routes to its generic file path (no vision). The main process can, via the system
@@ -187,10 +193,21 @@ async function handleMainRequest(contents: WebContents, dbg: WebContents["debugg
 // user's clipboard is saved and restored around the operation.
 async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage[]) {
   // Lazy import so test-time consumers of this module (e.g. routeOutboundFrame) don't pull electron's
-  // runtime exports, which aren't resolvable outside the Electron runtime.
+  // runtime exports, which aren't resolvable outside the Electron runtime. The import touches no
+  // clipboard state, so it stays OUTSIDE the gate — only the snapshot→write→paste→restore serializes.
   const { clipboard, nativeImage } = await import("electron")
-  const savedImage = clipboard.readImage()
-  const savedText = savedImage.isEmpty() ? clipboard.readText() : ""
+
+  // Serialize against any other concurrent paste so two workers can't interleave on the shared
+  // system clipboard (corrupting each other's image AND the user's real clipboard contents).
+  await clipboardGate.acquire()
+  // Snapshot every standard format (not just image-or-text) so a bridge paste fully restores what
+  // the user had copied. Custom MIME formats / OS file-path lists still can't round-trip atomically.
+  const saved = {
+    text: clipboard.readText(),
+    html: clipboard.readHTML(),
+    rtf: clipboard.readRTF(),
+    image: clipboard.readImage(),
+  }
   const pasted: { name: string; ok: boolean; reason?: string }[] = []
   try {
     for (const image of images) {
@@ -208,11 +225,28 @@ async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage
       pasted.push({ name, ok: true })
     }
   } finally {
-    if (!savedImage.isEmpty()) clipboard.writeImage(savedImage)
-    else if (savedText) clipboard.writeText(savedText)
-    else clipboard.clear()
+    restoreClipboard(clipboard, saved)
+    clipboardGate.release()
   }
   return { requested: images.length, pasted }
+}
+
+// Restore the saved clipboard formats in a single write so the user gets back exactly what they had.
+// clipboard.write ignores empty fields; clear() only when nothing was saved.
+function restoreClipboard(
+  clipboard: Electron.Clipboard,
+  saved: { text: string; html: string; rtf: string; image: Electron.NativeImage },
+) {
+  const data: Electron.Data = {}
+  if (saved.text) data.text = saved.text
+  if (saved.html) data.html = saved.html
+  if (saved.rtf) data.rtf = saved.rtf
+  if (!saved.image.isEmpty()) data.image = saved.image
+  if (Object.keys(data).length === 0) {
+    clipboard.clear()
+    return
+  }
+  clipboard.write(data)
 }
 
 // Fire-and-forget post of a CONTROLLER_SOURCE frame into the page's main world (top frame + every

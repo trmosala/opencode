@@ -654,11 +654,15 @@ async function attachImages(images, textarea, timeoutMs) {
   if (pastedOk > 0) {
     // Wait until the pasted upload chips register (count rose past baseline) so we don't submit
     // before WPP has taken the attachment. waitForAttachmentReady (chip-aware) then gates submit.
-    await waitForAttachmentChips(textarea, baselineChips + pastedOk, Math.min(Number(timeoutMs) || 15000, 15000));
+    // We proceed regardless of this result: the pixels are already pasted, and waitForAttachmentReady
+    // re-gates submit downstream — falling back to file-input here would double-attach. The boolean
+    // is surfaced (chipsRegistered) purely for observability when the chips were slow to register.
+    const chipsRegistered = await waitForAttachmentChips(textarea, baselineChips + pastedOk, Math.min(Number(timeoutMs) || 15000, 15000));
     return {
       requested: images.length,
       attached: pastedOk,
       method: "paste",
+      chipsRegistered,
       names: images.map((image) => image.name)
     };
   }
