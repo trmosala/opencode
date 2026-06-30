@@ -1396,8 +1396,11 @@ const DRILL_BREADCRUMB_RE = /^(models?|agents?|providers?|google|openai|anthropi
 // drills into the agent's base-model sub-list (e.g. "Gemini 3.5 Flash") and stays open until a
 // model leaf is clicked, which commits the agent and closes the picker. Resolve that leaf: prefer
 // an already-highlighted (aria-selected/checked) model, then a real interactive option role, then
-// the shortest model-named text (the name itself, not its longer description card).
-function findDrilledModelOption(root = document) {
+// the shortest model-named text (the name itself, not its longer description card). The agent row
+// stays visible in the drilled view and its label ("OgilvyOneCoder") both matches MODEL_PILL_TOKENS
+// and is shorter than the model leaf ("Gemini 3.5 Flash"), so it would win the shortest-text tie —
+// exclude anything matching expectedAgent so we resolve the real model leaf, never the agent row.
+function findDrilledModelOption(root = document, expectedAgent = "") {
   const scope = root || document;
   const candidates = deepQueryAll(MODEL_OPTION_SELECTOR, scope)
     .filter((el) => {
@@ -1408,7 +1411,8 @@ function findDrilledModelOption(root = document) {
       return text.length > 0 && text.length < 120
         && MODEL_PILL_TOKENS.test(text)
         && !DRILL_BREADCRUMB_RE.test(text)
-        && !looksLikeGroupHeader(text);
+        && !looksLikeGroupHeader(text)
+        && !agentLabelMatches(text, expectedAgent);
     })
     .map((el) => {
       const interactive = clickableFor(el);
@@ -2012,15 +2016,22 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     if (selectionApplied()) {
       return finish(true, "", pickerRoot);
     }
-    if (pickerOpen() && !isVisible(option.element)) {
-      drillSeen = true;
+    // The WPP picker keeps the agent row AND the search box visible after drilling into the agent's
+    // base-model sub-list, so "the agent row went invisible" is NOT a reliable drill signal (it was
+    // the false negative behind agent-picker-did-not-dismiss-after-option-activation with
+    // drilledModel=""). Detect the drill positively: the picker is still open and a model leaf
+    // distinct from the agent row has appeared. Clicking that leaf commits the agent and dismisses.
+    if (pickerOpen()) {
       const modelRoot = findModelPickerRoot(expectedAgent) || pickerRoot;
-      const modelOption = findDrilledModelOption(modelRoot);
-      if (modelOption && modelOption.element !== clickedModel) {
-        clickedModel = modelOption.element;
-        state.drilledModelText = modelOption.text;
-        const modelMethod = await activateElement(modelOption.element, selectionApplied, { timeoutMs: 2500 });
-        state.activationMethod = `${state.activationMethod};model:${modelMethod}`;
+      const modelOption = findDrilledModelOption(modelRoot, expectedAgent);
+      if (modelOption) {
+        drillSeen = true;
+        if (modelOption.element !== clickedModel) {
+          clickedModel = modelOption.element;
+          state.drilledModelText = modelOption.text;
+          const modelMethod = await activateElement(modelOption.element, selectionApplied, { timeoutMs: 2500 });
+          state.activationMethod = `${state.activationMethod};model:${modelMethod}`;
+        }
       }
     }
     await wait(250);
