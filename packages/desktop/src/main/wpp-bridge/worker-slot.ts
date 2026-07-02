@@ -17,12 +17,16 @@ export type WorkerView = {
 export type Slot =
   | { action: "reuse"; id: number }
   | { action: "grow" }
+  | { action: "wait"; id: number }
 
 // Which worker (if any) runs the next job. A `sessionKey` pins a worker to one OpenCode session so
 // its WPP thread holds that session's context across turns: the session's own pinned tab is reused
 // first, and a tab pinned to a *different* session is never stolen (that would corrupt its thread).
-// Otherwise adopt an unpinned worker, preferring the requested agent (or an untagged one); else grow
-// so parallel jobs never fail on a local tab cap.
+// If that pinned tab is BUSY, wait for it rather than adopting/growing — a second worker would open a
+// second WPP thread for the same session, and concurrent turns would then fork the chat (each seeing
+// only alternate deltas + phantom results from the other branch). Otherwise adopt an unpinned worker,
+// preferring the requested agent (or an untagged one); else grow so parallel jobs never fail on a
+// local tab cap.
 export function selectWorkerSlot(workers: WorkerView[], agent: string, sessionKey?: string): Slot {
   const free = workers
     .filter((worker) => !worker.busy)
@@ -31,6 +35,9 @@ export function selectWorkerSlot(workers: WorkerView[], agent: string, sessionKe
   if (sessionKey) {
     const pinned = free.find((worker) => worker.sessionKey === sessionKey)
     if (pinned) return { action: "reuse", id: pinned.id }
+
+    const busyPinned = workers.find((worker) => worker.busy && worker.sessionKey === sessionKey)
+    if (busyPinned) return { action: "wait", id: busyPinned.id }
   }
 
   const adoptable = free.filter((worker) => !worker.sessionKey)
