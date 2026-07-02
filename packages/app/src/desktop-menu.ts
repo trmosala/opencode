@@ -3,6 +3,7 @@ export type DesktopMenuPlatform = "macos" | "windows"
 export type DesktopMenuAction =
   | "app.checkForUpdates"
   | "app.relaunch"
+  | "app.quit"
   | "edit.undo"
   | "edit.redo"
   | "edit.cut"
@@ -117,6 +118,8 @@ export const DESKTOP_MENU: DesktopMenu[] = [
       },
       { type: "separator" },
       { type: "item", label: "Close Window", action: "window.close", role: "close" },
+      { type: "separator", platforms: ["windows"] },
+      { type: "item", label: "Close CookieMonster", action: "app.quit", platforms: ["windows"] },
     ],
   },
   {

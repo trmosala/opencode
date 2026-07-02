@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron"
+import { app, BrowserWindow } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import { createMainWindow, updateTitlebar } from "./windows"
 import { toggleWppLogin } from "./wpp-bridge/session"
@@ -20,6 +20,9 @@ export function runDesktopMenuAction(
       return
     case "app.relaunch":
       handlers.relaunch?.()
+      return
+    case "app.quit":
+      app.quit()
       return
     case "window.new":
       createMainWindow()
