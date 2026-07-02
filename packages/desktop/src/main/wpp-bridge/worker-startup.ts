@@ -37,6 +37,33 @@ export function classifyWppAuthState(state: StartupAuthState) {
   return null
 }
 
+// Frames the WPP session actually lives in (workspace shell + assistant iframes). Third-party
+// frames (telemetry, silent-SSO renewer iframes on IdP origins) are excluded so their URLs can't
+// false-positive the login classifier.
+export function isWppFrameUrl(url: string): boolean {
+  try {
+    const host = new URL(String(url || "")).hostname
+    return host === "wpp.com" || host === "wpp.ai" || host.endsWith(".wpp.com") || host.endsWith(".wpp.ai")
+  } catch {
+    return false
+  }
+}
+
+// Classify a same-frame re-fetch of a WPP frame's own document (the soft-logout probe). The frame's
+// location.href is already post-redirect, so a live session answers 2xx; 401/403 or any redirect
+// (including an opaque one to a cross-origin IdP) means the SSO session expired out from under a
+// long-lived worker whose cached SPA shell still renders normally.
+export function classifyWppSessionProbe(probe: unknown): string | null {
+  if (!probe || typeof probe !== "object") return null
+  const { status: rawStatus, type } = probe as { status?: unknown; type?: unknown }
+  const status = Number(rawStatus) || 0
+  if (status === 401 || status === 403) return `WPP session re-fetch was rejected with HTTP ${status}`
+  if (type === "opaqueredirect" || (status >= 300 && status < 400)) {
+    return "WPP session re-fetch was redirected to sign-in (SSO session expired)"
+  }
+  return null
+}
+
 export async function cleanupWindowOnFailure<T>(window: DestroyableWindow, task: () => Promise<T>) {
   try {
     return await task()

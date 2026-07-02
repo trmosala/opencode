@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
+import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 
 const worker = (
@@ -74,6 +74,31 @@ describe("selectWorkerSlot", () => {
 
   test("never steals a tab pinned to a different session — grows instead", () => {
     const slot = selectWorkerSlot([worker(1, "Opus", false, 1, "sess-B::Opus")], "Opus", "sess-A::Opus")
+    expect(slot).toEqual({ action: "grow" })
+  })
+
+  test("waits for the session's busy pinned tab instead of forking a second thread", () => {
+    // The whole session-fork bug: adopting an idle unpinned worker here opens a 2nd WPP thread for
+    // sess-A, and its concurrent turns then split across two chat branches.
+    const slot = selectWorkerSlot(
+      [worker(1, "Opus", true, 1, "sess-A::Opus"), worker(2, "", false, 2)],
+      "Opus",
+      "sess-A::Opus",
+    )
+    expect(slot).toEqual({ action: "wait", id: 1 })
+  })
+
+  test("prefers reusing a free same-session tab over waiting on a busy one", () => {
+    const slot = selectWorkerSlot(
+      [worker(1, "Opus", true, 1, "sess-A::Opus"), worker(2, "Opus", false, 2, "sess-A::Opus")],
+      "Opus",
+      "sess-A::Opus",
+    )
+    expect(slot).toEqual({ action: "reuse", id: 2 })
+  })
+
+  test("a busy tab pinned to a different session does not trigger a wait", () => {
+    const slot = selectWorkerSlot([worker(1, "Opus", true, 1, "sess-B::Opus")], "Opus", "sess-A::Opus")
     expect(slot).toEqual({ action: "grow" })
   })
 
@@ -166,5 +191,28 @@ describe("worker startup helpers", () => {
     }
     expect(error.statusCode).toBe(401)
     expect(error.type).toBe("wpp_auth_required")
+  })
+
+  test("scopes the logout probe to WPP frames only", () => {
+    expect(isWppFrameUrl("https://ogilvy.os.wpp.com/agent/workspace")).toBe(true)
+    expect(isWppFrameUrl("https://open-web-deeplink-cs.wpp.ai/chat")).toBe(true)
+    // A silent-SSO renewer iframe on the IdP origin must NOT be probed: its URL matches the login
+    // pattern even while the session is perfectly healthy.
+    expect(isWppFrameUrl("https://login.microsoftonline.com/silent-renew")).toBe(false)
+    expect(isWppFrameUrl("about:blank")).toBe(false)
+    expect(isWppFrameUrl("")).toBe(false)
+  })
+
+  test("classifies a soft-logout document re-fetch as auth required", () => {
+    // Dead cookies: the document request is bounced to the IdP (opaque cross-origin redirect) or
+    // rejected outright, even though the cached SPA shell still renders with no sign-in text.
+    expect(classifyWppSessionProbe({ status: 0, type: "opaqueredirect" })).toContain("expired")
+    expect(classifyWppSessionProbe({ status: 302, type: "default" })).toContain("expired")
+    expect(classifyWppSessionProbe({ status: 401, type: "basic" })).toContain("401")
+    expect(classifyWppSessionProbe({ status: 403, type: "basic" })).toContain("403")
+    // Live session answers 2xx; a failed/unreadable probe stays inconclusive rather than
+    // false-positiving the SSO popup after an unrelated turn failure.
+    expect(classifyWppSessionProbe({ status: 200, type: "basic" })).toBe(null)
+    expect(classifyWppSessionProbe(null)).toBe(null)
   })
 })

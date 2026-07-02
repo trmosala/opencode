@@ -13,7 +13,7 @@ import { installController, type Controller, type ProgressFrame } from "./contro
 import { installRecorder } from "./recorder-injection"
 import { installNetworkWitness, type NetworkWitness } from "./cdp-network-recorder"
 import { captureFailureError, captureHealth, decideCaptureVerdict } from "./capture-verdict"
-import { cleanupWindowOnFailure, classifyWppAuthState, wppAuthRequiredError } from "./worker-startup"
+import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 import { SpawnGate } from "./spawn-gate"
 
@@ -29,6 +29,12 @@ const PINNED_WORKER_TTL_MS = Math.max(30 * 60 * 1000, Number(process.env.O1_CODE
 // holding its authenticated window for the full pinned grace. Reap it on a much shorter idle TTL.
 const SUBAGENT_WORKER_TTL_MS = Math.max(60 * 1000, Number(process.env.O1_CODE_SUBAGENT_TTL_MS) || 5 * 60 * 1000)
 const REAP_INTERVAL_MS = 60 * 1000
+// Serialize turns of one session onto its pinned worker: when that tab is busy, a concurrent
+// same-session turn waits for it instead of forking a second WPP thread. Bounded so a genuinely
+// wedged turn can't block the session forever — on timeout we fall through to adopt/grow (a fresh
+// thread), which is the same recovery as a lost pinned tab. Default covers the max job timeout.
+const SESSION_WAIT_TIMEOUT_MS = Math.max(60 * 1000, Number(process.env.O1_CODE_SESSION_WAIT_MS) || 16 * 60 * 1000)
+const SESSION_WAIT_POLL_MS = 250
 // Total workers stay unbounded (one job per worker = full parallelism); this only caps how many
 // heavy spawns (page load + CDP inject + SSO + bridge wait) run at once so a burst doesn't open
 // every authenticated window simultaneously. A grow past the cap waits for a slot, never fails.
@@ -173,15 +179,25 @@ export class WorkerPool {
   // mutex, is what prevents two callers double-booking one free worker. Do NOT insert an await
   // between selectWorkerSlot and claim() or the race becomes real.
   async acquire(agent: string, sessionKey = "", subagent = false): Promise<Worker> {
-    this.prune()
-    let slot = selectWorkerSlot(this.view(), agent, sessionKey)
-    if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey, subagent)
+    // Wait out a busy same-session tab before adopting/growing, so concurrent turns of one session
+    // never fork its WPP thread. The loop re-selects each poll (the tab may free, be reaped, or the
+    // session may still be busy); a "wait" past the deadline falls through to the spawn path.
+    const waitDeadline = Date.now() + SESSION_WAIT_TIMEOUT_MS
+    for (;;) {
+      this.prune()
+      const slot = selectWorkerSlot(this.view(), agent, sessionKey)
+      if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey, subagent)
+      if (slot.action !== "wait" || Date.now() >= waitDeadline) break
+      await wait(SESSION_WAIT_POLL_MS)
+    }
 
     await this.spawnGate.acquire()
     try {
       // A worker may have freed (or been spawned for this agent) while we waited for a spawn slot.
+      // A still-busy same-session tab now reads as "wait" here; we do NOT keep polling under the gate
+      // (that would hold a spawn slot idle) — spawn a fresh thread instead, the same timeout fallback.
       this.prune()
-      slot = selectWorkerSlot(this.view(), agent, sessionKey)
+      const slot = selectWorkerSlot(this.view(), agent, sessionKey)
       if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey, subagent)
 
       const worker = await this.spawn(agent, sessionKey, subagent)
@@ -282,16 +298,18 @@ export class WorkerPool {
     }
   }
 
-  // Best-effort login probe for openaiCompat's post-failure path: read a live worker's page and
+  // Best-effort login probe for openaiCompat's post-failure path: probe a live worker's page and
   // classify it as logged-out or not. Returns a reason string when the WPP session looks logged out,
   // else null. Auth is partition-wide (persist:wpp), so ANY live worker's page answers the question.
+  // Probes every WPP frame (the composer is a cross-origin iframe the top frame's innerText can't
+  // see) and re-fetches each frame's document to catch the soft logout where the cached SPA shell
+  // keeps rendering while its cookies are dead — that state shows no login URL or sign-in text.
   // ponytail: reads an already-live worker only — it will NOT spawn one just to probe (spawn is
   // heavy, and a hard logout already surfaces as wpp_auth_required on the retry's own spawn).
   async checkAuthState(): Promise<string | null> {
     const live = Array.from(this.workers.values()).find((worker) => !worker.window.isDestroyed())
     if (!live) return null
-    const state = await readStartupAuthState(live.window.webContents).catch(() => null)
-    return state ? classifyWppAuthState(state) : null
+    return probeWppAuthState(live.window.webContents).catch(() => null)
   }
 
   // Does a live tab pinned to this session exist? The proxy uses this to decide whether it can send
@@ -417,6 +435,35 @@ async function readStartupAuthState(contents: BrowserWindow["webContents"]) {
     (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
   `, true).catch(() => "")
   return { url: contents.getURL(), text: String(text || "") }
+}
+
+// Post-failure logout probe (checkAuthState). Pass 1: classify every WPP frame's URL + visible text
+// — catches a hard logout and a sign-in UI rendered inside the composer iframe. Pass 2: re-fetch
+// each frame's own document from inside that frame — catches the soft logout where dead cookies
+// leave the cached SPA shell rendering normally (no login URL, no sign-in text anywhere). Each
+// frame's location.href is post-redirect, so a redirect or 401/403 on the re-fetch is decisive.
+async function probeWppAuthState(contents: BrowserWindow["webContents"]): Promise<string | null> {
+  const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
+
+  for (const frame of frames) {
+    const text = await frame.executeJavaScript(`
+      (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
+    `, true).catch(() => "")
+    const reason = classifyWppAuthState({ url: frame.url, text: String(text || "") })
+    if (reason) return reason
+  }
+
+  for (const frame of frames) {
+    const probe = await frame.executeJavaScript(`
+      fetch(location.href, { credentials: "include", cache: "no-store", redirect: "manual" })
+        .then((res) => ({ status: res.status, type: res.type }))
+        .catch(() => null)
+    `, true).catch(() => null)
+    const reason = classifyWppSessionProbe(probe)
+    if (reason) return reason
+  }
+
+  return null
 }
 
 function wait(ms: number) {
