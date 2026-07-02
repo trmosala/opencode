@@ -28,6 +28,7 @@ import {
 } from "./server"
 import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import {
+  createMainWindow,
   getLastFocusedWindow,
   registerRendererProtocol,
   setRelaunchHandler,
@@ -41,6 +42,7 @@ import { registerWslIpcHandlers } from "./wsl/ipc"
 import { spawnWslSidecar } from "./wsl/sidecar"
 import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
+import { createTray, destroyTray } from "./tray"
 import { startWppBridge } from "./wpp-bridge"
 import { openWppLogin } from "./wpp-bridge/session"
 
@@ -76,6 +78,13 @@ function emitDeepLinks(urls: string[]) {
   pendingDeepLinks.push(...urls)
   const win = getLastFocusedWindow()
   if (win) sendDeepLinks(win, urls)
+}
+
+function showMainWindow() {
+  const win = getLastFocusedWindow() ?? createMainWindow()
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 async function killSidecar() {
@@ -200,11 +209,7 @@ const main = Effect.gen(function* () {
       logger.log("deep link received via second-instance", { urls })
       emitDeepLinks(urls)
     }
-    const win = getLastFocusedWindow()
-    if (win) {
-      win.show()
-      win.focus()
-    }
+    showMainWindow()
   })
 
   app.on("open-url", (event: Event, url: string) => {
@@ -215,6 +220,7 @@ const main = Effect.gen(function* () {
 
   app.on("before-quit", () => {
     setAppQuitting()
+    destroyTray()
     void stopSidecars()
   })
 
@@ -405,6 +411,10 @@ const main = Effect.gen(function* () {
       },
     })
   }
+
+  createTray(() => {
+    showMainWindow()
+  })
 })
 
 Effect.runFork(main)
