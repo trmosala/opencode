@@ -15,6 +15,18 @@ test("creates opencode.json with the provider when missing", async () => {
   const config = JSON.parse(await readFile(file, "utf8"))
   expect(config.$schema).toBe("https://opencode.ai/config.json")
   expect(config.provider["o1-code"]).toEqual(O1_CODE_PROVIDER)
+  expect(config.provider["o1-code"].models["o1-code"].cost).toEqual({
+    input: 5,
+    output: 25,
+    cache_read: 0,
+    cache_write: 0,
+  })
+  expect(config.provider["o1-code"].models["o1-code-builder"].cost).toEqual({
+    input: 5,
+    output: 30,
+    cache_read: 0.5,
+    cache_write: 0,
+  })
   expect(config.provider.wpp).toEqual(WPP_PROVIDER)
   expect(config.mcp["chrome-devtools"]).toEqual(O1_CODE_MCP["chrome-devtools"])
   await rm(dir, { recursive: true, force: true })
@@ -57,6 +69,52 @@ test("is a no-op when the provider already exists", async () => {
   await ensureO1CodeProvider(file)
   const config = JSON.parse(await readFile(file, "utf8"))
   expect(config.provider["o1-code"]).toEqual({ name: "custom" })
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("fills missing cost keys on existing seeded models", async () => {
+  const { dir, file } = await tmpFile()
+  await writeFile(
+    file,
+    JSON.stringify({
+      provider: {
+        "o1-code": {
+          name: "custom",
+          models: {
+            "o1-code": { name: "Custom O1", cost: { input: 9 } },
+            "o1-code-builder": { name: "Custom Builder" },
+            deleted: { name: "Deleted stays custom" },
+          },
+        },
+      },
+    }),
+  )
+  await ensureO1CodeProvider(file)
+  const config = JSON.parse(await readFile(file, "utf8"))
+  expect(config.provider["o1-code"].name).toBe("custom")
+  expect(config.provider["o1-code"].models["o1-code"].cost).toEqual({
+    input: 9,
+    output: 25,
+    cache_read: 0,
+    cache_write: 0,
+  })
+  expect(config.provider["o1-code"].models["o1-code-builder"].cost).toEqual({
+    input: 5,
+    output: 30,
+    cache_read: 0.5,
+    cache_write: 0,
+  })
+  expect(config.provider["o1-code"].models.deleted).toEqual({ name: "Deleted stays custom" })
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("cost migration is idempotent after filling missing keys", async () => {
+  const { dir, file } = await tmpFile()
+  await writeFile(file, JSON.stringify({ provider: { "o1-code": { models: { "o1-code": { name: "O1-Code" } } } } }))
+  await ensureO1CodeProvider(file)
+  const first = await readFile(file, "utf8")
+  await ensureO1CodeProvider(file)
+  expect(await readFile(file, "utf8")).toBe(first)
   await rm(dir, { recursive: true, force: true })
 })
 
