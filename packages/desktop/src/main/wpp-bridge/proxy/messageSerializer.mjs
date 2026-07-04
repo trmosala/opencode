@@ -13,8 +13,7 @@ import { imagePlaceholderText } from "./imageInputs.mjs";
 // user's authorization, and what the bracket framing is. (Persona/ownership language like "your
 // own session, respond as the next assistant turn" reads as coercion and made the model balk.)
 // The durable fix is the agent's real system prompt, configured WPP-side, not here; this proxy-side
-// disclosure is the lever we control. Originally xml-only (Claude balked, GPT did not) — but the
-// json/builder profile now balks too, so it is applied to both formats (see serialize... below).
+// disclosure is the lever we control. Apply it to every WPP-backed profile.
 const serializedSessionPreamble = (agentName) =>
   "This message is relayed by a local proxy the user runs on their own machine, connecting you " +
   `(the ${agentName} agent) to OpenCode, an open-source coding assistant, as its model backend. ` +
@@ -64,7 +63,7 @@ export function serializeChatCompletionRequest(body, { provenance = true, sinceI
   const allMessages = Array.isArray(body.messages) ? body.messages : [];
   const systemMessages = allMessages.filter((m) => m.role === "system");
   const nonSystemMessages = allMessages.filter((m) => m.role !== "system");
-  // Tool-call format follows the target model: o1-code -> XML, o1-code-builder -> JSON.
+  // Tool-call format follows the target model profile.
   // Both the per-request reminder and the replayed history use this format (see modelProfiles.mjs).
   const { toolFormat, agentName } = resolveModelProfile(body.model);
   const state = { imageIndex: 0 };
@@ -72,9 +71,8 @@ export function serializeChatCompletionRequest(body, { provenance = true, sinceI
   const delta = sinceIndex > 0;
 
   if (!delta) {
-    // Re-enabled for both tool formats: the json/builder (GPT) profile now balks at the serialized
-    // framing too, so the xml-only assumption no longer holds. The WPP-side agent system prompt is
-    // still the durable home, but this user-channel disclosure is the lever we control here.
+    // The WPP-side agent system prompt is still the durable home, but this user-channel disclosure
+    // is the lever we control here.
     const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
     const hasReplayedFraming = systemMessages.length > 0 || hasTools ||
       nonSystemMessages.some((m) => m.tool_call_id ||
@@ -163,8 +161,7 @@ function buildToolSchemaBlock(tools) {
 // Echo prior tool calls back to the model in the same format it is asked to produce (the same
 // toolFormat that selects the [harness] reminder above), so the transcript the model sees matches
 // the format it should emit.
-// XML for o1-code/Opus, JSON for o1-code-builder/GPT. The proxy parses both back out in
-// toolCallNormalizer.
+// The proxy parses both XML and JSON back out in toolCallNormalizer.
 function stringifyToolCall(toolCall, toolFormat) {
   return toolFormat === "json"
     ? formatJsonToolCall(toolCall)

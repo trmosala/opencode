@@ -3,14 +3,14 @@
 // bridgeOptions.model = agentName) and the format seam (src/messageSerializer.mjs picks the
 // reminder + history-echo format) read from here, so "which agent" and "which format" never drift.
 //
-//   toolFormat "xml"  -> Anthropic <function_calls> blocks (src/anthropicToolFormat.mjs)
+//   toolFormat "xml"  -> <function_calls> blocks (src/anthropicToolFormat.mjs)
 //   toolFormat "json" -> {"type":"tool_call","tool":...,"args":{}} (src/jsonToolFormat.mjs)
 //
 // The agentName is also the affinity key the extension uses to pin a tab to one agent
 // (extension/background.js) and the label it selects in the composer pill (extension/content.js).
 const PROFILES = {
   "o1-code": { agentName: "OgilvyOneCoder", toolFormat: "xml" },
-  "o1-code-builder": { agentName: "OgilvyOneCoder_Builder", toolFormat: "json" }
+  "o1-code-builder": { agentName: "OgilvyOneCoder_Builder", toolFormat: "xml" }
 };
 
 const DEFAULT_MODEL_ID = "o1-code";
