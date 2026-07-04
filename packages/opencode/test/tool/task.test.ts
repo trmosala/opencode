@@ -3,11 +3,13 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
+import path from "path"
+import { Deferred, Effect, Exit, Fiber } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Config } from "@/config/config"
+import { Provider } from "@/provider/provider"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Session } from "@/session/session"
@@ -16,11 +18,11 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 
-import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
+import { FORCED_SUBAGENT_MODEL, TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { disposeAllInstances } from "../fixture/fixture"
+import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -34,6 +36,33 @@ const ref = {
   modelID: ModelV2.ID.make("test-model"),
 }
 
+const forcedProviderConfig = {
+  "o1-code": {
+    name: "O1 Code",
+    id: "o1-code",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    models: {
+      "o1-code-builder": {
+        id: "o1-code-builder",
+        name: "O1 Code Builder",
+        attachment: false,
+        reasoning: false,
+        temperature: false,
+        tool_call: true,
+        release_date: "2025-01-01",
+        limit: { context: 100000, output: 10000 },
+        cost: { input: 0, output: 0 },
+        options: {},
+      },
+    },
+    options: {
+      apiKey: "test-key",
+      baseURL: "http://localhost:1/v1",
+    },
+  },
+}
+
 const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   LayerNode.compile(
     LayerNode.group([
@@ -41,6 +70,7 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       BackgroundJob.node,
       EventV2Bridge.node,
       Config.node,
+      Provider.node,
       CrossSpawnSpawner.node,
       Session.node,
       SessionProjector.node,
@@ -67,6 +97,23 @@ function defer<T>() {
 }
 
 const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
+  const test = yield* TestInstance
+  yield* Effect.promise(async () => {
+    const file = path.join(test.directory, "opencode.json")
+    const current = await Bun.file(file)
+      .json()
+      .catch(() => ({}))
+    const config = current && typeof current === "object" && !Array.isArray(current) ? current : {}
+    const provider = "provider" in config && typeof config.provider === "object" && config.provider ? config.provider : {}
+    await Bun.write(
+      file,
+      JSON.stringify({
+        ...config,
+        $schema: "https://opencode.ai/config.json",
+        provider: { ...provider, ...forcedProviderConfig },
+      }),
+    )
+  })
   const session = yield* Session.Service
   const chat = yield* session.create({ title })
   const user = yield* session.updateMessage({
@@ -249,8 +296,10 @@ describe("tool.task", () => {
       expect(kids).toHaveLength(1)
       expect(kids[0]?.id).toBe(child.id)
       expect(result.metadata.sessionId).toBe(child.id)
+      expect(result.metadata.model).toEqual(FORCED_SUBAGENT_MODEL)
       expect(result.output).toContain(`<task id="${child.id}" state="completed">`)
       expect(seen?.sessionID).toBe(child.id)
+      expect(seen?.model).toEqual(FORCED_SUBAGENT_MODEL)
       expect(seen?.variant).toBe("xhigh")
     }),
   )
@@ -437,6 +486,7 @@ describe("tool.task", () => {
             action: "deny",
           },
         ])
+        expect(seen?.model).toEqual(FORCED_SUBAGENT_MODEL)
         expect(seen?.tools).toBeUndefined()
       }),
     {
@@ -444,6 +494,7 @@ describe("tool.task", () => {
         agent: {
           reviewer: {
             mode: "subagent",
+            model: "test/subagent-model",
             permission: {
               task: "allow",
             },

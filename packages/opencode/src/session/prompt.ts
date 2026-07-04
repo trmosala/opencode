@@ -44,7 +44,7 @@ import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { InstanceState } from "@/effect/instance-state"
-import { TaskTool, type TaskPromptOps } from "@/tool/task"
+import { FORCED_SUBAGENT_MODEL, TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -254,17 +254,16 @@ const layer = Layer.effect(
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
       task: SessionV1.SubtaskPart
-      model: Provider.Model
       lastUser: SessionV1.User
       sessionID: SessionID
       session: Session.Info
       msgs: SessionV1.WithParts[]
     }) {
-      const { task, model, lastUser, sessionID, session, msgs } = input
+      const { task, lastUser, sessionID, session, msgs } = input
       const ctx = yield* InstanceState.context
       const promptOps = yield* ops()
       const { task: taskTool } = yield* registry.named()
-      const taskModel = task.model ? yield* getModel(task.model.providerID, task.model.modelID, sessionID) : model
+      const taskModel = yield* getModel(FORCED_SUBAGENT_MODEL.providerID, FORCED_SUBAGENT_MODEL.modelID, sessionID)
       const assistantMessage: SessionV1.Assistant = yield* sessions.updateMessage({
         id: MessageID.ascending(),
         role: "assistant",
@@ -1142,7 +1141,7 @@ const layer = Layer.effect(
           const task = tasks.pop()
 
           if (task?.type === "subtask") {
-            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
+            yield* handleSubtask({ task, lastUser, sessionID, session, msgs })
             continue
           }
 

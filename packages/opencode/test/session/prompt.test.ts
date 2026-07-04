@@ -46,6 +46,7 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "@opencode-ai/core/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
+import { FORCED_SUBAGENT_MODEL } from "@/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
@@ -95,18 +96,11 @@ function toolPart(parts: SessionV1.Part[]) {
 }
 
 type CompletedToolPart = SessionV1.ToolPart & { state: SessionV1.ToolStateCompleted }
-type ErrorToolPart = SessionV1.ToolPart & { state: SessionV1.ToolStateError }
 
 function completedTool(parts: SessionV1.Part[]) {
   const part = toolPart(parts)
   expect(part?.state.status).toBe("completed")
   return part?.state.status === "completed" ? (part as CompletedToolPart) : undefined
-}
-
-function errorTool(parts: SessionV1.Part[]) {
-  const part = toolPart(parts)
-  expect(part?.state.status).toBe("error")
-  return part?.state.status === "error" ? (part as ErrorToolPart) : undefined
 }
 
 function makeMcp(instructions: MCP.ServerInstructions[] = []) {
@@ -284,6 +278,30 @@ const cfg = {
         baseURL: "http://localhost:1/v1",
       },
     },
+    "o1-code": {
+      name: "O1 Code",
+      id: "o1-code",
+      env: [],
+      npm: "@ai-sdk/openai-compatible",
+      models: {
+        "o1-code-builder": {
+          id: "o1-code-builder",
+          name: "O1 Code Builder",
+          attachment: false,
+          reasoning: false,
+          temperature: false,
+          tool_call: true,
+          release_date: "2025-01-01",
+          limit: { context: 100000, output: 10000 },
+          cost: { input: 0, output: 0 },
+          options: {},
+        },
+      },
+      options: {
+        apiKey: "test-key",
+        baseURL: "http://localhost:1/v1",
+      },
+    },
   },
 }
 
@@ -296,6 +314,13 @@ function providerCfg(url: string) {
         ...cfg.provider.test,
         options: {
           ...cfg.provider.test.options,
+          baseURL: url,
+        },
+      },
+      "o1-code": {
+        ...cfg.provider["o1-code"],
+        options: {
+          ...cfg.provider["o1-code"].options,
           baseURL: url,
         },
       },
@@ -877,47 +902,39 @@ it.instance("loop continues when finish is stop but assistant has tool parts", (
   }),
 )
 
-it.instance("failed subtask preserves metadata on error tool state", () =>
+it.instance("persisted subtask ignores stored model and uses forced builder model", () =>
   Effect.gen(function* () {
-    const { llm } = yield* useServerConfig((url) => ({
-      ...providerCfg(url),
-      agent: {
-        general: {
-          model: "test/missing-model",
-        },
-      },
-    }))
+    const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({ title: "Pinned" })
-    yield* llm.tool("task", {
-      description: "inspect bug",
-      prompt: "look into the cache key path",
-      subagent_type: "general",
-    })
-    yield* llm.text("done")
+    yield* llm.textMatch((hit) => hit.body.model === "o1-code-builder", "subtask done")
+    yield* llm.textMatch((hit) => hit.body.model === "test-model", "parent done")
     const msg = yield* user(chat.id, "hello")
-    yield* addSubtask(chat.id, msg.id)
+    yield* addSubtask(chat.id, msg.id, {
+      providerID: ProviderV2.ID.make("test"),
+      modelID: ModelV2.ID.make("missing-model"),
+    })
 
     const result = yield* prompt.loop({ sessionID: chat.id })
     expect(result.info.role).toBe("assistant")
     expect(yield* llm.calls).toBe(2)
+    expect(result.parts.some((part) => part.type === "text" && part.text === "parent done")).toBe(true)
+
+    const kids = yield* sessions.children(chat.id)
+    expect(kids).toHaveLength(1)
+    const childMessages = yield* sessions.messages({ sessionID: kids[0].id })
+    const childUser = childMessages.find((item) => item.info.role === "user")
+    expect(childUser?.info.role).toBe("user")
+    if (childUser?.info.role === "user") expect(childUser.info.model).toEqual(FORCED_SUBAGENT_MODEL)
 
     const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
     const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
     expect(taskMsg?.info.role).toBe("assistant")
     if (!taskMsg || taskMsg.info.role !== "assistant") return
 
-    const tool = errorTool(taskMsg.parts)
-    if (!tool) return
-
-    expect(tool.state.error).toContain("Tool execution failed")
-    expect(tool.state.metadata).toBeDefined()
-    expect(tool.state.metadata?.sessionId).toBeDefined()
-    expect(tool.state.metadata?.model).toEqual({
-      providerID: ProviderV2.ID.make("test"),
-      modelID: ModelV2.ID.make("missing-model"),
-    })
+    const tool = completedTool(taskMsg.parts)
+    expect(tool?.state.metadata?.model).toEqual(FORCED_SUBAGENT_MODEL)
   }),
 )
 
@@ -938,7 +955,7 @@ it.instance("subtask child inherits parent session external_directory allow", ()
 
     const kids = yield* sessions.children(chat.id)
     expect(kids).toHaveLength(1)
-    const child = kids[0]!
+    const child = kids[0]
     const rules = child.permission ?? []
     expect(rules).toEqual(
       expect.arrayContaining([{ permission: "external_directory", pattern: "/tmp/allowed/*", action: "allow" }]),
@@ -1002,7 +1019,7 @@ it.instance(
       if (tool.state.status !== "running") return
       expect(typeof tool.state.metadata?.sessionId).toBe("string")
       expect(tool.state.title).toBeDefined()
-      expect(tool.state.metadata?.model).toBeDefined()
+      expect(tool.state.metadata?.model).toEqual(FORCED_SUBAGENT_MODEL)
 
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)

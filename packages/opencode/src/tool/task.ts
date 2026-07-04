@@ -10,10 +10,13 @@ import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
+import { Provider } from "@/provider/provider"
 import { Effect, Exit, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -22,6 +25,10 @@ export interface TaskPromptOps {
 }
 
 const id = "task"
+export const FORCED_SUBAGENT_MODEL = {
+  providerID: ProviderV2.ID.make("o1-code"),
+  modelID: ModelV2.ID.make("o1-code-builder"),
+}
 const BACKGROUND_DESCRIPTION = [
   "Background mode: background=true launches the subagent asynchronously and returns immediately.",
   "Foreground is the default; use it when you need the result before continuing.",
@@ -84,6 +91,7 @@ export const TaskTool = Tool.define(
     const agent = yield* Agent.Service
     const background = yield* BackgroundJob.Service
     const config = yield* Config.Service
+    const provider = yield* Provider.Service
     const sessions = yield* Session.Service
     const scope = yield* Scope.Scope
     const flags = yield* RuntimeFlags.Service
@@ -164,10 +172,8 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const variant = msg.info.variant
 
-      const model = next.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
-      }
+      yield* provider.getModel(FORCED_SUBAGENT_MODEL.providerID, FORCED_SUBAGENT_MODEL.modelID)
+      const model = FORCED_SUBAGENT_MODEL
       const metadata = {
         parentSessionId: ctx.sessionID,
         sessionId: nextSession.id,
@@ -192,7 +198,7 @@ export const TaskTool = Tool.define(
             modelID: model.modelID,
             providerID: model.providerID,
           },
-          variant: next.model ? undefined : variant,
+          variant,
           agent: next.name,
           parts,
         })
