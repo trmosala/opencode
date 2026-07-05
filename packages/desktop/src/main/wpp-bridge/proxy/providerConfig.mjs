@@ -49,7 +49,10 @@ export const O1_CODE_PROVIDER = {
         output: ["text"],
       },
       limit: {
-        context: 1000000,
+        // Keep usable (context - output) under the proxy's O1_CODE_MAX_PROMPT_CHARS (600k chars
+        // ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
+        // prompt. 250k - 128k = 122k tok usable ≈ ~488k chars, comfortably under the cap.
+        context: 250000,
         output: 128000,
       },
     },
@@ -66,7 +69,10 @@ export const O1_CODE_PROVIDER = {
         output: ["text"],
       },
       limit: {
-        context: 1000000,
+        // Keep usable (context - output) under the proxy's O1_CODE_MAX_PROMPT_CHARS (600k chars
+        // ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
+        // prompt. 250k - 128k = 122k tok usable ≈ ~488k chars, comfortably under the cap.
+        context: 250000,
         output: 128000,
       },
     },
