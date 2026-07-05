@@ -2,6 +2,14 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
+// Advertised model context/output limits. Context is kept below the proxy's O1_CODE_MAX_PROMPT_CHARS
+// (600k chars ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
+// prompt: 250k - 128k = 122k tok usable ≈ ~488k chars, comfortably under the cap. Also injected via
+// OPENCODE_CONFIG_CONTENT (see o1CodeConfigContent) so this wins even on a machine whose seeded
+// opencode.json still carries the old value.
+export const O1_CODE_CONTEXT_LIMIT = 250000
+export const O1_CODE_OUTPUT_LIMIT = 128000
+
 // Browser control for OpenCode is delivered as an MCP server, not proxy/extension logic:
 // OpenCode owns the MCP process and its tools, keeping this repo transport-only. The model
 // reaches these tools through OpenCode's normal tool surface — no proxy/extension changes
@@ -49,11 +57,8 @@ export const O1_CODE_PROVIDER = {
         output: ["text"],
       },
       limit: {
-        // Keep usable (context - output) under the proxy's O1_CODE_MAX_PROMPT_CHARS (600k chars
-        // ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
-        // prompt. 250k - 128k = 122k tok usable ≈ ~488k chars, comfortably under the cap.
-        context: 250000,
-        output: 128000,
+        context: O1_CODE_CONTEXT_LIMIT,
+        output: O1_CODE_OUTPUT_LIMIT,
       },
     },
     // Routed to the WPP "OgilvyOneCoder_Builder" agent (GPT-5.5) — a faster building backend.
@@ -69,11 +74,8 @@ export const O1_CODE_PROVIDER = {
         output: ["text"],
       },
       limit: {
-        // Keep usable (context - output) under the proxy's O1_CODE_MAX_PROMPT_CHARS (600k chars
-        // ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
-        // prompt. 250k - 128k = 122k tok usable ≈ ~488k chars, comfortably under the cap.
-        context: 250000,
-        output: 128000,
+        context: O1_CODE_CONTEXT_LIMIT,
+        output: O1_CODE_OUTPUT_LIMIT,
       },
     },
   },
@@ -86,6 +88,19 @@ const SEED_MCP = O1_CODE_MCP
 // Resolve the user's global opencode.json the same way the sidecar does (xdg-basedir's config dir).
 export function o1CodeConfigFile() {
   return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode", "opencode.json")
+}
+
+// Limit-only config blob for OPENCODE_CONFIG_CONTENT. OpenCode deep-merges this last (local scope),
+// so it overrides the context cap on both models even when the seeded opencode.json still carries a
+// stale value, while leaving provider/model/MCP definitions file-driven and user-editable. Kept to
+// only the limit so we don't freeze anything a user might legitimately want to tune.
+export function o1CodeConfigContent() {
+  const limit = { context: O1_CODE_CONTEXT_LIMIT, output: O1_CODE_OUTPUT_LIMIT }
+  return JSON.stringify({
+    provider: {
+      "o1-code": { models: { "o1-code": { limit }, "o1-code-builder": { limit } } },
+    },
+  })
 }
 
 // Seed the providers + MCP server into opencode.json so a new user gets them without manual setup.

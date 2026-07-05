@@ -2,7 +2,15 @@ import { expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ensureO1CodeProvider, O1_CODE_MCP, O1_CODE_PROVIDER, WPP_PROVIDER } from "./providerConfig.mjs"
+import {
+  ensureO1CodeProvider,
+  O1_CODE_CONTEXT_LIMIT,
+  O1_CODE_MCP,
+  O1_CODE_OUTPUT_LIMIT,
+  O1_CODE_PROVIDER,
+  o1CodeConfigContent,
+  WPP_PROVIDER,
+} from "./providerConfig.mjs"
 
 async function tmpFile() {
   const dir = await mkdtemp(join(tmpdir(), "o1-config-"))
@@ -125,4 +133,14 @@ test("leaves an unparseable file untouched", async () => {
   await ensureO1CodeProvider(file)
   expect(await readFile(file, "utf8")).toBe(original)
   await rm(dir, { recursive: true, force: true })
+})
+
+test("config content blob carries the shared limit for both models", () => {
+  const limit = { context: O1_CODE_CONTEXT_LIMIT, output: O1_CODE_OUTPUT_LIMIT }
+  const models = JSON.parse(o1CodeConfigContent()).provider["o1-code"].models
+  expect(models["o1-code"].limit).toEqual(limit)
+  expect(models["o1-code-builder"].limit).toEqual(limit)
+  // Seed file and injected blob must advertise the same cap, or one path would drift.
+  expect(O1_CODE_PROVIDER.models["o1-code"].limit).toEqual(limit)
+  expect(O1_CODE_PROVIDER.models["o1-code-builder"].limit).toEqual(limit)
 })

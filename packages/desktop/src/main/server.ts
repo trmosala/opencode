@@ -6,6 +6,7 @@ import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
+import { o1CodeConfigContent } from "./wpp-bridge/proxy/providerConfig.mjs"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -49,6 +50,9 @@ export function preferAppEnv(userDataPath: string) {
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
+    // Force the o1-code context cap in even if the seeded opencode.json carries a stale value.
+    // Respect a user who set CONTENT themselves — they own the full merge in that case.
+    OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(),
   })
 }
 
