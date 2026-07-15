@@ -1,9 +1,9 @@
 import { WorkerPool } from "../worker-pool";
+import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs";
 
 const DEFAULT_EXTENSION_TIMEOUT_MS = Number(process.env.O1_CODE_EXTENSION_TIMEOUT_MS || process.env.O1_CODE_TIMEOUT_MS || 900000);
 const DEFAULT_CLIENT_TTL_MS = Number(process.env.O1_CODE_CLIENT_TTL_MS || 10 * 60 * 1000);
 const MAX_RECENT_JOBS = 20;
-const DEFAULT_CHAT_URL = "https://ogilvy.os.wpp.com/agent/workspace";
 
 export class ExtensionBridge {
   constructor() {
@@ -299,7 +299,7 @@ export class ExtensionBridge {
 
   createWorkerJob(prompt, options, timeoutMs) {
     const createdAtMs = Date.now();
-    const url = options.url || process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || DEFAULT_CHAT_URL;
+    const url = options.url || process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || WPP_COOKIE_MONSTER_PROJECT_URL;
     return {
       id: crypto.randomUUID(),
       type: "ask",
@@ -311,7 +311,7 @@ export class ExtensionBridge {
         images: options.images || [],
         target: options.target || process.env.O1_CODE_TARGET || "coding-agent",
         url,
-        model: options.model || "OgilvyOneCoder",
+        model: options.model || "CookieMonster_Opus 4.8 - Extra High",
         // Pins this turn to the OpenCode session's worker tab so its WPP thread holds context.
         sessionKey: options.sessionKey || "",
         // True when this session is a sub-agent (child) — the pool reaps its tab on a shorter TTL.

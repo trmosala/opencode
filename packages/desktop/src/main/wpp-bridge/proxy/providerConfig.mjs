@@ -23,7 +23,8 @@ export const O1_CODE_MCP = {
   },
 }
 
-// Ogilvy One Coder, exposed directly off the local WPP proxy.
+// Legacy direct-WPP provider retained for existing user config. Requests still resolve through the
+// proxy's default CookieMonster profile when this provider sends an unrecognised model id.
 export const WPP_PROVIDER = {
   npm: "@ai-sdk/openai-compatible",
   name: "WPP AI",
@@ -49,7 +50,8 @@ export const O1_CODE_PROVIDER = {
     "o1-code": {
       name: "O1-Code",
       attachment: true,
-      // Claude Opus 4.8 via OgilvyOneCoder. WPP /models captured 2026-07-03 priced it at
+      // Claude Opus 4.8 via CookieMonster_Opus 4.8 - Extra High. WPP /models captured 2026-07-03
+      // priced it at
       // $0.005 / 1K input and $0.025 / 1K output; OpenCode config uses dollars per 1M tokens.
       cost: { input: 5, output: 25, cache_read: 0, cache_write: 0 },
       modalities: {
@@ -61,7 +63,7 @@ export const O1_CODE_PROVIDER = {
         output: O1_CODE_OUTPUT_LIMIT,
       },
     },
-    // Routed to the WPP "OgilvyOneCoder_Builder" agent (GPT-5.5) — a faster building backend.
+    // Routed to CookieMonster_GPT-5.5 - Extra High — a faster building backend.
     // See src/modelProfiles.mjs for the model-id -> agent + tool-call-format mapping.
     "o1-code-builder": {
       name: "O1-Code Builder",

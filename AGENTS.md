@@ -202,7 +202,7 @@ Concurrency: `SpawnGate` serializes *heavy* spawns (page load + CDP inject + SSO
 
 Auth: a job hitting auth-required calls `markAuthRequired` → fire-once `openWppLogin()` shows a *visible* BrowserWindow for interactive SSO; the `persist:wpp` partition then keeps the session for subsequent headless workers. The login callback is wired from `main/index.ts` at boot.
 
-Serialiser caveat: `openaiCompat.mjs` translates the OpenCode session into what the WPP Open page receives. Keep role structure intact — flattening the transcript into one user turn (with embedded `[system]`/tool-result text) is what makes the backend treat it as prompt injection.
+Serializer contract: `openaiCompat.mjs` translates the OpenCode session into the versioned `CM_REQUEST_V1` envelope defined by `proxy/protocol.mjs`. Preserve its instruction/tool/message structure; free-form `[system]` or tool-result framing makes the WPP backend treat the relay as prompt injection. The matching WPP-side instruction is versioned in `wpp-bridge/WPP_AGENT_SYSTEM_PROMPT.md` and must be installed on every routed agent before removing its legacy compatibility paragraph.
 
 The `*.mjs` files in `wpp-bridge/proxy/` are plain ESM (not TS-compiled) and run in the Electron main process — edit them directly.
 

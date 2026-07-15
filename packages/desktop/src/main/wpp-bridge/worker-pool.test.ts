@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError } from "./worker-startup"
+import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppProjectAccessState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError, wppProjectAccessError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
+import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 
 const worker = (
   id: number,
@@ -183,7 +184,7 @@ describe("worker startup helpers", () => {
   test("classifies login-like WPP startup states as auth required", () => {
     expect(classifyWppAuthState({ url: "https://idp.example.com/oauth/authorize" })).toContain("login")
     expect(classifyWppAuthState({ text: "Your session expired. Sign in again." })).toContain("sign-in")
-    expect(classifyWppAuthState({ url: "https://ogilvy.os.wpp.com/agent/workspace", text: "AI Assistant" })).toBe(null)
+    expect(classifyWppAuthState({ url: WPP_COOKIE_MONSTER_PROJECT_URL, text: "AI Assistant" })).toBe(null)
 
     const error = wppAuthRequiredError("WPP page is asking for sign-in") as Error & {
       statusCode: number
@@ -193,8 +194,19 @@ describe("worker startup helpers", () => {
     expect(error.type).toBe("wpp_auth_required")
   })
 
+  test("reports project authorization separately from login", () => {
+    const state = { url: WPP_COOKIE_MONSTER_PROJECT_URL, text: "Access denied" }
+    const reason = classifyWppProjectAccessState(state)
+    expect(reason).toContain("does not have access")
+    expect(classifyWppAuthState(state)).toBe(null)
+
+    const error = wppProjectAccessError(reason, state) as Error & { statusCode: number; type: string }
+    expect(error.statusCode).toBe(403)
+    expect(error.type).toBe("wpp_project_access_denied")
+  })
+
   test("scopes the logout probe to WPP frames only", () => {
-    expect(isWppFrameUrl("https://ogilvy.os.wpp.com/agent/workspace")).toBe(true)
+    expect(isWppFrameUrl(WPP_COOKIE_MONSTER_PROJECT_URL)).toBe(true)
     expect(isWppFrameUrl("https://open-web-deeplink-cs.wpp.ai/chat")).toBe(true)
     // A silent-SSO renewer iframe on the IdP origin must NOT be probed: its URL matches the login
     // pattern even while the session is perfectly healthy.
@@ -209,7 +221,7 @@ describe("worker startup helpers", () => {
     expect(classifyWppSessionProbe({ status: 0, type: "opaqueredirect" })).toContain("expired")
     expect(classifyWppSessionProbe({ status: 302, type: "default" })).toContain("expired")
     expect(classifyWppSessionProbe({ status: 401, type: "basic" })).toContain("401")
-    expect(classifyWppSessionProbe({ status: 403, type: "basic" })).toContain("403")
+    expect(classifyWppSessionProbe({ status: 403, type: "basic" })).toBe(null)
     // Live session answers 2xx; a failed/unreadable probe stays inconclusive rather than
     // false-positiving the SSO popup after an unrelated turn failure.
     expect(classifyWppSessionProbe({ status: 200, type: "basic" })).toBe(null)

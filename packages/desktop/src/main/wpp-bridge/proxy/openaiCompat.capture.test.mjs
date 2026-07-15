@@ -5,7 +5,7 @@ mock.module("electron", () => ({ BrowserWindow: function BrowserWindow() {}, ses
 const { handleChatCompletions, shouldRetryFreshReplay } = await import("./openaiCompat.mjs");
 const { commitThread, resetThread } = await import("./sessionThreads.mjs");
 
-const KEY = "sess-A::OgilvyOneCoder";
+const KEY = "sess-A::CookieMonster_Opus 4.8 - Extra High";
 
 afterEach(() => {
   resetThread(KEY);
@@ -13,7 +13,7 @@ afterEach(() => {
 
 describe("handleChatCompletions capture retry", () => {
   test("retries a capture failure once as a fresh replay", async () => {
-    commitThread(KEY, body(user("hello")));
+    commitThread(KEY, body(user("hello")), assistant("previous"));
     const calls = [];
     const response = fakeResponse();
     const bridge = {
@@ -28,7 +28,7 @@ describe("handleChatCompletions capture retry", () => {
     await withNoRunLogs(() => handleChatCompletions(
       { headers: { "x-session-affinity": "sess-A" } },
       response,
-      body(user("hello"), user("more")),
+      body(user("hello"), assistant("previous"), user("more")),
       { bridge },
     ));
 
@@ -41,7 +41,7 @@ describe("handleChatCompletions capture retry", () => {
   });
 
   test("surfaces a typed capture failure after one failed retry", async () => {
-    commitThread(KEY, body(user("hello")));
+    commitThread(KEY, body(user("hello")), assistant("previous"));
     const response = fakeResponse();
     const bridge = {
       hasSession: () => true,
@@ -53,7 +53,7 @@ describe("handleChatCompletions capture retry", () => {
     await withNoRunLogs(() => handleChatCompletions(
       { headers: { "x-session-affinity": "sess-A" } },
       response,
-      body(user("hello"), user("more")),
+      body(user("hello"), assistant("previous"), user("more")),
       { bridge },
     ));
 
@@ -69,7 +69,7 @@ describe("handleChatCompletions capture retry", () => {
   // failure is reclassified as wpp_auth_required (and the SSO window is popped via markAuthRequired)
   // so the operator is told to log in rather than shown a recorder/capture error.
   test("reclassifies an exhausted failure as auth-required when the session is logged out", async () => {
-    commitThread(KEY, body(user("hello")));
+    commitThread(KEY, body(user("hello")), assistant("previous"));
     const response = fakeResponse();
     let authMarked = null;
     const bridge = {
@@ -86,7 +86,7 @@ describe("handleChatCompletions capture retry", () => {
     await withNoRunLogs(() => handleChatCompletions(
       { headers: { "x-session-affinity": "sess-A" } },
       response,
-      body(user("hello"), user("more")),
+      body(user("hello"), assistant("previous"), user("more")),
       { bridge },
     ));
 
@@ -100,7 +100,7 @@ describe("handleChatCompletions capture retry", () => {
 
   // A logged-IN probe (null reason) must leave the original failure untouched — no false auth pop.
   test("leaves the original failure when the session probes as logged in", async () => {
-    commitThread(KEY, body(user("hello")));
+    commitThread(KEY, body(user("hello")), assistant("previous"));
     const response = fakeResponse();
     let authMarked = false;
     const bridge = {
@@ -117,7 +117,7 @@ describe("handleChatCompletions capture retry", () => {
     await withNoRunLogs(() => handleChatCompletions(
       { headers: { "x-session-affinity": "sess-A" } },
       response,
-      body(user("hello"), user("more")),
+      body(user("hello"), assistant("previous"), user("more")),
       { bridge },
     ));
 
@@ -134,7 +134,7 @@ describe("handleChatCompletions capture retry", () => {
   // and the proxy replays once on a fresh worker exactly like a capture failure.
   for (const type of ["o1_code_recorder_not_armed", "o1_code_thread_desync"]) {
     test(`retries a ${type} failure once as a fresh replay`, async () => {
-      commitThread(KEY, body(user("hello")));
+      commitThread(KEY, body(user("hello")), assistant("previous"));
       const calls = [];
       const response = fakeResponse();
       const bridge = {
@@ -149,7 +149,7 @@ describe("handleChatCompletions capture retry", () => {
       await withNoRunLogs(() => handleChatCompletions(
         { headers: { "x-session-affinity": "sess-A" } },
         response,
-        body(user("hello"), user("more")),
+        body(user("hello"), assistant("previous"), user("more")),
         { bridge },
       ));
 
@@ -187,7 +187,7 @@ describe("shouldRetryFreshReplay", () => {
 
 describe("handleChatCompletions token usage", () => {
   test("maps WPP's cumulative token pill onto prompt_tokens", async () => {
-    commitThread(KEY, body(user("hello")));
+    commitThread(KEY, body(user("hello")), assistant("previous"));
     const response = fakeResponse();
     const bridge = {
       hasSession: () => true,
@@ -197,7 +197,7 @@ describe("handleChatCompletions token usage", () => {
     await withNoRunLogs(() => handleChatCompletions(
       { headers: { "x-session-affinity": "sess-A" } },
       response,
-      body(user("hello"), user("more")),
+      body(user("hello"), assistant("previous"), user("more")),
       { bridge },
     ));
 
@@ -206,7 +206,7 @@ describe("handleChatCompletions token usage", () => {
   });
 
   test("falls back to the heuristic prompt tokens when no pill is present", async () => {
-    commitThread(KEY, body(user("hello")));
+    commitThread(KEY, body(user("hello")), assistant("previous"));
     const response = fakeResponse();
     const bridge = {
       hasSession: () => true,
@@ -216,7 +216,7 @@ describe("handleChatCompletions token usage", () => {
     await withNoRunLogs(() => handleChatCompletions(
       { headers: { "x-session-affinity": "sess-A" } },
       response,
-      body(user("hello"), user("more")),
+      body(user("hello"), assistant("previous"), user("more")),
       { bridge },
     ));
 
@@ -227,12 +227,71 @@ describe("handleChatCompletions token usage", () => {
   });
 });
 
+describe("handleChatCompletions session serialization", () => {
+  test("calculates the second delta only after the first turn commits", async () => {
+    let releaseFirst;
+    let markFirstStarted;
+    const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+    const firstStarted = new Promise((resolve) => { markFirstStarted = resolve; });
+    const calls = [];
+    const bridge = {
+      hasSession: () => true,
+      run: async (prompt, options) => {
+        calls.push({ prompt, options });
+        if (calls.length === 1) {
+          markFirstStarted();
+          await firstGate;
+          return bridgeRun("first answer");
+        }
+        return bridgeRun("second answer");
+      },
+    };
+    const firstResponse = fakeResponse();
+    const secondResponse = fakeResponse();
+    const previousLogs = process.env.O1_CODE_PROXY_LOGS;
+    process.env.O1_CODE_PROXY_LOGS = "0";
+
+    const first = handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      firstResponse,
+      body(user("hello")),
+      { bridge },
+    );
+    await firstStarted;
+
+    const second = handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      secondResponse,
+      body(user("hello"), assistant("first answer"), user("more")),
+      { bridge },
+    );
+    await Promise.resolve();
+    expect(calls).toHaveLength(1);
+
+    releaseFirst();
+    try {
+      await Promise.all([first, second]);
+    } finally {
+      if (previousLogs == null) delete process.env.O1_CODE_PROXY_LOGS;
+      else process.env.O1_CODE_PROXY_LOGS = previousLogs;
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].options.continueThread).toBe(true);
+    expect(JSON.parse(calls[1].prompt).messages).toEqual([{ role: "user", content: "more" }]);
+  });
+});
+
 function body(...messages) {
   return { model: "o1-code", stream: false, messages };
 }
 
 function user(content) {
   return { role: "user", content };
+}
+
+function assistant(content) {
+  return { role: "assistant", content };
 }
 
 function bridgeRun(content, extraResponse = {}) {

@@ -2,7 +2,7 @@
 // is plain prose (safe to stream live to the OpenCode UI) or a tool call (must be suppressed
 // until the full text is captured and normalized into structured tool_calls).
 //
-// The OgilvyOneCoder persona emits tool calls as inline Anthropic-style XML
+// CookieMonster coding agents emit tool calls as inline Anthropic-style XML
 // (`<function_calls><invoke …>`), sometimes wrapped in a code fence, and occasionally as a
 // leading JSON object (`{"type":"tool_call",…}`). The proxy only converts those into real
 // tool_calls AFTER the complete text arrives (see toolCallNormalizer.mjs). If we streamed

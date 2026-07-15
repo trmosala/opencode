@@ -186,7 +186,7 @@ async function runJobWithProgress(job, jobId) {
 
   const prompt = String(job?.payload?.prompt || "");
   const verboseRecorder = job?.payload?.verboseRecorder === true;
-  const expectedAgent = String(job?.payload?.model || "OgilvyOneCoder").trim();
+  const expectedAgent = String(job?.payload?.model || "CookieMonster_Opus 4.8 - Extra High").trim();
   // Continue the pinned thread: the proxy sent only the delta turn and the tab already holds prior
   // context, so we must NOT click New Chat (that wipes it) nor reselect the agent (already set).
   const continueThread = job?.payload?.continueThread === true;
@@ -205,9 +205,9 @@ async function runJobWithProgress(job, jobId) {
   const textarea = await waitForTextarea(SETUP_TIMEOUT_MS);
   const attachments = await attachImages(job?.payload?.images || [], textarea, SETUP_TIMEOUT_MS);
 
-  // Guarantee the OgilvyOneCoder agent is selected. "New Chat" can reset the
+  // Guarantee the routed CookieMonster agent is selected. "New Chat" can reset the
   // picker to the default base model, so this must run after startFreshChat and before
-  // submitting. OgilvyOneCoder is an Agent (not a base model) under the "Agents and Models"
+  // submitting. CookieMonster targets are agents (not base models) under the "Agents and Models"
   // picker — selection state is read from the composer pill label, which is the authoritative
   // signal (the network model field reports the agent's underlying base model).
   const agentSelection = continueThread
@@ -1017,8 +1017,8 @@ function findStopButton(textarea) {
 
 // Tokens that identify the model/agent pill in the composer toolbar. The pill shows the
 // currently selected base model ("Gemini 3.5 Flash", "GPT-…", "Claude …") or agent
-// ("OgilvyOneCoder"). Matched by visible text rather than generated class names.
-const MODEL_PILL_TOKENS = /OgilvyOneCoder|Ogilvy\s*One|Gemini|GPT|Claude|Sonnet|Opus|Haiku|Flash|OpenAI|Anthropic|Google/i;
+// (for example, a CookieMonster agent). Matched by visible text rather than generated class names.
+const MODEL_PILL_TOKENS = /CookieMonster|OgilvyOneCoder|Ogilvy\s*One|Gemini|GPT|Claude|Sonnet|Opus|Haiku|Flash|OpenAI|Anthropic|Google/i;
 const MODEL_SEARCH_PLACEHOLDER = /search/i;
 const INTERACTIVE_SELECTOR = "button, [role='button'], [role='option'], [role='menuitem'], [role='listitem'], [role='combobox'], [aria-expanded], a, [tabindex]";
 const MODEL_PICKER_ROOT_SELECTOR = [
@@ -1392,12 +1392,12 @@ function findAgentOptionCard(expectedAgent) {
 // MODEL_PILL_TOKENS + looksLikeGroupHeader guards in findDrilledModelOption further limit the risk.
 const DRILL_BREADCRUMB_RE = /^(models?|agents?|providers?|google|openai|anthropic|meta|mistral|xai)$/i;
 
-// New WPP two-step picker: choosing the OgilvyOneCoder agent no longer dismisses the picker — it
+// New WPP two-step picker: choosing a CookieMonster agent may no longer dismiss the picker — it
 // drills into the agent's base-model sub-list (e.g. "Gemini 3.5 Flash") and stays open until a
 // model leaf is clicked, which commits the agent and closes the picker. Resolve that leaf: prefer
 // an already-highlighted (aria-selected/checked) model, then a real interactive option role, then
 // the shortest model-named text (the name itself, not its longer description card). The agent row
-// stays visible in the drilled view and its label ("OgilvyOneCoder") both matches MODEL_PILL_TOKENS
+// stays visible in the drilled view and its label both matches MODEL_PILL_TOKENS
 // and is shorter than the model leaf ("Gemini 3.5 Flash"), so it would win the shortest-text tie —
 // exclude anything matching expectedAgent so we resolve the real model leaf, never the agent row.
 function findDrilledModelOption(root = document, expectedAgent = "") {
@@ -1830,7 +1830,7 @@ async function waitForRosterReady(pickerRoot, expectedAgent) {
   return { ok: false, failureReason: "agent-roster-loading-timeout" };
 }
 
-// Ensure the OgilvyOneCoder agent is selected before submitting. This is intentionally
+// Ensure the routed CookieMonster agent is selected before submitting. This is intentionally
 // fail-closed: if the extension cannot prove the composer pill changed to the required agent,
 // the prompt is not submitted.
 // The mode popover shown after clicking the new chat-model-button (model-select__mode-menu), or null.
@@ -1886,17 +1886,20 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     pickerText: "",
     rosterReadiness: null
   };
-  const readPill = () => elementText(findModelPill(expectedAgent, textarea));
+  const readPill = () => labelFor(findModelPill(expectedAgent, textarea));
   const finish = (ok, failureReason = "", pickerRoot = null) => {
     state.afterLabel = readPill();
     state.label = state.afterLabel || state.beforeLabel || "";
     state.pillFound = Boolean(findModelPill(expectedAgent, textarea));
-    state.ok = ok;
-    state.failureReason = failureReason;
+    const authoritativeMatch = agentLabelMatches(state.afterLabel, expectedAgent);
+    state.ok = ok && authoritativeMatch;
+    state.failureReason = ok && !authoritativeMatch
+      ? "agent-pill-did-not-confirm-selection"
+      : failureReason;
     if (pickerRoot) {
       state.pickerText = samplePickerText(pickerRoot);
     }
-    if (!ok) {
+    if (!state.ok) {
       state.rosterReadiness = state.rosterReadiness || captureRosterReadiness(pickerRoot, expectedAgent);
     }
     return { ...state };
@@ -1904,7 +1907,7 @@ async function ensureAgentSelected(expectedAgent, textarea) {
   const pill = findModelPill(expectedAgent, textarea);
 
   state.pillFound = Boolean(pill);
-  state.beforeLabel = pill ? elementText(pill) : "";
+  state.beforeLabel = readPill();
   state.label = state.beforeLabel;
 
   if (!pill) {
@@ -1994,14 +1997,11 @@ async function ensureAgentSelected(expectedAgent, textarea) {
 
   // Live WPP UI (verified via CDP against the open-web-deeplink-cs.wpp.ai composer iframe): clicking
   // the matched agent card commits on a SINGLE click, and the model button then shows the agent name
-  // ("OgilvyOneCoder") — so agentLabelMatches(readPill()) IS the primary commit signal. The
-  // picker-dismissed + option-hidden check remains a fallback for any variant that shows only an
-  // icon, and the drill handling below covers a two-step variant where the agent click opens a
-  // base-model sub-list instead of committing.
+  // (the CookieMonster agent name) — so agentLabelMatches(readPill()) is the authoritative commit
+  // signal. Do not infer selection from a highlighted option, a generic active/current CSS class,
+  // or the picker merely closing: those states can describe keyboard focus or a raw base model.
   const pickerOpen = () => Boolean(findAgentSearchInput(document) || findModeMenu());
-  const selectionApplied = () =>
-    agentLabelMatches(readPill(), expectedAgent)
-    || (!pickerOpen() && !isVisible(option.element));
+  const selectionApplied = () => agentLabelMatches(readPill(), expectedAgent);
 
   // Old UI: clicking the agent option dismisses the picker. Newest UI: it instead DRILLS into the
   // agent's base-model sub-list and keeps the picker open until a model leaf is clicked. So treat

@@ -13,9 +13,10 @@ import { installController, type Controller, type ProgressFrame } from "./contro
 import { installRecorder } from "./recorder-injection"
 import { installNetworkWitness, type NetworkWitness } from "./cdp-network-recorder"
 import { captureFailureError, captureHealth, decideCaptureVerdict } from "./capture-verdict"
-import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError } from "./worker-startup"
+import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppProjectAccessState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError, wppProjectAccessError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 import { SpawnGate } from "./spawn-gate"
+import { assertCapabilityResponse, buildCapabilityProbeJob } from "./proxy/protocol.mjs"
 
 const IDLE_WORKER_TTL_MS = 10 * 60 * 1000
 // A session-pinned tab holds that session's WPP thread (browser-held context), so reaping it throws
@@ -67,6 +68,8 @@ type Worker = {
   controller: Controller
   netWitness: NetworkWitness
   agent: string
+  // Agent for which this worker most recently passed the CM_REQUEST_V1 capability handshake.
+  protocolAgent: string
   // The OpenCode session this worker's WPP tab is pinned to ("" = unpinned). Set on claim so later
   // turns of the same session reuse the same authenticated thread.
   sessionKey: string
@@ -112,11 +115,17 @@ export class WorkerPool {
     onProgress?: (frame: ProgressFrame) => void,
   ): Promise<unknown> {
     const worker = await this.acquire(
-      String(job.payload?.model || "OgilvyOneCoder").trim(),
-      String(job.payload?.sessionKey || "").trim(),
+      (job.payload?.model || "CookieMonster_Opus 4.8 - Extra High").trim(),
+      (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
     )
     try {
+      try {
+        await this.ensureProtocolCapability(worker, job)
+      } catch (error) {
+        this.discard(worker.id)
+        throw error
+      }
       const startedAt = Date.now()
       const result = await worker.controller.runJob(job, onProgress)
       // content.js reported its OWN failure (agent selection, missing composer, chat busy, …). Surface
@@ -211,6 +220,7 @@ export class WorkerPool {
   private claim(id: number, agent: string, sessionKey: string, subagent: boolean): Worker {
     const worker = this.workers.get(id)!
     worker.busy = true
+    if (worker.agent !== agent) worker.protocolAgent = ""
     worker.agent = agent
     if (sessionKey) worker.sessionKey = sessionKey
     // Classification follows the turn that claimed the worker: an adopted unpinned worker takes the
@@ -234,6 +244,38 @@ export class WorkerPool {
     if (!worker) return
     if (!worker.window.isDestroyed()) worker.window.destroy()
     this.workers.delete(id)
+  }
+
+  private async ensureProtocolCapability(
+    worker: Worker,
+    job: { id?: string; payload?: { model?: string; continueThread?: boolean } },
+  ) {
+    const agent = (job.payload?.model || worker.agent).trim()
+    if (job.payload?.continueThread === true) {
+      if (worker.protocolAgent === agent) return
+      assertCapabilityResponse(null, agent)
+    }
+
+    const probeJob = buildCapabilityProbeJob(job)
+    const result = await worker.controller.runJob(probeJob)
+    if (result && typeof result === "object" && Reflect.get(result, "ok") === false) {
+      const rawError = Reflect.get(result, "error")
+      const rawStatus = Reflect.get(result, "statusCode")
+      const rawType = Reflect.get(result, "type")
+      const error = new Error(
+        typeof rawError === "string" ? rawError : "CookieMonster protocol capability probe failed.",
+      ) as Error & {
+        statusCode?: number
+        type?: string
+        bridgeResult?: unknown
+      }
+      error.statusCode = typeof rawStatus === "number" ? rawStatus : 502
+      error.type = typeof rawType === "string" ? rawType : "o1_code_protocol_probe_failed"
+      error.bridgeResult = result
+      throw error
+    }
+    assertCapabilityResponse(result, agent)
+    worker.protocolAgent = agent
   }
 
   destroy() {
@@ -269,6 +311,7 @@ export class WorkerPool {
         controller,
         netWitness,
         agent,
+        protocolAgent: "",
         sessionKey,
         subagent,
         busy: false,
@@ -426,15 +469,18 @@ async function waitForAssistantBridge(contents: BrowserWindow["webContents"], co
 
 async function throwIfAuthRequired(contents: BrowserWindow["webContents"]) {
   const state = await readStartupAuthState(contents)
+  const accessReason = classifyWppProjectAccessState(state)
+  if (accessReason) throw wppProjectAccessError(accessReason, state)
   const reason = classifyWppAuthState(state)
   if (reason) throw wppAuthRequiredError(reason, state)
 }
 
 async function readStartupAuthState(contents: BrowserWindow["webContents"]) {
-  const text = await contents.executeJavaScript(`
+  const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
+  const texts = await Promise.all(frames.map((frame) => frame.executeJavaScript(`
     (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
-  `, true).catch(() => "")
-  return { url: contents.getURL(), text: String(text || "") }
+  `, true).catch(() => "")))
+  return { url: contents.getURL(), text: texts.map((text) => typeof text === "string" ? text : "").join("\n") }
 }
 
 // Post-failure logout probe (checkAuthState). Pass 1: classify every WPP frame's URL + visible text

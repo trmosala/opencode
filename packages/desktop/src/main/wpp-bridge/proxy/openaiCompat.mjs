@@ -1,5 +1,5 @@
 import { serializeChatCompletionRequest, serializableMessagesForRequest } from "./messageSerializer.mjs";
-import { decideThreadMode, commitThread, resetThread, threadContinuityEnabled } from "./sessionThreads.mjs";
+import { acquireThreadTurn, decideThreadMode, commitThread, resetThread, threadContinuityEnabled } from "./sessionThreads.mjs";
 import { extensionBridge } from "./extensionBridge.mjs";
 import { chooseAssistantResponse } from "./toolCallNormalizer.mjs";
 import { StreamGate } from "./streamGate.mjs";
@@ -96,7 +96,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   response.setHeader("x-o1-code-proxy-run-id", id);
 
   if (isTitleGenerationRequest(body)) {
-    const prompt = serializeChatCompletionRequest(body, { provenance: false });
+    const prompt = serializeChatCompletionRequest(body, { purpose: "title" });
     const message = {
       content: generateLocalTitle(body),
       tool_calls: undefined,
@@ -135,8 +135,8 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const isCompaction = isCompactionRequest(body);
   const serializableMessages = serializableMessagesForRequest(body);
 
-  // Route by the OpenAI model id (o1-code -> OgilvyOneCoder, o1-code-builder ->
-  // OgilvyOneCoder_Builder). An explicit o1_code_model still overrides the mapping.
+  // Route the stable OpenCode model ids to the current CookieMonster WPP agent names. An explicit
+  // o1_code_model still overrides the mapping for diagnostics and custom deployments.
   const agentName = body.o1_code_model || resolveModelProfile(model).agentName;
   // OpenCode tags every call with its session id (request.ts). Pin session+agent to one WPP worker
   // tab so its thread holds context across turns; a mid-session model switch forks a new thread.
@@ -144,6 +144,8 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   // never New-Chats and wipes the live thread, and always serialize it fresh.
   const sessionId = sessionIdFromHeaders(request.headers);
   const sessionKey = isCompaction || !sessionId ? "" : `${sessionId}::${agentName}`;
+  const releaseThreadTurn = await acquireThreadTurn(sessionKey);
+  try {
   // Sub-agent turns are still pinned (so the sub-agent keeps thread continuity across its own run)
   // but the pool reaps their tabs sooner — they never resume once the sub-agent returns.
   const subagent = Boolean(sessionKey) && hasParentSession(request.headers);
@@ -154,7 +156,8 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
     : { mode: "fresh", sinceIndex: 0 };
   const continueThread = thread.mode === "continue";
-  let prompt = serializeChatCompletionRequest(body, { provenance: !isCompaction, sinceIndex: thread.sinceIndex });
+  const purpose = isCompaction ? "compaction" : "chat";
+  let prompt = serializeChatCompletionRequest(body, { purpose, sinceIndex: thread.sinceIndex });
   // The full conversation is replayed, but images are only attached for the
   // latest user turn — earlier images remain text placeholders in the serialized history.
   const images = collectImageInputs(latestUserMessages(body));
@@ -225,7 +228,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     return body.stream ? waitForBridgeWithKeepAlive(run, response) : run;
   };
   const freshRetryPrompt = () => {
-    const value = serializeChatCompletionRequest(body, { provenance: !isCompaction, sinceIndex: 0 });
+    const value = serializeChatCompletionRequest(body, { purpose, sinceIndex: 0 });
     if (value.length <= maxPromptChars()) return value;
     const error = new Error(promptTooLargeMessage(value));
     error.statusCode = 413;
@@ -370,10 +373,6 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       }
     }
   }
-  // The tab now holds the full current transcript — record it as the baseline so the next turn can
-  // forward just its delta. Skipped for compaction/no-session (sessionKey "" -> continuity false).
-  if (continuity) commitThread(sessionKey, body);
-
   const finalText = o1CodeRun.response.finalText;
   const toolCallParts = o1CodeRun.response.toolCallParts;
   // Compaction summaries must be returned as clean content (no tool_calls) so OpenCode
@@ -388,6 +387,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   if (!isCompaction) {
     normalizeToolCallArguments(normalized.tool_calls, body.tools);
   }
+  // Record the logical request and the assistant response physically present in the WPP tab. The
+  // next OpenCode request echoes this assistant message; sessionThreads validates and consumes it
+  // before serializing the true delta. Skipped for compaction/no-session.
+  if (continuity) commitThread(sessionKey, body, normalized);
   const finishReason = normalized.finish_reason || o1CodeRun.request?.finishReason || "stop";
   const responseMetrics = buildResponseMetrics({
     finalText,
@@ -475,6 +478,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     finishReason,
     usage
   }));
+  } finally {
+    releaseThreadTurn();
+  }
 }
 
 export async function waitForBridgeWithKeepAlive(bridgePromise, response, intervalMs = STREAM_KEEP_ALIVE_MS) {
@@ -715,7 +721,7 @@ export function isCompactionRequest(body) {
 }
 
 // Compaction summaries must come back as clean Markdown so OpenCode renders them as an
-// invisible summary. The OgilvyOneCoder persona habitually emits tool-call XML/JSON and
+// invisible summary. CookieMonster coding agents may emit tool-call XML/JSON and
 // chatter; strip that so the summary isn't parsed into a tool-calling turn.
 export function sanitizeCompactionSummary(finalText, toolCallParts = {}) {
   let text = typeof finalText === "string" ? finalText : "";

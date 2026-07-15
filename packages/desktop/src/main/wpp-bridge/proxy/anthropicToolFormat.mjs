@@ -3,6 +3,7 @@ import { parseToolArguments } from "./toolArguments.mjs";
 export function formatAnthropicToolCall(toolCall) {
   const fn = toolCall?.function || toolCall;
   const name = fn?.name || "unknown";
+  const id = toolCall?.id || fn?.id || "";
   const args = parseToolArguments(fn?.arguments);
   const params = Object.entries(args)
     .map(([key, value]) => {
@@ -15,7 +16,7 @@ export function formatAnthropicToolCall(toolCall) {
 
   return [
     "<function_calls>",
-    `<invoke name="${escapeXmlAttribute(name)}">${invokeBody}</invoke>`,
+    `<invoke${id ? ` id="${escapeXmlAttribute(id)}"` : ""} name="${escapeXmlAttribute(name)}">${invokeBody}</invoke>`,
     "</function_calls>"
   ].join("\n");
 }

@@ -197,16 +197,28 @@ export function parseAnthropicXmlToolCalls(content) {
   }
 
   const calls = [];
-  const invokeRegex = /<invoke\s+name=(["'])([^"']+)\1\s*>([\s\S]*?)<\/invoke>/gi;
+  const invokeRegex = /<invoke\b([^>]*)>([\s\S]*?)<\/invoke>/gi;
   let match;
 
   while ((match = invokeRegex.exec(content)) !== null) {
-    const name = match[2];
-    const body = match[3];
-    calls.push(normalizeAnthropicInvoke({ name, args: extractInvokeParameters(body) }));
+    const attributes = parseXmlAttributes(match[1]);
+    const name = attributes.name;
+    if (!name) continue;
+    const body = match[2];
+    calls.push(normalizeAnthropicInvoke({ id: attributes.id || "", name, args: extractInvokeParameters(body) }));
   }
 
   return calls.length > 0 ? calls : null;
+}
+
+function parseXmlAttributes(text) {
+  const attributes = {};
+  const attributeRegex = /([:\w-]+)\s*=\s*(["'])(.*?)\2/g;
+  let match;
+  while ((match = attributeRegex.exec(String(text || ""))) !== null) {
+    attributes[match[1].toLowerCase()] = decodeXmlEntities(match[3]);
+  }
+  return attributes;
 }
 
 // Extract <parameter name="X"> values from an invoke body. Each value runs from its opening tag to
@@ -258,6 +270,7 @@ function normalizeAnthropicInvoke(call) {
 
   if (isSubagentName(name) && typeof call.args?.prompt === "string") {
     return {
+      id: call.id || "",
       name: "task",
       args: {
         subagent_type: name.toLowerCase(),

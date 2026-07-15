@@ -1,3 +1,5 @@
+import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs";
+
 export function renderStatusPage() {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -63,7 +65,7 @@ export function renderStatusPage() {
 
 <div class="card">
   <div class="row">
-    <button onclick="window.open('https://ogilvy.os.wpp.com/agent/workspace','_blank')">Open O1-Code workspace</button>
+    <button onclick="window.open('${WPP_COOKIE_MONSTER_PROJECT_URL}','_blank')">Open CookieMonster project</button>
     <button onclick="refresh()">Refresh</button>
   </div>
 </div>

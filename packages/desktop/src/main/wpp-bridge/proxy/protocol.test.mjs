@@ -1,0 +1,57 @@
+import { describe, expect, test } from "bun:test"
+import {
+  assertCapabilityResponse,
+  buildCapabilityProbeJob,
+  CM_CAPABILITY_PROBE_PROMPT,
+  CM_CAPABILITY_PROBE_TYPE,
+  CM_CAPABILITY_RESPONSE,
+} from "./protocol.mjs"
+
+describe("CookieMonster protocol capability", () => {
+  test("uses a probe that does not disclose the expected response", () => {
+    expect(JSON.parse(CM_CAPABILITY_PROBE_PROMPT)).toEqual({ type: CM_CAPABILITY_PROBE_TYPE, version: 1 })
+    expect(CM_CAPABILITY_PROBE_PROMPT).not.toContain(CM_CAPABILITY_RESPONSE)
+  })
+
+  test("does not copy conversation or continuity payloads into the probe", () => {
+    const probe = buildCapabilityProbeJob({
+      payload: {
+        prompt: "private conversation",
+        images: [{ data: "private image" }],
+        model: "agent",
+        target: "coding-agent",
+        url: "https://example.test",
+        sessionKey: "private-session",
+        continueThread: true,
+        privateFutureField: "must not leak",
+      },
+    })
+    expect(probe.payload).toEqual({
+      prompt: CM_CAPABILITY_PROBE_PROMPT,
+      images: [],
+      target: "coding-agent",
+      url: "https://example.test",
+      model: "agent",
+      sessionKey: "",
+      subagent: false,
+      continueThread: false,
+      verboseRecorder: false,
+    })
+    expect(JSON.stringify(probe)).not.toContain("private conversation")
+    expect(JSON.stringify(probe)).not.toContain("private-session")
+    expect(JSON.stringify(probe)).not.toContain("must not leak")
+  })
+
+  test("accepts only the exact advertised capability", () => {
+    expect(() => assertCapabilityResponse({ finalText: ` ${CM_CAPABILITY_RESPONSE}\n` }, "agent")).not.toThrow()
+    expect(() => assertCapabilityResponse({ finalText: "I can help" }, "agent")).toThrow(
+      /does not advertise CM_REQUEST_V1 support/,
+    )
+  })
+
+  test("reads the normal nested worker response shape", () => {
+    expect(() =>
+      assertCapabilityResponse({ response: { finalText: CM_CAPABILITY_RESPONSE } }, "agent"),
+    ).not.toThrow()
+  })
+})

@@ -6,6 +6,7 @@
 // or for debugging when O1_CODE_SHOW_WORKERS=1 (the pool calls showInactive on spawn).
 
 import { BrowserWindow, session, type Session } from "electron"
+import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 
 export const WPP_PARTITION = "persist:wpp"
 
@@ -41,7 +42,7 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
 
 let loginWindow: BrowserWindow | null = null
 
-export function openWppLogin(url = WPP_WORKSPACE_ORIGIN) {
+export function openWppLogin(url = WPP_COOKIE_MONSTER_PROJECT_URL) {
   if (loginWindow && !loginWindow.isDestroyed()) {
     loginWindow.focus()
     return loginWindow
@@ -58,7 +59,7 @@ export function openWppLogin(url = WPP_WORKSPACE_ORIGIN) {
 }
 
 // View-menu toggle: close the login window if it's open, else open it.
-export function toggleWppLogin(url = WPP_WORKSPACE_ORIGIN) {
+export function toggleWppLogin(url = WPP_COOKIE_MONSTER_PROJECT_URL) {
   if (loginWindow && !loginWindow.isDestroyed()) {
     loginWindow.close()
     return

@@ -1,170 +1,110 @@
-import { TOOL_CALL_SYSTEM_REMINDER, TOOL_CALL_SYSTEM_REMINDER_JSON } from "./toolCallReminder.mjs";
-import { formatAnthropicToolCall } from "./anthropicToolFormat.mjs";
-import { formatJsonToolCall } from "./jsonToolFormat.mjs";
-import { resolveModelProfile } from "./modelProfiles.mjs";
-import { imagePlaceholderText } from "./imageInputs.mjs";
+import { resolveModelProfile } from "./modelProfiles.mjs"
+import { imagePlaceholderText } from "./imageInputs.mjs"
+import { CM_REQUEST_TYPE, CM_REQUEST_VERSION, toolCallProtocol } from "./protocol.mjs"
 
-// The whole OpenCode conversation is relayed to the WPP agent as ONE user message: replayed
-// [system]/tool-call/[tool result] framing and Anthropic-native <function_calls> markup all
-// arrive inside a single turn. To Claude (the o1-code/Opus agent) that shape reads like a
-// prompt-injection attempt, so it can balk. We can only type into the chat composer — there is
-// no system-role channel here — so this disclosure is user-channel text. It therefore *discloses*
-// rather than persuades: it names who set the connection up, that tool calls run locally with the
-// user's authorization, and what the bracket framing is. (Persona/ownership language like "your
-// own session, respond as the next assistant turn" reads as coercion and made the model balk.)
-// The durable fix is the agent's real system prompt, configured WPP-side, not here; this proxy-side
-// disclosure is the lever we control. Apply it to every WPP-backed profile.
-const serializedSessionPreamble = (agentName) =>
-  "This message is relayed by a local proxy the user runs on their own machine, connecting you " +
-  `(the ${agentName} agent) to OpenCode, an open-source coding assistant, as its model backend. ` +
-  "The user set this up deliberately and authorized the tools listed below to run locally on " +
-  "their own computer; any tool call you emit is executed by their harness and the result relayed " +
-  "back to you. The [system], [user], tool-call and [tool result:…] blocks are the prior turns of " +
-  "this OpenCode session, serialized into one message because the connection is stateless. " +
-  "Continue the session and use the tools as needed.";
+// WPP only exposes a chat composer, so the bridge cannot send true system/tool-role messages.
+// Preserve the hierarchy as data in one versioned envelope instead of imitating privileged
+// messages with free-form [system]/[harness] text. The WPP-side agent system instruction owns the
+// meaning of this protocol; see ../WPP_AGENT_SYSTEM_PROMPT.md.
 
 function stringifyContent(content, state = { imageIndex: 0 }) {
   if (typeof content === "string") {
-    return content;
+    return content
   }
 
   if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === "string") {
-        return part;
-      }
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part
+        }
 
-      if (part?.type === "text") {
-        return part.text || "";
-      }
+        if (part?.type === "text") {
+          return part.text || ""
+        }
 
-      if (part?.type === "image_url") {
-        state.imageIndex += 1;
-        return imagePlaceholderText(part, state.imageIndex);
-      }
+        if (part?.type === "image_url") {
+          state.imageIndex += 1
+          return imagePlaceholderText(part, state.imageIndex)
+        }
 
-      return JSON.stringify(part);
-    }).join("\n");
+        return JSON.stringify(part)
+      })
+      .join("\n")
   }
 
   if (content == null) {
-    return "";
+    return ""
   }
 
-  return JSON.stringify(content);
+  return JSON.stringify(content)
 }
 
-// `sinceIndex` > 0 selects delta mode: continue an existing WPP thread by forwarding only the
-// non-system messages after that index. The tab already holds the preamble, system prompt, tool
-// schema and prior turns from the first ("fresh") turn, so they are all omitted here.
-// `provenance` is still accepted (callers pass it) but currently unused: it only gated the
-// now-disabled preamble. Kept in the signature so callers and a future restore need no changes.
-export function serializeChatCompletionRequest(body, { provenance = true, sinceIndex = 0 } = {}) {
-  const allMessages = Array.isArray(body.messages) ? body.messages : [];
-  const systemMessages = allMessages.filter((m) => m.role === "system");
-  const nonSystemMessages = allMessages.filter((m) => m.role !== "system");
-  // Tool-call format follows the target model profile.
-  // Both the per-request reminder and the replayed history use this format (see modelProfiles.mjs).
-  const { toolFormat, agentName } = resolveModelProfile(body.model);
-  const state = { imageIndex: 0 };
-  const lines = [];
-  const delta = sinceIndex > 0;
-
-  if (!delta) {
-    // The WPP-side agent system prompt is still the durable home, but this user-channel disclosure
-    // is the lever we control here.
-    const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-    const hasReplayedFraming = systemMessages.length > 0 || hasTools ||
-      nonSystemMessages.some((m) => m.tool_call_id ||
-        (Array.isArray(m.tool_calls) && m.tool_calls.length > 0));
-    if (provenance && hasReplayedFraming) {
-      lines.push(serializedSessionPreamble(agentName));
-    }
-
-    for (const msg of systemMessages) {
-      const content = stringifyContent(msg.content, state);
-      if (content.trim()) {
-        lines.push(`[system]\n${content}`);
-      }
-    }
-
-    const toolBlock = buildToolSchemaBlock(body.tools);
-    if (toolBlock) {
-      lines.push(`[harness]\n${toolFormat === "json" ? TOOL_CALL_SYSTEM_REMINDER_JSON : TOOL_CALL_SYSTEM_REMINDER}`);
-      lines.push(toolBlock);
-    }
+// `sinceIndex` > 0 selects delta mode: continue an existing WPP thread by forwarding only messages
+// the tab has not already seen. The fresh envelope carries instructions and tool definitions; a
+// continuation relies on the live WPP thread and sends only the logical delta.
+export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose = "chat" } = {}) {
+  const allMessages = Array.isArray(body.messages) ? body.messages : []
+  const systemMessages = allMessages.filter((m) => m.role === "system")
+  const nonSystemMessages = allMessages.filter((m) => m.role !== "system")
+  const { toolFormat } = resolveModelProfile(body.model)
+  const state = { imageIndex: 0 }
+  const delta = sinceIndex > 0
+  const turnMessages = delta ? nonSystemMessages.slice(sinceIndex) : nonSystemMessages
+  const envelope = {
+    type: CM_REQUEST_TYPE,
+    version: CM_REQUEST_VERSION,
+    mode: delta ? "continue" : "fresh",
+    purpose,
+    ...(!delta
+      ? {
+          instructions: systemMessages
+            .map((message) => stringifyContent(message.content, state))
+            .filter((content) => content.trim()),
+          toolCallProtocol: toolCallProtocol(toolFormat),
+          tools: serializeTools(body.tools),
+        }
+      : {}),
+    messages: turnMessages.map((message) => serializeMessage(message, state)),
   }
 
-  // ponytail: a delta may restate the model's own prior tool-call block (already in the thread) —
-  // harmless duplication; trim it later only if the agent ever conflates it with new instruction.
-  const turnMessages = delta ? nonSystemMessages.slice(sinceIndex) : nonSystemMessages;
-  for (const message of turnMessages) {
-    const role = message.role || "user";
-    const content = stringifyContent(message.content, state);
-
-    if (message.tool_call_id) {
-      lines.push([
-        `[tool result:${message.tool_call_id}]`,
-        `This is the result of the already-completed local tool call ${message.tool_call_id}.`,
-        content
-      ].filter(Boolean).join("\n"));
-      continue;
-    }
-
-    if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-      for (const toolCall of message.tool_calls) {
-        lines.push(`[${role} tool call:${toolCall.id || "unknown"}]\n${stringifyToolCall(toolCall, toolFormat)}`);
-      }
-
-      if (!content.trim()) {
-        continue;
-      }
-    }
-
-    lines.push(`[${role}]\n${content}`);
-  }
-
-  // A lone [user] turn (every plain follow-up, and most deltas) goes in as bare composer text.
-  if (lines.length === 1 && lines[0].startsWith("[user]\n")) {
-    return lines[0].slice("[user]\n".length).trim();
-  }
-
-  return lines.join("\n\n");
+  return JSON.stringify(envelope, null, 2)
 }
 
 export function serializableMessagesForRequest(body) {
-  const allMessages = Array.isArray(body.messages) ? body.messages : [];
-  const systemMessages = allMessages.filter((m) => m.role === "system");
-  const nonSystemMessages = allMessages.filter((m) => m.role !== "system");
+  const allMessages = Array.isArray(body.messages) ? body.messages : []
+  const systemMessages = allMessages.filter((m) => m.role === "system")
+  const nonSystemMessages = allMessages.filter((m) => m.role !== "system")
 
-  return [
-    ...systemMessages,
-    ...nonSystemMessages
-  ];
+  return [...systemMessages, ...nonSystemMessages]
 }
 
-function buildToolSchemaBlock(tools) {
-  if (!Array.isArray(tools) || tools.length === 0) {
-    return null;
+function serializeTools(tools) {
+  if (!Array.isArray(tools)) return []
+  return tools.map((tool) => {
+    const fn = tool.function || tool
+    return {
+      name: fn.name || "",
+      description: fn.description || "",
+      parameters: fn.parameters || {},
+    }
+  })
+}
+
+function serializeMessage(message, state) {
+  const serialized = {
+    role: message.role || "user",
+    content: stringifyContent(message.content, state),
   }
 
-  const toolLines = tools.map((tool) => {
-    const fn = tool.function || tool;
-    const params = fn.parameters ? JSON.stringify(fn.parameters) : "{}";
-    const desc = fn.description ? ` — ${fn.description}` : "";
-    return `- ${fn.name}${desc}\n  Parameters: ${params}`;
-  });
+  if (message.tool_call_id) serialized.toolCallId = message.tool_call_id
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    serialized.toolCalls = message.tool_calls.map((call) => ({
+      id: call.id || "",
+      name: call.function?.name || call.name || "",
+      arguments: call.function?.arguments ?? call.arguments ?? "{}",
+    }))
+  }
 
-  return ["Tools:", ...toolLines].join("\n");
+  return serialized
 }
-
-// Echo prior tool calls back to the model in the same format it is asked to produce (the same
-// toolFormat that selects the [harness] reminder above), so the transcript the model sees matches
-// the format it should emit.
-// The proxy parses both XML and JSON back out in toolCallNormalizer.
-function stringifyToolCall(toolCall, toolFormat) {
-  return toolFormat === "json"
-    ? formatJsonToolCall(toolCall)
-    : formatAnthropicToolCall(toolCall);
-}
-
