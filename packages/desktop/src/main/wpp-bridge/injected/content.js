@@ -1891,11 +1891,8 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     state.afterLabel = readPill();
     state.label = state.afterLabel || state.beforeLabel || "";
     state.pillFound = Boolean(findModelPill(expectedAgent, textarea));
-    const authoritativeMatch = agentLabelMatches(state.afterLabel, expectedAgent);
-    state.ok = ok && authoritativeMatch;
-    state.failureReason = ok && !authoritativeMatch
-      ? "agent-pill-did-not-confirm-selection"
-      : failureReason;
+    state.ok = ok;
+    state.failureReason = failureReason;
     if (pickerRoot) {
       state.pickerText = samplePickerText(pickerRoot);
     }
@@ -1995,13 +1992,14 @@ async function ensureAgentSelected(expectedAgent, textarea) {
     return finish(false, reason, pickerRoot);
   }
 
-  // Live WPP UI (verified via CDP against the open-web-deeplink-cs.wpp.ai composer iframe): clicking
-  // the matched agent card commits on a SINGLE click, and the model button then shows the agent name
-  // (the CookieMonster agent name) — so agentLabelMatches(readPill()) is the authoritative commit
-  // signal. Do not infer selection from a highlighted option, a generic active/current CSS class,
-  // or the picker merely closing: those states can describe keyboard focus or a raw base model.
-  const pickerOpen = () => Boolean(findAgentSearchInput(document) || findModeMenu());
-  const selectionApplied = () => agentLabelMatches(readPill(), expectedAgent);
+  // Live WPP UI commits the matched agent card on a single click. Some variants show the selected
+  // agent name in the model button; the current icon-only variant instead leaves its dismissed drawer
+  // mounted with pointer-events disabled. The exact name match that found `option`, followed by that
+  // option and picker becoming non-interactive, is therefore also authoritative confirmation.
+  const pickerOpen = () => [findAgentSearchInput(document), findModeMenu()].some((el) => el && isInteractive(el));
+  const selectionApplied = () =>
+    agentLabelMatches(readPill(), expectedAgent)
+    || (!pickerOpen() && !isInteractive(option.element));
 
   // Old UI: clicking the agent option dismisses the picker. Newest UI: it instead DRILLS into the
   // agent's base-model sub-list and keeps the picker open until a model leaf is clicked. So treat
@@ -2698,6 +2696,16 @@ function isVisible(el) {
     && style.display !== "none"
     && rect.width > 0
     && rect.height > 0;
+}
+
+function isInteractive(el) {
+  if (!isVisible(el)) return false;
+
+  for (let current = el; current; current = current.parentElement || current.getRootNode?.()?.host) {
+    if (getComputedStyle(current).pointerEvents === "none") return false;
+  }
+
+  return true;
 }
 
 function inspectAssistantUi(root) {
