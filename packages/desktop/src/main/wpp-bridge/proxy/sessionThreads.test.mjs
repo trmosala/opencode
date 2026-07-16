@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { acquireThreadTurn, decideThreadMode, commitThread, resetThread } from "./sessionThreads.mjs"
 
-const KEY = "sess-A::CookieMonster_Opus 4.8 - Extra High"
+const KEY = "sess-A::CM_Opus 4.8 - Extra High"
 const tool = (description = "run") => ({
   function: { name: "bash", description, parameters: { type: "object" } },
 })
-const body = (...messages) => ({ model: "o1-code", tools: [tool()], messages })
+const body = (...messages) => ({ model: "CM_Opus 4.8 - Extra High", tools: [tool()], messages })
 const sys = (text = "you are opencode") => ({ role: "system", content: text })
 const user = (text) => ({ role: "user", content: text })
 const assistant = (text) => ({ role: "assistant", content: text })

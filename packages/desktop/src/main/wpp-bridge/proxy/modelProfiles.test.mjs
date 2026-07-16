@@ -1,20 +1,27 @@
 import { describe, expect, test } from "bun:test"
-import { MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs"
+import { DEFAULT_MODEL_ID, MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs"
+
+const PROJECT_AGENTS = [
+  "CM_GPT-5.6 Sol - Low",
+  "CM_GPT-5.6 Sol - Medium",
+  "CM_GPT-5.6 Sol - High",
+  "CM_GPT-5.6 Sol - Extra High",
+  "CM_Opus 4.8 - Low",
+  "CM_Opus 4.8 - Auto",
+  "CM_Opus 4.8 - High",
+  "CM_Opus 4.8 - Extra High",
+]
 
 describe("CookieMonster model profiles", () => {
-  test("routes stable OpenCode model ids to the current WPP roster", () => {
-    expect(resolveModelProfile("o1-code")).toEqual({
-      agentName: "CookieMonster_Opus 4.8 - Extra High",
-      toolFormat: "xml",
-    })
-    expect(resolveModelProfile("o1-code-builder")).toEqual({
-      agentName: "CookieMonster_GPT-5.5 - Extra High",
-      toolFormat: "xml",
-    })
-    expect(MODEL_IDS).toEqual(["o1-code", "o1-code-builder"])
+  test("exposes the WPP project roster under the exact agent names", () => {
+    expect(MODEL_IDS).toEqual(PROJECT_AGENTS)
+    for (const agentName of PROJECT_AGENTS) {
+      expect(resolveModelProfile(agentName)).toEqual({ agentName, toolFormat: "xml" })
+    }
   })
 
-  test("unknown model ids use the default CookieMonster profile", () => {
-    expect(resolveModelProfile("legacy-or-unknown")).toEqual(resolveModelProfile("o1-code"))
+  test("uses the project Opus Extra High agent as the fallback", () => {
+    expect(DEFAULT_MODEL_ID).toBe("CM_Opus 4.8 - Extra High")
+    expect(resolveModelProfile("legacy-or-unknown")).toEqual(resolveModelProfile(DEFAULT_MODEL_ID))
   })
 })

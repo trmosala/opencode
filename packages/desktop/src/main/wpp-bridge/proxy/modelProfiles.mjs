@@ -8,15 +8,45 @@
 //
 // The agentName is also the affinity key the extension uses to pin a tab to one agent
 // (extension/background.js) and the label it selects in the composer pill (extension/content.js).
-const PROFILES = {
-  "o1-code": { agentName: "CookieMonster_Opus 4.8 - Extra High", toolFormat: "xml" },
-  "o1-code-builder": { agentName: "CookieMonster_GPT-5.5 - Extra High", toolFormat: "xml" },
+export const MODEL_PROFILES = {
+  "CM_GPT-5.6 Sol - Low": {
+    agentName: "CM_GPT-5.6 Sol - Low",
+    toolFormat: "xml",
+  },
+  "CM_GPT-5.6 Sol - Medium": {
+    agentName: "CM_GPT-5.6 Sol - Medium",
+    toolFormat: "xml",
+  },
+  "CM_GPT-5.6 Sol - High": {
+    agentName: "CM_GPT-5.6 Sol - High",
+    toolFormat: "xml",
+  },
+  "CM_GPT-5.6 Sol - Extra High": {
+    agentName: "CM_GPT-5.6 Sol - Extra High",
+    toolFormat: "xml",
+  },
+  "CM_Opus 4.8 - Low": {
+    agentName: "CM_Opus 4.8 - Low",
+    toolFormat: "xml",
+  },
+  "CM_Opus 4.8 - Auto": {
+    agentName: "CM_Opus 4.8 - Auto",
+    toolFormat: "xml",
+  },
+  "CM_Opus 4.8 - High": {
+    agentName: "CM_Opus 4.8 - High",
+    toolFormat: "xml",
+  },
+  "CM_Opus 4.8 - Extra High": {
+    agentName: "CM_Opus 4.8 - Extra High",
+    toolFormat: "xml",
+  },
 }
 
-const DEFAULT_MODEL_ID = "o1-code"
+export const DEFAULT_MODEL_ID = "CM_Opus 4.8 - Extra High"
 
 export function resolveModelProfile(modelId) {
-  return PROFILES[modelId] || PROFILES[DEFAULT_MODEL_ID]
+  return MODEL_PROFILES[modelId] || MODEL_PROFILES[DEFAULT_MODEL_ID]
 }
 
-export const MODEL_IDS = Object.keys(PROFILES)
+export const MODEL_IDS = Object.keys(MODEL_PROFILES)

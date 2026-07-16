@@ -311,7 +311,7 @@ export class ExtensionBridge {
         images: options.images || [],
         target: options.target || process.env.O1_CODE_TARGET || "coding-agent",
         url,
-        model: options.model || "CookieMonster_Opus 4.8 - Extra High",
+        model: options.model || "CM_Opus 4.8 - Extra High",
         // Pins this turn to the OpenCode session's worker tab so its WPP thread holds context.
         sessionKey: options.sessionKey || "",
         // True when this session is a sub-agent (child) — the pool reaps its tab on a shorter TTL.

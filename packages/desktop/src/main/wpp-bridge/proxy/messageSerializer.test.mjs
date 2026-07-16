@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { serializeChatCompletionRequest } from "./messageSerializer.mjs"
 
-const framed = (model = "o1-code") => ({
+const framed = (model = "CM_Opus 4.8 - Extra High") => ({
   model,
   tools: [{ function: { name: "bash", description: "run", parameters: { type: "object" } } }],
   messages: [
@@ -31,7 +31,7 @@ describe("CookieMonster request envelope", () => {
   })
 
   test("uses the profile's custom tool-call protocol", () => {
-    const out = JSON.parse(serializeChatCompletionRequest(framed("o1-code-builder")))
+    const out = JSON.parse(serializeChatCompletionRequest(framed("CM_GPT-5.6 Sol - Extra High")))
     expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
   })
 
@@ -71,7 +71,7 @@ describe("CookieMonster request envelope", () => {
 
   test("a bare request still uses the versioned envelope", () => {
     const out = JSON.parse(
-      serializeChatCompletionRequest({ model: "o1-code", messages: [{ role: "user", content: "hi" }] }),
+      serializeChatCompletionRequest({ model: "CM_Opus 4.8 - Extra High", messages: [{ role: "user", content: "hi" }] }),
     )
     expect(out.type).toBe("CM_REQUEST_V1")
     expect(out.messages).toEqual([{ role: "user", content: "hi" }])

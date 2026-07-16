@@ -186,7 +186,7 @@ async function runJobWithProgress(job, jobId) {
 
   const prompt = String(job?.payload?.prompt || "");
   const verboseRecorder = job?.payload?.verboseRecorder === true;
-  const expectedAgent = String(job?.payload?.model || "CookieMonster_Opus 4.8 - Extra High").trim();
+  const expectedAgent = String(job?.payload?.model || "CM_Opus 4.8 - Extra High").trim();
   // Continue the pinned thread: the proxy sent only the delta turn and the tab already holds prior
   // context, so we must NOT click New Chat (that wipes it) nor reselect the agent (already set).
   const continueThread = job?.payload?.continueThread === true;
@@ -1018,7 +1018,7 @@ function findStopButton(textarea) {
 // Tokens that identify the model/agent pill in the composer toolbar. The pill shows the
 // currently selected base model ("Gemini 3.5 Flash", "GPT-…", "Claude …") or agent
 // (for example, a CookieMonster agent). Matched by visible text rather than generated class names.
-const MODEL_PILL_TOKENS = /CookieMonster|OgilvyOneCoder|Ogilvy\s*One|Gemini|GPT|Claude|Sonnet|Opus|Haiku|Flash|OpenAI|Anthropic|Google/i;
+const MODEL_PILL_TOKENS = /CM_|CookieMonster|OgilvyOneCoder|Ogilvy\s*One|Gemini|GPT|Claude|Sonnet|Opus|Haiku|Flash|OpenAI|Anthropic|Google/i;
 const MODEL_SEARCH_PLACEHOLDER = /search/i;
 const INTERACTIVE_SELECTOR = "button, [role='button'], [role='option'], [role='menuitem'], [role='listitem'], [role='combobox'], [aria-expanded], a, [tabindex]";
 const MODEL_PICKER_ROOT_SELECTOR = [

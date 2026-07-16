@@ -1,6 +1,7 @@
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { MODEL_IDS } from "./modelProfiles.mjs"
 
 // Advertised model context/output limits. Context is kept below the proxy's O1_CODE_MAX_PROMPT_CHARS
 // (600k chars ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
@@ -23,8 +24,8 @@ export const O1_CODE_MCP = {
   },
 }
 
-// Legacy direct-WPP provider retained for existing user config. Requests still resolve through the
-// proxy's default CookieMonster profile when this provider sends an unrecognised model id.
+// Exact legacy seed retained only so ensureO1CodeProvider can remove the obsolete picker entry
+// without touching a user-created provider that happens to use the same key.
 export const WPP_PROVIDER = {
   npm: "@ai-sdk/openai-compatible",
   name: "WPP AI",
@@ -39,68 +40,76 @@ export const WPP_PROVIDER = {
   },
 }
 
-export const O1_CODE_PROVIDER = {
-  npm: "@ai-sdk/openai-compatible",
-  name: "O1-Code",
-  options: {
-    baseURL: "http://127.0.0.1:8787/v1",
-    apiKey: "o1-code-local",
-  },
-  models: {
-    "o1-code": {
-      name: "O1-Code",
-      attachment: true,
-      // Claude Opus 4.8 via CookieMonster_Opus 4.8 - Extra High. WPP /models captured 2026-07-03
-      // priced it at
-      // $0.005 / 1K input and $0.025 / 1K output; OpenCode config uses dollars per 1M tokens.
-      cost: { input: 5, output: 25, cache_read: 0, cache_write: 0 },
-      modalities: {
-        input: ["text", "image"],
-        output: ["text"],
-      },
-      limit: {
-        context: O1_CODE_CONTEXT_LIMIT,
-        output: O1_CODE_OUTPUT_LIMIT,
-      },
+const OPUS_COST = { input: 5, output: 25, cache_read: 0, cache_write: 0 }
+const GPT_COST = { input: 5, output: 30, cache_read: 0.5, cache_write: 0 }
+
+function projectModel(agentName) {
+  return {
+    name: agentName,
+    attachment: true,
+    // GPT-5.6 Sol pricing has not been captured from WPP /models yet, so its variants retain the
+    // previous builder accounting estimate until WPP exposes an authoritative rate.
+    cost: agentName.startsWith("CM_Opus") ? OPUS_COST : GPT_COST,
+    modalities: {
+      input: ["text", "image"],
+      output: ["text"],
     },
-    // Routed to CookieMonster_GPT-5.5 - Extra High — a faster building backend.
-    // See src/modelProfiles.mjs for the model-id -> agent + tool-call-format mapping.
-    "o1-code-builder": {
-      name: "O1-Code Builder",
-      attachment: true,
-      // GPT-5.5 pricing is absent from WPP /models. Use the public July 2026 API rate corroborated by
-      // OpenRouter, morphllm, langcopilot, and devtk.ai: $5 input, $30 output, $0.50 cached input / 1M.
-      cost: { input: 5, output: 30, cache_read: 0.5, cache_write: 0 },
-      modalities: {
-        input: ["text", "image"],
-        output: ["text"],
-      },
-      limit: {
-        context: O1_CODE_CONTEXT_LIMIT,
-        output: O1_CODE_OUTPUT_LIMIT,
-      },
+    limit: {
+      context: O1_CODE_CONTEXT_LIMIT,
+      output: O1_CODE_OUTPUT_LIMIT,
     },
-  },
+  }
 }
 
-// Everything a fresh user should get without manual setup: both providers + the MCP server.
-const SEED_PROVIDERS = { wpp: WPP_PROVIDER, "o1-code": O1_CODE_PROVIDER }
+export const COOKIE_MONSTER_PROVIDER = {
+  npm: "@ai-sdk/openai-compatible",
+  name: "CookieMonster",
+  options: {
+    baseURL: "http://127.0.0.1:8787/v1",
+    apiKey: "cookiemonster-local",
+  },
+  models: Object.fromEntries(MODEL_IDS.map((agentName) => [agentName, projectModel(agentName)])),
+}
+
+// Everything a fresh user should get without manual setup: the project roster + the MCP server.
+const SEED_PROVIDERS = { cookiemonster: COOKIE_MONSTER_PROVIDER }
 const SEED_MCP = O1_CODE_MCP
+const LEGACY_O1_CODE_MODELS = new Set(["o1-code", "o1-code-builder"])
+
+function isLegacyO1CodeProvider(provider) {
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
+  const modelIds = Object.keys(provider.models || {})
+  return (
+    provider.npm === "@ai-sdk/openai-compatible" &&
+    provider.name === "O1-Code" &&
+    provider.options?.baseURL === "http://127.0.0.1:8787/v1" &&
+    provider.options?.apiKey === "o1-code-local" &&
+    modelIds.length > 0 &&
+    modelIds.every((id) => LEGACY_O1_CODE_MODELS.has(id))
+  )
+}
+
+function isCookieMonsterProvider(provider) {
+  return (
+    provider?.npm === COOKIE_MONSTER_PROVIDER.npm &&
+    provider?.name === COOKIE_MONSTER_PROVIDER.name &&
+    provider?.options?.baseURL === COOKIE_MONSTER_PROVIDER.options.baseURL &&
+    provider?.options?.apiKey === COOKIE_MONSTER_PROVIDER.options.apiKey
+  )
+}
 
 // Resolve the user's global opencode.json the same way the sidecar does (xdg-basedir's config dir).
 export function o1CodeConfigFile() {
   return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode", "opencode.json")
 }
 
-// Limit-only config blob for OPENCODE_CONFIG_CONTENT. OpenCode deep-merges this last (local scope),
-// so it overrides the context cap on both models even when the seeded opencode.json still carries a
-// stale value, while leaving provider/model/MCP definitions file-driven and user-editable. Kept to
-// only the limit so we don't freeze anything a user might legitimately want to tune.
+// Self-contained config blob injected into the bundled OpenCode sidecar. A clean install must see
+// the project roster on its very first start even if the persistent opencode.json seed has not
+// completed yet. The disk seed remains useful for external OpenCode sessions and later launches.
 export function o1CodeConfigContent() {
-  const limit = { context: O1_CODE_CONTEXT_LIMIT, output: O1_CODE_OUTPUT_LIMIT }
   return JSON.stringify({
     provider: {
-      "o1-code": { models: { "o1-code": { limit }, "o1-code-builder": { limit } } },
+      cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
   })
 }
@@ -129,6 +138,17 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
   if (!config || typeof config !== "object" || Array.isArray(config)) return
 
   let changed = false
+  if (isLegacyO1CodeProvider(config.provider?.["o1-code"])) {
+    const { ["o1-code"]: _legacyO1Code, ...providers } = config.provider
+    config.provider = providers
+    changed = true
+  }
+  if (JSON.stringify(config.provider?.wpp) === JSON.stringify(WPP_PROVIDER)) {
+    const { wpp: _legacyWpp, ...providers } = config.provider
+    config.provider = providers
+    changed = true
+  }
+
   for (const [key, value] of Object.entries(SEED_PROVIDERS)) {
     if (!config.provider?.[key]) {
       config.provider = { ...config.provider, [key]: value }
@@ -136,13 +156,19 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
       continue
     }
 
+    if (!isCookieMonsterProvider(config.provider[key])) continue
+
     const existingModels = config.provider[key]?.models
     if (!existingModels || typeof existingModels !== "object" || Array.isArray(existingModels)) continue
 
     for (const [modelKey, seedModel] of Object.entries(value.models || {})) {
       const existingModel = existingModels[modelKey]
-      if (!existingModel || typeof existingModel !== "object" || Array.isArray(existingModel) || !seedModel.cost)
+      if (!existingModel) {
+        existingModels[modelKey] = seedModel
+        changed = true
         continue
+      }
+      if (typeof existingModel !== "object" || Array.isArray(existingModel) || !seedModel.cost) continue
 
       const existingCost =
         existingModel.cost && typeof existingModel.cost === "object" && !Array.isArray(existingModel.cost)

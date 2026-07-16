@@ -5,7 +5,7 @@ describe("runLogRecord", () => {
   const record = {
     id: "run-1",
     request: {
-      model: "o1-code",
+      model: "CM_Opus 4.8 - Extra High",
       stream: true,
       messages: [
         { role: "system", content: "private runtime instruction" },
@@ -35,7 +35,7 @@ describe("runLogRecord", () => {
   test("omits transcript payloads by default", () => {
     const out = runLogRecord(record, false)
     expect(out.request).toEqual({
-      model: "o1-code",
+      model: "CM_Opus 4.8 - Extra High",
       stream: true,
       messageCount: 2,
       messageRoles: ["system", "user"],

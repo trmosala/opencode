@@ -2,56 +2,78 @@ import { expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { MODEL_IDS } from "./modelProfiles.mjs"
 import {
+  COOKIE_MONSTER_PROVIDER,
   ensureO1CodeProvider,
-  O1_CODE_CONTEXT_LIMIT,
   O1_CODE_MCP,
-  O1_CODE_OUTPUT_LIMIT,
-  O1_CODE_PROVIDER,
   o1CodeConfigContent,
   WPP_PROVIDER,
 } from "./providerConfig.mjs"
 
 async function tmpFile() {
-  const dir = await mkdtemp(join(tmpdir(), "o1-config-"))
+  const dir = await mkdtemp(join(tmpdir(), "cm-config-"))
   return { dir, file: join(dir, "opencode.json") }
 }
 
-test("creates opencode.json with the provider when missing", async () => {
+const legacyO1CodeProvider = {
+  npm: "@ai-sdk/openai-compatible",
+  name: "O1-Code",
+  options: {
+    baseURL: "http://127.0.0.1:8787/v1",
+    apiKey: "o1-code-local",
+  },
+  models: {
+    "o1-code": { name: "O1-Code" },
+    "o1-code-builder": { name: "O1-Code Builder" },
+  },
+}
+
+test("creates opencode.json with the exact CookieMonster project roster", async () => {
   const { dir, file } = await tmpFile()
   await ensureO1CodeProvider(file)
   const config = JSON.parse(await readFile(file, "utf8"))
+
   expect(config.$schema).toBe("https://opencode.ai/config.json")
-  expect(config.provider["o1-code"]).toEqual(O1_CODE_PROVIDER)
-  expect(config.provider["o1-code"].models["o1-code"].cost).toEqual({
-    input: 5,
-    output: 25,
-    cache_read: 0,
-    cache_write: 0,
-  })
-  expect(config.provider["o1-code"].models["o1-code-builder"].cost).toEqual({
-    input: 5,
-    output: 30,
-    cache_read: 0.5,
-    cache_write: 0,
-  })
-  expect(config.provider.wpp).toEqual(WPP_PROVIDER)
+  expect(config.provider.cookiemonster).toEqual(COOKIE_MONSTER_PROVIDER)
+  expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
+  expect(config.provider["o1-code"]).toBeUndefined()
+  expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp["chrome-devtools"]).toEqual(O1_CODE_MCP["chrome-devtools"])
   await rm(dir, { recursive: true, force: true })
 })
 
-test("seeds the second provider and mcp into a config that only has o1-code", async () => {
+test("removes only the legacy seeded aliases while adding the project provider", async () => {
   const { dir, file } = await tmpFile()
-  await writeFile(file, JSON.stringify({ provider: { "o1-code": { name: "custom" } } }))
+  await writeFile(
+    file,
+    JSON.stringify({ provider: { "o1-code": legacyO1CodeProvider, wpp: WPP_PROVIDER, other: { name: "Other" } } }),
+  )
   await ensureO1CodeProvider(file)
   const config = JSON.parse(await readFile(file, "utf8"))
-  expect(config.provider["o1-code"]).toEqual({ name: "custom" }) // untouched
-  expect(config.provider.wpp).toEqual(WPP_PROVIDER)
-  expect(config.mcp["chrome-devtools"]).toEqual(O1_CODE_MCP["chrome-devtools"])
+
+  expect(config.provider["o1-code"]).toBeUndefined()
+  expect(config.provider.wpp).toBeUndefined()
+  expect(config.provider.cookiemonster).toEqual(COOKIE_MONSTER_PROVIDER)
+  expect(config.provider.other).toEqual({ name: "Other" })
   await rm(dir, { recursive: true, force: true })
 })
 
-test("fully-seeded config is left byte-for-byte unchanged", async () => {
+test("preserves customized providers that reuse legacy keys", async () => {
+  const { dir, file } = await tmpFile()
+  const customO1 = { ...legacyO1CodeProvider, name: "Custom O1" }
+  const customWpp = { ...WPP_PROVIDER, name: "Custom WPP" }
+  await writeFile(file, JSON.stringify({ provider: { "o1-code": customO1, wpp: customWpp } }))
+  await ensureO1CodeProvider(file)
+  const config = JSON.parse(await readFile(file, "utf8"))
+
+  expect(config.provider["o1-code"]).toEqual(customO1)
+  expect(config.provider.wpp).toEqual(customWpp)
+  expect(config.provider.cookiemonster).toEqual(COOKIE_MONSTER_PROVIDER)
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("fully seeded config is left byte-for-byte unchanged", async () => {
   const { dir, file } = await tmpFile()
   await ensureO1CodeProvider(file)
   const first = await readFile(file, "utf8")
@@ -60,38 +82,17 @@ test("fully-seeded config is left byte-for-byte unchanged", async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-test("merges into an existing config without touching other keys", async () => {
+test("fills missing project models and cost keys without overriding custom values", async () => {
   const { dir, file } = await tmpFile()
-  await writeFile(file, JSON.stringify({ provider: { other: { name: "Other" } }, plugin: ["x"] }))
-  await ensureO1CodeProvider(file)
-  const config = JSON.parse(await readFile(file, "utf8"))
-  expect(config.provider.other).toEqual({ name: "Other" })
-  expect(config.provider["o1-code"]).toEqual(O1_CODE_PROVIDER)
-  expect(config.plugin).toEqual(["x"])
-  await rm(dir, { recursive: true, force: true })
-})
-
-test("is a no-op when the provider already exists", async () => {
-  const { dir, file } = await tmpFile()
-  await writeFile(file, JSON.stringify({ provider: { "o1-code": { name: "custom" } } }))
-  await ensureO1CodeProvider(file)
-  const config = JSON.parse(await readFile(file, "utf8"))
-  expect(config.provider["o1-code"]).toEqual({ name: "custom" })
-  await rm(dir, { recursive: true, force: true })
-})
-
-test("fills missing cost keys on existing seeded models", async () => {
-  const { dir, file } = await tmpFile()
+  const [firstAgent] = MODEL_IDS
   await writeFile(
     file,
     JSON.stringify({
       provider: {
-        "o1-code": {
-          name: "custom",
+        cookiemonster: {
+          ...COOKIE_MONSTER_PROVIDER,
           models: {
-            "o1-code": { name: "Custom O1", cost: { input: 9 } },
-            "o1-code-builder": { name: "Custom Builder" },
-            deleted: { name: "Deleted stays custom" },
+            [firstAgent]: { ...COOKIE_MONSTER_PROVIDER.models[firstAgent], cost: { input: 9 } },
           },
         },
       },
@@ -99,30 +100,20 @@ test("fills missing cost keys on existing seeded models", async () => {
   )
   await ensureO1CodeProvider(file)
   const config = JSON.parse(await readFile(file, "utf8"))
-  expect(config.provider["o1-code"].name).toBe("custom")
-  expect(config.provider["o1-code"].models["o1-code"].cost).toEqual({
-    input: 9,
-    output: 25,
-    cache_read: 0,
-    cache_write: 0,
-  })
-  expect(config.provider["o1-code"].models["o1-code-builder"].cost).toEqual({
-    input: 5,
-    output: 30,
-    cache_read: 0.5,
-    cache_write: 0,
-  })
-  expect(config.provider["o1-code"].models.deleted).toEqual({ name: "Deleted stays custom" })
+  const models = config.provider.cookiemonster.models
+
+  expect(Object.keys(models)).toEqual(MODEL_IDS)
+  expect(models[firstAgent].cost).toEqual({ input: 9, output: 30, cache_read: 0.5, cache_write: 0 })
   await rm(dir, { recursive: true, force: true })
 })
 
-test("cost migration is idempotent after filling missing keys", async () => {
+test("leaves a custom provider under the CookieMonster key untouched", async () => {
   const { dir, file } = await tmpFile()
-  await writeFile(file, JSON.stringify({ provider: { "o1-code": { models: { "o1-code": { name: "O1-Code" } } } } }))
+  const custom = { name: "My provider", models: { custom: { name: "Custom" } } }
+  await writeFile(file, JSON.stringify({ provider: { cookiemonster: custom } }))
   await ensureO1CodeProvider(file)
-  const first = await readFile(file, "utf8")
-  await ensureO1CodeProvider(file)
-  expect(await readFile(file, "utf8")).toBe(first)
+  const config = JSON.parse(await readFile(file, "utf8"))
+  expect(config.provider.cookiemonster).toEqual(custom)
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -135,12 +126,13 @@ test("leaves an unparseable file untouched", async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-test("config content blob carries the shared limit for both models", () => {
-  const limit = { context: O1_CODE_CONTEXT_LIMIT, output: O1_CODE_OUTPUT_LIMIT }
-  const models = JSON.parse(o1CodeConfigContent()).provider["o1-code"].models
-  expect(models["o1-code"].limit).toEqual(limit)
-  expect(models["o1-code-builder"].limit).toEqual(limit)
-  // Seed file and injected blob must advertise the same cap, or one path would drift.
-  expect(O1_CODE_PROVIDER.models["o1-code"].limit).toEqual(limit)
-  expect(O1_CODE_PROVIDER.models["o1-code-builder"].limit).toEqual(limit)
+test("injected config is self-contained for a clean bundled OpenCode install", () => {
+  const config = JSON.parse(o1CodeConfigContent())
+  const models = config.provider.cookiemonster.models
+
+  expect(config.provider).toEqual({ cookiemonster: COOKIE_MONSTER_PROVIDER })
+  expect(Object.keys(models)).toEqual(MODEL_IDS)
+  for (const agentName of MODEL_IDS) {
+    expect(models[agentName]).toEqual(COOKIE_MONSTER_PROVIDER.models[agentName])
+  }
 })

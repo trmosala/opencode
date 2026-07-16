@@ -115,7 +115,7 @@ export class WorkerPool {
     onProgress?: (frame: ProgressFrame) => void,
   ): Promise<unknown> {
     const worker = await this.acquire(
-      (job.payload?.model || "CookieMonster_Opus 4.8 - Extra High").trim(),
+      (job.payload?.model || "CM_Opus 4.8 - Extra High").trim(),
       (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
     )

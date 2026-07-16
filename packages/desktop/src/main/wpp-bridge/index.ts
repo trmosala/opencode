@@ -32,9 +32,9 @@ export function startWppBridge(options: WppBridgeOptions = {}): Promise<void> {
   const host = options.host ?? DEFAULT_HOST
   const port = options.port ?? DEFAULT_PORT
 
-  // Add the O1-Code provider to opencode.json on boot. Fire-and-forget: a config write failure must
-  // not block the proxy (and thus the app) from starting — it only means the user adds it manually.
-  void ensureO1CodeProvider().catch((error) => console.error("o1-code: failed to update opencode.json", error))
+  // Persist the CookieMonster project roster to opencode.json on boot. A config write failure must
+  // not block the proxy (and thus the app) from starting because the sidecar also receives it inline.
+  void ensureO1CodeProvider().catch((error) => console.error("cookiemonster: failed to update opencode.json", error))
 
   starting = startServer({ host, port, openLogin: options.openLogin }).catch((error) => {
     // Reset so a later retry can re-attempt instead of being pinned to a rejected promise.

@@ -50,8 +50,8 @@ export function preferAppEnv(userDataPath: string) {
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: "desktop",
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
-    // Force the o1-code context cap in even if the seeded opencode.json carries a stale value.
-    // Respect a user who set CONTENT themselves — they own the full merge in that case.
+    // Inject the complete CookieMonster provider roster into the bundled OpenCode sidecar so a
+    // clean install works before the persistent config seed completes. An explicit user value wins.
     OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(),
   })
 }

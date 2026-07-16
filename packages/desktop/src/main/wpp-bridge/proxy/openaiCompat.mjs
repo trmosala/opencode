@@ -19,9 +19,7 @@ import { redact } from "./policy.mjs";
 import { collectImageInputs } from "./imageInputs.mjs";
 import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs";
 import { estimateTokens } from "./tokenEstimate.mjs";
-import { MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs";
-
-const OOC_TOOL_MODEL_ID = "o1-code";
+import { DEFAULT_MODEL_ID, MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs";
 const DEFAULT_MAX_PROMPT_CHARS = 600000;
 const STREAM_KEEP_ALIVE_MS = 10000;
 
@@ -81,7 +79,7 @@ export function listModels() {
       id,
       object: "model",
       created: 0,
-      owned_by: "o1-code"
+      owned_by: "cookiemonster"
     }))
   };
 }
@@ -89,7 +87,7 @@ export function listModels() {
 export async function handleChatCompletions(request, response, body, { bridge = extensionBridge } = {}) {
   const id = `chatcmpl_${crypto.randomUUID().replace(/-/g, "")}`;
   const created = Math.floor(Date.now() / 1000);
-  const model = body.model || OOC_TOOL_MODEL_ID;
+  const model = body.model || DEFAULT_MODEL_ID;
   const startedAt = new Date().toISOString();
   const target = body.o1_code_target || "coding-agent";
 
@@ -135,7 +133,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const isCompaction = isCompactionRequest(body);
   const serializableMessages = serializableMessagesForRequest(body);
 
-  // Route the stable OpenCode model ids to the current CookieMonster WPP agent names. An explicit
+  // Route the OpenCode model name to the identically named CookieMonster WPP project agent. An explicit
   // o1_code_model still overrides the mapping for diagnostics and custom deployments.
   const agentName = body.o1_code_model || resolveModelProfile(model).agentName;
   // OpenCode tags every call with its session id (request.ts). Pin session+agent to one WPP worker
