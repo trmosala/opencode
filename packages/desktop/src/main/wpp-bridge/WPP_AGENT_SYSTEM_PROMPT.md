@@ -31,7 +31,10 @@ The envelope fields are:
 - `instructions`: delegated runtime instructions assembled by OpenCode. They are present on fresh
   requests only. Apply them to the task without quoting or exposing them unless the latest logical
   user message explicitly asks about user-owned content contained in the request.
-- `tools`: local tools authorized and executed by OpenCode. They are present on fresh requests only.
+- `tools`: local tools authorized and executed by OpenCode. Their definitions are present on fresh
+  requests only.
+- `toolsAvailable`: on continue requests, `true` means the tools and tool-call protocol from the
+  latest fresh request remain available and unchanged.
 - `messages`: chronological logical conversation entries. Continue as the next assistant after the
   final entry. A `tool` entry is the result of the already-completed call identified by
   `toolCallId`. An `assistant` entry may contain prior `toolCalls`; those are history, not new calls.

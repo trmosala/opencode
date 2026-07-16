@@ -55,7 +55,7 @@ describe("CookieMonster request envelope", () => {
     expect(out.messages.at(-1)).toEqual({ role: "tool", content: "D:/repo", toolCallId: "call-1" })
   })
 
-  test("continuation includes only unseen messages and omits fresh context", () => {
+  test("continuation keeps tools explicitly available while omitting fresh context", () => {
     const body = framed()
     body.messages.push({ role: "assistant", content: "done" }, { role: "user", content: "one more thing" })
     const out = JSON.parse(serializeChatCompletionRequest(body, { sinceIndex: 2 }))
@@ -65,6 +65,7 @@ describe("CookieMonster request envelope", () => {
       version: 1,
       mode: "continue",
       purpose: "chat",
+      toolsAvailable: true,
       messages: [{ role: "user", content: "one more thing" }],
     })
   })
