@@ -20,6 +20,12 @@ import { exportDebugLogs, initCrashReporter, initLogging, startNetLog, write as 
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import {
+  finishFirstLaunchOnboarding,
+  initializeOldLayoutEligibility,
+  isFirstLaunchOnboardingPending,
+  isOldLayoutEligible,
+} from "./onboarding"
+import {
   getDefaultServerUrl,
   preferAppEnv,
   setDefaultServerUrl,
@@ -147,6 +153,7 @@ const main = Effect.gen(function* () {
     onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId),
   )
   if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
+  initializeOldLayoutEligibility(app.getPath("userData"))
   logger = initLogging()
   initCrashReporter()
 
@@ -285,6 +292,9 @@ const main = Effect.gen(function* () {
     consumeInitialDeepLinks: () => pendingDeepLinks.splice(0),
     getDefaultServerUrl: () => getDefaultServerUrl(),
     setDefaultServerUrl: (url) => setDefaultServerUrl(url),
+    isFirstLaunchOnboardingPending,
+    finishFirstLaunchOnboarding,
+    isOldLayoutEligible,
     getDisplayBackend: async () => null,
     setDisplayBackend: async () => undefined,
     parseMarkdown: async (markdown) => parseMarkdown(markdown),
@@ -300,7 +310,11 @@ const main = Effect.gen(function* () {
   // Boot the in-process WPP bridge proxy (dep-free server.mjs) alongside the OpenCode sidecar.
   // Fire-and-forget: server.mjs self-handles EADDRINUSE, and a failure here must not block the
   // app from coming up — it surfaces in logs and the renderer's connection panel instead.
-  void startWppBridge({ openLogin: () => { openWppLogin() } }).catch((error) => logger.error("wpp bridge proxy failed to start", error))
+  void startWppBridge({
+    openLogin: () => {
+      openWppLogin()
+    },
+  }).catch((error) => logger.error("wpp bridge proxy failed to start", error))
   // ponytail: one-time Phase-3 gate scaffolding (dev only). WPP_LOGIN=1 opens a visible
   // persist:wpp window for interactive SSO; WPP_RECORDER_URL=<chat url> runs the recorder probe
   // against the now-authenticated partition. Separate runs — log in first, probe on a later
