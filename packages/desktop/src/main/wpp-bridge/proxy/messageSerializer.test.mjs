@@ -65,6 +65,7 @@ describe("CookieMonster request envelope", () => {
       version: 1,
       mode: "continue",
       purpose: "chat",
+      toolCallProtocol: "CM_XML_TOOL_CALL_V1",
       toolsAvailable: true,
       messages: [{ role: "user", content: "one more thing" }],
     })

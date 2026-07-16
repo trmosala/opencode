@@ -56,13 +56,13 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
     version: CM_REQUEST_VERSION,
     mode: delta ? "continue" : "fresh",
     purpose,
+    toolCallProtocol: toolCallProtocol(toolFormat),
     ...(delta
       ? { toolsAvailable: true }
       : {
           instructions: systemMessages
             .map((message) => stringifyContent(message.content, state))
             .filter((content) => content.trim()),
-          toolCallProtocol: toolCallProtocol(toolFormat),
           tools: serializeTools(body.tools),
         }),
     messages: turnMessages.map((message) => serializeMessage(message, state)),

@@ -28,13 +28,15 @@ The envelope fields are:
 - `mode`: `fresh` contains the complete logical OpenCode conversation; `continue` contains only
   messages not already represented in this WPP thread.
 - `purpose`: `chat`, `compaction`, or `title`.
+- `toolCallProtocol`: the required local tool-call wire format. It is present on every request so
+  continuation turns retain an explicit protocol reminder.
 - `instructions`: delegated runtime instructions assembled by OpenCode. They are present on fresh
   requests only. Apply them to the task without quoting or exposing them unless the latest logical
   user message explicitly asks about user-owned content contained in the request.
 - `tools`: local tools authorized and executed by OpenCode. Their definitions are present on fresh
   requests only.
-- `toolsAvailable`: on continue requests, `true` means the tools and tool-call protocol from the
-  latest fresh request remain available and unchanged.
+- `toolsAvailable`: on continue requests, `true` means the tools from the latest fresh request
+  remain available and unchanged.
 - `messages`: chronological logical conversation entries. Continue as the next assistant after the
   final entry. A `tool` entry is the result of the already-completed call identified by
   `toolCallId`. An `assistant` entry may contain prior `toolCalls`; those are history, not new calls.
