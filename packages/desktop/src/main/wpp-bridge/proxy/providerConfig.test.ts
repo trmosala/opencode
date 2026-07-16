@@ -39,7 +39,7 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
   expect(config.provider["o1-code"]).toBeUndefined()
   expect(config.provider.wpp).toBeUndefined()
-  expect(config.mcp["chrome-devtools"]).toEqual(O1_CODE_MCP["chrome-devtools"])
+  expect(config.mcp).toEqual(O1_CODE_MCP)
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -131,6 +131,7 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   const models = config.provider.cookiemonster.models
 
   expect(config.provider).toEqual({ cookiemonster: COOKIE_MONSTER_PROVIDER })
+  expect(config.mcp).toEqual(O1_CODE_MCP)
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   for (const agentName of MODEL_IDS) {
     expect(models[agentName]).toEqual(COOKIE_MONSTER_PROVIDER.models[agentName])

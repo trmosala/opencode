@@ -22,6 +22,11 @@ export const O1_CODE_MCP = {
     command: ["npx", "-y", "chrome-devtools-mcp@latest"],
     enabled: true,
   },
+  figma: {
+    type: "remote",
+    url: "http://127.0.0.1:3845/mcp",
+    enabled: true,
+  },
 }
 
 // Exact legacy seed retained only so ensureO1CodeProvider can remove the obsolete picker entry
@@ -111,6 +116,7 @@ export function o1CodeConfigContent() {
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
+    mcp: O1_CODE_MCP,
   })
 }
 
