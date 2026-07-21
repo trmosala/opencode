@@ -118,6 +118,23 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("uses apply_patch for CookieMonster GPT aliases", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderV2.ID.make("cookiemonster"),
+        modelID: ModelV2.ID.make("CM_GPT-5.5 - High"),
+        agent: yield* agents.defaultInfo(),
+      })
+      const ids = tools.map((tool) => tool.id)
+
+      expect(ids).toContain("apply_patch")
+      expect(ids).not.toContain("edit")
+      expect(ids).not.toContain("write")
+    }),
+  )
+
   withCodeMode.instance("exposes execute when code mode is enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

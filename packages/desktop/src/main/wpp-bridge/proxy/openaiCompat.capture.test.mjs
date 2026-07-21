@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("electron", () => ({ BrowserWindow: function BrowserWindow() {}, session: { fromPartition: () => ({}) } }));
 
-const { handleChatCompletions, shouldRetryFreshReplay } = await import("./openaiCompat.mjs");
+const { handleChatCompletions, shouldRetryFreshReplay, shouldRecoverMissingRequiredToolCall, shouldRecoverIncompleteTask } = await import("./openaiCompat.mjs");
 const { commitThread, resetThread } = await import("./sessionThreads.mjs");
 
 const KEY = "sess-A::CM_Opus 4.8 - Extra High";
@@ -185,6 +185,176 @@ describe("shouldRetryFreshReplay", () => {
   });
 });
 
+describe("required tool-call recovery", () => {
+  test("uses the request contract rather than the terminal prose", () => {
+    const explicitPrompt = toolBody(user("Review the codebase with the available local tools."));
+    const requiredChoice = { ...toolBody(user("inspect the workspace")), tool_choice: "required" };
+    expect(shouldRecoverMissingRequiredToolCall(explicitPrompt, bridgeRun("Here is an answer from memory."))).toBe(true);
+    expect(shouldRecoverMissingRequiredToolCall(requiredChoice, bridgeRun("Everything looks fine."))).toBe(true);
+    expect(shouldRecoverMissingRequiredToolCall(toolBody(user("Explain dependency injection")), bridgeRun("Here is the explanation."))).toBe(false);
+    expect(shouldRecoverMissingRequiredToolCall(body(user("Use the local tools.")), bridgeRun("No tools configured."))).toBe(false);
+    expect(shouldRecoverMissingRequiredToolCall(explicitPrompt, bridgeRun("No tool call."), { isCompaction: true })).toBe(false);
+  });
+
+  test("does not recover a response that already contains a tool call", () => {
+    const run = bridgeRun('<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status</parameter></invoke></function_calls>');
+    expect(shouldRecoverMissingRequiredToolCall(toolBody(user("Use the local tools to inspect the workspace.")), run)).toBe(false);
+  });
+
+  test("allows a terminal findings answer after tool progress in the active turn", () => {
+    const request = toolBody(
+      user("Review the codebase with the available local tools."),
+      { role: "assistant", content: null, tool_calls: [{ id: "call-1", type: "function", function: { name: "bash", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "call-1", content: "clean" },
+    );
+    expect(shouldRecoverMissingRequiredToolCall(request, bridgeRun("No findings."))).toBe(false);
+  });
+
+  test("discards the no-tool answer and replays once with targeted tool recovery", async () => {
+    const calls = [];
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async (prompt, options) => {
+        calls.push({ prompt: JSON.parse(prompt), options });
+        if (calls.length === 1) return bridgeRun("Here is a confident answer without inspecting anything.");
+        return bridgeRun('<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status --short</parameter></invoke></function_calls>');
+      },
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} },
+      response,
+      toolBody(user("Inspect the workspace with the available local tools.")),
+      { bridge },
+    ));
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].prompt.instructions[0]).not.toContain("tool-routing step for a local coding session");
+    expect(calls[1].prompt.mode).toBe("fresh");
+    expect(calls[1].prompt.instructions[0]).toContain("tool-routing step for a local coding session");
+    expect(calls[1].prompt.messages).toEqual([{ role: "user", content: "Inspect the workspace with the available local tools." }]);
+    expect(calls[1].options.continueThread).toBe(false);
+    const completion = JSON.parse(response.body).choices[0];
+    expect(completion.finish_reason).toBe("tool_calls");
+    expect(completion.message.content).toBeNull();
+    expect(completion.message.tool_calls[0].function.name).toBe("bash");
+  });
+
+  test("streams safe commentary while the terminal no-tool sentence stays quarantined", async () => {
+    const response = fakeResponse();
+    let calls = 0;
+    const progressHandlers = [];
+    const bridge = {
+      hasSession: () => false,
+      run: async (_prompt, options) => {
+        calls += 1;
+        progressHandlers.push(options.onProgress);
+        if (calls === 1) {
+          const failed = "I am inspecting the workspace. I will stop here without making a tool call.";
+          options.onProgress?.({ finalText: failed });
+          return bridgeRun(failed);
+        }
+        return bridgeRun('<function_calls><invoke id="call-2" name="bash"><parameter name="command">git diff --stat</parameter></invoke></function_calls>');
+      },
+    };
+    const requestBody = toolBody(user("Inspect the workspace with the available local tools."));
+    requestBody.stream = true;
+
+    await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, requestBody, { bridge }));
+
+    expect(calls).toBe(2);
+    expect(progressHandlers[0]).toBeFunction();
+    expect(progressHandlers[1]).toBeUndefined();
+    expect(response.body).toContain("I am inspecting the workspace. ");
+    expect(response.body).not.toContain("stop here");
+    expect(response.body).toContain('"name":"bash"');
+    expect(response.body).toContain('"finish_reason":"tool_calls"');
+  });
+
+  test("returns a typed error when the bounded replay also omits the required tool call", async () => {
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async () => bridgeRun("A terminal answer with no tool call."),
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} },
+      response,
+      toolBody(user("Inspect the workspace with the available local tools.")),
+      { bridge },
+    ));
+
+    expect(response.statusCode).toBe(502);
+    expect(JSON.parse(response.body).error.type).toBe("o1_code_required_tool_not_called");
+  });
+});
+
+describe("task completion marker", () => {
+  test("accepts tool calls and marked terminal answers, but recovers unmarked prose", () => {
+    const request = solToolBody(user("Review the codebase."));
+    expect(shouldRecoverIncompleteTask(request, bridgeRun('{"type":"tool_call","tool":"bash","args":{"command":"git status"}}'))).toBe(false);
+    expect(shouldRecoverIncompleteTask(request, bridgeRun("Review complete.\nCM_TASK_COMPLETE_V1"))).toBe(false);
+    expect(shouldRecoverIncompleteTask(request, bridgeRun("I inspected one file and stopped."))).toBe(true);
+  });
+
+  test("rejects a completion marker contradicted by an explicit incomplete-task claim", () => {
+    const request = solToolBody(user("Review the codebase."));
+    expect(shouldRecoverIncompleteTask(
+      request,
+      bridgeRun("I'm unable to complete the codebase review because the tool session ended.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(true);
+    expect(shouldRecoverIncompleteTask(
+      request,
+      bridgeRun("A complete review still requires further source inspection.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(true);
+    expect(shouldRecoverIncompleteTask(
+      request,
+      bridgeRun("Finding: the cache invalidation implementation is incomplete.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(false);
+  });
+
+  test("continues once, strips the marker, and returns the completed answer", async () => {
+    const calls = [];
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async (prompt, options) => {
+        calls.push({ prompt: JSON.parse(prompt), options });
+        if (calls.length === 1) return bridgeRun("I inspected the baseline.");
+        return bridgeRun("The review is complete.\nCM_TASK_COMPLETE_V1");
+      },
+    };
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} }, response, solToolBody(user("Review the codebase.")), { bridge },
+    ));
+    expect(calls).toHaveLength(2);
+    expect(calls[1].prompt).toMatchObject({ mode: "continue", resumeIncomplete: true, messages: [] });
+    expect(calls[1].options.continueThread).toBe(true);
+    expect(JSON.parse(response.body).choices[0].message.content).toBe("The review is complete.");
+  });
+
+  test("returns a typed error after a second unmarked terminal answer", async () => {
+    const response = fakeResponse();
+    let authChecks = 0;
+    const bridge = {
+      hasSession: () => false,
+      run: async () => bridgeRun("Still incomplete."),
+      checkAuthState: async () => {
+        authChecks += 1;
+        return "WPP page is on a login or identity-provider URL";
+      },
+    };
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} }, response, solToolBody(user("Review the codebase.")), { bridge },
+    ));
+    expect(authChecks).toBe(0);
+    expect(response.statusCode).toBe(502);
+    expect(JSON.parse(response.body).error.type).toBe("o1_code_task_incomplete");
+  });
+});
+
 describe("handleChatCompletions token usage", () => {
   test("maps WPP's cumulative token pill onto prompt_tokens", async () => {
     commitThread(KEY, body(user("hello")), assistant("previous"));
@@ -284,6 +454,20 @@ describe("handleChatCompletions session serialization", () => {
 
 function body(...messages) {
   return { model: "CM_Opus 4.8 - Extra High", stream: false, messages };
+}
+
+function toolBody(...messages) {
+  return {
+    ...body(...messages),
+    tools: [{ type: "function", function: { name: "bash", description: "run a command", parameters: { type: "object" } } }],
+  };
+}
+
+function solToolBody(...messages) {
+  return {
+    ...toolBody(...messages),
+    model: "CM_GPT-5.5 - Medium",
+  };
 }
 
 function user(content) {

@@ -29,8 +29,9 @@ export class StreamGate {
   // the un-emitted tail via trailingDiff() at finalize rather than slicing on this cursor themselves.
   #emittedLength = 0;
 
-  constructor({ threshold = DECISION_THRESHOLD } = {}) {
-    this.threshold = Math.max(1, Number(threshold) || DECISION_THRESHOLD);
+  constructor({ threshold = DECISION_THRESHOLD, sentenceQuarantine = false } = {}) {
+    this.threshold = Math.max(1, threshold || DECISION_THRESHOLD);
+    this.sentenceQuarantine = sentenceQuarantine;
     this.state = "undecided"; // "undecided" | "prose" | "suppressed"
     this.cumulative = "";
   }
@@ -93,9 +94,17 @@ export class StreamGate {
     const markerIndex = firstToolCallMarker(this.cumulative);
     // Otherwise stop short of a trailing fragment that could be the start of a marker split across
     // frames (e.g. cumulative ending in "{\"ty" or "<inv"), so we never stream a partial marker.
-    const emitEnd = markerIndex >= 0
+    let emitEnd = markerIndex >= 0
       ? markerIndex
       : this.cumulative.length - trailingMarkerPrefixLength(this.cumulative);
+
+    // Tool-bearing turns need one reversible sentence so a terminal no-tool answer can be discarded
+    // after the final structural check without flashing in the UI. Release prose only once the next
+    // sentence begins; trailingDiff() flushes the final held sentence for an ordinary response.
+    if (this.sentenceQuarantine) {
+      emitEnd = sentenceReleaseEnd(this.cumulative, emitEnd);
+    }
+
 
     if (emitEnd <= this.#emittedLength) {
       if (markerIndex >= 0) {
@@ -113,6 +122,24 @@ export class StreamGate {
 
     return delta;
   }
+}
+
+// Return the end of the latest completed sentence that is followed by non-whitespace content.
+// The current sentence, including a terminal sentence with only trailing whitespace, remains held.
+function sentenceReleaseEnd(text, maxEnd) {
+  const value = String(text || "");
+  const limit = Math.max(0, maxEnd);
+  const boundary = /(?:[.!?](?:["')\]]*)?|[\r\n]+)[ \t\r\n]+(?=\S)/g;
+  let releaseEnd = 0;
+  let match;
+
+  while ((match = boundary.exec(value)) !== null) {
+    const end = match.index + match[0].length;
+    if (end > limit) break;
+    releaseEnd = end;
+  }
+
+  return releaseEnd;
 }
 
 // Literal prefixes the tool-call markers begin with, used both to locate a complete marker and to

@@ -18,7 +18,7 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 
-import { FORCED_SUBAGENT_MODEL, TaskTool, type TaskPromptOps } from "../../src/tool/task"
+import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -36,16 +36,16 @@ const ref = {
   modelID: ModelV2.ID.make("test-model"),
 }
 
-const forcedProviderConfig = {
-  "o1-code": {
-    name: "O1 Code",
-    id: "o1-code",
+const parentProviderConfig = {
+  test: {
+    name: "Test",
+    id: "test",
     env: [],
     npm: "@ai-sdk/openai-compatible",
     models: {
-      "o1-code-builder": {
-        id: "o1-code-builder",
-        name: "O1 Code Builder",
+      "test-model": {
+        id: "test-model",
+        name: "Test Model",
         attachment: false,
         reasoning: false,
         temperature: false,
@@ -111,7 +111,7 @@ const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
       JSON.stringify({
         ...config,
         $schema: "https://opencode.ai/config.json",
-        provider: { ...provider, ...forcedProviderConfig },
+        provider: { ...provider, ...parentProviderConfig },
       }),
     )
   })
@@ -297,10 +297,10 @@ describe("tool.task", () => {
       expect(kids).toHaveLength(1)
       expect(kids[0]?.id).toBe(child.id)
       expect(result.metadata.sessionId).toBe(child.id)
-      expect(result.metadata.model).toEqual(FORCED_SUBAGENT_MODEL)
+      expect(result.metadata.model).toEqual(ref)
       expect(result.output).toContain(`<task id="${child.id}" state="completed">`)
       expect(seen?.sessionID).toBe(child.id)
-      expect(seen?.model).toEqual(FORCED_SUBAGENT_MODEL)
+      expect(seen?.model).toEqual(ref)
       expect(seen?.variant).toBe("xhigh")
     }),
   )
@@ -567,7 +567,7 @@ describe("tool.task", () => {
             action: "deny",
           },
         ])
-        expect(seen?.model).toEqual(FORCED_SUBAGENT_MODEL)
+        expect(seen?.model).toEqual(ref)
         expect(seen?.tools).toBeUndefined()
       }),
     {

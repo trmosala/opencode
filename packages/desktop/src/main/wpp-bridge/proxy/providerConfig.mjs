@@ -51,9 +51,10 @@ const GPT_COST = { input: 5, output: 30, cache_read: 0.5, cache_write: 0 }
 function projectModel(agentName) {
   return {
     name: agentName,
+    family: agentName.startsWith("CM_Opus") ? "claude" : "gpt-5",
     attachment: true,
-    // GPT-5.6 Sol pricing has not been captured from WPP /models yet, so its variants retain the
-    // previous builder accounting estimate until WPP exposes an authoritative rate.
+    // GPT-5.5 Sol variants retain the previous builder accounting estimate until WPP exposes an
+    // authoritative rate for the project-agent route.
     cost: agentName.startsWith("CM_Opus") ? OPUS_COST : GPT_COST,
     modalities: {
       input: ["text", "image"],
@@ -76,10 +77,16 @@ export const COOKIE_MONSTER_PROVIDER = {
   models: Object.fromEntries(MODEL_IDS.map((agentName) => [agentName, projectModel(agentName)])),
 }
 
-// Everything a fresh user should get without manual setup: the project roster + the MCP server.
+// Everything a fresh user should get without manual setup: the project roster, MCP servers, and LSP support.
 const SEED_PROVIDERS = { cookiemonster: COOKIE_MONSTER_PROVIDER }
 const SEED_MCP = O1_CODE_MCP
 const LEGACY_O1_CODE_MODELS = new Set(["o1-code", "o1-code-builder"])
+const RETIRED_COOKIE_MONSTER_MODELS = new Set([
+  "CM_GPT-5.6 Sol - Low",
+  "CM_GPT-5.6 Sol - Medium",
+  "CM_GPT-5.6 Sol - High",
+  "CM_GPT-5.6 Sol - Extra High",
+])
 
 function isLegacyO1CodeProvider(provider) {
   if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
@@ -117,10 +124,11 @@ export function o1CodeConfigContent() {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
     mcp: O1_CODE_MCP,
+    lsp: true,
   })
 }
 
-// Seed the providers + MCP server into opencode.json so a new user gets them without manual setup.
+// Seed the providers, MCP servers, and LSP support into opencode.json so a new user gets them without manual setup.
 // Additive and idempotent: only fills in missing keys, preserves every other key, and refuses to
 // rewrite a file it can't parse (e.g. JSONC comments) so hand-edited config is never clobbered.
 export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
@@ -131,6 +139,7 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
       $schema: "https://opencode.ai/config.json",
       provider: { ...SEED_PROVIDERS },
       mcp: { ...SEED_MCP },
+      lsp: true,
     }
     await writeFile(file, JSON.stringify(created, null, 2) + "\n")
     return
@@ -167,6 +176,12 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
     const existingModels = config.provider[key]?.models
     if (!existingModels || typeof existingModels !== "object" || Array.isArray(existingModels)) continue
 
+    for (const modelKey of RETIRED_COOKIE_MONSTER_MODELS) {
+      if (!(modelKey in existingModels)) continue
+      delete existingModels[modelKey]
+      changed = true
+    }
+
     for (const [modelKey, seedModel] of Object.entries(value.models || {})) {
       const existingModel = existingModels[modelKey]
       if (!existingModel) {
@@ -174,22 +189,27 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
         changed = true
         continue
       }
-      if (typeof existingModel !== "object" || Array.isArray(existingModel) || !seedModel.cost) continue
+      if (typeof existingModel !== "object" || Array.isArray(existingModel)) continue
 
       const existingCost =
         existingModel.cost && typeof existingModel.cost === "object" && !Array.isArray(existingModel.cost)
           ? existingModel.cost
           : {}
       const mergedCost = { ...seedModel.cost, ...existingCost }
-      if (JSON.stringify(existingCost) === JSON.stringify(mergedCost)) continue
+      const family = existingModel.family ?? seedModel.family
+      if (JSON.stringify(existingCost) === JSON.stringify(mergedCost) && existingModel.family === family) continue
 
-      existingModels[modelKey] = { ...existingModel, cost: mergedCost }
+      existingModels[modelKey] = { ...existingModel, family, cost: mergedCost }
       changed = true
     }
   }
   for (const [key, value] of Object.entries(SEED_MCP)) {
     if (config.mcp?.[key]) continue
     config.mcp = { ...config.mcp, [key]: value }
+    changed = true
+  }
+  if (config.lsp === undefined) {
+    config.lsp = true
     changed = true
   }
   if (!changed) return

@@ -9,21 +9,21 @@
 // The agentName is also the affinity key the extension uses to pin a tab to one agent
 // (extension/background.js) and the label it selects in the composer pill (extension/content.js).
 export const MODEL_PROFILES = {
-  "CM_GPT-5.6 Sol - Low": {
-    agentName: "CM_GPT-5.6 Sol - Low",
-    toolFormat: "xml",
+  "CM_GPT-5.5 - Low": {
+    agentName: "CM_GPT-5.5 - Low",
+    toolFormat: "json",
   },
-  "CM_GPT-5.6 Sol - Medium": {
-    agentName: "CM_GPT-5.6 Sol - Medium",
-    toolFormat: "xml",
+  "CM_GPT-5.5 - Medium": {
+    agentName: "CM_GPT-5.5 - Medium",
+    toolFormat: "json",
   },
-  "CM_GPT-5.6 Sol - High": {
-    agentName: "CM_GPT-5.6 Sol - High",
-    toolFormat: "xml",
+  "CM_GPT-5.5 - High": {
+    agentName: "CM_GPT-5.5 - High",
+    toolFormat: "json",
   },
-  "CM_GPT-5.6 Sol - Extra High": {
-    agentName: "CM_GPT-5.6 Sol - Extra High",
-    toolFormat: "xml",
+  "CM_GPT-5.5 - Extra High": {
+    agentName: "CM_GPT-5.5 - Extra High",
+    toolFormat: "json",
   },
   "CM_Opus 4.8 - Low": {
     agentName: "CM_Opus 4.8 - Low",

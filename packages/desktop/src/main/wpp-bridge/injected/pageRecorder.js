@@ -268,6 +268,7 @@ function createRecord(requestInfo, extra = {}) {
     responseStatus: null,
     responseHeaders: {},
     model: null,
+    primaryMessageId: null,
     finalText: "",
     finishReason: null,
     events: [],
@@ -355,18 +356,34 @@ function parseDataLine(record, data) {
       record.model = event.model;
     }
 
-    for (const choice of parsed.choices || []) {
+    const choices = primaryChoices(parsed.choices);
+    event.messageId = event.messageId || choices
+      .map((choice) => choice?.delta?.messageId || choice?.delta?.message_id || choice?.message?.id || null)
+      .find(Boolean) || null;
+    const hasAssistantPayload = choices.some(choiceHasAssistantPayload);
+
+    // Some WPP responses multiplex more than one assistant message into the same SSE request
+    // (for example, the requested answer plus a policy/refusal message). Keep the first message
+    // that actually carries assistant output and ignore later message ids instead of concatenating
+    // unrelated responses into one OpenAI completion.
+    if (event.messageId && record.primaryMessageId && event.messageId !== record.primaryMessageId) {
+      return;
+    }
+    if (event.messageId && !record.primaryMessageId && hasAssistantPayload) {
+      record.primaryMessageId = event.messageId;
+    }
+
+    for (const choice of choices) {
       const delta = choice.delta || {};
       const message = choice.message || {};
 
       if (typeof delta.content === "string") {
         event.content += delta.content;
         record.finalText += delta.content;
-      }
-
-      if (typeof message.content === "string") {
-        event.content += message.content;
-        record.finalText += message.content;
+      } else if (typeof message.content === "string") {
+        const next = reconcileMessageContent(record.finalText, message.content);
+        event.content += next.slice(record.finalText.length);
+        record.finalText = next;
       }
 
       if (typeof delta.thinking === "string") {
@@ -414,6 +431,47 @@ function parseDataLine(record, data) {
       record.unparsed.splice(0, record.unparsed.length - 50);
     }
   }
+}
+
+// OpenAI-compatible responses define choice index 0 as the selected completion. WPP can include
+// extra choices carrying unrelated fallback/policy text; consuming every choice corrupts the
+// assistant response by concatenating them.
+function primaryChoices(value) {
+  const choices = Array.isArray(value) ? value : [];
+  if (choices.length === 0) {
+    return [];
+  }
+
+  const indexed = choices.filter((choice) => Number(choice?.index) === 0);
+  return indexed.length > 0 ? indexed : [choices[0]];
+}
+
+function choiceHasAssistantPayload(choice) {
+  const delta = choice?.delta || {};
+  const message = choice?.message || {};
+  return (
+    typeof delta.content === "string" ||
+    typeof message.content === "string" ||
+    Array.isArray(delta.tool_calls) ||
+    Array.isArray(delta.toolCalls) ||
+    Array.isArray(message.tool_calls)
+  );
+}
+
+// Streaming frames carry incremental delta.content, while JSON/final frames can repeat the whole
+// answer in message.content. Treat the latter as a cumulative snapshot when it overlaps the text
+// already captured, otherwise retain compatibility with genuinely incremental message frames.
+function reconcileMessageContent(currentText, messageText) {
+  const current = typeof currentText === "string" ? currentText : "";
+  const message = typeof messageText === "string" ? messageText : "";
+
+  if (!current || message.startsWith(current)) {
+    return message;
+  }
+  if (!message || current.endsWith(message)) {
+    return current;
+  }
+  return current + message;
 }
 
 function accumulateToolCall(record, toolCall) {

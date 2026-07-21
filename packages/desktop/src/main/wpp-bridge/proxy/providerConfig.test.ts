@@ -40,6 +40,7 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.provider["o1-code"]).toBeUndefined()
   expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp).toEqual(O1_CODE_MCP)
+  expect(config.lsp).toBe(true)
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -85,6 +86,7 @@ test("fully seeded config is left byte-for-byte unchanged", async () => {
 test("fills missing project models and cost keys without overriding custom values", async () => {
   const { dir, file } = await tmpFile()
   const [firstAgent] = MODEL_IDS
+  const { family: _family, ...firstModel } = COOKIE_MONSTER_PROVIDER.models[firstAgent]
   await writeFile(
     file,
     JSON.stringify({
@@ -92,7 +94,7 @@ test("fills missing project models and cost keys without overriding custom value
         cookiemonster: {
           ...COOKIE_MONSTER_PROVIDER,
           models: {
-            [firstAgent]: { ...COOKIE_MONSTER_PROVIDER.models[firstAgent], cost: { input: 9 } },
+            [firstAgent]: { ...firstModel, cost: { input: 9 } },
           },
         },
       },
@@ -104,6 +106,43 @@ test("fills missing project models and cost keys without overriding custom value
 
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   expect(models[firstAgent].cost).toEqual({ input: 9, output: 30, cache_read: 0.5, cache_write: 0 })
+  expect(models[firstAgent].family).toBe("gpt-5")
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("replaces retired GPT-5.6 project models with the GPT-5.5 roster", async () => {
+  const { dir, file } = await tmpFile()
+  await writeFile(
+    file,
+    JSON.stringify({
+      provider: {
+        cookiemonster: {
+          ...COOKIE_MONSTER_PROVIDER,
+          models: {
+            "CM_GPT-5.6 Sol - Low": { name: "CM_GPT-5.6 Sol - Low" },
+            "CM_GPT-5.6 Sol - Medium": { name: "CM_GPT-5.6 Sol - Medium" },
+            "CM_GPT-5.6 Sol - High": { name: "CM_GPT-5.6 Sol - High" },
+            "CM_GPT-5.6 Sol - Extra High": { name: "CM_GPT-5.6 Sol - Extra High" },
+          },
+        },
+      },
+    }),
+  )
+
+  await ensureO1CodeProvider(file)
+  const config = JSON.parse(await readFile(file, "utf8"))
+  expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
+  expect(Object.keys(config.provider.cookiemonster.models).some((name) => name.includes("GPT-5.6"))).toBe(false)
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("preserves an explicit LSP setting", async () => {
+  const { dir, file } = await tmpFile()
+  await writeFile(file, JSON.stringify({ lsp: false }))
+  await ensureO1CodeProvider(file)
+  const config = JSON.parse(await readFile(file, "utf8"))
+
+  expect(config.lsp).toBe(false)
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -132,6 +171,7 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
 
   expect(config.provider).toEqual({ cookiemonster: COOKIE_MONSTER_PROVIDER })
   expect(config.mcp).toEqual(O1_CODE_MCP)
+  expect(config.lsp).toBe(true)
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   for (const agentName of MODEL_IDS) {
     expect(models[agentName]).toEqual(COOKIE_MONSTER_PROVIDER.models[agentName])

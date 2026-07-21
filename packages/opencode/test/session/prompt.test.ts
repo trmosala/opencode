@@ -46,7 +46,6 @@ import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "@opencode-ai/core/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
-import { FORCED_SUBAGENT_MODEL } from "@/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
@@ -902,13 +901,13 @@ it.instance("loop continues when finish is stop but assistant has tool parts", (
   }),
 )
 
-it.instance("persisted subtask ignores stored model and uses forced builder model", () =>
+it.instance("persisted subtask ignores stale stored model and inherits the parent model", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({ title: "Pinned" })
-    yield* llm.textMatch((hit) => hit.body.model === "o1-code-builder", "subtask done")
+    yield* llm.textMatch((hit) => hit.body.model === "test-model", "subtask done")
     yield* llm.textMatch((hit) => hit.body.model === "test-model", "parent done")
     const msg = yield* user(chat.id, "hello")
     yield* addSubtask(chat.id, msg.id, {
@@ -926,7 +925,7 @@ it.instance("persisted subtask ignores stored model and uses forced builder mode
     const childMessages = yield* sessions.messages({ sessionID: kids[0].id })
     const childUser = childMessages.find((item) => item.info.role === "user")
     expect(childUser?.info.role).toBe("user")
-    if (childUser?.info.role === "user") expect(childUser.info.model).toEqual(FORCED_SUBAGENT_MODEL)
+    if (childUser?.info.role === "user") expect(childUser.info.model).toEqual(ref)
 
     const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
     const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
@@ -934,7 +933,7 @@ it.instance("persisted subtask ignores stored model and uses forced builder mode
     if (!taskMsg || taskMsg.info.role !== "assistant") return
 
     const tool = completedTool(taskMsg.parts)
-    expect(tool?.state.metadata?.model).toEqual(FORCED_SUBAGENT_MODEL)
+    expect(tool?.state.metadata?.model).toEqual(ref)
   }),
 )
 
@@ -1019,7 +1018,7 @@ it.instance(
       if (tool.state.status !== "running") return
       expect(typeof tool.state.metadata?.sessionId).toBe("string")
       expect(tool.state.title).toBeDefined()
-      expect(tool.state.metadata?.model).toEqual(FORCED_SUBAGENT_MODEL)
+      expect(tool.state.metadata?.model).toEqual(ref)
 
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)

@@ -48,6 +48,11 @@ export function preferAppEnv(userDataPath: string) {
     ...(shell ? loadShellEnv(shell, getLogger()) : null),
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
+    // Keep built-in workspace tools (shell/read/apply_patch/etc.) direct, but collapse the large
+    // MCP roster behind OpenCode's single `execute` catalog. Sending every browser/MCP schema as
+    // a first-class tool makes WPP coding turns unnecessarily large and increases tool-call dropouts.
+    OPENCODE_EXPERIMENTAL_CODE_MODE: process.env.OPENCODE_EXPERIMENTAL_CODE_MODE ?? "true",
+    OPENCODE_ENABLE_EXA: process.env.OPENCODE_ENABLE_EXA ?? "true",
     OPENCODE_CLIENT: "desktop",
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
     // Inject the complete CookieMonster provider roster into the bundled OpenCode sidecar so a

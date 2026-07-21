@@ -15,8 +15,6 @@ import { Effect, Exit, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -25,10 +23,6 @@ export interface TaskPromptOps {
 }
 
 const id = "task"
-export const FORCED_SUBAGENT_MODEL = {
-  providerID: ProviderV2.ID.make("o1-code"),
-  modelID: ModelV2.ID.make("o1-code-builder"),
-}
 const BACKGROUND_DESCRIPTION = [
   "Background mode: background=true launches the subagent asynchronously and returns immediately.",
   "Foreground is the default; use it when you need the result before continuing.",
@@ -186,8 +180,14 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const variant = msg.info.variant
 
-      yield* provider.getModel(FORCED_SUBAGENT_MODEL.providerID, FORCED_SUBAGENT_MODEL.modelID)
-      const model = FORCED_SUBAGENT_MODEL
+      // Keep delegated work on the model that initiated the task. The previous hard-coded
+      // o1-code/o1-code-builder alias is no longer part of the CookieMonster provider roster and
+      // caused every task call to fail before the subagent could start.
+      const model = {
+        providerID: msg.info.providerID,
+        modelID: msg.info.modelID,
+      }
+      yield* provider.getModel(model.providerID, model.modelID)
       const metadata = {
         parentSessionId: ctx.sessionID,
         sessionId: nextSession.id,

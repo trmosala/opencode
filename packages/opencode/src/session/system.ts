@@ -25,19 +25,20 @@ import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 
 export function provider(model: Provider.Model) {
-  if (model.api.id.includes("muse-spark")) return [PROMPT_META]
-  if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
+  const family = `${model.family ?? ""} ${model.api.id}`.toLowerCase()
+  if (family.includes("muse-spark")) return [PROMPT_META]
+  if (family.includes("gpt-4") || family.includes("o1") || family.includes("o3"))
     return [PROMPT_BEAST]
-  if (model.api.id.includes("gpt")) {
-    if (model.api.id.includes("codex")) {
+  if (family.includes("gpt")) {
+    if (family.includes("codex")) {
       return [PROMPT_CODEX]
     }
     return [PROMPT_GPT]
   }
-  if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
-  if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
-  if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
-  if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
+  if (family.includes("gemini-")) return [PROMPT_GEMINI]
+  if (family.includes("claude") || family.includes("opus")) return [PROMPT_ANTHROPIC]
+  if (family.includes("trinity")) return [PROMPT_TRINITY]
+  if (family.includes("kimi")) return [PROMPT_KIMI]
   return [PROMPT_DEFAULT]
 }
 

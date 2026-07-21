@@ -44,7 +44,7 @@ import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { InstanceState } from "@/effect/instance-state"
-import { FORCED_SUBAGENT_MODEL, TaskTool, type TaskPromptOps } from "@/tool/task"
+import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -263,7 +263,9 @@ const layer = Layer.effect(
       const ctx = yield* InstanceState.context
       const promptOps = yield* ops()
       const { task: taskTool } = yield* registry.named()
-      const taskModel = yield* getModel(FORCED_SUBAGENT_MODEL.providerID, FORCED_SUBAGENT_MODEL.modelID, sessionID)
+      // Persisted subtasks inherit the parent turn's selected model. This keeps resumed/synthetic
+      // delegation aligned with normal TaskTool calls and avoids the removed o1-code-builder alias.
+      const taskModel = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
       const assistantMessage: SessionV1.Assistant = yield* sessions.updateMessage({
         id: MessageID.ascending(),
         role: "assistant",

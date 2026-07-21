@@ -1,4 +1,5 @@
-import { serializeChatCompletionRequest, serializableMessagesForRequest } from "./messageSerializer.mjs";
+import { serializeChatCompletionRequest, serializeIncompleteTaskContinuationRequest, serializeToolRecoveryRequest, serializableMessagesForRequest } from "./messageSerializer.mjs";
+import { CM_TASK_COMPLETE_PROTOCOL } from "./protocol.mjs";
 import { acquireThreadTurn, decideThreadMode, commitThread, resetThread, threadContinuityEnabled } from "./sessionThreads.mjs";
 import { extensionBridge } from "./extensionBridge.mjs";
 import { chooseAssistantResponse } from "./toolCallNormalizer.mjs";
@@ -131,6 +132,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   }
 
   const isCompaction = isCompactionRequest(body);
+  const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
   const serializableMessages = serializableMessagesForRequest(body);
 
   // Route the OpenCode model name to the identically named CookieMonster WPP project agent. An explicit
@@ -198,7 +200,13 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const streamBase = streamChunkBase({ id, model, created });
   // Live streaming is gated off for compaction: its summary must be sanitized as a whole
   // (sanitizeCompactionSummary) before any text is emitted, so we never stream it incrementally.
-  let streamSession = body.stream && !isCompaction ? createStreamSession() : null;
+  // Tool-bearing turns stream through a one-sentence quarantine. Completed safe sentences flow
+  // live, while the current sentence remains reversible until the final response is checked for a
+  // required tool call. Raw tool-call XML/JSON remains suppressed by StreamGate.
+  let streamSession = body.stream && !isCompaction
+    ? createStreamSession({ sentenceQuarantine: hasTools })
+    : null;
+  let streamProgressEnabled = Boolean(streamSession);
 
   const bridgeOptionsFor = (runContinueThread) => ({
     timeoutMs: body.o1_code_timeout_ms,
@@ -212,7 +220,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     // React to live progress frames by streaming prose deltas as they land. The bridge owns the
     // subscription lifecycle (subscribe on enqueue, unsubscribe when the job settles), so a late
     // frame can't interleave a stray delta after the turn is done.
-    onProgress: streamSession
+    onProgress: streamSession && streamProgressEnabled
       ? (frame) => {
           const { delta } = streamSession.update(frame.finalText);
           if (delta) {
@@ -225,8 +233,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread));
     return body.stream ? waitForBridgeWithKeepAlive(run, response) : run;
   };
-  const freshRetryPrompt = () => {
-    const value = serializeChatCompletionRequest(body, { purpose, sinceIndex: 0 });
+  const freshRetryPrompt = (toolRecovery = false) => {
+    const value = toolRecovery
+      ? serializeToolRecoveryRequest(body, { purpose })
+      : serializeChatCompletionRequest(body, { purpose, sinceIndex: 0 });
     if (value.length <= maxPromptChars()) return value;
     const error = new Error(promptTooLargeMessage(value));
     error.statusCode = 413;
@@ -234,21 +244,49 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     throw error;
   };
   let retryCount = 0;
+  let toolRecoveryCount = 0;
+  let completionRecoveryCount = 0;
   let o1CodeRun;
+  const recoverMissingRequiredToolCall = async (run) => {
+    if (!shouldRecoverMissingRequiredToolCall(body, run, { isCompaction })) return run;
+    if (continuity) resetThread(sessionKey);
+    toolRecoveryCount = 1;
+    // Preserve any already-emitted safe sentence, but never feed the compact recovery response
+    // through a StreamGate whose cumulative cursor belongs to the discarded WPP answer.
+    streamProgressEnabled = false;
+    prompt = freshRetryPrompt(true);
+    context = buildContextMetrics(body, { prompt, serializableMessages, images });
+    const recovered = await runBridgeTurn(prompt, false);
+    if (!shouldRecoverMissingRequiredToolCall(body, recovered, { isCompaction })) return recovered;
+    throw requiredToolNotCalledError();
+  };
+  const recoverIncompleteTask = async (run) => {
+    if (!shouldRecoverIncompleteTask(body, run, { isCompaction })) return run;
+    completionRecoveryCount = 1;
+    streamProgressEnabled = false;
+    prompt = serializeIncompleteTaskContinuationRequest(body, { purpose });
+    context = buildContextMetrics(body, { prompt, serializableMessages, images });
+    const recovered = await runBridgeTurn(prompt, true);
+    if (!shouldRecoverIncompleteTask(body, recovered, { isCompaction })) return recovered;
+    throw taskIncompleteError();
+  };
 
   if (body.stream) {
     openChatCompletionStream(response, { id, model, created });
 
     try {
       o1CodeRun = await runBridgeTurn(prompt, continueThread);
+      o1CodeRun = await recoverMissingRequiredToolCall(o1CodeRun);
+      o1CodeRun = await recoverIncompleteTask(o1CodeRun);
     } catch (error) {
       let failure = error;
       if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
         if (continuity) resetThread(sessionKey);
         retryCount = 1;
-        prompt = freshRetryPrompt();
+        prompt = freshRetryPrompt(toolRecoveryCount > 0);
         context = buildContextMetrics(body, { prompt, serializableMessages, images });
-        streamSession = createStreamSession();
+        streamSession = createStreamSession({ sentenceQuarantine: hasTools });
+        streamProgressEnabled = true;
         try {
           o1CodeRun = await runBridgeTurn(prompt, false);
           failure = null;
@@ -314,12 +352,14 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   } else {
     try {
       o1CodeRun = await runBridgeTurn(prompt, continueThread);
+      o1CodeRun = await recoverMissingRequiredToolCall(o1CodeRun);
+      o1CodeRun = await recoverIncompleteTask(o1CodeRun);
     } catch (error) {
       let failure = error;
       if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
         if (continuity) resetThread(sessionKey);
         retryCount = 1;
-        prompt = freshRetryPrompt();
+        prompt = freshRetryPrompt(toolRecoveryCount > 0);
         context = buildContextMetrics(body, { prompt, serializableMessages, images });
         try {
           o1CodeRun = await runBridgeTurn(prompt, false);
@@ -381,7 +421,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         tool_calls: undefined,
         finish_reason: "stop"
       }
-    : chooseAssistantResponse(finalText, toolCallParts);
+    : stripTaskCompleteMarker(chooseAssistantResponse(finalText, toolCallParts));
   if (!isCompaction) {
     normalizeToolCallArguments(normalized.tool_calls, body.tools);
   }
@@ -420,10 +460,12 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     context,
     responseSource,
     lowFidelity,
-    capture: capture ? { ...capture, retryCount } : null,
+    capture: capture ? { ...capture, retryCount, toolRecoveryCount, completionRecoveryCount } : null,
+    toolRecoveryCount,
     responseMetrics,
     images: imageLogSummary(images),
     o1Code: o1CodeRun,
+    completionRecoveryCount,
     response: {
       content: normalized.content,
       tool_calls: normalized.tool_calls,
@@ -449,6 +491,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         normalized,
         finishReason,
         usage,
+        recoveryReplay: toolRecoveryCount > 0 || completionRecoveryCount > 0,
         includeUsage: shouldIncludeStreamUsage(body)
       });
       return;
@@ -511,13 +554,124 @@ export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
     && !(streamSession && streamSession.hasStreamed());
 }
 
+const EXPLICIT_TOOL_USE_PATTERNS = [
+  /\b(?:use|using|with|via)\b[\s\S]{0,80}\b(?:available\s+)?(?:(?:local|repository|workspace|provided)\s+)?tools?\b/i,
+  /\b(?:keep\s+working|continue|work)\b[\s\S]{0,80}\bacross\b[\s\S]{0,40}\btool calls?\b/i,
+];
+
+function messageText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part?.type === "text") return part.text || "";
+      return "";
+    })
+    .join("\n");
+}
+
+function latestUserMessageIndex(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  return messages.findLastIndex((message) => message?.role === "user");
+}
+
+function activeTurnHasToolProgress(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const latestUserIndex = latestUserMessageIndex(body);
+  if (latestUserIndex < 0) return false;
+  return messages.slice(latestUserIndex + 1).some((message) =>
+    message?.role === "tool" || (message?.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0)
+  );
+}
+
+function explicitlyRequiresToolUse(body) {
+  if (body?.tool_choice === "required" || body?.tool_choice?.type === "function") return true;
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const latestUserIndex = latestUserMessageIndex(body);
+  if (latestUserIndex < 0) return false;
+  const text = messageText(messages[latestUserIndex]?.content);
+  return EXPLICIT_TOOL_USE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+// A required first tool-routing step is a protocol invariant, not a prose-classification problem.
+// Recover any terminal no-tool answer once regardless of its wording. Once this active user turn
+// already contains tool progress, a prose-only response is allowed to be the final findings answer.
+export function shouldRecoverMissingRequiredToolCall(body, run, { isCompaction = false } = {}) {
+  if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
+  if (!explicitlyRequiresToolUse(body) || activeTurnHasToolProgress(body)) return false;
+
+  const finalText = run?.response?.finalText || run?.finalText || "";
+  const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
+  const normalized = chooseAssistantResponse(finalText, toolCallParts);
+  return !normalized?.tool_calls?.length;
+}
+
+function requiredToolNotCalledError() {
+  const error = new Error("The WPP agent returned two terminal responses without the tool call required by this turn.");
+
+  error.statusCode = 502;
+  error.type = "o1_code_required_tool_not_called";
+  return error;
+}
+
+export function shouldRecoverIncompleteTask(body, run, { isCompaction = false } = {}) {
+  if (resolveModelProfile(body?.model).toolFormat !== "json") return false;
+  if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
+  const finalText = run?.response?.finalText || run?.finalText || "";
+  const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
+  const normalized = chooseAssistantResponse(finalText, toolCallParts);
+  if (normalized?.tool_calls?.length) return false;
+  const content = normalized?.content || "";
+  return !hasTaskCompleteMarker(content) || hasExplicitIncompleteTaskClaim(content);
+}
+
+// Treat the completion marker as a claim, not proof. Sol can occasionally append it to a response
+// that explicitly says the requested work did not finish. Keep this deliberately narrow so a valid
+// review finding such as "the implementation is incomplete" does not reopen the agent turn.
+function hasExplicitIncompleteTaskClaim(content) {
+  const text = String(content || "");
+  return [
+    /\bI(?:'m| am| was)?\s+(?:sorry,?\s+but\s+)?(?:unable|not able)\s+to\s+(?:complete|finish|fully inspect|fully review|continue)\b/i,
+    /\bI\s+(?:could not|couldn't|cannot|can't|wasn't able to|was not able to)\s+(?:complete|finish|fully inspect|fully review|continue)\b/i,
+    /\b(?:the\s+)?(?:requested\s+)?(?:review|analysis|inspection|investigation|request|task)\s+(?:is|remains)\s+(?:incomplete|unfinished)\b/i,
+    /\b(?:a\s+)?complete\s+(?:review|analysis|inspection|investigation)\s+(?:still\s+)?requires?\s+(?:further|more|additional)\b/i,
+    /\b(?:before I could|prevented me from)\s+(?:inspect|analy[sz]e|review|run|complete|finish|continue)\b/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function hasTaskCompleteMarker(content) {
+  return new RegExp(`(?:^|\\r?\\n)${CM_TASK_COMPLETE_PROTOCOL}\\s*$`).test(String(content || ""));
+}
+
+function stripTaskCompleteMarker(message) {
+  if (!message || typeof message.content !== "string") return message;
+  return {
+    ...message,
+    content: message.content
+      .replace(new RegExp(`(?:\\r?\\n)?${CM_TASK_COMPLETE_PROTOCOL}\\s*$`), "")
+      .trimEnd(),
+  };
+}
+
+function taskIncompleteError() {
+  const error = new Error(`The WPP agent returned two terminal responses without ${CM_TASK_COMPLETE_PROTOCOL}.`);
+  error.statusCode = 502;
+  error.type = "o1_code_task_incomplete";
+  return error;
+}
+
 // After a turn (and its one fresh replay) has failed, probe whether the real cause is a logged-out
 // WPP session. When it is, mark auth-required (pops the SSO window via the bridge's fire-once edge)
 // and return a typed wpp_auth_required error so the operator is told to log in instead of seeing a
 // bare capture/recorder failure. Returns the original failure unchanged when already auth-typed, the
 // session looks logged in, or the bridge can't probe (e.g. test doubles without checkAuthState).
 async function loginRequiredFailure(bridge, failure) {
-  if (failure?.type === "wpp_auth_required") return failure;
+  if ([
+    "wpp_auth_required",
+    "o1_code_task_incomplete",
+    "o1_code_required_tool_not_called",
+  ].includes(failure?.type)) return failure;
 
   const probe = bridge.checkAuthState?.();
   const reason = probe ? await probe.catch(() => null) : null;
@@ -535,8 +689,8 @@ async function loginRequiredFailure(bridge, failure) {
 // flag (did we ever emit a live prose delta?) and the trailing diff at finalize (the authoritative
 // content past what we've already sent). The gate itself owns the prose-vs-tool-call decision, the
 // incremental slicing, and the emitted-char cursor.
-function createStreamSession() {
-  const gate = new StreamGate();
+function createStreamSession({ sentenceQuarantine = false } = {}) {
+  const gate = new StreamGate({ sentenceQuarantine });
   let streamed = false;
 
   return {
@@ -577,6 +731,7 @@ function finalizeStreamedCompletion(response, streamBase, {
   normalized,
   finishReason,
   usage,
+  recoveryReplay = false,
   includeUsage
 }) {
   const tool_calls = normalized.tool_calls;
@@ -584,6 +739,10 @@ function finalizeStreamedCompletion(response, streamBase, {
 
   if (Array.isArray(tool_calls) && tool_calls.length > 0) {
     writeToolCallChunks(response, streamBase, tool_calls);
+  } else if (recoveryReplay) {
+    // The recovery response is a new cumulative text origin. Append it in full after any benign
+    // commentary already emitted from the discarded answer instead of diffing unrelated strings.
+    writeContentBody(response, streamBase, content);
   } else if (streamSession.hasStreamed()) {
     // Emit the authoritative content past what we've already streamed live.
     const trailing = streamSession.trailingDiff(content);
