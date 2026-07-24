@@ -6,9 +6,11 @@ const { handleChatCompletions, shouldRetryFreshReplay, shouldRecoverMissingRequi
 const { commitThread, resetThread } = await import("./sessionThreads.mjs");
 
 const KEY = "sess-A::CM_Opus 4.8 - Extra High";
+const SOL_KEY = "sess-A::CM_GPT-5.5 - Medium";
 
 afterEach(() => {
   resetThread(KEY);
+  resetThread(SOL_KEY);
 });
 
 describe("handleChatCompletions capture retry", () => {
@@ -38,6 +40,60 @@ describe("handleChatCompletions capture retry", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["x-o1-code-response-source"]).toBe("network");
     expect(JSON.parse(response.body).choices[0].message.content).toBe("done");
+  });
+
+  test("validates required tool use after a successful fresh replay", async () => {
+    const calls = [];
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async (_prompt, options) => {
+        calls.push(options);
+        if (calls.length === 1) throw captureError("recorder_parser_miss");
+        if (calls.length === 2) return bridgeRun("The workspace looks fine.");
+        return bridgeRun(
+          '<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status</parameter></invoke></function_calls>',
+        );
+      },
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} },
+      response,
+      toolBody(user("Inspect the workspace with the available local tools.")),
+      { bridge },
+    ));
+
+    expect(calls).toHaveLength(3);
+    expect(calls[1].continueThread).toBe(false);
+    expect(calls[2].continueThread).toBe(false);
+    expect(JSON.parse(response.body).choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  test("validates task completion after a successful fresh replay", async () => {
+    const calls = [];
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => true,
+      run: async (_prompt, options) => {
+        calls.push(options);
+        if (calls.length === 1) throw captureError("recorder_parser_miss");
+        if (calls.length === 2) return bridgeRun("I inspected the baseline.");
+        return bridgeRun("The review is complete.\nCM_TASK_COMPLETE_V1");
+      },
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      response,
+      solToolBody(user("Review the codebase.")),
+      { bridge },
+    ));
+
+    expect(calls).toHaveLength(3);
+    expect(calls[1].continueThread).toBe(false);
+    expect(calls[2].continueThread).toBe(true);
+    expect(JSON.parse(response.body).choices[0].message.content).toBe("The review is complete.");
   });
 
   test("surfaces a typed capture failure after one failed retry", async () => {
@@ -315,7 +371,7 @@ describe("task completion marker", () => {
     )).toBe(false);
   });
 
-  test("continues once, strips the marker, and returns the completed answer", async () => {
+  test("replays a self-contained request when completion recovery is unpinned", async () => {
     const calls = [];
     const response = fakeResponse();
     const bridge = {
@@ -328,6 +384,32 @@ describe("task completion marker", () => {
     };
     await withNoRunLogs(() => handleChatCompletions(
       { headers: {} }, response, solToolBody(user("Review the codebase.")), { bridge },
+    ));
+    expect(calls).toHaveLength(2);
+    expect(calls[1].prompt).toMatchObject({
+      mode: "fresh",
+      messages: [{ role: "user", content: "Review the codebase." }],
+    });
+    expect(calls[1].options.continueThread).toBe(false);
+    expect(JSON.parse(response.body).choices[0].message.content).toBe("The review is complete.");
+  });
+
+  test("continues the pinned thread once, strips the marker, and returns the completed answer", async () => {
+    const calls = [];
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => true,
+      run: async (prompt, options) => {
+        calls.push({ prompt: JSON.parse(prompt), options });
+        if (calls.length === 1) return bridgeRun("I inspected the baseline.");
+        return bridgeRun("The review is complete.\nCM_TASK_COMPLETE_V1");
+      },
+    };
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      response,
+      solToolBody(user("Review the codebase.")),
+      { bridge },
     ));
     expect(calls).toHaveLength(2);
     expect(calls[1].prompt).toMatchObject({ mode: "continue", resumeIncomplete: true, messages: [] });
