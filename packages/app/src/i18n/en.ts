@@ -1,4 +1,26 @@
+export const browser = {
+  "command.browser.toggle": "Toggle browser",
+  "session.tab.browser": "Browser",
+  "browser.address.label": "Browser address",
+  "browser.action.back": "Back",
+  "browser.action.forward": "Forward",
+  "browser.action.reload": "Reload",
+  "browser.action.stop": "Stop",
+  "browser.action.addUrl": "Add URL",
+  "browser.action.addSelection": "Add Selection",
+  "browser.action.addScreenshot": "Add Screenshot",
+  "browser.toast.invalidUrl.title": "Invalid browser URL",
+  "browser.toast.invalidUrl.description": "Only http and https URLs can be opened.",
+  "browser.toast.emptySelection.title": "No browser selection",
+  "browser.toast.emptySelection.description":
+    "Select text or click a visible element in the browser before adding it to chat.",
+  "browser.toast.selectionMode.title": "Pick browser context",
+  "browser.toast.selectionMode.description": "Click an element in the browser, or press Escape to cancel.",
+  "browser.toast.screenshotFailed.title": "Failed to capture browser screenshot",
+}
+
 export const dict = {
+  ...browser,
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",
@@ -51,7 +73,6 @@ export const dict = {
   "command.tab.reopenClosed": "Reopen closed tab",
   "command.context.addSelection": "Add selection to context",
   "command.context.addSelection.description": "Add selected lines from the current file",
-  "command.browser.toggle": "Toggle browser",
   "command.input.focus": "Focus input",
   "command.terminal.toggle": "Toggle terminal",
   "command.fileTree.toggle": "Toggle file tree",
@@ -94,6 +115,7 @@ export const dict = {
   "command.session.unshare.description": "Stop sharing this session",
 
   "palette.search.placeholder": "Search files, commands, and sessions",
+  "palette.search.placeholder.home": "Search commands and sessions",
   "palette.empty": "No results found",
   "palette.group.commands": "Commands",
   "palette.group.files": "Files",
@@ -102,6 +124,7 @@ export const dict = {
   "dialog.provider.empty": "No providers found",
   "dialog.provider.group.popular": "Popular",
   "dialog.provider.group.other": "Other",
+  "dialog.provider.custom.label": "Custom OpenAI-compatible provider",
   "dialog.provider.tag.recommended": "Recommended",
   "dialog.provider.opencode.note": "Curated models including Claude, GPT, Gemini and more",
   "dialog.provider.opencode.tagline": "Reliable optimized models",
@@ -122,6 +145,7 @@ export const dict = {
 
   "dialog.model.unpaid.freeModels.title": "Free models provided by OpenCode",
   "dialog.model.unpaid.addMore.title": "Add more models from popular providers",
+  "dialog.model.unpaid.viewMoreProviders": "See 70+ more providers",
 
   "dialog.provider.viewAll": "Show more providers",
 
@@ -633,7 +657,6 @@ export const dict = {
   "session.tab.session": "Session",
   "session.tab.review": "Review",
   "session.tab.context": "Context",
-  "session.tab.browser": "Browser",
   "session.tab.unknown": "Unknown Session",
   "session.panel.reviewAndFiles": "Review and files",
   "session.error.notFound": "This session cannot be found",
@@ -699,6 +722,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "Local",
   "session.new.workspace.local": "Local repository",
   "session.new.workspace.existing": "Workspace…",
+  "session.new.git.none": "No Git",
   "session.new.lastModified": "Last modified",
 
   "session.header.search.placeholder": "Search {{project}}",
@@ -727,23 +751,6 @@ export const dict = {
   "session.header.open.app.androidStudio": "Android Studio",
   "session.header.open.app.powershell": "PowerShell",
   "session.header.open.app.sublimeText": "Sublime Text",
-
-  "browser.address.label": "Browser address",
-  "browser.action.back": "Back",
-  "browser.action.forward": "Forward",
-  "browser.action.reload": "Reload",
-  "browser.action.stop": "Stop",
-  "browser.action.addUrl": "Add URL",
-  "browser.action.addSelection": "Add Selection",
-  "browser.action.addScreenshot": "Add Screenshot",
-  "browser.toast.invalidUrl.title": "Invalid browser URL",
-  "browser.toast.invalidUrl.description": "Only http and https URLs can be opened.",
-  "browser.toast.emptySelection.title": "No browser selection",
-  "browser.toast.emptySelection.description":
-    "Select text or click a visible element in the browser before adding it to chat.",
-  "browser.toast.selectionMode.title": "Pick browser context",
-  "browser.toast.selectionMode.description": "Click an element in the browser, or press Escape to cancel.",
-  "browser.toast.screenshotFailed.title": "Failed to capture browser screenshot",
 
   "status.popover.trigger": "Status",
   "status.popover.ariaLabel": "Server configurations",

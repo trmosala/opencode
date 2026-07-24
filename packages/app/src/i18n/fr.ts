@@ -1,4 +1,7 @@
+import { browser } from "./en"
+
 export const dict = {
+  ...browser,
   "command.category.suggested": "Suggéré",
   "command.category.view": "Affichage",
   "command.category.project": "Projet",
@@ -86,6 +89,7 @@ export const dict = {
   "command.session.unshare": "Ne plus partager la session",
   "command.session.unshare.description": "Arrêter de partager cette session",
   "palette.search.placeholder": "Rechercher des fichiers, des commandes et des sessions",
+  "palette.search.placeholder.home": "Rechercher des commandes et des sessions",
   "palette.empty": "Aucun résultat trouvé",
   "palette.group.commands": "Commandes",
   "palette.group.files": "Fichiers",
@@ -623,6 +627,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "Local",
   "session.new.workspace.local": "Dépôt local",
   "session.new.workspace.existing": "Espace de travail…",
+  "session.new.git.none": "Pas de Git",
   "session.new.lastModified": "Dernière modification",
   "session.header.search.placeholder": "Rechercher {{project}}",
   "session.header.searchFiles": "Rechercher des fichiers",
