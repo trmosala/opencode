@@ -1,8 +1,9 @@
-import { dict as en } from "./en"
+import { browser, dict as en } from "./en"
 
 type Keys = keyof typeof en
 
 export const dict = {
+  ...browser,
   "command.category.suggested": "Önerilen",
   "command.category.view": "Görünüm",
   "command.category.project": "Proje",
@@ -97,6 +98,7 @@ export const dict = {
   "command.session.unshare.description": "Bu oturumun paylaşımını durdur",
 
   "palette.search.placeholder": "Dosya, komut ve oturum ara",
+  "palette.search.placeholder.home": "Komut ve oturum ara",
   "palette.empty": "Sonuç bulunamadı",
   "palette.group.commands": "Komutlar",
   "palette.group.files": "Dosyalar",
@@ -678,6 +680,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "Yerel",
   "session.new.workspace.local": "Yerel depo",
   "session.new.workspace.existing": "Çalışma alanı…",
+  "session.new.git.none": "Git yok",
   "session.new.lastModified": "Son değişiklik",
 
   "session.header.search.placeholder": "{{project}} ara",

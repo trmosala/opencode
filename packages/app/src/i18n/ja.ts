@@ -1,4 +1,7 @@
+import { browser } from "./en"
+
 export const dict = {
+  ...browser,
   "command.category.suggested": "おすすめ",
   "command.category.view": "表示",
   "command.category.project": "プロジェクト",
@@ -86,6 +89,7 @@ export const dict = {
   "command.session.unshare": "セッションの共有を停止",
   "command.session.unshare.description": "このセッションの共有を停止",
   "palette.search.placeholder": "ファイル、コマンド、セッションを検索",
+  "palette.search.placeholder.home": "コマンドとセッションを検索",
   "palette.empty": "結果が見つかりません",
   "palette.group.commands": "コマンド",
   "palette.group.files": "ファイル",
@@ -614,6 +618,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "ローカル",
   "session.new.workspace.local": "ローカルリポジトリ",
   "session.new.workspace.existing": "ワークスペース…",
+  "session.new.git.none": "Git なし",
   "session.new.lastModified": "最終更新",
   "session.header.search.placeholder": "{{project}}を検索",
   "session.header.searchFiles": "ファイルを検索",

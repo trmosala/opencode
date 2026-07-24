@@ -1,4 +1,7 @@
+import { browser } from "./en"
+
 export const dict = {
+  ...browser,
   "command.category.suggested": "추천",
   "command.category.view": "보기",
   "command.category.project": "프로젝트",
@@ -82,6 +85,7 @@ export const dict = {
   "command.session.unshare": "세션 공유 중지",
   "command.session.unshare.description": "이 세션 공유 중지",
   "palette.search.placeholder": "파일, 명령어 및 세션 검색",
+  "palette.search.placeholder.home": "명령어 및 세션 검색",
   "palette.empty": "결과 없음",
   "palette.group.commands": "명령어",
   "palette.group.files": "파일",
@@ -975,6 +979,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "로컬",
   "session.new.workspace.local": "로컬 저장소",
   "session.new.workspace.existing": "작업 공간…",
+  "session.new.git.none": "Git 없음",
 
   "sidebar.empty.title": "열린 프로젝트 없음",
   "sidebar.empty.description": "프로젝트를 열어 시작하세요",

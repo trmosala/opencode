@@ -1,4 +1,7 @@
+import { browser } from "./en"
+
 export const dict = {
+  ...browser,
   "command.category.suggested": "مقترح",
   "command.category.view": "عرض",
   "command.category.project": "مشروع",
@@ -86,6 +89,7 @@ export const dict = {
   "command.session.unshare": "إلغاء مشاركة الجلسة",
   "command.session.unshare.description": "إيقاف مشاركة هذه الجلسة",
   "palette.search.placeholder": "البحث في الملفات والأوامر والجلسات",
+  "palette.search.placeholder.home": "البحث في الأوامر والجلسات",
   "palette.empty": "لا توجد نتائج",
   "palette.group.commands": "الأوامر",
   "palette.group.files": "الملفات",
@@ -612,6 +616,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "محلي",
   "session.new.workspace.local": "المستودع المحلي",
   "session.new.workspace.existing": "مساحة عمل…",
+  "session.new.git.none": "لا يوجد Git",
   "session.new.lastModified": "آخر تعديل",
   "session.header.search.placeholder": "بحث {{project}}",
   "session.header.searchFiles": "بحث عن الملفات",

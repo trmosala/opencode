@@ -1,8 +1,9 @@
-import { dict as en } from "./en"
+import { browser, dict as en } from "./en"
 
 type Keys = keyof typeof en
 
 export const dict = {
+  ...browser,
   "command.category.suggested": "建议",
   "command.category.view": "视图",
   "command.category.project": "项目",
@@ -120,6 +121,7 @@ export const dict = {
   "command.session.unshare.description": "停止分享此会话",
 
   "palette.search.placeholder": "搜索文件、命令和会话",
+  "palette.search.placeholder.home": "搜索命令和会话",
   "palette.empty": "未找到结果",
   "palette.group.commands": "命令",
   "palette.group.files": "文件",
@@ -665,6 +667,7 @@ export const dict = {
   "session.new.workspace.triggerLocal": "本地",
   "session.new.workspace.local": "本地仓库",
   "session.new.workspace.existing": "工作区…",
+  "session.new.git.none": "无 Git",
   "session.new.lastModified": "最后修改",
   "session.header.search.placeholder": "搜索 {{project}}",
   "session.header.searchFiles": "搜索文件",
