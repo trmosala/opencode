@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import vm from "node:vm"
 
@@ -97,7 +96,7 @@ function parse(record: Recorder, payload: unknown) {
 
 async function loadRecorderHarness(): Promise<RecorderHarness> {
   const path = join(import.meta.dir, "injected", "pageRecorder.js")
-  const source = await readFile(path, "utf8")
+  const source = await Bun.file(path).text()
   const instrumented = source.replace(
     /\}\)\(\);\s*$/u,
     "globalThis.__recorderHarness = { createRecord, parseDataLine };\n})();",

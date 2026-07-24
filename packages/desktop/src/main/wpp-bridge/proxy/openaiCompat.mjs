@@ -249,6 +249,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   let o1CodeRun;
   const recoverMissingRequiredToolCall = async (run) => {
     if (!shouldRecoverMissingRequiredToolCall(body, run, { isCompaction })) return run;
+    if (toolRecoveryCount > 0) throw requiredToolNotCalledError();
     if (continuity) resetThread(sessionKey);
     toolRecoveryCount = 1;
     // Preserve any already-emitted safe sentence, but never feed the compact recovery response
@@ -262,22 +263,25 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   };
   const recoverIncompleteTask = async (run) => {
     if (!shouldRecoverIncompleteTask(body, run, { isCompaction })) return run;
+    if (completionRecoveryCount > 0) throw taskIncompleteError();
     completionRecoveryCount = 1;
     streamProgressEnabled = false;
-    prompt = serializeIncompleteTaskContinuationRequest(body, { purpose });
+    prompt = continuity
+      ? serializeIncompleteTaskContinuationRequest(body, { purpose })
+      : freshRetryPrompt();
     context = buildContextMetrics(body, { prompt, serializableMessages, images });
-    const recovered = await runBridgeTurn(prompt, true);
+    const recovered = await runBridgeTurn(prompt, continuity);
     if (!shouldRecoverIncompleteTask(body, recovered, { isCompaction })) return recovered;
     throw taskIncompleteError();
   };
+  const validateBridgeRun = async (run) =>
+    recoverIncompleteTask(await recoverMissingRequiredToolCall(run));
 
   if (body.stream) {
     openChatCompletionStream(response, { id, model, created });
 
     try {
-      o1CodeRun = await runBridgeTurn(prompt, continueThread);
-      o1CodeRun = await recoverMissingRequiredToolCall(o1CodeRun);
-      o1CodeRun = await recoverIncompleteTask(o1CodeRun);
+      o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread));
     } catch (error) {
       let failure = error;
       if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
@@ -288,7 +292,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         streamSession = createStreamSession({ sentenceQuarantine: hasTools });
         streamProgressEnabled = true;
         try {
-          o1CodeRun = await runBridgeTurn(prompt, false);
+          o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false));
           failure = null;
         } catch (retryError) {
           failure = retryError;
@@ -351,9 +355,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     }
   } else {
     try {
-      o1CodeRun = await runBridgeTurn(prompt, continueThread);
-      o1CodeRun = await recoverMissingRequiredToolCall(o1CodeRun);
-      o1CodeRun = await recoverIncompleteTask(o1CodeRun);
+      o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread));
     } catch (error) {
       let failure = error;
       if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
@@ -362,7 +364,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         prompt = freshRetryPrompt(toolRecoveryCount > 0);
         context = buildContextMetrics(body, { prompt, serializableMessages, images });
         try {
-          o1CodeRun = await runBridgeTurn(prompt, false);
+          o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false));
           failure = null;
         } catch (retryError) {
           failure = retryError;
