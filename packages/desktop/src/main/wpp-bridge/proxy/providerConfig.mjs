@@ -53,7 +53,7 @@ function projectModel(agentName) {
     name: agentName,
     family: agentName.startsWith("CM_Opus") ? "claude" : "gpt-5",
     attachment: true,
-    // GPT-5.5 Sol variants retain the previous builder accounting estimate until WPP exposes an
+    // GPT Sol variants retain the previous builder accounting estimate until WPP exposes an
     // authoritative rate for the project-agent route.
     cost: agentName.startsWith("CM_Opus") ? OPUS_COST : GPT_COST,
     modalities: {
@@ -81,12 +81,6 @@ export const COOKIE_MONSTER_PROVIDER = {
 const SEED_PROVIDERS = { cookiemonster: COOKIE_MONSTER_PROVIDER }
 const SEED_MCP = O1_CODE_MCP
 const LEGACY_O1_CODE_MODELS = new Set(["o1-code", "o1-code-builder"])
-const RETIRED_COOKIE_MONSTER_MODELS = new Set([
-  "CM_GPT-5.6 Sol - Low",
-  "CM_GPT-5.6 Sol - Medium",
-  "CM_GPT-5.6 Sol - High",
-  "CM_GPT-5.6 Sol - Extra High",
-])
 
 function isLegacyO1CodeProvider(provider) {
   if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
@@ -176,11 +170,6 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
     const existingModels = config.provider[key]?.models
     if (!existingModels || typeof existingModels !== "object" || Array.isArray(existingModels)) continue
 
-    for (const modelKey of RETIRED_COOKIE_MONSTER_MODELS) {
-      if (!(modelKey in existingModels)) continue
-      delete existingModels[modelKey]
-      changed = true
-    }
 
     for (const [modelKey, seedModel] of Object.entries(value.models || {})) {
       const existingModel = existingModels[modelKey]

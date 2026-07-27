@@ -672,6 +672,7 @@ async function loginRequiredFailure(bridge, failure) {
   if ([
     "wpp_auth_required",
     "o1_code_task_incomplete",
+    "o1_code_protocol_incompatible",
     "o1_code_required_tool_not_called",
   ].includes(failure?.type)) return failure;
 
