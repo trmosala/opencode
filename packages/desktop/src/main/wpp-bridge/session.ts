@@ -32,12 +32,13 @@ export function wppSession(): Session {
       return
     }
 
-    recoveredWebContents.add(details.webContents.id)
+    const webContents = details.webContents
+    recoveredWebContents.add(webContents.id)
     console.warn("cookiemonster: expired WPP session detected; returning to sign-in")
     void current
       .clearStorageData({ origin: WPP_WORKSPACE_ORIGIN, storages: ["cookies", "localstorage"] })
       .then(() => {
-        if (!details.webContents?.isDestroyed()) details.webContents.reloadIgnoringCache()
+        if (!webContents.isDestroyed()) webContents.reloadIgnoringCache()
       })
       .catch((error) => console.error("cookiemonster: failed to reset expired WPP session", error))
   })
