@@ -211,6 +211,11 @@ describe("worker startup helpers", () => {
     // A silent-SSO renewer iframe on the IdP origin must NOT be probed: its URL matches the login
     // pattern even while the session is perfectly healthy.
     expect(isWppFrameUrl("https://login.microsoftonline.com/silent-renew")).toBe(false)
+    expect(
+      isWppFrameUrl(
+        "https://authenticate.os.wpp.com/auth/realms/os-prod/protocol/openid-connect/login-status-iframe.html",
+      ),
+    ).toBe(false)
     expect(isWppFrameUrl("about:blank")).toBe(false)
     expect(isWppFrameUrl("")).toBe(false)
   })
