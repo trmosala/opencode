@@ -63,11 +63,13 @@ export function wppProjectAccessError(reason: string, diagnostics: StartupAuthSt
 }
 
 // Frames the WPP session actually lives in (workspace shell + assistant iframes). Third-party
-// frames (telemetry, silent-SSO renewer iframes on IdP origins) are excluded so their URLs can't
-// false-positive the login classifier.
+// frames and Keycloak's hidden login-status iframe are excluded so their URLs can't false-positive
+// the login classifier.
 export function isWppFrameUrl(url: string): boolean {
   try {
-    const host = new URL(String(url || "")).hostname
+    const parsed = new URL(url)
+    const host = parsed.hostname
+    if (host === "authenticate.os.wpp.com" && parsed.pathname.endsWith("/login-status-iframe.html")) return false
     return host === "wpp.com" || host === "wpp.ai" || host.endsWith(".wpp.com") || host.endsWith(".wpp.ai")
   } catch {
     return false

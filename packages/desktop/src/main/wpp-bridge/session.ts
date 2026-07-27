@@ -19,20 +19,43 @@ export const WPP_ASSISTANT_ORIGINS = [
   "https://open-web-deeplink-cs.wpp.ai",
 ]
 
+const configuredSessions = new WeakSet<Session>()
+const recoveredWebContents = new Set<number>()
+
 export function wppSession(): Session {
-  return session.fromPartition(WPP_PARTITION)
+  const current = session.fromPartition(WPP_PARTITION)
+  if (configuredSessions.has(current)) return current
+  configuredSessions.add(current)
+
+  current.webRequest.onResponseStarted((details) => {
+    if (!isExpiredWppSession(details) || !details.webContents || recoveredWebContents.has(details.webContents.id)) {
+      return
+    }
+
+    recoveredWebContents.add(details.webContents.id)
+    console.warn("cookiemonster: expired WPP session detected; returning to sign-in")
+    void current
+      .clearStorageData({ origin: WPP_WORKSPACE_ORIGIN, storages: ["cookies", "localstorage"] })
+      .then(() => {
+        if (!details.webContents?.isDestroyed()) details.webContents.reloadIgnoringCache()
+      })
+      .catch((error) => console.error("cookiemonster: failed to reset expired WPP session", error))
+  })
+
+  return current
 }
 
 // One offscreen worker window hosting a single authenticated WPP assistant page. Replaces one
 // "owned tab" from the MV3 background.js tab pool. Hidden by default; the pool manager (next
 // phase) owns lifecycle, LRU reuse, and per-agent affinity across N of these.
 export function createWorkerWindow({ show = false } = {}): BrowserWindow {
+  const current = wppSession()
   return new BrowserWindow({
     show,
     width: 1440,
     height: 1000,
     webPreferences: {
-      partition: WPP_PARTITION,
+      session: current,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -65,4 +88,14 @@ export function toggleWppLogin(url = WPP_COOKIE_MONSTER_PROJECT_URL) {
     return
   }
   openWppLogin(url)
+}
+
+function isExpiredWppSession(details: { statusCode: number; url: string }) {
+  if (details.statusCode !== 401) return false
+  try {
+    const url = new URL(details.url)
+    return url.origin === WPP_WORKSPACE_ORIGIN && url.pathname === "/api/users/me"
+  } catch {
+    return false
+  }
 }
