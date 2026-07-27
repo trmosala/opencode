@@ -2,15 +2,13 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("electron", () => ({ BrowserWindow: function BrowserWindow() {}, session: { fromPartition: () => ({}) } }));
 
-const { handleChatCompletions, shouldRetryFreshReplay, shouldRecoverMissingRequiredToolCall, shouldRecoverIncompleteTask } = await import("./openaiCompat.mjs");
+const { handleChatCompletions, shouldRetryFreshReplay, shouldRecoverMissingRequiredToolCall } = await import("./openaiCompat.mjs");
 const { commitThread, resetThread } = await import("./sessionThreads.mjs");
 
 const KEY = "sess-A::CM_Opus 4.8 - Extra High";
-const SOL_KEY = "sess-A::CM_GPT-5.5 - Medium";
 
 afterEach(() => {
   resetThread(KEY);
-  resetThread(SOL_KEY);
 });
 
 describe("handleChatCompletions capture retry", () => {
@@ -68,32 +66,6 @@ describe("handleChatCompletions capture retry", () => {
     expect(calls[1].continueThread).toBe(false);
     expect(calls[2].continueThread).toBe(false);
     expect(JSON.parse(response.body).choices[0].finish_reason).toBe("tool_calls");
-  });
-
-  test("validates task completion after a successful fresh replay", async () => {
-    const calls = [];
-    const response = fakeResponse();
-    const bridge = {
-      hasSession: () => true,
-      run: async (_prompt, options) => {
-        calls.push(options);
-        if (calls.length === 1) throw captureError("recorder_parser_miss");
-        if (calls.length === 2) return bridgeRun("I inspected the baseline.");
-        return bridgeRun("The review is complete.\nCM_TASK_COMPLETE_V1");
-      },
-    };
-
-    await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
-      response,
-      solToolBody(user("Review the codebase.")),
-      { bridge },
-    ));
-
-    expect(calls).toHaveLength(3);
-    expect(calls[1].continueThread).toBe(false);
-    expect(calls[2].continueThread).toBe(true);
-    expect(JSON.parse(response.body).choices[0].message.content).toBe("The review is complete.");
   });
 
   test("surfaces a typed capture failure after one failed retry", async () => {
@@ -183,6 +155,34 @@ describe("handleChatCompletions capture retry", () => {
       type: "o1_code_capture_failure",
       kind: "submit_or_ui_failure",
     });
+  });
+
+  test("does not mask protocol incompatibility as auth-required", async () => {
+    const response = fakeResponse();
+    let authChecks = 0;
+    const bridge = {
+      hasSession: () => false,
+      run: async () => {
+        const error = typedError("o1_code_protocol_incompatible");
+        error.statusCode = 409;
+        throw error;
+      },
+      checkAuthState: async () => {
+        authChecks += 1;
+        return "WPP page is on a login or identity-provider URL";
+      },
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} },
+      response,
+      body(user("hello")),
+      { bridge },
+    ));
+
+    expect(authChecks).toBe(0);
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body).error.type).toBe("o1_code_protocol_incompatible");
   });
 
   // Pre-submit worker failures (recorder never armed; pinned thread lost) are duplicate-safe to
@@ -347,96 +347,6 @@ describe("required tool-call recovery", () => {
   });
 });
 
-describe("task completion marker", () => {
-  test("accepts tool calls and marked terminal answers, but recovers unmarked prose", () => {
-    const request = solToolBody(user("Review the codebase."));
-    expect(shouldRecoverIncompleteTask(request, bridgeRun('{"type":"tool_call","tool":"bash","args":{"command":"git status"}}'))).toBe(false);
-    expect(shouldRecoverIncompleteTask(request, bridgeRun("Review complete.\nCM_TASK_COMPLETE_V1"))).toBe(false);
-    expect(shouldRecoverIncompleteTask(request, bridgeRun("I inspected one file and stopped."))).toBe(true);
-  });
-
-  test("rejects a completion marker contradicted by an explicit incomplete-task claim", () => {
-    const request = solToolBody(user("Review the codebase."));
-    expect(shouldRecoverIncompleteTask(
-      request,
-      bridgeRun("I'm unable to complete the codebase review because the tool session ended.\nCM_TASK_COMPLETE_V1"),
-    )).toBe(true);
-    expect(shouldRecoverIncompleteTask(
-      request,
-      bridgeRun("A complete review still requires further source inspection.\nCM_TASK_COMPLETE_V1"),
-    )).toBe(true);
-    expect(shouldRecoverIncompleteTask(
-      request,
-      bridgeRun("Finding: the cache invalidation implementation is incomplete.\nCM_TASK_COMPLETE_V1"),
-    )).toBe(false);
-  });
-
-  test("replays a self-contained request when completion recovery is unpinned", async () => {
-    const calls = [];
-    const response = fakeResponse();
-    const bridge = {
-      hasSession: () => false,
-      run: async (prompt, options) => {
-        calls.push({ prompt: JSON.parse(prompt), options });
-        if (calls.length === 1) return bridgeRun("I inspected the baseline.");
-        return bridgeRun("The review is complete.\nCM_TASK_COMPLETE_V1");
-      },
-    };
-    await withNoRunLogs(() => handleChatCompletions(
-      { headers: {} }, response, solToolBody(user("Review the codebase.")), { bridge },
-    ));
-    expect(calls).toHaveLength(2);
-    expect(calls[1].prompt).toMatchObject({
-      mode: "fresh",
-      messages: [{ role: "user", content: "Review the codebase." }],
-    });
-    expect(calls[1].options.continueThread).toBe(false);
-    expect(JSON.parse(response.body).choices[0].message.content).toBe("The review is complete.");
-  });
-
-  test("continues the pinned thread once, strips the marker, and returns the completed answer", async () => {
-    const calls = [];
-    const response = fakeResponse();
-    const bridge = {
-      hasSession: () => true,
-      run: async (prompt, options) => {
-        calls.push({ prompt: JSON.parse(prompt), options });
-        if (calls.length === 1) return bridgeRun("I inspected the baseline.");
-        return bridgeRun("The review is complete.\nCM_TASK_COMPLETE_V1");
-      },
-    };
-    await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
-      response,
-      solToolBody(user("Review the codebase.")),
-      { bridge },
-    ));
-    expect(calls).toHaveLength(2);
-    expect(calls[1].prompt).toMatchObject({ mode: "continue", resumeIncomplete: true, messages: [] });
-    expect(calls[1].options.continueThread).toBe(true);
-    expect(JSON.parse(response.body).choices[0].message.content).toBe("The review is complete.");
-  });
-
-  test("returns a typed error after a second unmarked terminal answer", async () => {
-    const response = fakeResponse();
-    let authChecks = 0;
-    const bridge = {
-      hasSession: () => false,
-      run: async () => bridgeRun("Still incomplete."),
-      checkAuthState: async () => {
-        authChecks += 1;
-        return "WPP page is on a login or identity-provider URL";
-      },
-    };
-    await withNoRunLogs(() => handleChatCompletions(
-      { headers: {} }, response, solToolBody(user("Review the codebase.")), { bridge },
-    ));
-    expect(authChecks).toBe(0);
-    expect(response.statusCode).toBe(502);
-    expect(JSON.parse(response.body).error.type).toBe("o1_code_task_incomplete");
-  });
-});
-
 describe("handleChatCompletions token usage", () => {
   test("maps WPP's cumulative token pill onto prompt_tokens", async () => {
     commitThread(KEY, body(user("hello")), assistant("previous"));
@@ -542,13 +452,6 @@ function toolBody(...messages) {
   return {
     ...body(...messages),
     tools: [{ type: "function", function: { name: "bash", description: "run a command", parameters: { type: "object" } } }],
-  };
-}
-
-function solToolBody(...messages) {
-  return {
-    ...toolBody(...messages),
-    model: "CM_GPT-5.5 - Medium",
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { serializeChatCompletionRequest, serializeIncompleteTaskContinuationRequest, serializeToolRecoveryRequest } from "./messageSerializer.mjs"
+import { serializeChatCompletionRequest, serializeToolRecoveryRequest } from "./messageSerializer.mjs"
 import { TOOL_CALL_SYSTEM_REMINDER } from "./toolCallReminder.mjs"
 
 const framed = (model = "CM_Opus 4.8 - Extra High") => ({
@@ -31,10 +31,10 @@ describe("CookieMonster request envelope", () => {
     expect(raw).toContain("<function_calls>")
   })
 
-  test("uses the profile's custom tool-call protocol", () => {
+  test("uses the Opus tool-call protocol for GPT models", () => {
     const out = JSON.parse(serializeChatCompletionRequest(framed("CM_GPT-5.5 - Extra High")))
-    expect(out.toolCallProtocol).toBe("CM_JSON_TOOL_CALL_V1")
-    expect(out.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
+    expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
+    expect(out.completionProtocol).toBeUndefined()
   })
 
   test("keeps prior assistant tool calls and tool results as structured history", () => {
@@ -112,15 +112,3 @@ describe("CookieMonster request envelope", () => {
     expect(out.instructions[0]).toContain("do not repeat a completed call")
   })
 })
-
-  test("builds a marker-enforcing continuation without replaying logical messages", () => {
-    const out = JSON.parse(serializeIncompleteTaskContinuationRequest(framed("CM_GPT-5.5 - Medium")))
-    expect(out).toMatchObject({
-      mode: "continue",
-      completionProtocol: "CM_TASK_COMPLETE_V1",
-      resumeIncomplete: true,
-      toolsAvailable: true,
-      messages: [],
-    })
-    expect(out.instructions[0]).toContain("CM_TASK_COMPLETE_V1")
-  })

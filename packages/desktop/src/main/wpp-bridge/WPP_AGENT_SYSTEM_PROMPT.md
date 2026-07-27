@@ -1,7 +1,7 @@
 # CookieMonster WPP agent system instruction
 
-Install the instruction below on every WPP agent routed by `proxy/modelProfiles.mjs` (currently
-the `CM_GPT-5.5` and `CM_Opus 4.8` reasoning variants). Keep the legacy
+Install the instruction below on every WPP agent routed by `proxy/modelProfiles.mjs` (currently the
+`CM_GPT-5.6 Sol`, `CM_GPT-5.5`, and `CM_Opus 4.8` reasoning variants). Keep the legacy
 paragraph during rollout so released clients using the old bracket protocol continue to work.
 `CM_REQUEST_V1` is the authoritative protocol for new clients.
 

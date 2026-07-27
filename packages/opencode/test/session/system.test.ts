@@ -90,22 +90,20 @@ describe("session.system", () => {
     )
   })
 
-  test("selects the GPT prompt for CookieMonster GPT aliases", () => {
-    const prompt = SystemPrompt.provider({
+  test("uses the Opus prompt for every CookieMonster model", () => {
+    const gpt = SystemPrompt.provider({
       api: { id: "CM_GPT-5.5 - High" },
       family: "gpt-5",
-    } as Provider.Model)[0]
-
-    expect(prompt).toContain("Persist until the task is fully handled end-to-end")
-  })
-
-  test("selects the Anthropic prompt for CookieMonster Opus aliases", () => {
-    const prompt = SystemPrompt.provider({
+      providerID: "cookiemonster",
+    } as Provider.Model)
+    const opus = SystemPrompt.provider({
       api: { id: "CM_Opus 4.8 - Extra High" },
       family: "claude",
-    } as Provider.Model)[0]
+      providerID: "cookiemonster",
+    } as Provider.Model)
 
-    expect(prompt).toContain("TodoWrite tools")
+    expect(gpt).toEqual(opus)
+    expect(gpt[0]).toContain("TodoWrite tools")
   })
 
   it.effect("skills output is sorted by name and stable across calls", () =>

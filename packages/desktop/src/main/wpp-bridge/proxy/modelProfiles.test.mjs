@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { DEFAULT_MODEL_ID, MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs"
 
 const PROJECT_AGENTS = [
+  "CM_GPT-5.6 Sol - Low",
+  "CM_GPT-5.6 Sol - Medium",
+  "CM_GPT-5.6 Sol - High",
+  "CM_GPT-5.6 Sol - Extra High",
   "CM_GPT-5.5 - Low",
   "CM_GPT-5.5 - Medium",
   "CM_GPT-5.5 - High",
@@ -16,8 +20,7 @@ describe("CookieMonster model profiles", () => {
   test("exposes the WPP project roster under the exact agent names", () => {
     expect(MODEL_IDS).toEqual(PROJECT_AGENTS)
     for (const agentName of PROJECT_AGENTS) {
-      const toolFormat = agentName.startsWith("CM_GPT-5.5") ? "json" : "xml"
-      expect(resolveModelProfile(agentName)).toEqual({ agentName, toolFormat })
+      expect(resolveModelProfile(agentName)).toEqual({ agentName, toolFormat: "xml" })
     }
   })
 

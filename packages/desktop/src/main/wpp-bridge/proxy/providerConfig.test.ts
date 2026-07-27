@@ -110,31 +110,6 @@ test("fills missing project models and cost keys without overriding custom value
   await rm(dir, { recursive: true, force: true })
 })
 
-test("replaces retired GPT-5.6 project models with the GPT-5.5 roster", async () => {
-  const { dir, file } = await tmpFile()
-  await writeFile(
-    file,
-    JSON.stringify({
-      provider: {
-        cookiemonster: {
-          ...COOKIE_MONSTER_PROVIDER,
-          models: {
-            "CM_GPT-5.6 Sol - Low": { name: "CM_GPT-5.6 Sol - Low" },
-            "CM_GPT-5.6 Sol - Medium": { name: "CM_GPT-5.6 Sol - Medium" },
-            "CM_GPT-5.6 Sol - High": { name: "CM_GPT-5.6 Sol - High" },
-            "CM_GPT-5.6 Sol - Extra High": { name: "CM_GPT-5.6 Sol - Extra High" },
-          },
-        },
-      },
-    }),
-  )
-
-  await ensureO1CodeProvider(file)
-  const config = JSON.parse(await readFile(file, "utf8"))
-  expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
-  expect(Object.keys(config.provider.cookiemonster.models).some((name) => name.includes("GPT-5.6"))).toBe(false)
-  await rm(dir, { recursive: true, force: true })
-})
 
 test("preserves an explicit LSP setting", async () => {
   const { dir, file } = await tmpFile()
