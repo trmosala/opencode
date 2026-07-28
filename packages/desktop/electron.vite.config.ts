@@ -92,6 +92,9 @@ const require = __cjs_mod__.createRequire(import.meta.url);
   },
   renderer: {
     plugins: [appPlugin, sentry],
+    define: {
+      "import.meta.env.VITE_CM_BRAND": JSON.stringify(Boolean(process.env.CM_BRAND)),
+    },
     publicDir: "../../../app/public",
     root: "src/renderer",
     build: {
