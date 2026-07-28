@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { routeOutboundFrame, type ProgressFrame } from "./controller-injection"
+import { rejectPendingRequests, routeOutboundFrame, type ProgressFrame } from "./controller-injection"
 
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
 
@@ -94,4 +94,17 @@ describe("routeOutboundFrame", () => {
     expect(resolved).toBe(false)
     expect(pending.has("req-4")).toBe(true)
   })
+})
+
+test("rejects every pending request when the worker renderer exits", () => {
+  const errors: Error[] = []
+  const pending = new Map<string, Pending>([
+    ["req-1", { resolve: () => {}, reject: (error) => errors.push(error) }],
+    ["req-2", { resolve: () => {}, reject: (error) => errors.push(error) }],
+  ])
+
+  rejectPendingRequests(pending, new Error("worker exited"))
+
+  expect(errors.map((error) => error.message)).toEqual(["worker exited", "worker exited"])
+  expect(pending.size).toBe(0)
 })

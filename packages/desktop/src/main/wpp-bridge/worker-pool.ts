@@ -111,7 +111,12 @@ export class WorkerPool {
   // Acquire + run + release in one call — the single entry point a caller (extensionBridge) needs.
   // The agent string doubles as the affinity key; content.js reselects the composer pill to match.
   async run(
-    job: { id?: string; payload?: { model?: string; sessionKey?: string; subagent?: boolean } },
+    job: {
+      id?: string
+      createdAtMs?: number
+      timeoutMs?: number
+      payload?: { model?: string; sessionKey?: string; subagent?: boolean }
+    },
     onProgress?: (frame: ProgressFrame) => void,
   ): Promise<unknown> {
     const worker = await this.acquire(
@@ -127,7 +132,7 @@ export class WorkerPool {
         throw error
       }
       const startedAt = Date.now()
-      const result = await worker.controller.runJob(job, onProgress)
+      const result = await worker.controller.runJob(job, onProgress, remainingJobTimeout(job))
       // content.js reported its OWN failure (agent selection, missing composer, chat busy, …). Surface
       // it verbatim so extensionBridge converts it to the real typed error (e.g. o1_code_wrong_agent)
       // with content.js's diagnostics. Running the capture verdict here instead would relabel every
@@ -248,7 +253,12 @@ export class WorkerPool {
 
   private async ensureProtocolCapability(
     worker: Worker,
-    job: { id?: string; payload?: { model?: string; continueThread?: boolean } },
+    job: {
+      id?: string
+      createdAtMs?: number
+      timeoutMs?: number
+      payload?: { model?: string; continueThread?: boolean }
+    },
   ) {
     const agent = (job.payload?.model || worker.agent).trim()
     if (job.payload?.continueThread === true) {
@@ -257,7 +267,7 @@ export class WorkerPool {
     }
 
     const probeJob = buildCapabilityProbeJob(job)
-    const result = await worker.controller.runJob(probeJob)
+    const result = await worker.controller.runJob(probeJob, undefined, remainingJobTimeout(job))
     if (result && typeof result === "object" && Reflect.get(result, "ok") === false) {
       const rawError = Reflect.get(result, "error")
       const rawStatus = Reflect.get(result, "statusCode")
@@ -359,6 +369,7 @@ export class WorkerPool {
   // a delta into an existing thread instead of replaying the full transcript.
   hasSession(sessionKey: string): boolean {
     if (!sessionKey) return false
+    this.prune()
     for (const worker of this.workers.values()) {
       if (worker.sessionKey === sessionKey && !worker.window.isDestroyed()) return true
     }
@@ -375,6 +386,11 @@ export class WorkerPool {
       lastUsed: worker.lastUsed,
     }))
   }
+}
+
+function remainingJobTimeout(job: { createdAtMs?: number; timeoutMs?: number }) {
+  if (!job.timeoutMs) return undefined
+  return Math.max(1, job.timeoutMs - (Date.now() - (job.createdAtMs ?? Date.now())))
 }
 
 function attachCaptureVerdict(result: unknown, witness: ReturnType<NetworkWitness["summarizeWindow"]>) {

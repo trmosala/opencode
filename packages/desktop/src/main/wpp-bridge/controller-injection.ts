@@ -36,6 +36,11 @@ const RELAY_SOURCE = `
 export type ProgressFrame = { seq: number; finalText: string }
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
 
+export function rejectPendingRequests(pending: Map<string, Pending>, error: Error) {
+  for (const waiter of pending.values()) waiter.reject(error)
+  pending.clear()
+}
+
 // content.js replies with JOB_RESULT / INSPECT_RESULT keyed by requestId, and emits JOB_PROGRESS
 // keyed by jobId. Route the first kind to the awaiting request, the second to the job's progress
 // subscriber. Pure (maps in, mutations out) so it tests without Electron.
@@ -59,7 +64,11 @@ export function routeOutboundFrame(
 }
 
 export type Controller = {
-  runJob: (job: { id?: string }, onProgress?: (frame: ProgressFrame) => void) => Promise<unknown>
+  runJob: (
+    job: { id?: string },
+    onProgress?: (frame: ProgressFrame) => void,
+    timeoutMs?: number,
+  ) => Promise<unknown>
   inspectChat: (timeoutMs?: number) => Promise<unknown>
 }
 
@@ -71,6 +80,14 @@ export async function installController(contents: WebContents): Promise<Controll
 
   const pending = new Map<string, Pending>()
   const progress = new Map<string, (frame: ProgressFrame) => void>()
+  const rejectPending = (message: string) => {
+    rejectPendingRequests(pending, new Error(message))
+    progress.clear()
+  }
+  contents.once("destroyed", () => rejectPending("WPP worker window was destroyed."))
+  contents.once("render-process-gone", (_event, details) => {
+    rejectPending(`WPP worker renderer exited (${details.reason}).`)
+  })
 
   dbg.on("message", (_event, method, params) => {
     if (method !== "Runtime.bindingCalled") return
@@ -101,9 +118,9 @@ export async function installController(contents: WebContents): Promise<Controll
   })
 
   return {
-    runJob: (job, onProgress) => {
+    runJob: (job, onProgress, timeoutMs) => {
       if (onProgress && job?.id) progress.set(job.id, onProgress)
-      return send(dbg, pending, "O1_CODE_BRIDGE_RUN_JOB", { job }).finally(() => {
+      return send(dbg, pending, "O1_CODE_BRIDGE_RUN_JOB", { job }, timeoutMs).finally(() => {
         if (job?.id) progress.delete(job.id)
       })
     },
