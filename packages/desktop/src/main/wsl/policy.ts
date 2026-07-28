@@ -17,7 +17,7 @@ export function clearWslDistroState(
 }
 
 export function wslTerminalArgs(distro?: string | null) {
-  return ["/c", "start", "", "wsl", ...(distro ? ["-d", distro] : [])]
+  return distro ? ["-d", distro] : []
 }
 
 export function requireWslIpcString(name: string, value: unknown) {

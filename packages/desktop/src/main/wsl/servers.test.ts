@@ -68,7 +68,7 @@ test("clears cached distro probes when removing a WSL server", () => {
 })
 
 test("opens terminals for distro names containing spaces", () => {
-  expect(wslTerminalArgs("Ubuntu Preview")).toEqual(["/c", "start", "", "wsl", "-d", "Ubuntu Preview"])
+  expect(wslTerminalArgs("Ubuntu Preview")).toEqual(["-d", "Ubuntu Preview"])
 })
 
 test("stops health polling when sidecar startup settles", async () => {
