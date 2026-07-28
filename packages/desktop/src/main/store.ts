@@ -3,7 +3,7 @@ import electron from "electron"
 import { rmSync } from "node:fs"
 import { join } from "node:path"
 
-import { SETTINGS_STORE } from "./store-keys"
+import { SETTINGS_STORE, requireStoreName } from "./store-keys"
 import { deleteStoreFileIfEmpty } from "./store-cleanup"
 
 const cache = new Map<string, Store>()
@@ -13,6 +13,7 @@ const cache = new Map<string, Store>()
 // in index.ts has executed, which would result in files being written to the default directory
 // (e.g. bad: %APPDATA%\@opencode-ai\desktop\opencode.settings vs good: %APPDATA%\ai.opencode.desktop.dev\opencode.settings).
 export function getStore(name = SETTINGS_STORE) {
+  requireStoreName(name)
   const cached = cache.get(name)
   if (cached) return cached
   const next = new Store({
@@ -26,10 +27,12 @@ export function getStore(name = SETTINGS_STORE) {
 }
 
 export async function removeStoreFileIfEmpty(name: string) {
+  requireStoreName(name)
   if (await deleteStoreFileIfEmpty(electron.app.getPath("userData"), name)) cache.delete(name)
 }
 
 export function removeStoreFile(name: string) {
+  requireStoreName(name)
   rmSync(join(electron.app.getPath("userData"), name), { force: true })
   cache.delete(name)
 }

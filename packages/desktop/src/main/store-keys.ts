@@ -5,3 +5,8 @@ export const OLD_LAYOUT_ELIGIBLE_KEY = "oldLayoutEligible"
 export const WSL_SERVERS_KEY = "wslServers"
 export const PINCH_ZOOM_ENABLED_KEY = "pinchZoomEnabled"
 export const WINDOW_IDS_KEY = "windowIds"
+
+export function requireStoreName(name: string) {
+  if (/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) return
+  throw new Error("Invalid store name")
+}
