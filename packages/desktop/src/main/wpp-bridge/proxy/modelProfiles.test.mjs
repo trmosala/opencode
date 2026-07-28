@@ -14,6 +14,11 @@ const PROJECT_AGENTS = [
   "CM_Opus 4.8 - Auto",
   "CM_Opus 4.8 - High",
   "CM_Opus 4.8 - Extra High",
+  "CM_Opus 5 - Auto",
+  "CM_Opus 5 - Medium",
+  "CM_Opus 5 - High",
+  "CM_Opus 5 - Extra High",
+  "CM_Opus 5 - Max",
 ]
 
 describe("CookieMonster model profiles", () => {

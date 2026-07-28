@@ -57,6 +57,26 @@ export const MODEL_PROFILES = {
     agentName: "CM_Opus 4.8 - Extra High",
     toolFormat: "xml",
   },
+  "CM_Opus 5 - Auto": {
+    agentName: "CM_Opus 5 - Auto",
+    toolFormat: "xml",
+  },
+  "CM_Opus 5 - Medium": {
+    agentName: "CM_Opus 5 - Medium",
+    toolFormat: "xml",
+  },
+  "CM_Opus 5 - High": {
+    agentName: "CM_Opus 5 - High",
+    toolFormat: "xml",
+  },
+  "CM_Opus 5 - Extra High": {
+    agentName: "CM_Opus 5 - Extra High",
+    toolFormat: "xml",
+  },
+  "CM_Opus 5 - Max": {
+    agentName: "CM_Opus 5 - Max",
+    toolFormat: "xml",
+  },
 }
 
 export const DEFAULT_MODEL_ID = "CM_Opus 4.8 - Extra High"
