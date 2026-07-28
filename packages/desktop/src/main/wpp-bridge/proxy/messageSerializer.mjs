@@ -42,8 +42,8 @@ function stringifyContent(content, state = { imageIndex: 0 }) {
 }
 
 // `sinceIndex` > 0 selects delta mode: continue an existing WPP thread by forwarding only messages
-// the tab has not already seen. The fresh envelope carries instructions and tool definitions; a
-// continuation relies on the live WPP thread and sends only the logical delta.
+// the tab has not already seen. Continuations rely on the live WPP thread for conversation context
+// but repeat the current tool definitions so tool availability cannot fall out of the agent's turn.
 export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose = "chat" } = {}) {
   const allMessages = Array.isArray(body.messages) ? body.messages : []
   const systemMessages = allMessages.filter((m) => m.role === "system")
@@ -73,11 +73,11 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
     mode: delta ? "continue" : "fresh",
     purpose,
     toolCallProtocol: toolCallProtocol(toolFormat),
-    ...(toolInstructions && toolFormat === "json" ? { completionProtocol: CM_TASK_COMPLETE_PROTOCOL } : {}),
+    ...(toolInstructions ? { completionProtocol: CM_TASK_COMPLETE_PROTOCOL } : {}),
     ...(delta
       ? {
           ...(toolInstructions ? { instructions: [toolInstructions] } : {}),
-          toolsAvailable: true,
+          tools,
         }
       : {
           instructions: freshInstructions,
@@ -99,8 +99,8 @@ export function serializeIncompleteTaskContinuationRequest(body, { purpose = "ch
     purpose,
     toolCallProtocol: toolCallProtocol(toolFormat),
     completionProtocol: CM_TASK_COMPLETE_PROTOCOL,
-    toolsAvailable: tools.length > 0,
     instructions: [toolCallInstructions(toolFormat)],
+    tools,
     resumeIncomplete: true,
     messages: [],
   }, null, 2)

@@ -2,7 +2,12 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("electron", () => ({ BrowserWindow: function BrowserWindow() {}, session: { fromPartition: () => ({}) } }));
 
-const { handleChatCompletions, shouldRetryFreshReplay, shouldRecoverMissingRequiredToolCall } = await import("./openaiCompat.mjs");
+const {
+  handleChatCompletions,
+  shouldRetryFreshReplay,
+  shouldRecoverIncompleteTask,
+  shouldRecoverMissingRequiredToolCall,
+} = await import("./openaiCompat.mjs");
 const { commitThread, resetThread } = await import("./sessionThreads.mjs");
 
 const KEY = "sess-A::CM_Opus 4.8 - Extra High";
@@ -157,12 +162,14 @@ describe("handleChatCompletions capture retry", () => {
     });
   });
 
-  test("does not mask protocol incompatibility as auth-required", async () => {
+  test("retries protocol incompatibility and reclassifies an exhausted login failure", async () => {
     const response = fakeResponse();
     let authChecks = 0;
+    let runs = 0;
     const bridge = {
       hasSession: () => false,
       run: async () => {
+        runs += 1;
         const error = typedError("o1_code_protocol_incompatible");
         error.statusCode = 409;
         throw error;
@@ -180,9 +187,10 @@ describe("handleChatCompletions capture retry", () => {
       { bridge },
     ));
 
-    expect(authChecks).toBe(0);
-    expect(response.statusCode).toBe(409);
-    expect(JSON.parse(response.body).error.type).toBe("o1_code_protocol_incompatible");
+    expect(runs).toBe(2);
+    expect(authChecks).toBe(1);
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body).error.type).toBe("wpp_auth_required");
   });
 
   // Pre-submit worker failures (recorder never armed; pinned thread lost) are duplicate-safe to
@@ -344,6 +352,67 @@ describe("required tool-call recovery", () => {
 
     expect(response.statusCode).toBe(502);
     expect(JSON.parse(response.body).error.type).toBe("o1_code_required_tool_not_called");
+  });
+});
+
+describe("incomplete task recovery", () => {
+  test("rejects an XML intention as a completed task", () => {
+    expect(shouldRecoverIncompleteTask(
+      toolBody(user("Inspect the workspace.")),
+      bridgeRun("I’ll inspect the repository and identify the relevant code."),
+    )).toBe(true);
+    expect(shouldRecoverIncompleteTask(
+      toolBody(user("Inspect the workspace.")),
+      bridgeRun("Inspection complete.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(false);
+  });
+
+  test("continues once when an XML response stops at intention", async () => {
+    const calls = [];
+    commitThread(KEY, toolBody(user("hello")), assistant("previous"));
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => true,
+      run: async (prompt, options) => {
+        calls.push({ prompt: JSON.parse(prompt), options });
+        if (calls.length === 1) return bridgeRun("I’ll inspect the repository now.");
+        return bridgeRun(
+          '<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status --short</parameter></invoke></function_calls>',
+        );
+      },
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      response,
+      toolBody(user("hello"), assistant("previous"), user("Inspect the workspace.")),
+      { bridge },
+    ));
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].prompt.resumeIncomplete).toBe(true);
+    expect(calls[1].prompt.tools).toEqual([
+      { name: "bash", description: "run a command", parameters: { type: "object" } },
+    ]);
+    expect(JSON.parse(response.body).choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  test("returns the deliberate task-incomplete error after two XML marker omissions", async () => {
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async () => bridgeRun("I’ll inspect the repository now."),
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} },
+      response,
+      toolBody(user("Inspect the workspace.")),
+      { bridge },
+    ));
+
+    expect(response.statusCode).toBe(502);
+    expect(JSON.parse(response.body).error.type).toBe("o1_code_task_incomplete");
   });
 });
 

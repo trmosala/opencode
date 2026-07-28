@@ -540,14 +540,16 @@ export async function waitForBridgeWithKeepAlive(bridgePromise, response, interv
   }
 }
 
-// Failure types that one fresh replay can heal. All three are duplicate-safe to retry: a capture
+// Failure types that one fresh replay can heal. These are duplicate-safe to retry: a capture
 // failure means the witness couldn't corroborate a trusted response (no usable answer was returned),
-// and both recorder-not-armed and thread-desync are raised PRE-submit (no model request was sent).
+// recorder-not-armed and thread-desync are raised PRE-submit (no model request was sent), and a
+// protocol incompatibility only sent the harmless capability probe, not the user's prompt.
 // The retry path resets thread continuity and replays the full transcript into a fresh worker.
 const FRESH_REPLAY_RETRY_TYPES = new Set([
   "o1_code_capture_failure",
   "o1_code_recorder_not_armed",
   "o1_code_thread_desync",
+  "o1_code_protocol_incompatible",
 ]);
 
 export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
@@ -618,7 +620,6 @@ function requiredToolNotCalledError() {
 }
 
 export function shouldRecoverIncompleteTask(body, run, { isCompaction = false } = {}) {
-  if (resolveModelProfile(body?.model).toolFormat !== "json") return false;
   if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
   const finalText = run?.response?.finalText || run?.finalText || "";
   const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
@@ -672,7 +673,6 @@ async function loginRequiredFailure(bridge, failure) {
   if ([
     "wpp_auth_required",
     "o1_code_task_incomplete",
-    "o1_code_protocol_incompatible",
     "o1_code_required_tool_not_called",
   ].includes(failure?.type)) return failure;
 

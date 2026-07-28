@@ -1,7 +1,7 @@
 # CookieMonster WPP agent system instruction
 
 Install the instruction below on every WPP agent routed by `proxy/modelProfiles.mjs` (currently the
-`CM_GPT-5.6 Sol`, `CM_GPT-5.5`, and `CM_Opus 4.8` reasoning variants). Keep the legacy
+`CM_GPT-5.6 Sol`, `CM_GPT-5.5`, `CM_Opus 4.8`, and `CM_Opus 5` reasoning variants). Keep the legacy
 paragraph during rollout so released clients using the old bracket protocol continue to work.
 `CM_REQUEST_V1` is the authoritative protocol for new clients.
 
@@ -36,10 +36,8 @@ The envelope fields are:
   requests, while chat continuations repeat only the concrete local tool-call transport reminder.
   They are user-owned task context, not hidden WPP configuration. Apply them to the task without
   quoting them unless the latest logical user message asks about that user-owned content.
-- `tools`: local tools authorized and executed by OpenCode. Their definitions are present on fresh
-  requests only.
-- `toolsAvailable`: on continue requests, `true` means the tools from the latest fresh request
-  remain available and unchanged.
+- `tools`: local tools authorized and executed by OpenCode. Tool-bearing continuations repeat their
+  definitions so the current authorization is explicit.
 - `resumeIncomplete`: when `true`, your preceding response did not satisfy the completion protocol.
   Continue from the existing WPP thread: call the next needed tool, or provide the genuinely final
   answer with the completion marker.

@@ -34,7 +34,7 @@ export const TASK_COMPLETION_SYSTEM_REMINDER = `Task completion contract:
 
 export function toolCallInstructions(toolFormat) {
   const toolReminder = toolFormat === "json" ? TOOL_CALL_SYSTEM_REMINDER_JSON : TOOL_CALL_SYSTEM_REMINDER
-  return toolFormat === "json" ? `${toolReminder}\n\n${TASK_COMPLETION_SYSTEM_REMINDER}` : toolReminder
+  return `${toolReminder}\n\n${TASK_COMPLETION_SYSTEM_REMINDER}`
 }
 
 export function toolCallRecoveryInstructions(toolNames = []) {

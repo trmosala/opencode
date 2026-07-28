@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { serializeChatCompletionRequest, serializeToolRecoveryRequest } from "./messageSerializer.mjs"
-import { TOOL_CALL_SYSTEM_REMINDER } from "./toolCallReminder.mjs"
+import {
+  serializeChatCompletionRequest,
+  serializeIncompleteTaskContinuationRequest,
+  serializeToolRecoveryRequest,
+} from "./messageSerializer.mjs"
+import { TASK_COMPLETION_SYSTEM_REMINDER, TOOL_CALL_SYSTEM_REMINDER } from "./toolCallReminder.mjs"
 
 const framed = (model = "CM_Opus 4.8 - Extra High") => ({
   model,
@@ -21,8 +25,9 @@ describe("CookieMonster request envelope", () => {
       version: 1,
       mode: "fresh",
       purpose: "chat",
-      instructions: [`you are opencode\n\n${TOOL_CALL_SYSTEM_REMINDER}`],
+      instructions: [`you are opencode\n\n${TOOL_CALL_SYSTEM_REMINDER}\n\n${TASK_COMPLETION_SYSTEM_REMINDER}`],
       toolCallProtocol: "CM_XML_TOOL_CALL_V1",
+      completionProtocol: "CM_TASK_COMPLETE_V1",
       tools: [{ name: "bash", description: "run", parameters: { type: "object" } }],
       messages: [{ role: "user", content: "do the thing" }],
     })
@@ -34,7 +39,7 @@ describe("CookieMonster request envelope", () => {
   test("uses the Opus tool-call protocol for GPT models", () => {
     const out = JSON.parse(serializeChatCompletionRequest(framed("CM_GPT-5.5 - Extra High")))
     expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
-    expect(out.completionProtocol).toBeUndefined()
+    expect(out.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
   })
 
   test("keeps prior assistant tool calls and tool results as structured history", () => {
@@ -57,7 +62,7 @@ describe("CookieMonster request envelope", () => {
     expect(out.messages.at(-1)).toEqual({ role: "tool", content: "D:/repo", toolCallId: "call-1" })
   })
 
-  test("continuation keeps tools explicitly available while omitting fresh context", () => {
+  test("continuation repeats tools while omitting fresh context", () => {
     const body = framed()
     body.messages.push({ role: "assistant", content: "done" }, { role: "user", content: "one more thing" })
     const out = JSON.parse(serializeChatCompletionRequest(body, { sinceIndex: 2 }))
@@ -68,10 +73,19 @@ describe("CookieMonster request envelope", () => {
       mode: "continue",
       purpose: "chat",
       toolCallProtocol: "CM_XML_TOOL_CALL_V1",
-      instructions: [TOOL_CALL_SYSTEM_REMINDER],
-      toolsAvailable: true,
+      completionProtocol: "CM_TASK_COMPLETE_V1",
+      instructions: [`${TOOL_CALL_SYSTEM_REMINDER}\n\n${TASK_COMPLETION_SYSTEM_REMINDER}`],
+      tools: [{ name: "bash", description: "run", parameters: { type: "object" } }],
       messages: [{ role: "user", content: "one more thing" }],
     })
+  })
+
+  test("incomplete-task continuation repeats the current tool definitions", () => {
+    const out = JSON.parse(serializeIncompleteTaskContinuationRequest(framed()))
+
+    expect(out.mode).toBe("continue")
+    expect(out.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
+    expect(out.tools).toEqual([{ name: "bash", description: "run", parameters: { type: "object" } }])
   })
 
   test("a bare request still uses the versioned envelope", () => {
