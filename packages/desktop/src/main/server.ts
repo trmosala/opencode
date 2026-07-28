@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
+import { parseBrowserIpcRequest } from "@cookiemonster/cm-browser/protocol"
+import { routeBrowserRequest } from "./browser/router"
 import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
@@ -55,9 +58,6 @@ export function preferAppEnv(userDataPath: string) {
     OPENCODE_ENABLE_EXA: process.env.OPENCODE_ENABLE_EXA ?? "true",
     OPENCODE_CLIENT: "desktop",
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
-    // Inject the complete CookieMonster provider roster into the bundled OpenCode sidecar so a
-    // clean install works before the persistent config seed completes. An explicit user value wins.
-    OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(),
   })
 }
 
@@ -76,6 +76,13 @@ export async function spawnLocalServer(
   })
   let exited = false
   const exit = defer<number>()
+  const onBrowserMessage = (message: unknown) => {
+    const request = parseBrowserIpcRequest(message)
+    if (!request) return
+    void routeBrowserRequest(request).then((response) =>
+      child.postMessage({ type: "browser_result", id: request.id, response }),
+    )
+  }
 
   const onProcessGone = (_event: unknown, details: Details) => {
     if (details.type !== "Utility" || details.name !== SIDECAR_SERVICE_NAME) return
@@ -83,9 +90,11 @@ export async function spawnLocalServer(
   }
 
   app.on("child-process-gone", onProcessGone)
+  child.on("message", onBrowserMessage)
   child.once("exit", (code) => {
     exited = true
     app.off("child-process-gone", onProcessGone)
+    child.off("message", onBrowserMessage)
     options.onExit?.(code)
     exit.resolve(code)
   })
@@ -224,7 +233,16 @@ function createSidecarEnv(): Record<string, string> {
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
   if (!app.isPackaged) env.OPENCODE_DISABLE_CHANNEL_DB = "1"
+  // Browser control is a capability of this bundled utility process, never global OpenCode/WSL config.
+  env.OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(browserPluginEntry())
   return env
+}
+
+function browserPluginEntry() {
+  const path = app.isPackaged
+    ? join(process.resourcesPath, "cm-browser", "plugin.mjs")
+    : join(app.getAppPath(), "..", "cm-browser", "dist", "plugin.mjs")
+  return existsSync(path) ? pathToFileURL(path).href : undefined
 }
 
 function delay(ms: number) {

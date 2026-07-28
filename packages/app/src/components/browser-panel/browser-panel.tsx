@@ -6,6 +6,7 @@ import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-j
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
+import { usePlatform } from "@/context/platform"
 import { Persist, persisted } from "@/utils/persist"
 import { showToast } from "@/utils/toast"
 import {
@@ -35,18 +36,21 @@ declare module "solid-js" {
         src?: string
         allowpopups?: boolean
         webpreferences?: string
+        useragent?: string
       }
     }
   }
 }
 
-export function BrowserPanel(props: { sessionKey: string }) {
+export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
   const language = useLanguage()
   const prompt = usePrompt()
+  const platform = usePlatform()
   const [store, setStore] = persisted(
     Persist.global(`browser-panel:${props.sessionKey}`),
     createStore<BrowserStore>({ url: "http://localhost:5173/" }),
   )
+  const initialUrl = store.url
   const [input, setInput] = createSignal(store.url)
   const [state, setState] = createStore({
     title: "",
@@ -149,6 +153,15 @@ export function BrowserPanel(props: { sessionKey: string }) {
   const wire = (el: HTMLElement) => {
     const view = el as WebviewElement
     webview = view
+    let registeredID: number | undefined
+    const register = () => {
+      const webContentsID = view.getWebContentsId?.()
+      if (!webContentsID) return
+      registeredID = webContentsID
+      void platform.browserPanel
+        ?.register({ sessionID: props.sessionID, webContentsID })
+        .catch((error) => console.error("failed to register browser panel", error))
+    }
     const start = () => setState("loading", true)
     const guard = (event: Event) => {
       const url = (event as Event & { url?: string }).url
@@ -162,13 +175,19 @@ export function BrowserPanel(props: { sessionKey: string }) {
       syncState()
     }
     view.addEventListener("did-start-loading", start)
+    view.addEventListener("dom-ready", register)
     view.addEventListener("will-navigate", guard)
     view.addEventListener("did-stop-loading", stop)
     view.addEventListener("did-navigate", syncState)
     view.addEventListener("did-navigate-in-page", syncState)
     view.addEventListener("page-title-updated", syncState)
     onCleanup(() => {
+      if (registeredID)
+        void platform.browserPanel
+          ?.unregister({ sessionID: props.sessionID, webContentsID: registeredID })
+          .catch(() => undefined)
       view.removeEventListener("did-start-loading", start)
+      view.removeEventListener("dom-ready", register)
       view.removeEventListener("will-navigate", guard)
       view.removeEventListener("did-stop-loading", stop)
       view.removeEventListener("did-navigate", syncState)
@@ -253,12 +272,14 @@ export function BrowserPanel(props: { sessionKey: string }) {
         </Show>
       </div>
 
+      {/* ponytail: pinned Chrome UA so sites that block Electron (e.g. Teams) load; bump the version if a site complains again */}
       <webview
         ref={wire}
-        src={store.url}
+        src={initialUrl}
         class="min-h-0 flex-1 bg-white"
         allowpopups={false}
         webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
+        useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
       />
     </div>
   )

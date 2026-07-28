@@ -3,6 +3,7 @@ import { uuid } from "@/utils/uuid"
 import type { BrowserElementSelection } from "./browser-context"
 
 export type WebviewElement = HTMLElement & {
+  getWebContentsId?: () => number
   src: string
   getTitle?: () => string
   getURL?: () => string
@@ -68,9 +69,7 @@ export async function captureScreenshot(webview: WebviewElement | undefined) {
 
 export async function readSelectionText(webview: WebviewElement | undefined) {
   if (!webview?.executeJavaScript) return ""
-  const selection = await webview
-    .executeJavaScript<string>("window.getSelection()?.toString() ?? ''")
-    .catch(() => "")
+  const selection = await webview.executeJavaScript<string>("window.getSelection()?.toString() ?? ''").catch(() => "")
   return (selection ?? "").trim()
 }
 

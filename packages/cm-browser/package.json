@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@cookiemonster/cm-browser",
+  "version": "1.18.4",
+  "description": "CookieMonster-only agent control surface for the embedded browser panel",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/plugin.ts",
+    "./protocol": "./src/protocol.ts",
+    "./port": "./src/port.ts",
+    "./tools": "./src/tools.ts"
+  },
+  "scripts": {
+    "build": "bun build src/plugin.ts --outfile dist/plugin.mjs --target node --format esm",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "workspace:*",
+    "typescript": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  }
+}

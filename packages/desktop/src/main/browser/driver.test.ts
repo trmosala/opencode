@@ -1,0 +1,147 @@
+import { describe, expect, test } from "bun:test"
+import { execute, type DriverContents, type Target } from "./driver"
+import { parseSnapshot, snapshotScript } from "./snapshot"
+
+type Call = { method: string; params?: Record<string, unknown> }
+const element = (fingerprint = "send") => ({
+  tag: "button",
+  role: "",
+  label: "Send",
+  text: "Send",
+  fingerprint,
+  rect: { x: 10, y: 20, width: 40, height: 10 },
+})
+
+function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown } = {}) {
+  const calls: Call[] = []
+  let attached = false
+  let url = options.url ?? "http://localhost:5173/"
+  let elements = [element()]
+  const contents: DriverContents = {
+    isDestroyed: () => options.destroyed === true,
+    getURL: () => url,
+    loadURL: async (next) => {
+      url = next
+    },
+    debugger: {
+      isAttached: () => attached,
+      attach: () => {
+        attached = true
+      },
+      sendCommand: async (method, params) => {
+        calls.push({ method, params })
+        if (method !== "Runtime.evaluate") return {}
+        return (
+          options.snapshot ?? {
+            result: { value: { url, title: "Dev", visibleText: "Send", elements } },
+          }
+        )
+      },
+    },
+  }
+  return {
+    target: { contents } satisfies Target,
+    calls,
+    attached: () => attached,
+    setElements: (next: typeof elements) => {
+      elements = next
+    },
+  }
+}
+
+async function firstRef(view: ReturnType<typeof fake>) {
+  const response = await execute(view.target, { op: "read_state" })
+  if (!response.ok) throw new Error(response.error)
+  return response.result.elements[0].ref
+}
+
+describe("browser driver", () => {
+  test("read_state attaches and returns bounded visible state with opaque refs", async () => {
+    const view = fake()
+    const response = await execute(view.target, { op: "read_state" })
+    expect(response.ok).toBe(true)
+    expect(view.attached()).toBe(true)
+    if (!response.ok) return
+    expect(response.result).toMatchObject({ url: "http://localhost:5173/", title: "Dev", visibleText: "Send" })
+    expect(response.result.elements[0].ref).toMatch(/^s[0-9a-z]+:e[0-9a-z]+$/)
+  })
+
+  test("click validates the ref, dispatches trusted mouse events, and refreshes state", async () => {
+    const view = fake()
+    const response = await execute(view.target, { op: "click", ref: await firstRef(view) })
+    expect(response.ok).toBe(true)
+    const mouse = view.calls.filter((call) => call.method === "Input.dispatchMouseEvent")
+    expect(mouse.map((call) => call.params?.type)).toEqual(["mouseMoved", "mousePressed", "mouseReleased"])
+    expect(mouse[0]?.params).toMatchObject({ x: 30, y: 25 })
+    expect(view.calls.filter((call) => call.method === "Runtime.evaluate")).toHaveLength(3)
+  })
+
+  test("stale refs never dispatch input", async () => {
+    const view = fake()
+    const ref = await firstRef(view)
+    view.setElements([element("changed")])
+    expect(await execute(view.target, { op: "click", ref })).toMatchObject({ ok: false, code: "stale_ref" })
+    expect(view.calls.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false)
+  })
+
+  test("fill selects, clears, and types every character with trusted key events", async () => {
+    const view = fake()
+    await execute(view.target, { op: "fill", ref: await firstRef(view), text: "hi" })
+    expect(view.calls.some((call) => call.method === "Input.insertText")).toBe(false)
+    const down = view.calls
+      .filter((call) => call.method === "Input.dispatchKeyEvent" && call.params?.type === "keyDown")
+      .map((call) => call.params)
+    expect(down).toMatchObject([
+      { key: "a", modifiers: 2 },
+      { key: "Backspace", modifiers: 0 },
+      { key: "h", text: "h" },
+      { key: "i", text: "i" },
+    ])
+  })
+
+  test("press_key supports modifiers including Ctrl+Enter", async () => {
+    const view = fake()
+    const response = await execute(view.target, { op: "press_key", key: "Enter", modifiers: ["Ctrl"] })
+    expect(response.ok).toBe(true)
+    const keys = view.calls.filter((call) => call.method === "Input.dispatchKeyEvent")
+    expect(keys.map((call) => call.params?.type)).toEqual(["keyDown", "keyUp"])
+    expect(keys[0]?.params).toMatchObject({ key: "Enter", modifiers: 2 })
+  })
+
+  test("navigate loads the destination and returns its state", async () => {
+    const view = fake()
+    const response = await execute(view.target, { op: "navigate", url: "https://teams.microsoft.com/" })
+    expect(response.ok && response.result.url).toBe("https://teams.microsoft.com/")
+  })
+
+  test("destroyed and malformed pages fail safely", async () => {
+    const destroyed = fake({ destroyed: true })
+    expect(await execute(destroyed.target, { op: "read_state" })).toMatchObject({ ok: false, code: "detached" })
+    const malformed = fake({ snapshot: {} })
+    expect(await execute(malformed.target, { op: "read_state" })).toMatchObject({ ok: false, code: "unavailable" })
+  })
+})
+
+describe("snapshot", () => {
+  test("collects visible text and interactive elements without arbitrary agent script input", () => {
+    const script = snapshotScript()
+    expect(script).toContain("button:not([disabled])")
+    expect(script).toContain("document.body?.innerText")
+    expect(script).toContain("fingerprint")
+  })
+
+  test("drops malformed elements", () => {
+    const state = parseSnapshot({
+      result: {
+        value: {
+          url: "http://localhost/",
+          title: "t",
+          visibleText: "hello",
+          elements: [element(), null],
+        },
+      },
+    })
+    expect(state?.elements).toHaveLength(1)
+    expect(state?.visibleText).toBe("hello")
+  })
+})

@@ -55,6 +55,10 @@ const getBase = (appId: string): Configuration => ({
   files: ["out/**/*", "resources/**/*"],
   extraResources: [
     {
+      from: "../cm-browser/dist/plugin.mjs",
+      to: "cm-browser/plugin.mjs",
+    },
+    {
       from: "native/",
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],

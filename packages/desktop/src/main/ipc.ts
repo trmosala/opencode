@@ -13,6 +13,7 @@ import { getStore, removeStoreFileIfEmpty } from "./store"
 import { getPinchZoomEnabled, getWindowID, setPinchZoomEnabled, setTitlebar, updateTitlebar } from "./windows"
 import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
+import { registerBrowserWebview, unregisterBrowserWebview } from "./browser/registry"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -87,6 +88,14 @@ export function registerIpcHandlers(deps: Deps) {
   )
   ipcMain.handle("record-fatal-renderer-error", (_event: IpcMainInvokeEvent, error: FatalRendererError) =>
     deps.recordFatalRendererError(error),
+  )
+  ipcMain.handle("browser-register", (event: IpcMainInvokeEvent, input: { sessionID: string; webContentsID: number }) =>
+    registerBrowserWebview(event.sender, input.sessionID, input.webContentsID),
+  )
+  ipcMain.handle(
+    "browser-unregister",
+    (event: IpcMainInvokeEvent, input: { sessionID: string; webContentsID: number }) =>
+      unregisterBrowserWebview(event.sender, input.sessionID, input.webContentsID),
   )
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
     try {

@@ -110,7 +110,6 @@ test("fills missing project models and cost keys without overriding custom value
   await rm(dir, { recursive: true, force: true })
 })
 
-
 test("preserves an explicit LSP setting", async () => {
   const { dir, file } = await tmpFile()
   await writeFile(file, JSON.stringify({ lsp: false }))
@@ -141,12 +140,21 @@ test("leaves an unparseable file untouched", async () => {
 })
 
 test("injected config is self-contained for a clean bundled OpenCode install", () => {
-  const config = JSON.parse(o1CodeConfigContent())
+  const plugin = "file:///resources/cm-browser/plugin.mjs"
+  const config = JSON.parse(o1CodeConfigContent(plugin))
   const models = config.provider.cookiemonster.models
 
   expect(config.provider).toEqual({ cookiemonster: COOKIE_MONSTER_PROVIDER })
   expect(config.mcp).toEqual(O1_CODE_MCP)
   expect(config.lsp).toBe(true)
+  expect(config.plugin).toEqual([plugin])
+  expect(config.permission).toEqual({
+    browser_read_state: "allow",
+    browser_navigate: "ask",
+    browser_click: "ask",
+    browser_fill: "ask",
+    browser_press_key: "ask",
+  })
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   for (const agentName of MODEL_IDS) {
     expect(models[agentName]).toEqual(COOKIE_MONSTER_PROVIDER.models[agentName])

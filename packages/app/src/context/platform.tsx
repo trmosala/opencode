@@ -113,7 +113,10 @@ type PlatformBase = {
   readClipboardImage?(): Promise<File | null>
 
   /** Supports the embedded browser context panel (desktop only) */
-  browserPanel?: boolean
+  browserPanel?: {
+    register(input: { sessionID: string; webContentsID: number }): Promise<void>
+    unregister(input: { sessionID: string; webContentsID: number }): Promise<void>
+  }
 
   /** Export collected diagnostic logs (desktop only) */
   exportDebugLogs?(): Promise<string>

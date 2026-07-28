@@ -251,7 +251,7 @@ export function SessionHeader() {
     reviewVisible: isDesktop(),
     reviewOpened: view().reviewPanel.opened(),
     onReviewToggle: () => view().reviewPanel.toggle(),
-    browserVisible: isDesktop() && platform.browserPanel === true && !!params.id,
+    browserVisible: isDesktop() && !!platform.browserPanel && !!params.id,
     browserOpened: browserOpen(),
     browserLabel: language.t("command.browser.toggle"),
     onBrowserToggle: toggleBrowser,

@@ -112,12 +112,20 @@ export function o1CodeConfigFile() {
 // Self-contained config blob injected into the bundled OpenCode sidecar. A clean install must see
 // the project roster on its very first start even if the persistent opencode.json seed has not
 // completed yet. The disk seed remains useful for external OpenCode sessions and later launches.
-export function o1CodeConfigContent() {
+export function o1CodeConfigContent(browserPlugin) {
   return JSON.stringify({
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
     mcp: O1_CODE_MCP,
+    ...(browserPlugin ? { plugin: [browserPlugin] } : {}),
+    permission: {
+      browser_read_state: "allow",
+      browser_navigate: "ask",
+      browser_click: "ask",
+      browser_fill: "ask",
+      browser_press_key: "ask",
+    },
     lsp: true,
   })
 }
@@ -169,7 +177,6 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
 
     const existingModels = config.provider[key]?.models
     if (!existingModels || typeof existingModels !== "object" || Array.isArray(existingModels)) continue
-
 
     for (const [modelKey, seedModel] of Object.entries(value.models || {})) {
       const existingModel = existingModels[modelKey]

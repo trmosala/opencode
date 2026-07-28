@@ -106,4 +106,6 @@ export type ElectronAPI = {
   exportDebugLogs: () => Promise<string>
   setForceFocus: (enabled: boolean) => Promise<void>
   recordFatalRendererError: (error: FatalRendererError) => Promise<void>
+  registerBrowserWebview: (input: { sessionID: string; webContentsID: number }) => Promise<void>
+  unregisterBrowserWebview: (input: { sessionID: string; webContentsID: number }) => Promise<void>
 }

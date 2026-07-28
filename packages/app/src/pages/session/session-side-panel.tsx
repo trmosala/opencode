@@ -177,7 +177,7 @@ export function SessionSidePanel(props: {
     fileBrowser: () => !!props.fileBrowserState,
   })
   const contextOpen = tabState.contextOpen
-  const browserOpen = createMemo(() => platform.browserPanel === true && tabState.browserOpen())
+  const browserOpen = createMemo(() => !!platform.browserPanel && tabState.browserOpen())
   const open = createMemo(() => reviewOpen() || fileOpen() || browserOpen())
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
@@ -277,7 +277,7 @@ export function SessionSidePanel(props: {
   const browserTabContent = () => (
     <Show when={browserOpen() && activeTab() === "browser"}>
       <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
-        <BrowserPanel sessionKey={sessionKey()} />
+        <BrowserPanel sessionKey={sessionKey()} sessionID={params.id!} />
       </Tabs.Content>
     </Show>
   )
