@@ -1840,14 +1840,14 @@ function findModeMenu() {
 }
 
 // New WPP UI step: the model-button popover lists routing modes (Auto / Premium) and, below a
-// divider, a "Select model or agent" navigation row (with a › chevron) that opens the searchable,
+// divider, a "More models/agents" navigation row (formerly "Select model or agent") that opens the searchable,
 // grouped agent list. Click that row so the rest of ensureAgentSelected can search + pick the agent.
-// "Select model or agent" is NOT one of the routing-mode options, so target it by its text, not the
+// This row is NOT one of the routing-mode options, so target it by its text, not the
 // model-select-mode-option-* testids (those are Auto/Premium). Returns the activation method, or ""
 // when the searchable picker is already open. Best-effort: never throws.
 async function chooseModelOrAgentMode() {
   const deadline = Date.now() + 2500;
-  const isSelectRow = (el) => /^\s*select model or agent\s*$/i.test(elementText(el));
+  const isSelectRow = (el) => /^\s*(select model or agent|more models\/agents)\s*$/i.test(elementText(el));
   while (Date.now() < deadline) {
     if (findAgentSearchInput(document)) return "";
     // Smallest-text-subtree match resolves the actual label row over its wrapper ancestors.
@@ -1921,7 +1921,7 @@ async function ensureAgentSelected(expectedAgent, textarea) {
   state.activationMethod = `open:${openMethod}`;
 
   // New WPP UI inserts a MODE step: clicking the model button opens a popover (model-select__mode-menu)
-  // offering "Auto" vs "Select model or agent" rather than the picker directly. Choose the
+  // offering "Auto" plus a model/agent navigation row rather than the picker directly. Choose the
   // model/agent option to reveal the searchable, grouped list the rest of this function expects.
   const modeMethod = await chooseModelOrAgentMode();
   if (modeMethod) state.activationMethod += `;mode:${modeMethod}`;
