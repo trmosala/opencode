@@ -1,8 +1,8 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 // extensionBridge -> worker-pool -> session.ts imports electron, which has no usable export
 // outside an Electron runtime. Stub it; the auth-edge logic touches none of it.
-mock.module("electron", () => ({ BrowserWindow: class {}, session: { fromPartition: () => ({}) } }));
+// The shared stub in packages/desktop/test/preload.ts supplies it before any test file links.
 
 const { ExtensionBridge } = await import("./extensionBridge.mjs");
 

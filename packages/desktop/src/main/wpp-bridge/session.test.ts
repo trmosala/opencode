@@ -1,36 +1,28 @@
-import { expect, mock, test } from "bun:test"
+import { expect, test } from "bun:test"
+import { desktopElectronMock } from "../../../test/preload"
+import { WPP_PARTITION, wppSession } from "./session"
 
-let onResponseStarted: (details: {
-  statusCode: number
-  url: string
-  webContents?: typeof webContents
-}) => void
+// Drives the real onResponseStarted callback that session.ts registers on the shared electron stub
+// from the desktop test preload. Registering the stub there rather than here keeps the assertion
+// independent of which test file links session.ts first.
 const calls: unknown[] = []
-const fakeSession = {
-  webRequest: {
-    onResponseStarted(listener: typeof onResponseStarted) {
-      onResponseStarted = listener
-    },
-  },
-  clearStorageData: async (options: unknown) => {
-    calls.push(options)
-  },
+const partitionSession = desktopElectronMock.session.fromPartition(WPP_PARTITION)
+partitionSession.clearStorageData = async (options?: unknown) => {
+  calls.push(options)
 }
+
 const webContents = {
   id: 1,
   isDestroyed: () => false,
   reloadIgnoringCache: () => calls.push("reload"),
 }
 
-mock.module("electron", () => ({
-  BrowserWindow: Object,
-  session: { fromPartition: () => fakeSession },
-}))
-
-const { wppSession } = await import("./session")
-
 test("returns an expired WPP session to sign-in once", async () => {
   wppSession()
+  const onResponseStarted = desktopElectronMock.responseStartedListeners.at(-1)
+  expect(onResponseStarted).toBeDefined()
+  if (!onResponseStarted) return
+
   onResponseStarted({
     statusCode: 401,
     url: "https://ogilvy.os.wpp.com/api/users/me",

@@ -1,7 +1,18 @@
 import { expect, test } from "bun:test"
-import { createDesktopDraftStore } from "./draft-store"
 
-test("flushes the latest buffered draft and stores blobs", () => {
+// draft-store persists through node:sqlite, which Electron's Node runtime provides but Bun does not
+// implement, so `bun test` cannot exercise it. Skip rather than fail the desktop suite; the import
+// is dynamic so the missing built-in module does not abort this file at link time.
+let hasNodeSqlite = false
+try {
+  await import("node:sqlite")
+  hasNodeSqlite = true
+} catch {
+  hasNodeSqlite = false
+}
+
+test.skipIf(!hasNodeSqlite)("flushes the latest buffered draft and stores blobs", async () => {
+  const { createDesktopDraftStore } = await import("./draft-store")
   const store = createDesktopDraftStore(":memory:")
   store.set("prompt", "first")
   store.set("prompt", "latest")

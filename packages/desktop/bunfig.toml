@@ -1,0 +1,3 @@
+[test]
+# Installs one shared "electron" stub before any test file is linked. See test/preload.ts.
+preload = ["./test/preload.ts"]

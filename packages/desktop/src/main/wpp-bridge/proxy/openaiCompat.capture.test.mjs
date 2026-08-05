@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-mock.module("electron", () => ({ BrowserWindow: function BrowserWindow() {}, session: { fromPartition: () => ({}) } }));
+// openaiCompat -> extensionBridge -> worker-pool -> session.ts imports electron; the shared stub in
+// packages/desktop/test/preload.ts supplies it before any test file links.
 
 const {
   handleChatCompletions,
