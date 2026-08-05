@@ -1,4 +1,7 @@
+﻿import { browser } from "./en"
+
 export const dict = {
+  ...browser,
   "command.category.suggested": "Ehdotetut",
   "command.category.view": "Näytä",
   "command.category.project": "Projekti",

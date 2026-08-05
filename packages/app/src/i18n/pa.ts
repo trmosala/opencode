@@ -1,4 +1,7 @@
+﻿import { browser } from "./en"
+
 export const dict = {
+  ...browser,
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "فائل",
   "desktop.menu.edit": "ترمیم",
