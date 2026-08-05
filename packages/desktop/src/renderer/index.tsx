@@ -9,6 +9,7 @@ import {
   type Locale,
   type Platform,
   PlatformProvider,
+  createDraftStore,
   ServerConnection,
   useCommand,
   useWslServers,
@@ -230,6 +231,13 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     },
 
     storage,
+    draftStore: createDraftStore({
+      get: window.api.draftGet,
+      set: window.api.draftSet,
+      remove: window.api.draftDelete,
+      putBlob: (blob) => blob.arrayBuffer().then(window.api.draftBlobPut),
+      getBlob: (id) => window.api.draftBlobGet(id).then((data) => data && new Blob([data])),
+    }),
 
     updater: {
       state: updaterState,
