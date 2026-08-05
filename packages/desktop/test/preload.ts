@@ -171,7 +171,7 @@ const electron = {
   app,
   BrowserWindow: FakeBrowserWindow,
   Menu: FakeMenu,
-  MenuItem: class {},
+  MenuItem: FakeMenu,
   Tray: FakeTray,
   session: { fromPartition, defaultSession },
   ipcMain: {
@@ -226,7 +226,9 @@ const electron = {
   systemPreferences: { getMediaAccessStatus: () => "granted" },
 }
 
-mock.module("electron", () => ({ ...electron, default: electron }))
+// mock.module returns a promise, but the registration itself is synchronous and must be in place
+// before any test file links. Awaiting at top level would be pointless here, so discard it.
+void mock.module("electron", () => ({ ...electron, default: electron }))
 
 export const desktopElectronMock = {
   session: { fromPartition, defaultSession },
