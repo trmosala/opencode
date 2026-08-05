@@ -232,7 +232,6 @@ function createSidecarEnv(): Record<string, string> {
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
-  if (!app.isPackaged) env.OPENCODE_DISABLE_CHANNEL_DB = "1"
   // Browser control is a capability of this bundled utility process, never global OpenCode/WSL config.
   env.OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(browserPluginEntry())
   return env
