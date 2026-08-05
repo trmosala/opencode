@@ -53,7 +53,7 @@ describe("captureScreenshot", () => {
   test("builds a PNG image part from the captured data URL", async () => {
     const dataUrl = "data:image/png;base64,AAAA"
     const part = await captureScreenshot(webview({ capturePage: () => Promise.resolve({ toDataURL: () => dataUrl }) }))
-    expect(part).toMatchObject({ type: "image", mime: "image/png", dataUrl })
+    expect(part).toMatchObject({ type: "image", mime: "image/png", blob: { id: dataUrl, url: dataUrl } })
     expect(part?.filename).toMatch(/^browser-screenshot-\d+\.png$/)
   })
 
@@ -123,7 +123,7 @@ describe("appendText / addImage", () => {
       id: "img-1",
       filename: "a.png",
       mime: "image/png",
-      dataUrl: "data:image/png;base64,AA",
+      blob: { id: "data:image/png;base64,AA", url: "data:image/png;base64,AA" },
     }
     addImage(prompt, part)
     expect(prompt.parts()).toEqual([part])

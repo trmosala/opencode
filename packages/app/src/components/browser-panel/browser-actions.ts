@@ -1,4 +1,5 @@
 import type { ImageAttachmentPart, Prompt } from "@/context/prompt"
+import { createLegacyBlobReference } from "@/utils/draft-store"
 import { uuid } from "@/utils/uuid"
 import type { BrowserElementSelection } from "./browser-context"
 
@@ -48,7 +49,7 @@ export function imagePart(dataUrl: string): ImageAttachmentPart | undefined {
     id: uuid(),
     filename: `browser-screenshot-${Date.now()}.png`,
     mime: "image/png",
-    dataUrl,
+    blob: createLegacyBlobReference(dataUrl),
   }
 }
 

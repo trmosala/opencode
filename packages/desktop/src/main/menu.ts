@@ -36,10 +36,10 @@ export function createMenu(deps: Deps) {
 
 function nativeItem(entry: DesktopMenuEntry, deps: Deps): MenuItemConstructorOptions {
   if (entry.type === "separator") return { type: "separator" }
-  if (entry.role) return { role: nativeRole(entry.role), label: entry.labelKey ? nativeT(entry.labelKey) : undefined }
+  if (entry.role) return { role: nativeRole(entry.role), label: entry.labelKey ? nativeT(entry.labelKey) : entry.label }
 
   const item: MenuItemConstructorOptions = {
-    label: entry.labelKey ? nativeT(entry.labelKey) : undefined,
+    label: entry.labelKey ? nativeT(entry.labelKey) : entry.label,
     accelerator: entry.accelerator?.macos,
     enabled: entry.enabled === "updater" ? UPDATER_ENABLED : undefined,
   }

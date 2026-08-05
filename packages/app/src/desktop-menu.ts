@@ -50,6 +50,8 @@ export type DesktopMenuRole =
 export type DesktopMenuItem = {
   type: "item"
   labelKey?: DesktopNativeKey
+  // CookieMonster-only entries have no upstream translation key; render this literal instead.
+  label?: string
   command?: string
   action?: DesktopMenuAction
   role?: DesktopMenuRole
