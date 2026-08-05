@@ -134,6 +134,7 @@ const api: ElectronAPI = {
   recordFatalRendererError: (error) => ipcRenderer.invoke("record-fatal-renderer-error", error),
   registerBrowserWebview: (input) => ipcRenderer.invoke("browser-register", input),
   unregisterBrowserWebview: (input) => ipcRenderer.invoke("browser-unregister", input),
+  setNativeTranslations: (bundle) => ipcRenderer.invoke("set-native-translations", bundle),
 }
 
 contextBridge.exposeInMainWorld("api", api)
