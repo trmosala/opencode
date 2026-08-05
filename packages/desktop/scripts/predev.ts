@@ -2,6 +2,7 @@ import { $ } from "bun"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { existsSync } from "node:fs"
+import { downloadCliToResources } from "./utils"
 
 // Bun skips lifecycle scripts by default, so electron's postinstall (which
 // downloads the actual binary into dist/ and writes path.txt) may not have run
@@ -22,3 +23,5 @@ await $`cd ../opencode && bun script/build-node.ts`
 // The sidecar is plain Node and cannot import TypeScript, so the browser-control plugin ships as a
 // bundled .mjs. Without this the tools silently never register.
 await $`bun run --cwd ../cm-browser build`
+
+await downloadCliToResources()

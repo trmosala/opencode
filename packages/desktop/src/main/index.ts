@@ -52,6 +52,7 @@ import { cleanupStoreFiles } from "./store-cleanup"
 import { createTray, destroyTray } from "./tray"
 import { startWppBridge } from "./wpp-bridge"
 import { openWppLogin } from "./wpp-bridge/session"
+import { startBackgroundCli } from "./background-cli"
 
 const APP_NAMES: Record<string, string> = {
   dev: "OpenCode Dev",
@@ -64,6 +65,7 @@ const APP_IDS: Record<string, string> = {
   prod: "ai.opencode.desktop",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
+const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
@@ -209,7 +211,7 @@ const main = Effect.gen(function* () {
     return
   }
 
-  preferAppEnv(app.getPath("userData"))
+  const shellEnv = preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
@@ -344,38 +346,55 @@ const main = Effect.gen(function* () {
     ),
   )
 
-  const port = yield* Effect.gen(function* () {
-    const fromEnv = process.env.OPENCODE_PORT
-    if (fromEnv) {
-      const parsed = Number.parseInt(fromEnv, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-
-    const res = yield* Deferred.make<number, unknown>()
-    const server = createServer()
-    server.on("error", (e) => Deferred.failSync(res, () => e))
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address()
-      if (typeof address !== "object" || !address) {
-        server.close()
-        Deferred.failSync(res, () => new Error("Failed to get port"))
-        return
-      }
-      const port = address.port
-      server.close(() => Effect.runSync(Deferred.succeed(res, port)))
-    })
-
-    return yield* Deferred.await(res)
-  })
-  const hostname = "127.0.0.1"
-  const url = `http://${hostname}:${port}`
-  const password = randomUUID()
-
   const loadingTask = yield* Effect.gen(function* () {
-    logger.log("sidecar connection started", { url })
+    logger.log("sidecar connection started", { version: SIDECAR_VERSION })
 
     ensureLoopbackNoProxy()
     useEnvProxy()
+
+    if (SIDECAR_VERSION === "v2") {
+      logger.log("spawning v2 sidecar")
+      const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
+      yield* Deferred.succeed(serverReady, {
+        url: sidecar.url,
+        username: sidecar.username,
+        password: sidecar.password,
+      })
+
+      if (process.platform === "win32") {
+        void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
+      }
+
+      logger.log("loading task finished")
+      return
+    }
+
+    const port = yield* Effect.gen(function* () {
+      const fromEnv = process.env.OPENCODE_PORT
+      if (fromEnv) {
+        const parsed = Number.parseInt(fromEnv, 10)
+        if (!Number.isNaN(parsed)) return parsed
+      }
+
+      const res = yield* Deferred.make<number, unknown>()
+      const socket = createServer()
+      socket.on("error", (e) => Deferred.failSync(res, () => e))
+      socket.listen(0, "127.0.0.1", () => {
+        const address = socket.address()
+        if (typeof address !== "object" || !address) {
+          socket.close()
+          Deferred.failSync(res, () => new Error("Failed to get port"))
+          return
+        }
+        const port = address.port
+        socket.close(() => Effect.runSync(Deferred.succeed(res, port)))
+      })
+
+      return yield* Deferred.await(res)
+    })
+    const hostname = "127.0.0.1"
+    const url = `http://${hostname}:${port}`
+    const password = randomUUID()
 
     logger.log("spawning sidecar", { url })
     const { listener, health } = yield* Effect.promise(() =>
