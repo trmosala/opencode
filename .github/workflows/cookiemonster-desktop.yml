@@ -1,0 +1,112 @@
+name: cookiemonster-desktop
+
+# Builds unsigned CookieMonster desktop installers: a Windows .exe (NSIS) and a macOS .dmg.
+#
+# Each installer format can only be produced on its own OS, so this is a two-runner matrix rather
+# than one cross-compiling job. There is no Apple Developer certificate and no Azure Trusted Signing
+# account for this fork, so CM_UNSIGNED=1 strips signing and notarization from
+# packages/desktop/electron-builder.config.ts. Installing an unsigned build therefore trips
+# SmartScreen on Windows and Gatekeeper on macOS.
+#
+# Runs on manual dispatch only. This repository is private on the GitHub Free plan (~2,000 Actions
+# minutes/month) and macOS minutes bill at 10x, so an automatic per-push trigger would exhaust the
+# monthly allowance quickly. Artifacts expire after 7 days to stay inside the 500 MB cap.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Which installers to build"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - windows
+          - macos
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The matrix is selected here rather than with a job-level `if` on the build job, because
+  # jobs.<job_id>.if cannot read the `matrix` context - only github, needs, vars and inputs - so a
+  # per-entry condition there would never exclude anything. jobs.<job_id>.strategy can read
+  # `inputs`, so emitting the matrix as JSON from this job keeps one build job and one source of
+  # truth. Runs on ubuntu (1x minute multiplier) to keep the selection cost negligible.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select build matrix
+        id: select
+        env:
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          windows='{"name":"windows","host":"windows-latest","platform_flag":"--win","extension":"exe"}'
+          macos='{"name":"macos","host":"macos-latest","platform_flag":"--mac","extension":"dmg"}'
+          case "$PLATFORM" in
+            windows) matrix="[$windows]" ;;
+            macos)   matrix="[$macos]" ;;
+            both)    matrix="[$windows,$macos]" ;;
+            *)       echo "Unsupported platform: $PLATFORM" >&2; exit 1 ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: package (${{ matrix.settings.name }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        settings: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      # dev is the only channel whose prebuild bundles the OpenCode CLI into resources/, which the
+      # packaged app needs in order to start its sidecar.
+      OPENCODE_CHANNEL: dev
+      CM_BRAND: "1"
+      CM_UNSIGNED: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Build renderer and main
+        # Also runs scripts/prebuild.ts, which copies icons, builds the OpenCode node sidecar and the
+        # cm-browser plugin bundle, then downloads the CLI into resources/.
+        run: bun run build
+        working-directory: packages/desktop
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Package installer
+        run: npx electron-builder ${{ matrix.settings.platform_flag }} --publish never --config electron-builder.config.ts
+        working-directory: packages/desktop
+
+      - name: List packaged output
+        run: ls -la packages/desktop/dist
+
+      - name: Upload installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cookiemonster-${{ matrix.settings.name }}
+          path: packages/desktop/dist/*.${{ matrix.settings.extension }}
+          if-no-files-found: error
+          retention-days: 7

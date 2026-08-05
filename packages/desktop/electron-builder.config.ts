@@ -1,9 +1,15 @@
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+
+// Fork CI has no Apple certificate and no Azure Trusted Signing account. CM_UNSIGNED=1 strips every
+// signing and notarization step so electron-builder emits unsigned installers instead of failing on
+// absent credentials. Upstream release builds leave it unset and keep signing exactly as before.
+const unsigned = process.env.CM_UNSIGNED === "1"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -21,6 +27,7 @@ const metainfoFpm = (appId: string) =>
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
   if (process.env.GITHUB_ACTIONS !== "true") return
+  if (unsigned) return
 
   await execFileAsync(
     "pwsh",
@@ -70,11 +77,17 @@ const getBase = (appId: string): Configuration => ({
       from: "../cm-browser/dist/plugin.mjs",
       to: "cm-browser/plugin.mjs",
     },
-    {
-      from: "native/",
-      to: "native/",
-      filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
-    },
+    // native/ is produced by `bun run native:build` and is not committed. electron-builder treats a
+    // missing extraResources source as a hard error, so only declare it when it is actually present.
+    ...(existsSync(path.join(packageDir, "native"))
+      ? [
+          {
+            from: "native/",
+            to: "native/",
+            filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
+          },
+        ]
+      : []),
   ],
   mac: {
     category: "public.app-category.developer-tools",
@@ -136,6 +149,18 @@ function applyBranding(cfg: Configuration): Configuration {
   }
 }
 
+// Signing is all-or-nothing per platform: a hardened runtime or a notarization request without a
+// real identity fails the build outright, so drop them together rather than individually.
+function applyUnsigned(cfg: Configuration): Configuration {
+  if (!unsigned) return cfg
+  return {
+    ...cfg,
+    mac: { ...cfg.mac, identity: null, hardenedRuntime: false, notarize: false },
+    dmg: { ...cfg.dmg, sign: false },
+    win: { ...cfg.win, signtoolOptions: undefined },
+  }
+}
+
 function getConfig() {
   const appId = APP_IDS[channel]
   const base = getBase(appId)
@@ -175,4 +200,4 @@ function getConfig() {
   }
 }
 
-export default applyBranding(getConfig() as Configuration)
+export default applyUnsigned(applyBranding(getConfig() as Configuration))

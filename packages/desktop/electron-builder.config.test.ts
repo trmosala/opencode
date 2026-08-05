@@ -73,6 +73,49 @@ test("bundles the CLI outside the dev app archive", async () => {
   })
 })
 
+test("CM_UNSIGNED strips every signing and notarization step", async () => {
+  const previousChannel = process.env.OPENCODE_CHANNEL
+  const previousUnsigned = process.env.CM_UNSIGNED
+  process.env.OPENCODE_CHANNEL = "dev"
+  process.env.CM_UNSIGNED = "1"
+
+  const module = await import("./electron-builder.config.ts?unsigned")
+  const config = module.default as Configuration
+
+  if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previousChannel
+  if (previousUnsigned === undefined) delete process.env.CM_UNSIGNED
+  else process.env.CM_UNSIGNED = previousUnsigned
+
+  expect(config.mac?.identity).toBeNull()
+  expect(config.mac?.hardenedRuntime).toBe(false)
+  expect(config.mac?.notarize).toBe(false)
+  expect(config.dmg?.sign).toBe(false)
+  expect(config.win?.signtoolOptions).toBeUndefined()
+  // The installer formats the workflow uploads must survive the unsigned rewrite.
+  expect(config.mac?.target).toContain("dmg")
+  expect(config.win?.target).toContain("nsis")
+})
+
+test("keeps signing enabled by default", async () => {
+  const previousChannel = process.env.OPENCODE_CHANNEL
+  const previousUnsigned = process.env.CM_UNSIGNED
+  process.env.OPENCODE_CHANNEL = "dev"
+  delete process.env.CM_UNSIGNED
+
+  const module = await import("./electron-builder.config.ts?signed")
+  const config = module.default as Configuration
+
+  if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previousChannel
+  if (previousUnsigned !== undefined) process.env.CM_UNSIGNED = previousUnsigned
+
+  expect(config.mac?.hardenedRuntime).toBe(true)
+  expect(config.mac?.notarize).toBe(true)
+  expect(config.dmg?.sign).toBe(true)
+  expect(config.win?.signtoolOptions?.sign).toBeDefined()
+})
+
 for (const channel of ["beta", "prod"] as const) {
   test(`does not bundle the CLI in ${channel} builds`, async () => {
     const previous = process.env.OPENCODE_CHANNEL
