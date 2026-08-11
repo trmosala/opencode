@@ -24,6 +24,11 @@ on:
           - both
           - windows
           - macos
+      revision:
+        description: "Two-digit CookieMonster release revision"
+        required: true
+        default: "01"
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -110,3 +115,54 @@ jobs:
           path: packages/desktop/dist/*.${{ matrix.settings.extension }}
           if-no-files-found: error
           retention-days: 7
+
+  release:
+    name: publish release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Resolve release
+        id: release
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          if [[ ! "$REVISION" =~ ^[0-9]{2}$ ]]; then
+            echo "Revision must contain exactly two digits." >&2
+            exit 1
+          fi
+          version=$(node -p "require('./packages/desktop/package.json').version")
+          tag="cookiemonster-v${version}_${REVISION}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "name=CookieMonster v${version}_${REVISION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cookiemonster-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release and upload installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          files=(release-assets/*.exe release-assets/*.dmg)
+          if (( ${#files[@]} == 0 )); then
+            echo "No CookieMonster installers found." >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_NAME"
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_NAME" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          echo "### [$RELEASE_NAME](${{ github.server_url }}/${{ github.repository }}/releases/tag/$RELEASE_TAG)" >> "$GITHUB_STEP_SUMMARY"
