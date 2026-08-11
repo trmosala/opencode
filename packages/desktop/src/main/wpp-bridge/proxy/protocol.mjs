@@ -1,7 +1,10 @@
+import { resolveModelProfile } from "./modelProfiles.mjs"
+
 export const CM_REQUEST_TYPE = "CM_REQUEST_V1"
 export const CM_REQUEST_VERSION = 1
 export const CM_CAPABILITY_PROBE_TYPE = "CM_CAPABILITY_PROBE_V1"
 export const CM_CAPABILITY_RESPONSE = "CM_CAPABILITY_V1_OK"
+export const CM_PHASE_CAPABILITY_RESPONSE = "CM_CAPABILITY_V1_PHASES_OK"
 export const CM_TASK_COMPLETE_PROTOCOL = "CM_TASK_COMPLETE_V1"
 export const CM_CAPABILITY_PROBE_PROMPT = JSON.stringify({
   type: CM_CAPABILITY_PROBE_TYPE,
@@ -14,11 +17,14 @@ export function toolCallProtocol(toolFormat) {
 
 export function buildCapabilityProbeJob(job) {
   const payload = job?.payload || {}
+  const profile = resolveModelProfile(payload.model)
   return {
     id: crypto.randomUUID(),
     type: "ask",
     payload: {
-      prompt: CM_CAPABILITY_PROBE_PROMPT,
+      prompt: profile.commentaryPhase
+        ? JSON.stringify({ type: CM_CAPABILITY_PROBE_TYPE, version: 1, features: ["assistant_phase"] })
+        : CM_CAPABILITY_PROBE_PROMPT,
       images: [],
       target: payload.target,
       url: payload.url,
@@ -33,7 +39,10 @@ export function buildCapabilityProbeJob(job) {
 
 export function assertCapabilityResponse(result, agentName) {
   const finalText = result?.finalText ?? result?.response?.finalText ?? ""
-  if (String(finalText).trim() === CM_CAPABILITY_RESPONSE) return
+  const expected = resolveModelProfile(agentName).commentaryPhase
+    ? CM_PHASE_CAPABILITY_RESPONSE
+    : CM_CAPABILITY_RESPONSE
+  if (String(finalText).trim() === expected) return
 
   const error = new Error(
     `WPP agent ${JSON.stringify(agentName)} does not advertise ${CM_REQUEST_TYPE} support. ` +
@@ -43,7 +52,7 @@ export function assertCapabilityResponse(result, agentName) {
   error.type = "o1_code_protocol_incompatible"
   error.diagnostics = {
     phase: "protocol_capability",
-    expected: CM_CAPABILITY_RESPONSE,
+    expected,
     receivedChars: String(finalText).length,
     agent: agentName,
   }

@@ -21,3 +21,37 @@ describe("auth-required login trigger", () => {
     expect(calls).toBe(2);
   });
 });
+
+describe("client cancellation", () => {
+  test("forwards the abort signal and clears the leased job", async () => {
+    const bridge = new ExtensionBridge();
+    const controller = new AbortController();
+    let receivedSignal;
+    bridge.workerPoolUrl = "https://example.test/chat";
+    bridge.workerPool = {
+      run: (_job, _onProgress, signal) => {
+        receivedSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            const error = new Error("client disconnected");
+            error.statusCode = 499;
+            error.type = "o1_code_client_aborted";
+            reject(error);
+          }, { once: true });
+        });
+      },
+      destroy: () => {},
+    };
+
+    const run = bridge.run("prompt", {
+      url: bridge.workerPoolUrl,
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(run).rejects.toMatchObject({ type: "o1_code_client_aborted" });
+    expect(receivedSignal).toBe(controller.signal);
+    expect(bridge.health().inFlightJobs).toBe(0);
+    expect(bridge.health().counters.failed).toBe(1);
+  });
+});

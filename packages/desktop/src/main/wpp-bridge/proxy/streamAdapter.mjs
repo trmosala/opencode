@@ -142,6 +142,19 @@ export function finishChatCompletion(response, base, {
   response.end();
 }
 
+export function writeChatCompletionError(response, error) {
+  const type = error?.type || "o1_code_proxy_error";
+  response.write(formatSse({
+    error: {
+      message: error?.message || "CookieMonster bridge request failed.",
+      type,
+      code: type
+    }
+  }));
+  response.write("data: [DONE]\n\n");
+  response.end();
+}
+
 export function writeChatCompletionBody(response, {
   id,
   model,

@@ -95,8 +95,19 @@ async function route(request, response, actions = {}) {
 
   if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
     writeCors(response, request);
-    const body = await readJson(request);
-    await handleChatCompletions(request, response, body);
+    const controller = new AbortController();
+    const abort = () => {
+      if (!response.writableEnded) controller.abort();
+    };
+    request.once("aborted", abort);
+    response.once("close", abort);
+    try {
+      const body = await readJson(request);
+      await handleChatCompletions(request, response, body, { signal: controller.signal });
+    } finally {
+      request.removeListener("aborted", abort);
+      response.removeListener("close", abort);
+    }
     return;
   }
 

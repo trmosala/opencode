@@ -12,18 +12,22 @@ export const MODEL_PROFILES = {
   "CM_GPT-5.6 Sol - Low": {
     agentName: "CM_GPT-5.6 Sol - Low",
     toolFormat: "xml",
+    commentaryPhase: true,
   },
   "CM_GPT-5.6 Sol - Medium": {
     agentName: "CM_GPT-5.6 Sol - Medium",
     toolFormat: "xml",
+    commentaryPhase: true,
   },
   "CM_GPT-5.6 Sol - High": {
     agentName: "CM_GPT-5.6 Sol - High",
     toolFormat: "xml",
+    commentaryPhase: true,
   },
   "CM_GPT-5.6 Sol - Extra High": {
     agentName: "CM_GPT-5.6 Sol - Extra High",
     toolFormat: "xml",
+    commentaryPhase: true,
   },
   "CM_GPT-5.5 - Low": {
     agentName: "CM_GPT-5.5 - Low",

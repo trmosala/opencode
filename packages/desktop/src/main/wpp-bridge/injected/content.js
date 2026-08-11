@@ -336,6 +336,7 @@ async function runJobWithProgress(job, jobId) {
   const responseSource = networkResponse.responseSource || "network";
   const finalText = networkResponse.finalText || "";
   const toolCallParts = networkResponse.toolCallParts || {};
+  const alternateAssistantTexts = Object.values(networkResponse.alternateAssistantTexts || {});
   const wireModel = networkResponse.model || null;
   const assistantUi = inspectAssistantUi();
 
@@ -343,6 +344,7 @@ async function runJobWithProgress(job, jobId) {
     ok: true,
     finalText,
     toolCallParts,
+    alternateAssistantTexts,
     responseSource,
     expectedAgent,
     selectedAgent: agentSelection.label || null,
@@ -400,6 +402,7 @@ async function runJobWithProgress(job, jobId) {
     response: {
       finalText,
       toolCallParts,
+      alternateAssistantTexts,
       finishReason: networkResponse.finishReason || null,
       responseStatus: networkResponse.responseStatus || null,
       // WPP's real (cumulative) token count, scraped from the conversation pill, or null when the

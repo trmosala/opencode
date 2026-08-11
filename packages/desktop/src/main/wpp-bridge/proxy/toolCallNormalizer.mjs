@@ -1,6 +1,6 @@
 import { looksLikeIncompleteAnthropicToolCall } from "./anthropicToolFormat.mjs";
 
-export function chooseAssistantResponse(finalText, toolCallParts) {
+export function chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts = []) {
   const fromText = normalizeAssistantMessage(finalText);
   const fromParts = normalizeFromToolCallParts(toolCallParts);
 
@@ -9,7 +9,15 @@ export function chooseAssistantResponse(finalText, toolCallParts) {
   }
 
   if (fromParts?.tool_calls?.length) {
-    return fromParts;
+    return withPreamble(fromParts, finalText);
+  }
+
+  const fromAlternate = alternateAssistantTexts
+    .map((content) => normalizeAssistantMessage(content))
+    .find((response) => response?.finish_reason === "tool_calls" && response.tool_calls?.length);
+
+  if (fromAlternate) {
+    return withPreamble(fromAlternate, finalText);
   }
 
   return fromText;
@@ -50,18 +58,23 @@ export function normalizeAssistantMessage(content) {
   // closing </parameter> when the model writes a markdown/code file, dropping the `content` arg.
   // A fenced *example* has its marker inside a fence, so it isn't found here and stays inert.
   let xmlCalls = null;
+  let xmlPreamble = null;
+  let incompleteXml = false;
   if (unwrappedContent !== content) {
     xmlCalls = parseAnthropicXmlToolCalls(unwrappedContent);
   } else {
     const start = unfencedToolCallStart(content);
     if (start >= 0) {
-      xmlCalls = parseAnthropicXmlToolCalls(content.slice(start));
+      const xmlContent = content.slice(start);
+      xmlCalls = parseAnthropicXmlToolCalls(xmlContent);
+      xmlPreamble = content.slice(0, start).trimEnd() || null;
+      incompleteXml = !xmlCalls && looksLikeIncompleteAnthropicToolCall(xmlContent);
     }
   }
 
   if (xmlCalls && xmlCalls.length > 0) {
     return {
-      content: null,
+      content: xmlPreamble,
       tool_calls: xmlCalls.map((call) => ({
         id: call.id || `call_${crypto.randomUUID().replace(/-/g, "")}`,
         type: "function",
@@ -72,6 +85,13 @@ export function normalizeAssistantMessage(content) {
       })),
       finish_reason: "tool_calls"
     };
+  }
+
+  if (incompleteXml) {
+    const error = new Error("The WPP agent returned an incomplete XML tool call.");
+    error.statusCode = 502;
+    error.type = "o1_code_incomplete_tool_call";
+    throw error;
   }
 
   const jsonToolCalls = parseTrailingToolCallJsons(extractionContent);
@@ -157,6 +177,16 @@ export function normalizeAssistantMessage(content) {
     tool_calls: undefined,
     finish_reason: "stop"
   };
+}
+
+function withPreamble(message, content) {
+  const text = typeof content === "string" ? content.trimEnd() : "";
+
+  if (!text || normalizeAssistantMessage(text).tool_calls?.length) {
+    return message;
+  }
+
+  return { ...message, content: text };
 }
 
 // Index of the first <function_calls>/<invoke> marker that is NOT inside a ``` fenced block, or

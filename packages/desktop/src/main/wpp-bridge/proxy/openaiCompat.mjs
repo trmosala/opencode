@@ -8,6 +8,7 @@ import {
   createChatCompletionResponse,
   openChatCompletionStream,
   writeChatCompletionBody,
+  writeChatCompletionError,
   writeChatCompletionStream,
   streamChunkBase,
   writeContentDelta,
@@ -85,7 +86,7 @@ export function listModels() {
   };
 }
 
-export async function handleChatCompletions(request, response, body, { bridge = extensionBridge } = {}) {
+export async function handleChatCompletions(request, response, body, { bridge = extensionBridge, signal } = {}) {
   const id = `chatcmpl_${crypto.randomUUID().replace(/-/g, "")}`;
   const created = Math.floor(Date.now() / 1000);
   const model = body.model || DEFAULT_MODEL_ID;
@@ -138,6 +139,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   // Route the OpenCode model name to the identically named CookieMonster WPP project agent. An explicit
   // o1_code_model still overrides the mapping for diagnostics and custom deployments.
   const agentName = body.o1_code_model || resolveModelProfile(model).agentName;
+  const commentaryPhase = resolveModelProfile(agentName).commentaryPhase === true;
   // OpenCode tags every call with its session id (request.ts). Pin session+agent to one WPP worker
   // tab so its thread holds context across turns; a mid-session model switch forks a new thread.
   // Compaction is a one-shot summarization: route it to an unpinned worker (sessionKey "") so it
@@ -206,9 +208,12 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   let streamSession = body.stream && !isCompaction
     ? createStreamSession({ sentenceQuarantine: hasTools })
     : null;
-  let streamProgressEnabled = Boolean(streamSession);
+  // Phase-capable GPT tool turns stay buffered until their final shape proves that a progress
+  // preamble and tool call belong to the same assistant response. Preserve the established live
+  // progress path for profiles that do not opt into commentary-phase recovery.
+  let streamProgressEnabled = Boolean(streamSession) && (!hasTools || !commentaryPhase);
 
-  const bridgeOptionsFor = (runContinueThread) => ({
+  const bridgeOptionsFor = (runContinueThread, attempt) => ({
     timeoutMs: body.o1_code_timeout_ms,
     target,
     url: body.o1_code_url,
@@ -217,6 +222,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     subagent,
     continueThread: runContinueThread,
     images,
+    signal,
     // React to live progress frames by streaming prose deltas as they land. The bridge owns the
     // subscription lifecycle (subscribe on enqueue, unsubscribe when the job settles), so a late
     // frame can't interleave a stray delta after the turn is done.
@@ -224,14 +230,23 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       ? (frame) => {
           const { delta } = streamSession.update(frame.finalText);
           if (delta) {
+            attempt.streamed = true;
             writeContentDelta(response, streamBase, delta);
           }
       }
       : undefined
   });
-  const runBridgeTurn = (runPrompt, runContinueThread) => {
-    const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread));
-    return body.stream ? waitForBridgeWithKeepAlive(run, response) : run;
+  const runBridgeTurn = async (runPrompt, runContinueThread) => {
+    const attempt = { streamed: false };
+    try {
+      const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread, attempt));
+      return await (body.stream ? waitForBridgeWithKeepAlive(run, response) : run);
+    } catch (error) {
+      if (error && typeof error === "object" && error.attemptStreamed === undefined) {
+        error.attemptStreamed = attempt.streamed;
+      }
+      throw error;
+    }
   };
   const freshRetryPrompt = (toolRecovery = false) => {
     const value = toolRecovery
@@ -290,7 +305,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         prompt = freshRetryPrompt(toolRecoveryCount > 0);
         context = buildContextMetrics(body, { prompt, serializableMessages, images });
         streamSession = createStreamSession({ sentenceQuarantine: hasTools });
-        streamProgressEnabled = true;
+        streamProgressEnabled = !hasTools || !commentaryPhase;
         try {
           o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false));
           failure = null;
@@ -302,6 +317,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
         // watermark so the next turn replays fresh rather than extending a delta we can't trust.
         if (continuity) resetThread(sessionKey);
+        if (failure?.type === "o1_code_client_aborted") return;
         // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
         // instead of a bare capture/recorder error.
         failure = await loginRequiredFailure(bridge, failure);
@@ -324,32 +340,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
           bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined
         }).catch(() => null);
 
-        // If prose was already streamed live we can't restart the turn cleanly, so append the
-        // error as a trailing content delta and close. Otherwise emit it as the whole body.
-        if (streamSession && streamSession.hasStreamed()) {
-          writeContentDelta(response, streamBase, `\n\n${failure.message}`);
-          finishChatCompletion(response, streamBase, {
-            finishReason: "stop",
-            usage: buildUsage({
-              promptTokens: context.input.estimatedTokens,
-              completionText: failure.message
-            }),
-            includeUsage: shouldIncludeStreamUsage(body)
-          });
-        } else {
-          writeChatCompletionBody(response, {
-            id,
-            model,
-            created,
-            content: failure.message,
-            finishReason: "stop",
-            usage: buildUsage({
-              promptTokens: context.input.estimatedTokens,
-              completionText: failure.message
-            }),
-            includeUsage: shouldIncludeStreamUsage(body)
-          });
-        }
+        // A bridge failure is not a successful assistant turn. Preserve the stream protocol but
+        // emit its error envelope so OpenCode surfaces a provider failure instead of persisting the
+        // diagnostic as text and terminating on finish_reason=stop.
+        writeChatCompletionError(response, failure);
         return;
       }
     }
@@ -372,6 +366,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       }
       if (failure) {
         if (continuity) resetThread(sessionKey);
+        if (failure?.type === "o1_code_client_aborted") return;
         // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
         // instead of a bare capture/recorder error.
         failure = await loginRequiredFailure(bridge, failure);
@@ -423,7 +418,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         tool_calls: undefined,
         finish_reason: "stop"
       }
-    : stripTaskCompleteMarker(chooseAssistantResponse(finalText, toolCallParts));
+    : stripTaskCompleteMarker(chooseAssistantResponse(finalText, toolCallParts, o1CodeRun.response.alternateAssistantTexts));
   if (!isCompaction) {
     normalizeToolCallArguments(normalized.tool_calls, body.tools);
   }
@@ -550,12 +545,14 @@ const FRESH_REPLAY_RETRY_TYPES = new Set([
   "o1_code_recorder_not_armed",
   "o1_code_thread_desync",
   "o1_code_protocol_incompatible",
+  "o1_code_incomplete_tool_call",
 ]);
 
 export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
-  return FRESH_REPLAY_RETRY_TYPES.has(error?.type)
-    && !isCompaction
-    && !(streamSession && streamSession.hasStreamed());
+  if (!FRESH_REPLAY_RETRY_TYPES.has(error?.type) || isCompaction) return false;
+  if (error?.attemptStreamed === false) return true;
+  if (error?.attemptStreamed === true) return false;
+  return !(streamSession && streamSession.hasStreamed());
 }
 
 const EXPLICIT_TOOL_USE_PATTERNS = [
@@ -598,17 +595,27 @@ function explicitlyRequiresToolUse(body) {
   return EXPLICIT_TOOL_USE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+function alternateAssistantTexts(run) {
+  const value = run?.response?.alternateAssistantTexts || run?.alternateAssistantTexts || [];
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return Object.values(value);
+  return [];
+}
+
 // A required first tool-routing step is a protocol invariant, not a prose-classification problem.
 // Recover any terminal no-tool answer once regardless of its wording. Once this active user turn
 // already contains tool progress, a prose-only response is allowed to be the final findings answer.
 export function shouldRecoverMissingRequiredToolCall(body, run, { isCompaction = false } = {}) {
   if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
-  if (!explicitlyRequiresToolUse(body) || activeTurnHasToolProgress(body)) return false;
+  if (!explicitlyRequiresToolUse(body)) return false;
 
   const finalText = run?.response?.finalText || run?.finalText || "";
   const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
-  const normalized = chooseAssistantResponse(finalText, toolCallParts);
-  return !normalized?.tool_calls?.length;
+  const normalized = chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts(run));
+  if (normalized?.tool_calls?.length) return false;
+  if (!activeTurnHasToolProgress(body)) return true;
+  if (!commentaryPhaseEnabled(body)) return false;
+  return hasExplicitIncompleteTaskClaim(normalized?.content, { forwardLooking: true });
 }
 
 function requiredToolNotCalledError() {
@@ -623,24 +630,35 @@ export function shouldRecoverIncompleteTask(body, run, { isCompaction = false } 
   if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
   const finalText = run?.response?.finalText || run?.finalText || "";
   const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
-  const normalized = chooseAssistantResponse(finalText, toolCallParts);
+  const normalized = chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts(run));
   if (normalized?.tool_calls?.length) return false;
   const content = normalized?.content || "";
-  return !hasTaskCompleteMarker(content) || hasExplicitIncompleteTaskClaim(content);
+  return !hasTaskCompleteMarker(content)
+    || hasExplicitIncompleteTaskClaim(content, { forwardLooking: commentaryPhaseEnabled(body) });
 }
 
 // Treat the completion marker as a claim, not proof. Sol can occasionally append it to a response
 // that explicitly says the requested work did not finish. Keep this deliberately narrow so a valid
 // review finding such as "the implementation is incomplete" does not reopen the agent turn.
-function hasExplicitIncompleteTaskClaim(content) {
+function hasExplicitIncompleteTaskClaim(content, { forwardLooking = false } = {}) {
   const text = String(content || "");
-  return [
+  const patterns = [
     /\bI(?:'m| am| was)?\s+(?:sorry,?\s+but\s+)?(?:unable|not able)\s+to\s+(?:complete|finish|fully inspect|fully review|continue)\b/i,
     /\bI\s+(?:could not|couldn't|cannot|can't|wasn't able to|was not able to)\s+(?:complete|finish|fully inspect|fully review|continue)\b/i,
     /\b(?:the\s+)?(?:requested\s+)?(?:review|analysis|inspection|investigation|request|task)\s+(?:is|remains)\s+(?:incomplete|unfinished)\b/i,
     /\b(?:a\s+)?complete\s+(?:review|analysis|inspection|investigation)\s+(?:still\s+)?requires?\s+(?:further|more|additional)\b/i,
     /\b(?:before I could|prevented me from)\s+(?:inspect|analy[sz]e|review|run|complete|finish|continue)\b/i,
-  ].some((pattern) => pattern.test(text));
+  ];
+  if (forwardLooking) {
+    patterns.unshift(
+      /\b(?:I(?:['’]ll| will)|let me|I(?:['’]m| am) going to)\s+(?:(?:first|now|next|then)\s+)?(?:inspect|read|run|test|edit|apply|fix|continue|create|build|write|check|verify|review|analy[sz]e|investigate|implement|update|change|open|search|look|examine)\b/i,
+    );
+  }
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function commentaryPhaseEnabled(body) {
+  return resolveModelProfile(body?.o1_code_model || body?.model).commentaryPhase === true;
 }
 
 function hasTaskCompleteMarker(content) {
@@ -741,6 +759,9 @@ function finalizeStreamedCompletion(response, streamBase, {
   const content = normalized.content || "";
 
   if (Array.isArray(tool_calls) && tool_calls.length > 0) {
+    if (content) {
+      writeContentBody(response, streamBase, content);
+    }
     writeToolCallChunks(response, streamBase, tool_calls);
   } else if (recoveryReplay) {
     // The recovery response is a new cumulative text origin. Append it in full after any benign

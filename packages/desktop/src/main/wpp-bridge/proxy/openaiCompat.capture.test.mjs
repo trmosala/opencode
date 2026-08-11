@@ -230,7 +230,12 @@ describe("shouldRetryFreshReplay", () => {
   const opts = { streamSession: null, isCompaction: false };
 
   test("retries every fresh-replay-healable failure type", () => {
-    for (const type of ["o1_code_capture_failure", "o1_code_recorder_not_armed", "o1_code_thread_desync"]) {
+    for (const type of [
+      "o1_code_capture_failure",
+      "o1_code_recorder_not_armed",
+      "o1_code_thread_desync",
+      "o1_code_incomplete_tool_call",
+    ]) {
       expect(shouldRetryFreshReplay({ type }, opts)).toBe(true);
     }
   });
@@ -247,6 +252,12 @@ describe("shouldRetryFreshReplay", () => {
   test("never retries once prose has been streamed", () => {
     const streamSession = { hasStreamed: () => true };
     expect(shouldRetryFreshReplay({ type: "o1_code_recorder_not_armed" }, { streamSession, isCompaction: false })).toBe(false);
+  });
+
+  test("retries an empty failed attempt even when an earlier attempt streamed prose", () => {
+    const streamSession = { hasStreamed: () => true };
+    const error = { type: "o1_code_capture_failure", attemptStreamed: false };
+    expect(shouldRetryFreshReplay(error, { streamSession, isCompaction: false })).toBe(true);
   });
 });
 
@@ -273,6 +284,20 @@ describe("required tool-call recovery", () => {
       { role: "tool", tool_call_id: "call-1", content: "clean" },
     );
     expect(shouldRecoverMissingRequiredToolCall(request, bridgeRun("No findings."))).toBe(false);
+  });
+
+  test("recovers a GPT announcement after tool progress without reopening an Opus final answer", () => {
+    const messages = [
+      user("Review the codebase with the available local tools."),
+      { role: "assistant", content: null, tool_calls: [{ id: "call-1", type: "function", function: { name: "bash", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "call-1", content: "clean" },
+    ];
+    const announcement = bridgeRun("I’ll create the report next.\nCM_TASK_COMPLETE_V1");
+    const gpt = { ...toolBody(...messages), model: "CM_GPT-5.6 Sol - High" };
+
+    expect(shouldRecoverMissingRequiredToolCall(gpt, announcement)).toBe(true);
+    expect(shouldRecoverMissingRequiredToolCall(toolBody(...messages), announcement)).toBe(false);
+    expect(shouldRecoverMissingRequiredToolCall(gpt, bridgeRun("Review complete.\nCM_TASK_COMPLETE_V1"))).toBe(false);
   });
 
   test("discards the no-tool answer and replays once with targeted tool recovery", async () => {
@@ -306,7 +331,7 @@ describe("required tool-call recovery", () => {
     expect(completion.message.tool_calls[0].function.name).toBe("bash");
   });
 
-  test("streams safe commentary while the terminal no-tool sentence stays quarantined", async () => {
+  test("buffers and discards an announcement-only response before tool recovery", async () => {
     const response = fakeResponse();
     let calls = 0;
     const progressHandlers = [];
@@ -324,17 +349,64 @@ describe("required tool-call recovery", () => {
       },
     };
     const requestBody = toolBody(user("Inspect the workspace with the available local tools."));
+    requestBody.model = "CM_GPT-5.6 Sol - High";
     requestBody.stream = true;
 
     await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, requestBody, { bridge }));
 
     expect(calls).toBe(2);
-    expect(progressHandlers[0]).toBeFunction();
+    expect(progressHandlers[0]).toBeUndefined();
     expect(progressHandlers[1]).toBeUndefined();
-    expect(response.body).toContain("I am inspecting the workspace. ");
+    expect(response.body).not.toContain("I am inspecting the workspace.");
     expect(response.body).not.toContain("stop here");
     expect(response.body).toContain('"name":"bash"');
     expect(response.body).toContain('"finish_reason":"tool_calls"');
+  });
+
+  test("preserves live tool-turn progress for Opus", async () => {
+    const response = fakeResponse();
+    let progressHandler;
+    const bridge = {
+      hasSession: () => false,
+      run: async (_prompt, options) => {
+        progressHandler = options.onProgress;
+        options.onProgress?.({ finalText: "I’m inspecting the workspace. Next step." });
+        return bridgeRun(
+          'I’m inspecting the workspace. Next step.\n<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status</parameter></invoke></function_calls>',
+        );
+      },
+    };
+    const requestBody = toolBody(user("Inspect the workspace."));
+    requestBody.stream = true;
+
+    await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, requestBody, { bridge }));
+
+    expect(progressHandler).toBeFunction();
+    expect(response.body).toContain('"name":"bash"');
+  });
+
+  test("streams a visible preamble and its tool call in the same assistant turn", async () => {
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async () => bridgeRun(
+        'I’ll inspect the workspace now.\n<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status --short</parameter></invoke></function_calls>',
+      ),
+    };
+    const requestBody = toolBody(user("Inspect the workspace."));
+    requestBody.stream = true;
+
+    await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, requestBody, { bridge }));
+
+    const content = response.body
+      .split("\n")
+      .filter((line) => line.startsWith("data: {") && !line.includes('"error"'))
+      .map((line) => JSON.parse(line.slice(6)).choices?.[0]?.delta?.content || "")
+      .join("");
+    expect(content).toBe("I’ll inspect the workspace now.");
+    expect(response.body).toContain('"name":"bash"');
+    expect(response.body).toContain('"finish_reason":"tool_calls"');
+    expect(response.body).not.toContain("<function_calls>");
   });
 
   test("returns a typed error when the bounded replay also omits the required tool call", async () => {
@@ -365,6 +437,60 @@ describe("incomplete task recovery", () => {
     expect(shouldRecoverIncompleteTask(
       toolBody(user("Inspect the workspace.")),
       bridgeRun("Inspection complete.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(false);
+  });
+
+  test("rejects a forward-looking local action even when it carries the completion marker", () => {
+    expect(shouldRecoverIncompleteTask(
+      { ...toolBody(user("Inspect the workspace.")), model: "CM_GPT-5.6 Sol - High" },
+      bridgeRun("I'll inspect the repository and run the tests now.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(true);
+  });
+
+  test("gates forward-looking marker rejection to phase-capable GPT profiles", () => {
+    const response = bridgeRun("I’ll create the handoff now.\nCM_TASK_COMPLETE_V1");
+    expect(shouldRecoverIncompleteTask(
+      { ...toolBody(user("Prepare the handoff.")), model: "CM_GPT-5.6 Sol - High" },
+      response,
+    )).toBe(true);
+    expect(shouldRecoverIncompleteTask(toolBody(user("Prepare the handoff.")), response)).toBe(false);
+  });
+
+  test("fresh-replays an incomplete XML call instead of returning it as prose", async () => {
+    const response = fakeResponse();
+    let calls = 0;
+    const bridge = {
+      hasSession: () => false,
+      run: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return bridgeRun('<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status');
+        }
+        return bridgeRun(
+          '<function_calls><invoke id="call-2" name="bash"><parameter name="command">git status</parameter></invoke></function_calls>',
+        );
+      },
+    };
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: {} },
+      response,
+      { ...toolBody(user("Inspect the workspace.")), model: "CM_GPT-5.6 Sol - High" },
+      { bridge },
+    ));
+
+    expect(calls).toBe(2);
+    expect(JSON.parse(response.body).choices[0].finish_reason).toBe("tool_calls");
+  });
+
+  test("does not reopen handoff language or optional follow-up", () => {
+    expect(shouldRecoverIncompleteTask(
+      toolBody(user("Prepare the patch.")),
+      bridgeRun("The patch is ready. I'll leave deployment to you.\nCM_TASK_COMPLETE_V1"),
+    )).toBe(false);
+    expect(shouldRecoverIncompleteTask(
+      toolBody(user("Prepare the patch.")),
+      bridgeRun("The patch is ready. Let me know if you'd like another review.\nCM_TASK_COMPLETE_V1"),
     )).toBe(false);
   });
 
@@ -414,6 +540,22 @@ describe("incomplete task recovery", () => {
 
     expect(response.statusCode).toBe(502);
     expect(JSON.parse(response.body).error.type).toBe("o1_code_task_incomplete");
+  });
+
+  test("streams a typed error instead of completing an announcement-only assistant turn", async () => {
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async () => bridgeRun("I’ll inspect the repository now."),
+    };
+    const requestBody = toolBody(user("Inspect the workspace."));
+    requestBody.stream = true;
+
+    await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, requestBody, { bridge }));
+
+    expect(response.body).toContain('"type":"o1_code_task_incomplete"');
+    expect(response.body).not.toContain('"finish_reason":"stop"');
+    expect(response.body).not.toContain('"delta":{"content":"The WPP agent returned');
   });
 });
 

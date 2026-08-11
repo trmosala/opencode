@@ -5,11 +5,14 @@ import vm from "node:vm"
 type Recorder = {
   finalText: string
   primaryMessageId: string | null
+  alternateAssistantTexts: Record<string, string>
+  toolCallParts: Record<string, { name?: string; arguments?: string }>
 }
 
 type RecorderHarness = {
   createRecord: (request: Record<string, unknown>) => Recorder
   parseDataLine: (record: Recorder, data: string) => void
+  serializeRecord: (record: Recorder) => Record<string, unknown>
 }
 
 const harness = await loadRecorderHarness()
@@ -88,6 +91,61 @@ describe("WPP page recorder", () => {
     expect(record.finalText).toBe("I'll inspect the worktree.")
     expect(record.primaryMessageId).toBe("assistant-1")
   })
+
+  test("retains fragmented tool output from a later assistant message without mixing it into prose", () => {
+    const record = harness.createRecord({})
+
+    parse(record, {
+      message_id: "assistant-1",
+      choices: [{ index: 0, delta: { content: "I'll inspect the worktree." } }],
+    })
+    parse(record, {
+      message_id: "assistant-tool",
+      choices: [{ index: 0, delta: { content: '<function_calls><invoke id="call-1" name="bash">' } }],
+    })
+    parse(record, {
+      message_id: "assistant-tool",
+      choices: [{ index: 0, delta: { content: '<parameter name="command">git status</parameter></invoke></function_calls>' } }],
+    })
+
+    expect(record.finalText).toBe("I'll inspect the worktree.")
+    expect(record.alternateAssistantTexts).toEqual({
+      "assistant-tool":
+        '<function_calls><invoke id="call-1" name="bash"><parameter name="command">git status</parameter></invoke></function_calls>',
+    })
+    expect(harness.serializeRecord(record).alternateAssistantTexts).toEqual(record.alternateAssistantTexts)
+  })
+
+  test("retains structured tool calls from a later assistant message", () => {
+    const record = harness.createRecord({})
+
+    parse(record, {
+      message_id: "assistant-1",
+      choices: [{ index: 0, delta: { content: "I'll inspect the worktree." } }],
+    })
+    parse(record, {
+      message_id: "assistant-tool",
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              { index: 0, id: "call-1", function: { name: "bash", arguments: '{"command":"git status"}' } },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+    })
+
+    expect(record.finalText).toBe("I'll inspect the worktree.")
+    expect(record.toolCallParts["0"]).toEqual({
+      id: "call-1",
+      type: "function",
+      name: "bash",
+      arguments: '{"command":"git status"}',
+    })
+  })
 })
 
 function parse(record: Recorder, payload: unknown) {
@@ -99,7 +157,7 @@ async function loadRecorderHarness(): Promise<RecorderHarness> {
   const source = await Bun.file(path).text()
   const instrumented = source.replace(
     /\}\)\(\);\s*$/u,
-    "globalThis.__recorderHarness = { createRecord, parseDataLine };\n})();",
+    "globalThis.__recorderHarness = { createRecord, parseDataLine, serializeRecord };\n})();",
   )
   const window = {
     addEventListener() {},
@@ -122,5 +180,9 @@ async function loadRecorderHarness(): Promise<RecorderHarness> {
 
 function isRecorderHarness(value: unknown): value is RecorderHarness {
   if (!value || typeof value !== "object") return false
-  return typeof Reflect.get(value, "createRecord") === "function" && typeof Reflect.get(value, "parseDataLine") === "function"
+  return (
+    typeof Reflect.get(value, "createRecord") === "function" &&
+    typeof Reflect.get(value, "parseDataLine") === "function" &&
+    typeof Reflect.get(value, "serializeRecord") === "function"
+  )
 }

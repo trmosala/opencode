@@ -248,7 +248,7 @@ export class ExtensionBridge {
         this.poolFor(job.payload.url).run(job, (frame) => {
           this.pushProgress(job.id, frame);
           options.onProgress?.(frame);
-        }),
+        }, options.signal),
         timeoutMs,
       );
       if (result?.ok === false) {
@@ -488,6 +488,8 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
     response: {
       finalText: result.finalText || result.response?.finalText || "",
       toolCallParts: result.toolCallParts || result.response?.toolCallParts || {},
+      alternateAssistantTexts:
+        result.alternateAssistantTexts || result.response?.alternateAssistantTexts || [],
       source: result.responseSource || null,
       capture: result.capture || null,
       // WPP's real (cumulative) token count scraped from the conversation pill, or null. The

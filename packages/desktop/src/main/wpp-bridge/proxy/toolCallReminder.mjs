@@ -25,6 +25,13 @@ Rules:
 - Prior assistant tool calls in this thread already use this same JSON format; the harness parses that same format back from you.
 - When finished with no further tools, answer in plain text only (no tool-call JSON).`;
 
+export const TOOL_CALL_SYSTEM_REMINDER_PHASED = TOOL_CALL_SYSTEM_REMINDER
+  .replace("in this XML format:", "in this XML format, with no Markdown fence:")
+  .replace(
+    "Prior assistant tool calls in this thread already use this same XML format; the harness parses that same format back from you.",
+    "Prior assistant tool calls are represented structurally in messages[].toolCalls; do not copy them as new calls.",
+  )
+
 export const TASK_COMPLETION_SYSTEM_REMINDER = `Task completion contract:
 - Keep working until the latest user request is fully resolved. A plan, progress update, initial inspection, or partial result is not complete.
 - If more local work is needed, call an available tool and do not emit the completion marker.
@@ -32,8 +39,12 @@ export const TASK_COMPLETION_SYSTEM_REMINDER = `Task completion contract:
 - A response that says the task is incomplete, could not be completed, or still requires local work contradicts and invalidates the completion marker.
 - Do not claim local tool execution is unavailable unless an attempted tool call returned an error.`
 
-export function toolCallInstructions(toolFormat) {
-  const toolReminder = toolFormat === "json" ? TOOL_CALL_SYSTEM_REMINDER_JSON : TOOL_CALL_SYSTEM_REMINDER
+export function toolCallInstructions(toolFormat, { commentaryPhase = false } = {}) {
+  const toolReminder = toolFormat === "json"
+    ? TOOL_CALL_SYSTEM_REMINDER_JSON
+    : commentaryPhase
+      ? TOOL_CALL_SYSTEM_REMINDER_PHASED
+      : TOOL_CALL_SYSTEM_REMINDER
   return `${toolReminder}\n\n${TASK_COMPLETION_SYSTEM_REMINDER}`
 }
 

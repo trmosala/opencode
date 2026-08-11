@@ -25,7 +25,11 @@ describe("CookieMonster model profiles", () => {
   test("exposes the WPP project roster under the exact agent names", () => {
     expect(MODEL_IDS).toEqual(PROJECT_AGENTS)
     for (const agentName of PROJECT_AGENTS) {
-      expect(resolveModelProfile(agentName)).toEqual({ agentName, toolFormat: "xml" })
+      expect(resolveModelProfile(agentName)).toEqual({
+        agentName,
+        toolFormat: "xml",
+        ...(agentName.startsWith("CM_GPT-5.6") ? { commentaryPhase: true } : {}),
+      })
     }
   })
 

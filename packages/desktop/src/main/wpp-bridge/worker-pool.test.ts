@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppProjectAccessState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError, wppProjectAccessError } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
+import { WorkerPool } from "./worker-pool"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 
 const worker = (
@@ -161,6 +162,115 @@ describe("ttlForWorker", () => {
 
     expect(shouldReapWorker(sub, now, ttlForWorker(sub, { idle, pinned, subagent }))).toBe(true)
     expect(shouldReapWorker(interactive, now, ttlForWorker(interactive, { idle, pinned, subagent }))).toBe(false)
+  })
+})
+
+describe("WorkerPool cancellation", () => {
+  test("discards the leased worker when its client aborts", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    let destroyed = false
+    const worker = {
+      id: 1,
+      window: {
+        isDestroyed: () => destroyed,
+        destroy: () => {
+          destroyed = true
+        },
+      },
+      controller: {
+        runJob: () => new Promise(() => {}),
+      },
+      netWitness: { summarizeWindow: () => ({}) },
+      agent: "CM_GPT-5.6 Sol - High",
+      protocolAgent: "CM_GPT-5.6 Sol - High",
+      sessionKey: "session",
+      subagent: false,
+      busy: true,
+      lastUsed: Date.now(),
+    }
+    Reflect.get(pool, "workers").set(worker.id, worker)
+    Reflect.set(pool, "acquire", async () => worker)
+    const controller = new AbortController()
+    const run = pool.run({
+      id: "job",
+      payload: {
+        model: worker.agent,
+        sessionKey: worker.sessionKey,
+        continueThread: true,
+      },
+    }, undefined, controller.signal).then(
+      () => "resolved",
+      (error) => Reflect.get(error, "type"),
+    )
+
+    controller.abort()
+    const outcome = await Promise.race([
+      run,
+      new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 50)),
+    ])
+
+    expect(outcome).toBe("o1_code_client_aborted")
+    expect(destroyed).toBe(true)
+    pool.destroy()
+  })
+})
+
+describe("WorkerPool capture failures", () => {
+  test("classifies a no-network-response worker result for fresh replay", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    let destroyed = false
+    const worker = {
+      id: 2,
+      window: {
+        isDestroyed: () => destroyed,
+        destroy: () => {
+          destroyed = true
+        },
+      },
+      controller: {
+        runJob: async () => ({
+          ok: false,
+          error: "Network recorder saw 1 request(s), but no completed model response.",
+          diagnostics: { phase: "no-network-response" },
+        }),
+      },
+      netWitness: {
+        summarizeWindow: () => ({
+          cdpRequestSeen: true,
+          cdpStatus: 200,
+          cdpBytes: 0,
+          cdpFinished: false,
+          cdpFailed: false,
+          failureText: null,
+          eventSourceMessages: 0,
+        }),
+      },
+      agent: "CM_GPT-5.6 Sol - High",
+      protocolAgent: "CM_GPT-5.6 Sol - High",
+      sessionKey: "session",
+      subagent: false,
+      busy: true,
+      lastUsed: Date.now(),
+    }
+    Reflect.get(pool, "workers").set(worker.id, worker)
+    Reflect.set(pool, "acquire", async () => worker)
+
+    const error = await pool.run({
+      id: "job",
+      payload: {
+        model: worker.agent,
+        sessionKey: worker.sessionKey,
+        continueThread: true,
+      },
+    }).then(
+      () => null,
+      (failure) => failure,
+    )
+
+    expect(Reflect.get(error, "type")).toBe("o1_code_capture_failure")
+    expect(Reflect.get(error, "kind")).toBe("wpp_request_failed")
+    expect(destroyed).toBe(true)
+    pool.destroy()
   })
 })
 

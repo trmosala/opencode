@@ -48,13 +48,14 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
   const allMessages = Array.isArray(body.messages) ? body.messages : []
   const systemMessages = allMessages.filter((m) => m.role === "system")
   const nonSystemMessages = allMessages.filter((m) => m.role !== "system")
-  const { toolFormat } = resolveModelProfile(body.model)
+  const profile = resolveModelProfile(body.model)
+  const { toolFormat } = profile
   const state = { imageIndex: 0 }
   const delta = sinceIndex > 0
   const turnMessages = delta ? nonSystemMessages.slice(sinceIndex) : nonSystemMessages
   const tools = serializeTools(body.tools)
   const toolInstructions = purpose === "chat" && tools.length > 0
-    ? toolCallInstructions(toolFormat)
+    ? toolCallInstructions(toolFormat, profile)
     : undefined
   const delegatedInstructions = systemMessages
     .map((message) => stringifyContent(message.content, state))
@@ -83,7 +84,13 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
           instructions: freshInstructions,
           tools,
         }),
-    messages: turnMessages.map((message) => serializeMessage(message, state)),
+    messages: turnMessages.map((message, index) =>
+      serializeMessage(message, state, {
+        phase: profile.commentaryPhase
+          ? assistantPhase(nonSystemMessages, (delta ? sinceIndex : 0) + index)
+          : undefined,
+      }),
+    ),
   }
 
   return JSON.stringify(envelope, null, 2)
@@ -91,7 +98,8 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
 
 export function serializeIncompleteTaskContinuationRequest(body, { purpose = "chat" } = {}) {
   const tools = serializeTools(body.tools)
-  const { toolFormat } = resolveModelProfile(body.model)
+  const profile = resolveModelProfile(body.model)
+  const { toolFormat } = profile
   return JSON.stringify({
     type: CM_REQUEST_TYPE,
     version: CM_REQUEST_VERSION,
@@ -99,7 +107,7 @@ export function serializeIncompleteTaskContinuationRequest(body, { purpose = "ch
     purpose,
     toolCallProtocol: toolCallProtocol(toolFormat),
     completionProtocol: CM_TASK_COMPLETE_PROTOCOL,
-    instructions: [toolCallInstructions(toolFormat)],
+    instructions: [toolCallInstructions(toolFormat, profile)],
     tools,
     resumeIncomplete: true,
     messages: [],
@@ -169,13 +177,14 @@ function serializeTools(tools) {
   })
 }
 
-function serializeMessage(message, state) {
+function serializeMessage(message, state, { phase } = {}) {
   const serialized = {
     role: message.role || "user",
     content: stringifyContent(message.content, state),
   }
 
   if (message.tool_call_id) serialized.toolCallId = message.tool_call_id
+  if (phase) serialized.phase = phase
   if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
     serialized.toolCalls = message.tool_calls.map((call) => ({
       id: call.id || "",
@@ -185,4 +194,15 @@ function serializeMessage(message, state) {
   }
 
   return serialized
+}
+
+function assistantPhase(messages, index) {
+  const message = messages[index]
+  if (message?.role !== "assistant") return undefined
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) return "commentary"
+  const nextUserOffset = messages.slice(index + 1).findIndex((candidate) => candidate?.role === "user")
+  if (nextUserOffset < 0) return "commentary"
+  return messages.slice(index + 1, index + 1 + nextUserOffset).some((candidate) => candidate?.role === "assistant")
+    ? "commentary"
+    : "final_answer"
 }

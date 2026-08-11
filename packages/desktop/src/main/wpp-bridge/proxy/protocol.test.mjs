@@ -5,6 +5,7 @@ import {
   CM_CAPABILITY_PROBE_PROMPT,
   CM_CAPABILITY_PROBE_TYPE,
   CM_CAPABILITY_RESPONSE,
+  CM_PHASE_CAPABILITY_RESPONSE,
 } from "./protocol.mjs"
 
 describe("CookieMonster protocol capability", () => {
@@ -40,6 +41,21 @@ describe("CookieMonster protocol capability", () => {
     expect(JSON.stringify(probe)).not.toContain("private conversation")
     expect(JSON.stringify(probe)).not.toContain("private-session")
     expect(JSON.stringify(probe)).not.toContain("must not leak")
+  })
+
+  test("requests and requires phase support only for declared GPT-5.6 profiles", () => {
+    const model = "CM_GPT-5.6 Sol - High"
+    const probe = buildCapabilityProbeJob({ payload: { model } })
+
+    expect(JSON.parse(probe.payload.prompt)).toEqual({
+      type: CM_CAPABILITY_PROBE_TYPE,
+      version: 1,
+      features: ["assistant_phase"],
+    })
+    expect(() => assertCapabilityResponse({ finalText: CM_PHASE_CAPABILITY_RESPONSE }, model)).not.toThrow()
+    expect(() => assertCapabilityResponse({ finalText: CM_CAPABILITY_RESPONSE }, model)).toThrow(
+      /does not advertise CM_REQUEST_V1 support/,
+    )
   })
 
   test("accepts only the exact advertised capability", () => {

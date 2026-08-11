@@ -90,7 +90,7 @@ describe("session.system", () => {
     )
   })
 
-  test("uses the Opus prompt for every CookieMonster model", () => {
+  test("uses model-family prompts for CookieMonster models", () => {
     const gpt = SystemPrompt.provider({
       api: { id: "CM_GPT-5.5 - High" },
       family: "gpt-5",
@@ -102,8 +102,10 @@ describe("session.system", () => {
       providerID: "cookiemonster",
     } as Provider.Model)
 
-    expect(gpt).toEqual(opus)
-    expect(gpt[0]).toContain("TodoWrite tools")
+    expect(gpt).not.toEqual(opus)
+    expect(gpt[0]).toContain("deeply pragmatic, effective software engineer")
+    expect(gpt[0]).toContain("same assistant response")
+    expect(opus[0]).toContain("TodoWrite tools")
   })
 
   it.effect("skills output is sorted by name and stable across calls", () =>

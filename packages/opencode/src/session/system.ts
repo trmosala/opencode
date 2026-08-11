@@ -25,8 +25,9 @@ import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 
 export function provider(model: Provider.Model) {
-  if (model.providerID === "cookiemonster") return [PROMPT_ANTHROPIC]
   const family = `${model.family ?? ""} ${model.api.id}`.toLowerCase()
+  if (model.providerID === "cookiemonster" && family.includes("gpt")) return [PROMPT_GPT]
+  if (model.providerID === "cookiemonster") return [PROMPT_ANTHROPIC]
   if (family.includes("muse-spark")) return [PROMPT_META]
   if (family.includes("gpt-4") || family.includes("o1") || family.includes("o3"))
     return [PROMPT_BEAST]

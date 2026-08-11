@@ -270,6 +270,7 @@ function createRecord(requestInfo, extra = {}) {
     model: null,
     primaryMessageId: null,
     finalText: "",
+    alternateAssistantTexts: {},
     finishReason: null,
     events: [],
     chunks: [],
@@ -362,16 +363,15 @@ function parseDataLine(record, data) {
       .find(Boolean) || null;
     const hasAssistantPayload = choices.some(choiceHasAssistantPayload);
 
-    // Some WPP responses multiplex more than one assistant message into the same SSE request
-    // (for example, the requested answer plus a policy/refusal message). Keep the first message
-    // that actually carries assistant output and ignore later message ids instead of concatenating
-    // unrelated responses into one OpenAI completion.
-    if (event.messageId && record.primaryMessageId && event.messageId !== record.primaryMessageId) {
-      return;
-    }
     if (event.messageId && !record.primaryMessageId && hasAssistantPayload) {
       record.primaryMessageId = event.messageId;
     }
+    // WPP can multiplex a preamble and its actual tool call under separate assistant message IDs.
+    // Keep later text isolated so refusal/policy prose never contaminates the selected answer, but
+    // retain it for the central normalizer to accept only when it parses as a real tool call.
+    const alternateMessageId = event.messageId && record.primaryMessageId && event.messageId !== record.primaryMessageId
+      ? event.messageId
+      : null;
 
     for (const choice of choices) {
       const delta = choice.delta || {};
@@ -379,11 +379,23 @@ function parseDataLine(record, data) {
 
       if (typeof delta.content === "string") {
         event.content += delta.content;
-        record.finalText += delta.content;
+        if (alternateMessageId) {
+          record.alternateAssistantTexts[alternateMessageId] =
+            (record.alternateAssistantTexts[alternateMessageId] || "") + delta.content;
+        } else {
+          record.finalText += delta.content;
+        }
       } else if (typeof message.content === "string") {
-        const next = reconcileMessageContent(record.finalText, message.content);
-        event.content += next.slice(record.finalText.length);
-        record.finalText = next;
+        const current = alternateMessageId
+          ? record.alternateAssistantTexts[alternateMessageId] || ""
+          : record.finalText;
+        const next = reconcileMessageContent(current, message.content);
+        event.content += next.slice(current.length);
+        if (alternateMessageId) {
+          record.alternateAssistantTexts[alternateMessageId] = next;
+        } else {
+          record.finalText = next;
+        }
       }
 
       if (typeof delta.thinking === "string") {
@@ -413,7 +425,9 @@ function parseDataLine(record, data) {
 
       if (choice.finish_reason || choice.finishReason) {
         event.finishReason = choice.finish_reason || choice.finishReason;
-        record.finishReason = event.finishReason;
+        if (!alternateMessageId || event.finishReason === "tool_calls") {
+          record.finishReason = event.finishReason;
+        }
       }
     }
 
@@ -610,6 +624,7 @@ function serializeRecord(record, verbose = false) {
     responseHeaders: record.responseHeaders || {},
     model: record.model || null,
     finalText: record.finalText || "",
+    alternateAssistantTexts: record.alternateAssistantTexts || {},
     finishReason: record.finishReason || null,
     toolCallParts: record.toolCallParts || {},
     eventCount: counts.eventCount,

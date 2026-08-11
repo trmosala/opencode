@@ -118,21 +118,26 @@ export class WorkerPool {
       payload?: { model?: string; sessionKey?: string; subagent?: boolean }
     },
     onProgress?: (frame: ProgressFrame) => void,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     const worker = await this.acquire(
       (job.payload?.model || "CM_Opus 4.8 - Extra High").trim(),
       (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
+      signal,
     )
     try {
       try {
-        await this.ensureProtocolCapability(worker, job)
+        await withClientAbort(this.ensureProtocolCapability(worker, job), signal)
       } catch (error) {
         this.discard(worker.id)
         throw error
       }
       const startedAt = Date.now()
-      const result = await worker.controller.runJob(job, onProgress, remainingJobTimeout(job))
+      const result = await withClientAbort(
+        worker.controller.runJob(job, onProgress, remainingJobTimeout(job)),
+        signal,
+      )
       // content.js reported its OWN failure (agent selection, missing composer, chat busy, …). Surface
       // it verbatim so extensionBridge converts it to the real typed error (e.g. o1_code_wrong_agent)
       // with content.js's diagnostics. Running the capture verdict here instead would relabel every
@@ -156,7 +161,11 @@ export class WorkerPool {
           error.bridgeResult = r
           throw error
         }
-        return result
+        const diagnostics = Reflect.get(result, "diagnostics")
+        const captureTimedOut = diagnostics
+          && typeof diagnostics === "object"
+          && Reflect.get(diagnostics, "phase") === "no-network-response"
+        if (!captureTimedOut) return result
       }
       const enriched = attachCaptureVerdict(result, worker.netWitness.summarizeWindow(startedAt))
       if (enriched.captureVerdict.accept) return enriched.result
@@ -182,6 +191,11 @@ export class WorkerPool {
         throw error
       }
       throw new Error("Unexpected capture verdict failure.")
+    } catch (error) {
+      if (error instanceof Error && Reflect.get(error, "type") === "o1_code_client_aborted") {
+        this.discard(worker.id)
+      }
+      throw error
     } finally {
       this.release(worker.id)
     }
@@ -192,21 +206,23 @@ export class WorkerPool {
   // ponytail: select->claim is kept await-free so single-threaded JS serializes it — that, not a
   // mutex, is what prevents two callers double-booking one free worker. Do NOT insert an await
   // between selectWorkerSlot and claim() or the race becomes real.
-  async acquire(agent: string, sessionKey = "", subagent = false): Promise<Worker> {
+  async acquire(agent: string, sessionKey = "", subagent = false, signal?: AbortSignal): Promise<Worker> {
     // Wait out a busy same-session tab before adopting/growing, so concurrent turns of one session
     // never fork its WPP thread. The loop re-selects each poll (the tab may free, be reaped, or the
     // session may still be busy); a "wait" past the deadline falls through to the spawn path.
     const waitDeadline = Date.now() + SESSION_WAIT_TIMEOUT_MS
     for (;;) {
+      throwIfClientAborted(signal)
       this.prune()
       const slot = selectWorkerSlot(this.view(), agent, sessionKey)
       if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey, subagent)
       if (slot.action !== "wait" || Date.now() >= waitDeadline) break
-      await wait(SESSION_WAIT_POLL_MS)
+      await withClientAbort(wait(SESSION_WAIT_POLL_MS), signal)
     }
 
     await this.spawnGate.acquire()
     try {
+      throwIfClientAborted(signal)
       // A worker may have freed (or been spawned for this agent) while we waited for a spawn slot.
       // A still-busy same-session tab now reads as "wait" here; we do NOT keep polling under the gate
       // (that would hold a spawn slot idle) — spawn a fresh thread instead, the same timeout fallback.
@@ -215,6 +231,10 @@ export class WorkerPool {
       if (slot.action === "reuse") return this.claim(slot.id, agent, sessionKey, subagent)
 
       const worker = await this.spawn(agent, sessionKey, subagent)
+      if (signal?.aborted) {
+        this.discard(worker.id)
+        throw clientAbortedError()
+      }
       worker.busy = true
       return worker
     } finally {
@@ -386,6 +406,28 @@ export class WorkerPool {
       lastUsed: worker.lastUsed,
     }))
   }
+}
+
+function withClientAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(clientAbortedError())
+
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(clientAbortedError())
+    signal.addEventListener("abort", abort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort))
+  })
+}
+
+function clientAbortedError() {
+  const error = new Error("The OpenAI-compatible client disconnected before the WPP turn completed.")
+  Reflect.set(error, "statusCode", 499)
+  Reflect.set(error, "type", "o1_code_client_aborted")
+  return error
+}
+
+function throwIfClientAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw clientAbortedError()
 }
 
 function remainingJobTimeout(job: { createdAtMs?: number; timeoutMs?: number }) {
