@@ -405,9 +405,8 @@ async function runJobWithProgress(job, jobId) {
       alternateAssistantTexts,
       finishReason: networkResponse.finishReason || null,
       responseStatus: networkResponse.responseStatus || null,
-      // WPP's real (cumulative) token count, scraped from the conversation pill, or null when the
-      // pill is absent/unparseable. The proxy maps cumulativeTokens onto prompt_tokens and falls
-      // back to the chars/token heuristic when this is null. See scrapeTokenPill for the contract.
+      // WPP's real post-turn cumulative token count, scraped from the conversation pill, or null
+      // when the pill is absent/unparseable. The proxy uses it as the authoritative total_tokens.
       usage: scrapeTokenPill(),
       eventCount: Number(networkResponse.eventCount) || 0,
       byteCount: Number(networkResponse.byteCount) || 0,
@@ -2723,11 +2722,10 @@ function inspectAssistantUi(root) {
 // Scrape WPP's conversation token-count pill (e.g. "19,547 tokens"). WPP's model-completion SSE
 // does NOT carry token usage (verified across many captured streams — the only fields are
 // model/content/messageId/toolCalls/finishReason), so this DOM pill is the only surface exposing
-// WPP's own count. It is a CUMULATIVE conversation total, not per-turn; the proxy maps it onto
-// prompt_tokens (treating the latest message as current context occupancy, matching overflow.ts)
-// which also preserves the existing over-estimate safety bias. Whitespace/format-fragile by
-// nature, so the result is marked lowFidelity and any miss falls back to the chars/token
-// heuristic upstream.
+// WPP's own count. It is a post-turn CUMULATIVE conversation total, not per-turn; the proxy uses it
+// unchanged as total_tokens and estimates only the OpenAI-required prompt/completion breakdown.
+// Whitespace/format-fragile by nature, so the result is marked lowFidelity and any miss falls back
+// to the chars/token heuristic upstream.
 //
 // Strictness is deliberate: we accept ONLY an element whose entire trimmed text is
 // "<number> tokens" with nothing else. This rejects used/limit displays like

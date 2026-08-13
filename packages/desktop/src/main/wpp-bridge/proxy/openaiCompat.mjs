@@ -432,13 +432,13 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     normalizedContent: normalized.content || "",
     toolCalls: normalized.tool_calls || []
   });
-  // Prefer WPP's real cumulative token count (scraped from the conversation pill) for the prompt
-  // side; fall back to the heuristic when the pill was absent/unparseable for this turn.
+  // WPP's post-turn conversation count is authoritative. The OpenAI-compatible response still
+  // requires a prompt/completion split, so only that breakdown remains estimated.
   const tokenPill = o1CodeRun.response?.usage;
   const usage = buildUsage({
     promptTokens: context.input.estimatedTokens,
     completionText: assistantOutputForUsage(normalized),
-    realPromptTokens: Number.isFinite(tokenPill?.cumulativeTokens) ? tokenPill.cumulativeTokens : undefined
+    realTotalTokens: Number.isFinite(tokenPill?.cumulativeTokens) ? tokenPill.cumulativeTokens : undefined
   });
 
   // Per-turn capture path: "network" = byte-exact recorder, "dom" = innerText DOM fallback, which is
@@ -786,23 +786,21 @@ function finalizeStreamedCompletion(response, streamBase, {
   });
 }
 
-// `realPromptTokens`, when finite, is WPP's own cumulative conversation token count (scraped from
-// the DOM pill). It is mapped onto prompt_tokens because OpenCode's overflow guard reads the latest
-// assistant message as current context occupancy (see session/overflow.ts), and a normal provider's
-// prompt_tokens already grows cumulatively — so the cumulative pill is the right shape. When it is
-// absent we keep the chars/token heuristic (`promptTokens`), preserving its over-estimate safety bias.
-// Caveat: total_tokens then slightly double-counts the current output (the cumulative prompt already
-// includes prior outputs but not this turn's); minor and accepted.
-function buildUsage({ promptTokens, completionText, realPromptTokens }) {
-  const prompt = Number.isFinite(realPromptTokens)
-    ? Math.max(0, Math.ceil(realPromptTokens))
-    : Math.max(0, Math.ceil(Number(promptTokens) || 0));
-  const completion = estimateTokens(completionText || "");
+// `realTotalTokens`, when finite, is WPP's own post-turn cumulative conversation count scraped from
+// the DOM pill. Keep it unchanged as total_tokens and estimate only the OpenAI-required breakdown.
+// Without the pill, preserve the existing local prompt/completion heuristic.
+function buildUsage({ promptTokens, completionText, realTotalTokens }) {
+  const estimatedCompletion = estimateTokens(completionText || "");
+  const total = Number.isFinite(realTotalTokens) ? Math.max(0, Math.ceil(realTotalTokens)) : undefined;
+  const completion = total === undefined ? estimatedCompletion : Math.min(estimatedCompletion, total);
+  const prompt = total === undefined
+    ? Math.max(0, Math.ceil(Number(promptTokens) || 0))
+    : total - completion;
 
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
-    total_tokens: prompt + completion
+    total_tokens: total ?? prompt + completion
   };
 }
 

@@ -492,8 +492,8 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
         result.alternateAssistantTexts || result.response?.alternateAssistantTexts || [],
       source: result.responseSource || null,
       capture: result.capture || null,
-      // WPP's real (cumulative) token count scraped from the conversation pill, or null. The
-      // proxy maps it onto prompt_tokens; null falls back to the chars/token heuristic.
+      // WPP's real post-turn cumulative token count scraped from the conversation pill, or null.
+      // The proxy uses it as authoritative total_tokens; null falls back to the local heuristic.
       usage: result.response?.usage || null,
       chunks: result.response?.chunks || [],
       events: result.response?.events || [],

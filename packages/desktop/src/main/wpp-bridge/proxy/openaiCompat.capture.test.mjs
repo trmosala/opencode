@@ -560,7 +560,7 @@ describe("incomplete task recovery", () => {
 });
 
 describe("handleChatCompletions token usage", () => {
-  test("maps WPP's cumulative token pill onto prompt_tokens", async () => {
+  test("uses WPP's cumulative token pill as the authoritative total", async () => {
     commitThread(KEY, body(user("hello")), assistant("previous"));
     const response = fakeResponse();
     const bridge = {
@@ -576,7 +576,11 @@ describe("handleChatCompletions token usage", () => {
     ));
 
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body).usage.prompt_tokens).toBe(117219);
+    const usage = JSON.parse(response.body).usage;
+    expect(usage.total_tokens).toBe(117219);
+    expect(usage.completion_tokens).toBeGreaterThan(0);
+    expect(usage.completion_tokens).toBeLessThanOrEqual(usage.total_tokens);
+    expect(usage.prompt_tokens + usage.completion_tokens).toBe(usage.total_tokens);
   });
 
   test("falls back to the heuristic prompt tokens when no pill is present", async () => {
