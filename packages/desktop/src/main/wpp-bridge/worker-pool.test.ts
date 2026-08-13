@@ -216,6 +216,55 @@ describe("WorkerPool cancellation", () => {
 })
 
 describe("WorkerPool capture failures", () => {
+  test("discards a worker after an image attachment desync", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    let destroyed = false
+    const worker = {
+      id: 2,
+      window: {
+        isDestroyed: () => destroyed,
+        destroy: () => {
+          destroyed = true
+        },
+      },
+      controller: {
+        runJob: async () => ({
+          ok: false,
+          error: "Timed out waiting for trusted image paste.",
+          statusCode: 502,
+          type: "o1_code_image_attachment_desync",
+        }),
+      },
+      netWitness: { summarizeWindow: () => ({}) },
+      agent: "CM_GPT-5.6 Sol - High",
+      protocolAgent: "CM_GPT-5.6 Sol - High",
+      sessionKey: "session",
+      subagent: false,
+      busy: true,
+      lastUsed: Date.now(),
+    }
+    Reflect.get(pool, "workers").set(worker.id, worker)
+    Reflect.set(pool, "acquire", async () => worker)
+
+    const error = await pool
+      .run({
+        id: "job",
+        payload: {
+          model: worker.agent,
+          sessionKey: worker.sessionKey,
+          continueThread: true,
+        },
+      })
+      .then(
+        () => null,
+        (failure) => failure,
+      )
+
+    expect(Reflect.get(error, "type")).toBe("o1_code_image_attachment_desync")
+    expect(destroyed).toBe(true)
+    pool.destroy()
+  })
+
   test("classifies a no-network-response worker result for fresh replay", async () => {
     const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
     let destroyed = false

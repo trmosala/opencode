@@ -197,7 +197,7 @@ describe("handleChatCompletions capture retry", () => {
   // Pre-submit worker failures (recorder never armed; pinned thread lost) are duplicate-safe to
   // replay because no model request was sent — the worker pool discards the dead tab and throws,
   // and the proxy replays once on a fresh worker exactly like a capture failure.
-  for (const type of ["o1_code_recorder_not_armed", "o1_code_thread_desync"]) {
+  for (const type of ["o1_code_recorder_not_armed", "o1_code_thread_desync", "o1_code_image_attachment_desync"]) {
     test(`retries a ${type} failure once as a fresh replay`, async () => {
       commitThread(KEY, body(user("hello")), assistant("previous"));
       const calls = [];
@@ -234,6 +234,7 @@ describe("shouldRetryFreshReplay", () => {
       "o1_code_capture_failure",
       "o1_code_recorder_not_armed",
       "o1_code_thread_desync",
+      "o1_code_image_attachment_desync",
       "o1_code_incomplete_tool_call",
     ]) {
       expect(shouldRetryFreshReplay({ type }, opts)).toBe(true);
@@ -605,6 +606,43 @@ describe("handleChatCompletions token usage", () => {
   });
 });
 
+describe("handleChatCompletions image inputs", () => {
+  test("forwards images only from the latest user turn", async () => {
+    const calls = [];
+    const response = fakeResponse();
+    const bridge = {
+      hasSession: () => false,
+      run: async (_prompt, options) => {
+        calls.push(options);
+        return bridgeRun("done");
+      },
+    };
+    const first = user([{ type: "text", text: "first" }, imagePart()]);
+    const latest = user([
+      { type: "text", text: "latest" },
+      imagePart(),
+      imagePart(),
+      imagePart(),
+      imagePart(),
+      imagePart(),
+    ]);
+
+    await withNoRunLogs(() =>
+      handleChatCompletions({ headers: {} }, response, body(first, assistant("previous"), latest), { bridge }),
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].images).toHaveLength(5);
+    expect(calls[0].images.map((image) => image.id)).toEqual([
+      "image_1",
+      "image_2",
+      "image_3",
+      "image_4",
+      "image_5",
+    ]);
+  });
+});
+
 describe("handleChatCompletions session serialization", () => {
   test("calculates the second delta only after the first turn commits", async () => {
     let releaseFirst;
@@ -677,6 +715,15 @@ function user(content) {
 
 function assistant(content) {
   return { role: "assistant", content };
+}
+
+function imagePart() {
+  return {
+    type: "image_url",
+    image_url: {
+      url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    },
+  };
 }
 
 function bridgeRun(content, extraResponse = {}) {

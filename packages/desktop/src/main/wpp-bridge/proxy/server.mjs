@@ -6,6 +6,7 @@ import { shouldIgnoreListenError } from "./server-startup.mjs";
 
 const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787);
+export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
 
 export async function startServer(options = {}) {
   return startServerWithActions(options);
@@ -187,10 +188,20 @@ export function isAllowedBrowserRequest(headers = {}) {
   return isAllowedBrowserOrigin(origin);
 }
 
-async function readJson(request) {
+export async function readJson(request, maxBytes = MAX_REQUEST_BODY_BYTES) {
   const chunks = [];
+  let totalBytes = 0;
+
+  const contentLength = Number(request.headers?.["content-length"]);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw requestTooLarge(maxBytes);
+  }
 
   for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > maxBytes) {
+      throw requestTooLarge(maxBytes);
+    }
     chunks.push(chunk);
   }
 
@@ -207,4 +218,11 @@ async function readJson(request) {
     error.statusCode = 400;
     throw error;
   }
+}
+
+function requestTooLarge(maxBytes) {
+  const error = new Error(`Request body exceeds the ${maxBytes} byte limit.`);
+  error.statusCode = 413;
+  error.type = "request_too_large";
+  return error;
 }

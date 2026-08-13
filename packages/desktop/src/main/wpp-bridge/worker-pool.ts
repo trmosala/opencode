@@ -143,12 +143,16 @@ export class WorkerPool {
       // with content.js's diagnostics. Running the capture verdict here instead would relabel every
       // such error as a generic submit_or_ui_failure and discard the real reason.
       if (result && typeof result === "object" && (result as Record<string, unknown>).ok === false) {
-        // Pre-submit failures (recorder never armed; pinned thread lost) mean this tab is structurally
-        // dead but NO model request was sent — so discarding it and replaying once is duplicate-safe.
+        // Pre-submit failures (recorder never armed, pinned thread lost, attachment state unknown)
+        // mean this tab is structurally dead but NO model request was sent, so replay is duplicate-safe.
         // Discard is mandatory: a released worker stays eligible, so acquire() could re-select this same
         // dead tab on the retry and fail identically. openaiCompat.shouldRetryFreshReplay does the replay.
         const failureType = (result as Record<string, unknown>).type
-        if (failureType === "o1_code_recorder_not_armed" || failureType === "o1_code_thread_desync") {
+        if (
+          failureType === "o1_code_recorder_not_armed" ||
+          failureType === "o1_code_thread_desync" ||
+          failureType === "o1_code_image_attachment_desync"
+        ) {
           this.discard(worker.id)
           const r = result as Record<string, unknown>
           const error = new Error(String(r.error || "O1-Code worker reported a pre-submit failure.")) as Error & {

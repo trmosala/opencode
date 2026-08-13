@@ -14,6 +14,18 @@ export function readImageDimensions(buffer) {
   return readPng(buffer) || readJpeg(buffer) || readWebp(buffer) || null;
 }
 
+export function detectImageMimeType(buffer) {
+  if (!Buffer.isBuffer(buffer)) return null;
+  if (buffer.length >= 8 && buffer.toString("latin1", 0, 8) === "\x89PNG\r\n\x1a\n") return "image/png";
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("latin1", 0, 4) === "RIFF" &&
+    buffer.toString("latin1", 8, 12) === "WEBP"
+  ) return "image/webp";
+  return null;
+}
+
 function readPng(buffer) {
   // 8-byte PNG signature, then the IHDR chunk whose width/height are big-endian uint32s at
   // byte offsets 16 and 20.

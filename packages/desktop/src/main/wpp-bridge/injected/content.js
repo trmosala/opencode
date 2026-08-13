@@ -653,14 +653,24 @@ async function attachImages(images, textarea, timeoutMs) {
       images: images.map((image) => ({ name: image.name, mimeType: image.mimeType, data: image.data }))
     }, Math.max(20000, Math.min(Number(timeoutMs) || 60000, 60000)));
   } catch (error) {
-    pasteResult = { ok: false, error: error.message };
+    throw imageAttachmentDesync(error);
   }
 
   const pastedOk = pasteResult && Array.isArray(pasteResult.pasted)
     ? pasteResult.pasted.filter((entry) => entry && entry.ok).length
     : 0;
 
-  if (pastedOk > 0) {
+  if (pasteResult && Array.isArray(pasteResult.pasted) && pastedOk < images.length) {
+    if (pastedOk > 0) {
+      throw imageAttachmentDesync(new Error(`Trusted paste attached only ${pastedOk} of ${images.length} images.`));
+    }
+    const error = new Error("Trusted paste could not decode any selected image.");
+    error.statusCode = 400;
+    error.type = "invalid_image_input";
+    throw error;
+  }
+
+  if (pastedOk === images.length) {
     // Wait until the pasted upload chips register (count rose past baseline) so we don't submit
     // before WPP has taken the attachment. waitForAttachmentReady (chip-aware) then gates submit.
     // We proceed regardless of this result: the pixels are already pasted, and waitForAttachmentReady
@@ -712,6 +722,13 @@ async function attachImages(images, textarea, timeoutMs) {
     pasteError: pasteResult?.error || null,
     names: images.map((image) => image.name)
   };
+}
+
+function imageAttachmentDesync(cause) {
+  const error = new Error(cause?.message || "Trusted image attachment failed before submission.");
+  error.statusCode = 502;
+  error.type = "o1_code_image_attachment_desync";
+  return error;
 }
 
 // Count the composer's file-attachment chips (WPP renders every attachment — including pasted
@@ -3064,6 +3081,7 @@ if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.no
     submitPrompt,
     textareaStillContainsPrompt,
     attachImages,
+    imageAttachmentDesync,
     buildBridgeDiagnostics,
     matchThinkingText,
     hasIncompleteNetworkRecord,
