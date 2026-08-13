@@ -585,11 +585,10 @@ async function continueExistingChat() {
 }
 
 async function startFreshChat() {
-  const controls = Array.from(document.querySelectorAll("button, [role='button'], a"));
-  const control = controls.find((el) => /new\s+(chat|conversation)/i.test(labelFor(el)));
+  const directControl = findNewChatControl();
 
-  if (control) {
-    control.click();
+  if (directControl) {
+    directControl.click();
     await wait(1500);
     return { ok: true, clicked: true };
   }
@@ -603,10 +602,30 @@ async function startFreshChat() {
     return { ok: true, clicked: false, reason: "already-empty" };
   }
 
+  // WPP moved New chat out of this cross-origin assistant iframe and into the parent Ogilvy shell.
+  // Ask Electron's main process to operate on the top frame; no selector in this document can see
+  // that menu. Keep the direct-control path above for old/standalone assistant layouts.
+  let shellResult = null;
+  try {
+    shellResult = await requestMainAction("startFreshChat", {}, 5000);
+  } catch (error) {
+    throw new Error(`Unable to start a fresh chat through the WPP shell: ${error.message}`, { cause: error });
+  }
+
+  if (shellResult?.ok && shellResult.clicked) {
+    await wait(1500);
+    return shellResult;
+  }
+
   throw new Error(
-    "No New Chat control was found and the existing thread is not empty. Open a fresh "
-    + "O1-Code chat."
+    "The WPP shell did not expose its New chat action and the existing thread is not empty. "
+    + `Shell result: ${JSON.stringify(shellResult)}`
   );
+}
+
+function findNewChatControl() {
+  return deepQueryAll("button, [role='button'], [role='menuitem'], a, li", document)
+    .find((el) => isVisible(el) && /new\s+(chat|conversation)/i.test(labelFor(el))) || null;
 }
 
 // Best-effort emptiness check. Scope to the transcript, NOT chatRootFor(textarea): in the WPP
@@ -3056,6 +3075,7 @@ function wait(ms) {
 
 if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.node) {
   globalThis.__o1CodeBridgeContentTest = {
+    startFreshChat,
     recordCanCompleteOnIdle,
     recordLooksLikeIncompleteToolCall,
     shouldReturnCapturedRecord,

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { rejectPendingRequests, routeOutboundFrame, type ProgressFrame } from "./controller-injection"
+import vm from "node:vm"
+import {
+  freshChatInShellExpression,
+  rejectPendingRequests,
+  routeOutboundFrame,
+  type ProgressFrame,
+} from "./controller-injection"
 
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
 
@@ -108,3 +114,66 @@ test("rejects every pending request when the worker renderer exits", () => {
   expect(errors.map((error) => error.message)).toEqual(["worker exited", "worker exited"])
   expect(pending.size).toBe(0)
 })
+
+test("starts a fresh chat through the parent WPP assistant shell", async () => {
+  let menuOpen = false
+  const newChat = shellElement("New chat", { "data-menu-id": "rc-menu-uuid-1-NEW_CHAT" })
+  const trigger = shellElement("")
+  const host = {
+    shadowRoot: { querySelector: () => trigger },
+  }
+  const icon = {
+    closest: () => host,
+  }
+  const frame = {
+    getBoundingClientRect: () => ({ left: 100, right: 500, top: 100, bottom: 700, width: 400, height: 600 }),
+  }
+  trigger.getBoundingClientRect = () => ({ left: 450, right: 482, top: 55, bottom: 87, width: 32, height: 32 })
+  trigger.onClick = () => {
+    menuOpen = true
+  }
+  const document = {
+    querySelector(selector: string) {
+      if (selector.includes("assistant-iframe")) return frame
+      return null
+    },
+    querySelectorAll(selector: string) {
+      if (selector.includes("wpp-icon-more")) return [icon]
+      if (selector.includes("menuitem")) return menuOpen ? [newChat] : []
+      return []
+    },
+  }
+  const context = vm.createContext({
+    document,
+    getComputedStyle: () => ({ visibility: "visible", display: "block" }),
+    setTimeout: (callback: () => void) => {
+      callback()
+      return 0
+    },
+  })
+
+  const result = await vm.runInContext(freshChatInShellExpression(), context)
+
+  expect(result).toEqual({ ok: true, clicked: true })
+  expect(trigger.clicks).toBe(1)
+  expect(newChat.clicks).toBe(1)
+})
+
+function shellElement(label: string, attributes: Record<string, string> = {}) {
+  return {
+    clicks: 0,
+    innerText: label,
+    textContent: label,
+    onClick: () => {},
+    getAttribute(name: string) {
+      return attributes[name] || null
+    },
+    getBoundingClientRect() {
+      return { left: 0, right: 24, top: 0, bottom: 24, width: 24, height: 24 }
+    },
+    click() {
+      this.clicks += 1
+      this.onClick()
+    },
+  }
+}

@@ -188,20 +188,93 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 // plain FIFO mutex that serializes the whole snapshot→write→paste→restore sequence (see Fix below).
 const clipboardGate = new SpawnGate(1)
 
-// Fulfill a page-initiated main-process request and post the result back into the page. Currently
-// just "pasteImages": content.js can't synthesize a trusted paste (only untrusted DOM events),
-// which WPP routes to its generic file path (no vision). The main process can, via the system
-// clipboard + webContents.paste(), reproducing exactly what a human Cmd+V does.
+// Fulfill a page-initiated main-process request and post the result back into the page. These are
+// operations the cross-origin assistant iframe cannot perform itself: trusted paste and controls
+// owned by the parent Ogilvy shell.
 async function handleMainRequest(contents: WebContents, dbg: WebContents["debugger"], frame: MainRequestFrame) {
   let result: unknown = null
   let error: string | null = null
   try {
     if (frame.action === "pasteImages") result = await pasteImagesIntoComposer(contents, frame.payload?.images ?? [])
+    else if (frame.action === "startFreshChat") result = await contents.executeJavaScript(freshChatInShellExpression())
     else throw new Error(`Unknown main action: ${frame.action}`)
   } catch (e) {
     error = e instanceof Error ? e.message : String(e)
   }
   postToController(dbg, { type: "O1_CODE_BRIDGE_MAIN_RESPONSE", requestId: frame.requestId, result, error })
+}
+
+// Executed in the worker's top frame. The live shell renders its icon-only menu trigger through a
+// WPP web component immediately above #assistant-iframe, then portals the New chat menu item into
+// the document body. Spatially scope the icon to that iframe so another three-dot menu elsewhere in
+// the project cannot be activated accidentally.
+export function freshChatInShellExpression() {
+  return `(${freshChatInShellPage.toString()})()`
+}
+
+async function freshChatInShellPage() {
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+  const isVisible = (element: Element) => {
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0
+  }
+  const isClickable = (element: Element): element is Element & { click: () => void } =>
+    "click" in element && typeof element.click === "function"
+  const findNewChat = () =>
+    Array.from(document.querySelectorAll("[role='menuitem']")).find(
+      (element): element is Element & { click: () => void } =>
+        isClickable(element) &&
+        isVisible(element) &&
+        (/-NEW_CHAT$/i.test(element.getAttribute("data-menu-id") || "") ||
+          /^\s*new\s+(chat|conversation)\s*$/i.test(element.textContent || "")),
+    )
+  const activateNewChat = async (item: Element & { click: () => void }) => {
+    item.click()
+    await wait(250)
+    return { ok: true, clicked: true }
+  }
+
+  const existingItem = findNewChat()
+  if (existingItem) return activateNewChat(existingItem)
+
+  const frame = document.querySelector(
+    "iframe#assistant-iframe, iframe[name='assistant-iframe'], iframe[src*='open-web-assistant-cs.wpp.ai']",
+  )
+  if (!frame || !isVisible(frame)) return { ok: false, clicked: false, reason: "assistant-frame-not-found" }
+
+  const frameRect = frame.getBoundingClientRect()
+  const candidates = Array.from(document.querySelectorAll("[data-testid='wpp-icon-more']"))
+    .map((icon) => {
+      const host = icon.closest("wpp-action-button-v4-3-0") || icon.parentElement
+      const control = host?.shadowRoot?.querySelector("button") || host || icon
+      if (!isClickable(control)) return null
+      const rect = control.getBoundingClientRect()
+      return { control, rect, gap: frameRect.top - rect.bottom }
+    })
+    .flatMap((candidate) =>
+      candidate &&
+      isVisible(candidate.control) &&
+      candidate.rect.left >= frameRect.left &&
+      candidate.rect.right <= frameRect.right &&
+      candidate.gap >= -4 &&
+      candidate.gap <= 120
+        ? [candidate]
+        : [],
+    )
+    .sort((left, right) => left.gap - right.gap || right.rect.right - left.rect.right)
+
+  if (!candidates[0]) return { ok: false, clicked: false, reason: "assistant-menu-trigger-not-found" }
+  candidates[0].control.click()
+
+  const deadline = Date.now() + 2500
+  while (Date.now() < deadline) {
+    const item = findNewChat()
+    if (item) return activateNewChat(item)
+    await wait(50)
+  }
+
+  return { ok: false, clicked: false, reason: "new-chat-menu-item-not-found" }
 }
 
 // Paste each image into the currently focused composer via a TRUSTED paste. content.js focuses the
