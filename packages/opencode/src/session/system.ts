@@ -28,7 +28,10 @@ export function provider(model: Provider.Model) {
   const family = `${model.family ?? ""} ${model.api.id}`.toLowerCase()
   if (model.providerID === "cookiemonster" && family.includes("gpt")) return [PROMPT_GPT]
   if (model.providerID === "cookiemonster") return [PROMPT_ANTHROPIC]
-  if (family.includes("muse-spark")) return [PROMPT_META]
+  if (family.includes("muse")) {
+    const name = family.includes("muse-glimmer") ? "Muse Glimmer" : "Muse Spark"
+    return [PROMPT_META.replaceAll("{{MODEL_NAME}}", name)]
+  }
   if (family.includes("gpt-4") || family.includes("o1") || family.includes("o3"))
     return [PROMPT_BEAST]
   if (family.includes("gpt")) {
@@ -40,7 +43,11 @@ export function provider(model: Provider.Model) {
   if (family.includes("gemini-")) return [PROMPT_GEMINI]
   if (family.includes("claude") || family.includes("opus")) return [PROMPT_ANTHROPIC]
   if (family.includes("trinity")) return [PROMPT_TRINITY]
-  if (family.includes("kimi")) return [PROMPT_KIMI]
+  if (
+    family.includes("kimi") ||
+    ["kimi-for-coding", "moonshotai", "moonshotai-cn"].includes(model.providerID)
+  )
+    return [PROMPT_KIMI]
   return [PROMPT_DEFAULT]
 }
 
