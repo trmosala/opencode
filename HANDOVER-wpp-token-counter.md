@@ -1,169 +1,304 @@
-# HANDOVER — WPP real token count (replace heuristic with WPP's exposed count)
+# HANDOVER — WPP token counting and the approximately 250K context window
 
-Repo: `/Users/Tiisetso/Documents/opencode` ·
-All paths below are under `packages/desktop/src/main/wpp-bridge/` unless noted.
+Repo: `E:\Work\Development\CookieMonster`
 
-This file is a handover. It captures (A) the investigation findings (the token
-pipeline as it exists today, end to end) so the next person does not have to
-re-trace it, and (B) the remaining work to surface WPP's own token count instead
-of the local heuristic.
+Status: **implemented**. This handover was reconciled with the live code on
+2026-08-18. The exact-total mapping currently in the bridge landed in commit
+`666c5a8dc` (`fix(desktop): trust WPP token totals`).
 
-The user request: the new WPP UI shows a token count (e.g. the "19,547 tokens"
-pill at the bottom of the conversation). Use that real number to improve our
-token reporting instead of the chars/token estimate.
+## What a new user needs to know
 
-## Decisions already taken (from the user)
+- The WPP models used here appear to have an approximately **250,000-token total
+  context window**.
+- On 2026-08-18, WPP showed a cumulative conversation count of `221,750` while
+  displaying its "This chat is getting long" warning. That is about 88.7% of
+  250,000 and corroborates the configured 250K context window.
+- `221,750` is an observed warning point, not a hard limit. The warning means
+  response quality may be deteriorating and the user should prepare to continue
+  in a new chat.
+- 250K is the total model context, not 250K of guaranteed prompt/input space.
+  CookieMonster advertises a 128K maximum output capability, and the local
+  compaction policy reserves output space. The effective prompt budget depends
+  on whether the legacy OpenCode or Session V2 execution path is active.
 
-1. **Source not yet confirmed** — whether the number lives in the SSE/network
-   response or only in the DOM pill must be verified first (work item 1).
-2. **The pill is a cumulative conversation total**, not a per-turn count.
-3. **Keep the current heuristic as the fallback** when no real number is
-   available for a turn (do not report zero / omit).
+## Evidence and confidence
 
-## A. How token counting works today (investigation findings — do not redo)
+There are two independent pieces of evidence:
 
-The bridge **never uses a real token count**. It is 100% heuristic:
+1. `proxy/providerConfig.mjs` advertises `O1_CODE_CONTEXT_LIMIT = 250000` and
+   `O1_CODE_OUTPUT_LIMIT = 128000` for every CookieMonster WPP model.
+2. The live WPP UI observation above placed its long-chat warning at `221,750`,
+   close to the upper end of a 250K window. It is also only 3,750 tokens above
+   the legacy OpenCode path's normal 218K usable threshold.
 
-1. `proxy/tokenEstimate.mjs` — `CHARS_PER_TOKEN = 3`, deliberately biased to
-   OVER-estimate (over-counting nudges early compaction = safe; under-counting
-   risks context overflow = bad). No real tokenizer (repo is zero-runtime-dep and
-   reaches the model through the authenticated browser session, no API key, so it
-   cannot call Anthropic's `count_tokens` or bundle a tokenizer). Image cost is a
-   visual-patch estimate (`estimateImageTokens`).
-2. `proxy/contextMetrics.mjs` — `buildContextMetrics` produces
-   `input.estimatedTokens = promptMetrics.estimatedTokens + imageTokens`. This is
-   the heuristic prompt-side number.
-3. `proxy/openaiCompat.mjs` — `buildUsage({ promptTokens, completionText })`
-   (~line 562): prompt side = `context.input.estimatedTokens` (heuristic),
-   completion side = `estimateTokens(completionText)` (heuristic). Builds the
-   `usage` object on every turn (title, error, normal, streamed).
-4. `proxy/streamAdapter.mjs` — `normalizeUsage(usage, message)` (~line 186)
-   **already has a real-usage branch**: if `usage.prompt_tokens` and
-   `usage.completion_tokens` are both finite it uses them (ceil, clamp ≥ 0,
-   derives `total_tokens` if absent); otherwise it falls back to estimating from
-   `message.content`. Nothing populates a real `usage` today, so the fallback
-   always wins.
-5. `injected/pageRecorder.js` — `parseDataLine` (~line 334) parses WPP's SSE:
-   `choices[].delta` / `choices[].message` (content, thinking, tool_calls,
-   finish_reason) and the top-level `model`. It **discards any `usage` field** the
-   backend may emit. This is capture gap #1.
-6. `injected/content.js` — assembles the job result `response: { finalText,
-   toolCallParts, finishReason, responseStatus, eventCount, byteCount, counts }`
-   (~line 399). No usage field. This is plumbing gap #2.
-7. `worker-pool.ts` `run()` — passes the controller result through the capture
-   verdict and returns it; no usage handling.
+Together these are strong confirmation that the intended total context is about
+250K. They do not prove the backend's exact hard-rejection boundary; WPP can
+change its model or warning policy independently of this repository.
 
-So the wiring to *consume* a real count partly exists (`normalizeUsage`); what is
-missing is **capturing** it from WPP and **threading** it through
-`pageRecorder.js` → `content.js` → `worker-pool` → `extensionBridge` →
-`openaiCompat`.
+## Current implementation
 
-## How OpenCode consumes the number (why cumulative is actually fine)
+WPP's model-completion SSE does not expose token usage. The only known WPP-owned
+count is the post-turn token pill in the conversation DOM.
 
-- `packages/opencode/src/session/overflow.ts` `isOverflow` (~line 31):
-  ```js
-  count = tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
-  ```
-  It reads the **latest** assistant message's token shape as current context
-  occupancy and compares to the window limit. It does **not** sum across messages.
-- `packages/core/src/session/runner/publish-llm-event.ts` `tokens(usage)`
-  (~line 18) maps provider usage into `{ input, output, reasoning, cache }` per
-  turn.
+The current flow is:
 
-Key consequence: a normal provider's `prompt_tokens` already grows cumulatively
-each turn (it is the whole replayed history), and the gauge relies on that. So
-**WPP's cumulative total is close to what the gauge wants.** Computing per-turn
-deltas instead would make the gauge read only the last small delta and badly
-*under*-state context — the dangerous direction. Therefore map cumulative →
-`prompt_tokens`.
+`WPP token pill` → `injected/content.js` → `proxy/extensionBridge.mjs` →
+`proxy/openaiCompat.mjs` → OpenAI-compatible `usage` → OpenCode context handling
 
-## B. Remaining work
+1. `injected/content.js` calls `scrapeTokenPill()` after the turn and attaches
+   the result as `response.usage`.
+2. `proxy/extensionBridge.mjs` carries that object through the run envelope.
+3. `proxy/openaiCompat.mjs` treats the cumulative WPP value as authoritative
+   `total_tokens` and estimates only the OpenAI-required prompt/completion split.
+4. `proxy/streamAdapter.mjs` preserves the finite usage fields in both streamed
+   and non-streamed OpenAI-compatible responses.
+5. If the pill is absent or cannot be parsed, the bridge falls back to the local
+   conservative heuristic in `proxy/tokenEstimate.mjs` (`CHARS_PER_TOKEN = 3`).
 
-### 1. VERIFY THE SOURCE (read-only capture, do this first)
-Run a live turn with the verbose recorder and inspect the WPP SSE/network JSON for
-a usage/token field.
-- Enable verbose capture so `pageRecorder.js` `serializeRecord` includes raw
-  `chunks`/`events` (it gates extra fields behind `verboseRecorder`), and read a
-  run log written by `proxy/logging.mjs`.
-- Confirm: (a) is the number in the response payload or only the DOM pill? (b) is
-  it prompt+completion or a single total? (c) confirm it is cumulative.
-- This determines whether work item 2 is the SSE path or the DOM path.
+Token counting is separate from model-response capture. A turn can have a
+byte-exact `network` response source while its usage still comes from the DOM
+pill. Do not use `x-o1-code-response-source` to infer the token-count source.
 
-### 2. CAPTURE
-- **If in SSE:** extend `injected/pageRecorder.js` `parseDataLine` to read the
-  `usage` object off the stream (handle both OpenAI-style `usage.prompt_tokens` /
-  `completion_tokens` / `total_tokens` and whatever WPP actually emits — confirm
-  field names in step 1) onto `record.usage`. Surface it through
-  `serializeRecord` **always** (not only under `verboseRecorder`), since usage is
-  small and needed on every turn.
-- **If DOM-only:** add a narrow pill scraper in `injected/content.js` (a tight
-  selector for the token pill), parse the integer, and mark it `lowFidelity`.
-  Treat it as cumulative.
+## Fork ownership: CookieMonster versus upstream OpenCode
 
-### 3. THREAD usage through the layers
-- `injected/content.js`: add `usage` to the returned `response: { ... }` object
-  (~line 399) and to the DOM-fallback record if the DOM path is used.
-- `worker-pool.ts`: passthrough only — no transform; the result object already
-  flows through `run()`.
-- `proxy/extensionBridge.mjs`: ensure `usage` rides the result envelope up to the
-  proxy (mirror how `finalText`/`toolCallParts` are carried).
-- `proxy/openaiCompat.mjs`: read `o1CodeRun.response.usage`.
+This boundary matters during investigation and upstream merges. It was verified
+against `upstream/dev` on 2026-08-18.
 
-### 4. MAP (the important one) — `proxy/openaiCompat.mjs`
-When a real cumulative total exists for the turn:
-- Set `prompt_tokens = ` cumulative WPP total. This aligns with `overflow.ts`
-  reading the latest message as total context, and preserves the existing
-  over-estimate safety bias direction.
-- Set `completion_tokens = ` the existing heuristic output estimate (unless step 1
-  shows WPP also exposes a separate output count, in which case use it).
-- Let `streamAdapter.normalizeUsage` carry it (it already prefers finite
-  prompt/completion). The cleanest seam: have `buildUsage` accept an optional real
-  prompt count and use it when present.
-- Document the caveat in a comment: `total_tokens` will slightly double-count the
-  current output, and if `o1-code` ever gets a non-zero configured cost, cost math
-  would drift. Both are minor and accepted.
+### CookieMonster-owned changes
 
-### 5. FALLBACK
-When no real number for a turn, keep the current 3-chars/token heuristic (per the
-user's decision). `normalizeUsage` already does this; just ensure real usage
-actually flows into it and the heuristic path is untouched.
+The following behavior is specific to this fork and has no counterpart in
+upstream OpenCode:
 
-## Critical files
-- `packages/desktop/src/main/wpp-bridge/injected/pageRecorder.js` — capture usage off SSE (`parseDataLine`, `serializeRecord`)
-- `packages/desktop/src/main/wpp-bridge/injected/content.js` — add usage to result `response`; DOM-pill scraper if DOM-only
-- `packages/desktop/src/main/wpp-bridge/worker-pool.ts` — passthrough (usually no change beyond confirming the field survives)
-- `packages/desktop/src/main/wpp-bridge/proxy/extensionBridge.mjs` — carry usage up the envelope
-- `packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.mjs` — `buildUsage` real-vs-heuristic, cumulative → `prompt_tokens`
-- `packages/desktop/src/main/wpp-bridge/proxy/streamAdapter.mjs` — `normalizeUsage` already prefers real usage (likely no change)
-- `packages/desktop/src/main/wpp-bridge/proxy/tokenEstimate.mjs` — heuristic stays as the fallback
+- The entire `packages/desktop/src/main/wpp-bridge/` directory. This includes the
+  WPP browser workers, authenticated bridge, token-pill scraper, heuristic token
+  estimator, OpenAI-compatible adapter, usage mapping, model roster, provider
+  seeding, and bridge tests.
+- `packages/desktop/src/main/index.ts` integration that starts the WPP bridge and
+  wires the visible WPP login flow into the Electron lifecycle.
+- `packages/desktop/src/main/server.ts` integration that injects
+  `o1CodeConfigContent()` into the bundled sidecar through
+  `OPENCODE_CONFIG_CONTENT`.
+- The `cookiemonster` provider and its advertised 250K context / 128K output
+  limits in `wpp-bridge/proxy/providerConfig.mjs`.
+- Conversion of WPP's DOM-only cumulative pill into standard OpenAI-compatible
+  `usage`, including the three-characters-per-token fallback.
+
+These are product behavior, not temporary compatibility shims. An upstream merge
+must not delete `wpp-bridge/` merely because upstream has no matching directory.
+Conflicts in desktop boot or sidecar setup must preserve the bridge-start and
+configuration-injection responsibilities at the lifecycle seams used by the new
+upstream code.
+
+### Related CookieMonster-only subsystem: embedded browser
+
+The embedded browser is also exclusive to this fork. As of 2026-08-18, none of
+these directories exist on `upstream/dev`:
+
+- `packages/app/src/components/browser-panel/` — the user-facing Electron
+  `<webview>` embedded in the session side panel.
+- `packages/cm-browser/` — the OpenCode plugin that gives the agent
+  `browser_read_state`, `browser_navigate`, `browser_click`, `browser_fill`, and
+  `browser_press_key` tools.
+- `packages/desktop/src/main/browser/` — the main-process router, driver, session
+  registry, and authoritative host allowlist used by those tools.
+
+These are two connected surfaces, not one implementation:
+
+1. The **browser panel** is what the user sees. CookieMonster extends the shared
+   app platform contract, session header, session side panel, desktop renderer,
+   preload, and IPC wiring to mount and register the active webview by session.
+2. The **agent browser plugin** runs inside the OpenCode sidecar. It sends
+   session-scoped `browser_request` messages to Electron main, where the request
+   is permission-checked, host-allowlisted, and executed against the registered
+   panel webview. The plugin bundle is built during desktop predev/prebuild and
+   packaged under `resources/cm-browser/plugin.mjs`.
+
+Do not conflate either surface with the WPP worker BrowserWindows. The embedded
+panel is the user's browsing workspace; `cm-browser` lets the agent operate that
+workspace; the WPP workers are separate authenticated browser sessions used as
+the model transport.
+
+The three directories above are wholly CookieMonster-owned. The integration
+points below are upstream files modified by this fork and are likely merge
+hotspots:
+
+- `packages/app/src/context/platform.tsx`
+- `packages/app/src/components/session/session-header.tsx`
+- `packages/app/src/pages/session/session-side-panel.tsx`
+- `packages/desktop/src/renderer/index.tsx`
+- `packages/desktop/src/main/server.ts`
+- `packages/desktop/electron-builder.config.ts`
+
+During an upstream merge, preserve the `platform.browserPanel` capability,
+webview registration IPC, sidecar plugin entry, main-process allowlist boundary,
+and packaged plugin resource. A browser panel that still renders but loses any of
+those seams can appear healthy while agent browser tools are unavailable or
+unsafe.
+
+### Upstream-owned behavior consumed by CookieMonster
+
+CookieMonster relies on, but does not own, these policies:
+
+- `packages/opencode/src/provider/transform.ts` — legacy OpenCode's effective
+  output-token cap.
+- `packages/opencode/src/session/overflow.ts` — legacy OpenCode's usable-context
+  and overflow decision.
+- `packages/core/src/session/compaction.ts` — Session V2's compaction budget and
+  trigger.
+- OpenCode's normal provider/session pipeline that consumes OpenAI-compatible
+  `usage.total_tokens` from the CookieMonster provider response.
+
+Do not copy the current upstream calculations into the WPP bridge. Keep the fork
+boundary narrow: CookieMonster should report the best available standard usage;
+OpenCode should continue to own the policy for when that usage triggers
+compaction.
+
+### Upstream-merge checks
+
+When syncing upstream OpenCode:
+
+1. Confirm the WPP imports and `startWppBridge()` boot path remain in
+   `packages/desktop/src/main/index.ts`.
+2. Confirm `packages/desktop/src/main/server.ts` still supplies
+   `o1CodeConfigContent()` to the sidecar without overwriting an explicit user
+   `OPENCODE_CONFIG_CONTENT` value.
+3. Re-read upstream's output-limit, usage-consumption, overflow, and Session V2
+   compaction contracts; do not assume the 218K or 122K examples remain current.
+4. Run the focused token regression and the complete WPP bridge suite.
+5. Live-check that WPP's pill still becomes `usage.total_tokens` and that the
+   active OpenCode session path reacts to that total as expected.
+6. Confirm the embedded browser still mounts, registers by session, and responds
+   to `browser_read_state`; verify that a mutating browser tool still crosses the
+   permission and main-process allowlist boundaries.
+
+## Usage-field contract
+
+| Field               | With a valid WPP pill                                            | Without a valid pill          |
+| ------------------- | ---------------------------------------------------------------- | ----------------------------- |
+| `total_tokens`      | Exact cumulative WPP pill value                                  | Heuristic prompt + completion |
+| `completion_tokens` | Estimated from the current assistant output, capped at the total | Estimated                     |
+| `prompt_tokens`     | Derived as total minus estimated completion                      | Estimated                     |
+
+The exact field is therefore `total_tokens`. The prompt/completion breakdown is
+still an estimate because WPP exposes only one cumulative number.
+
+OpenCode's overflow logic reads the latest assistant message's `tokens.total`
+rather than summing every message, so the cumulative WPP total is the correct
+shape. Do not convert it into a per-turn delta.
+
+## DOM scraper contract
+
+The scraper deliberately prefers a missed count over a wrong count:
+
+- It first queries `[data-testid='message-tokens']` and `.cs-message-tokens`.
+- It can fall back to a deep scan if WPP removes those hooks.
+- It accepts only an element whose complete trimmed text matches
+  `<positive number> token` or `<positive number> tokens`, with comma separators
+  allowed.
+- It rejects invisible nodes, values inside message bubbles, prose mentioning
+  tokens, and ambiguous used/limit strings such as
+  `19,547 / 250,000 tokens`.
+- It marks a successful scrape as `{ source: "dom-pill", lowFidelity: true }`
+  because DOM structure and formatting can change.
+- A miss is non-fatal and activates the heuristic fallback.
+
+Do not add SSE usage parsing unless a fresh network capture shows that WPP has
+started sending usage. Repeated captures previously showed only model, content,
+message ID, tool calls, and finish reason.
+
+## Configuration and compaction
+
+`proxy/providerConfig.mjs` is the source of truth for the advertised limits:
+
+- Context: `250,000`
+- Output: `128,000`
+
+The advertised output value is model capability. The effective compaction
+threshold depends on the session path:
+
+- **Legacy OpenCode:** `packages/opencode/src/provider/transform.ts` sets
+  `OUTPUT_TOKEN_MAX` to 32,000 by default, and
+  `packages/opencode/src/session/overflow.ts` subtracts that effective maximum
+  from the context limit. With default settings, that is:
+
+`250K context - 32K output headroom = 218K usable`
+
+- **Session V2:** `packages/core/src/session/compaction.ts` subtracts the
+  request's generation maximum or, when absent, the routed model's output limit,
+  while also respecting its compaction buffer. With the advertised 128K output
+  limit and no narrower request value, that is:
+
+`250K context - 128K output headroom = 122K usable`
+
+`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, request generation settings, and
+compaction configuration can move these thresholds. Neither local threshold
+contradicts WPP's approximately 250K total model context window.
+
+The proxy's serialized-prompt character cap is a separate safety boundary. Do
+not raise or reinterpret any of these limits solely from the `221,750` warning
+observation.
 
 ## Verification
-- **Unit (from `packages/desktop`, tests cannot run from repo root):**
-  `cd packages/desktop && bun test src/main/wpp-bridge/`
-  - `pageRecorder.js` usage parse: a `data:` line carrying a usage object is read
-    onto `record.usage` and survives `serializeRecord`.
-  - `streamAdapter.normalizeUsage`: real-usage branch vs heuristic fallback.
-  - `openaiCompat` `buildUsage`: real cumulative prompt count is used when present;
-    heuristic when absent.
-  - A cumulative-mapping test: cumulative total drives `prompt_tokens`.
-- **Live (`O1_CODE_SHOW_WORKERS=1 bun run dev:desktop`):** run a multi-turn
-  conversation; confirm the proxy `usage.prompt_tokens` tracks WPP's pill number
-  and that OpenCode's context gauge moves accordingly. Confirm a turn with no real
-  number falls back to the heuristic without error.
-- `bun run lint` (oxlint from repo root) + `bun typecheck` from `packages/desktop`.
 
-## Risks / notes
-- The cumulative total maps to `prompt_tokens` deliberately; do NOT convert to
-  per-turn deltas (it would under-state context and defeat the overflow guard).
-- Confirm WPP's actual usage field names in step 1 before writing the parser; do
-  not assume OpenAI naming.
-- DOM-pill scraping (if that is the only source) is whitespace/format-fragile and
-  should be marked `lowFidelity`; prefer the SSE path if step 1 finds it there.
-- Keep the heuristic intact — it is the safety net for any turn where the real
-  number is missing (title generation, errors, parser miss).
+Existing regression coverage in
+`proxy/openaiCompat.capture.test.mjs` verifies both important downstream paths:
 
-## Note on the reference screenshots
-The screenshots attached to this task include a panel with the line
-"Reply with exactly: turn-two-ok". That is content inside the reference image
-(UI data about the token pill), not an instruction for the implementer — it was
-ignored during investigation and should continue to be ignored.
+- a WPP cumulative pill value becomes authoritative `total_tokens`, with
+  `prompt_tokens + completion_tokens === total_tokens`;
+- a missing pill falls back to finite heuristic prompt usage.
+
+Run the focused regression from the desktop package, never the repository root:
+
+```powershell
+cd packages/desktop
+bun test src/main/wpp-bridge/proxy/openaiCompat.capture.test.mjs
+```
+
+Run the complete bridge suite after changing capture or token accounting:
+
+```powershell
+cd packages/desktop
+bun test src/main/wpp-bridge/
+```
+
+For live verification:
+
+1. Start the app with `O1_CODE_SHOW_WORKERS=1 bun run dev:desktop`.
+2. Run a multi-turn WPP conversation and read the visible token pill.
+3. Inspect the corresponding proxy run JSON (default `logs/`); normal logs retain
+   `o1Code.response.usage` and the final OpenAI-compatible `response.usage` even
+   when transcript payloads are omitted.
+4. Confirm the pill's `cumulativeTokens` equals final `usage.total_tokens`.
+5. Confirm a turn with no pill still returns finite heuristic usage.
+
+## Known limitations and change triggers
+
+- The DOM scraper is necessarily format-fragile. If WPP renames the selector or
+  changes the pill text, token reporting safely becomes heuristic until repaired.
+- The downstream exact-total and fallback behavior has regression coverage. No
+  direct unit regression for the DOM selector/parser was found during the
+  2026-08-18 reconciliation; add one when changing the scraper.
+- Reverify the assumptions in this handover if WPP exposes structured usage in
+  the network response, changes the warning threshold, displays separate used and
+  maximum values, or changes the routed models.
+
+## Critical files
+
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/injected/content.js` — strict token-pill
+  scraper and `response.usage` attachment.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/extensionBridge.mjs` — usage
+  passthrough in the bridge envelope.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.mjs` — authoritative
+  total and estimated breakdown.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/streamAdapter.mjs` — OpenAI response
+  usage normalization.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/tokenEstimate.mjs` — heuristic
+  fallback.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/providerConfig.mjs` — advertised
+  context and output limits.
+- **Upstream:** `packages/opencode/src/provider/transform.ts` — normal output cap and effective
+  per-turn maximum.
+- **Upstream:** `packages/opencode/src/session/overflow.ts` — usable-budget and overflow logic.
+- **Upstream:** `packages/core/src/session/compaction.ts` — Session V2 compaction budget.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.capture.test.mjs` —
+  authoritative-total and fallback regressions.
