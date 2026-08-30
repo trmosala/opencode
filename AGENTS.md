@@ -177,26 +177,51 @@ This repo adds an Electron desktop shell ("CookieMonster") on top of upstream Op
 Key packages beyond the upstream core:
 - `packages/desktop` — Electron shell: `src/main`, `src/preload`, `src/renderer`. Hosts the WPP bridge.
 - `packages/app` — shared Solid.js UI (session layout, prompt input, browser panel) used by web and desktop.
+- `packages/cm-browser` — `@cookiemonster/cm-browser`, a CookieMonster-only OpenCode **plugin** that exposes the embedded browser panel to the agent as tools. Private workspace package, bundled to `dist/plugin.mjs`. It runs inside the OpenCode sidecar, not the WPP bridge — see "Agent browser tools" below.
 
 Common commands:
 ```bash
 bun dev                 # OpenCode CLI (packages/opencode); `bun dev <dir>`, `bun dev serve` (:4096)
 bun run dev:desktop     # Electron app (electron-vite dev)
 bun run dev:web         # web UI (needs a server running)
-bun run lint            # oxlint
+bun run lint            # oxlint (root only)
+
+O1_CODE_SHOW_WORKERS=1 bun run dev:desktop            # same, with the hidden WPP worker tabs visible
+cd packages/desktop && bun test src/main/wpp-bridge/  # the WPP bridge test suite
 ```
 Desktop packaging (from `packages/desktop`): `bun run build` then `bun run package:win` / `package:mac` / `package:linux`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, `cookiemonster-<os>-<arch>.<ext>`, auto-update stripped) — without it you get an unbranded `OpenCode Dev` build that collides with a real OpenCode install. e.g. `CM_BRAND=1 bun run package:win`.
+
+### First hour on this fork
+
+1. `bun install` at the repo root (Bun 1.3.14, per `packageManager`). Default branch is `dev`; local `main` may not exist.
+2. `O1_CODE_SHOW_WORKERS=1 bun run dev:desktop`. Seeing the worker tabs is the difference between debugging this bridge and guessing at it — without the flag every WPP window is hidden. The same toggle lives in the View menu.
+3. First launch pops a *visible* WPP SSO window. Log in once; the `persist:wpp` partition keeps the session for every later headless worker.
+4. Send one prompt, then open `http://127.0.0.1:8787/status` for the bridge diagnostic page, and confirm the response carried `x-o1-code-response-source: network`. Anything else means the page recorder missed and a lower-fidelity path served the turn.
+5. `cd packages/desktop && bun test src/main/wpp-bridge/`. Tests cannot run from the repo root (guard: `do-not-run-tests-from-root`).
+6. Read `HANDOVER-wpp-dual-capture.md` and `HANDOVER-wpp-token-counter.md` before touching capture or token accounting.
+
+### CI
+
+`.github/workflows/cookiemonster-desktop.yml` is the CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), a two-runner matrix because each installer format must be built on its own OS, with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=dev` — the only channel whose prebuild bundles the CLI sidecar into `resources/`. It publishes a `cookiemonster-v<version>_<revision>` release. Unsigned means SmartScreen (Windows) and Gatekeeper (macOS) warnings on install. Every other workflow is inherited from upstream and unmodified.
 
 ### The WPP bridge (read multiple files to understand)
 
 Everything custom lives in `packages/desktop/src/main/wpp-bridge/`. It turns authenticated **WPP Open** browser sessions (`ogilvy.os.wpp.com` — Ogilvy/WPP's AI platform, NOT WhatsApp) into an OpenAI-compatible model backend.
 
-1. `proxy/server.mjs` — HTTP server (default :8787): `POST /v1/chat/completions` (model id `o1-code`), `GET /v1/models`, `POST /bridge/login`, `GET /bridge/health`, `GET /status`. `proxy/openaiCompat.mjs` adapts OpenAI request/response shapes.
+1. `proxy/server.mjs` — HTTP server (default :8787, override with `O1_CODE_PROXY_HOST`/`O1_CODE_PROXY_PORT`): `POST /v1/chat/completions`, `GET /v1/models`, `POST /bridge/login`, `GET /bridge/health`, `GET /health`, and `GET /` + `/status` (diagnostic HTML from `proxy/statusPage.mjs`). Model ids are the `CM_*` roster in `proxy/modelProfiles.mjs` — **not** the retired `o1-code`. An origin guard rejects cross-site browser callers; the sidecar's server-to-server fetch sends no `Origin`, which is allowed. `proxy/openaiCompat.mjs` adapts OpenAI request/response shapes.
 2. `proxy/extensionBridge.mjs` queues jobs onto a `WorkerPool` (`worker-pool.ts`).
 3. Each worker is a hidden Electron BrowserWindow (`session.ts`) on the persistent `persist:wpp` partition (SSO cookies survive restarts — log in once). `controller-injection.ts` injects a job handler (`injected/content.js`) via CDP into the page's main world; `recorder-injection.ts` injects the main-world `injected/pageRecorder.js` (the SSE/JSON parser) at document-start.
 4. `WorkerPool.run(job, onProgress)` is the single entry point: `acquire(agent)` (soft per-agent affinity) → `spawn()` if needed → `controller.runJob()` → stream progress → `release()`.
 
-Capture pipeline (three layers, arbitrated — see `HANDOVER-wpp-dual-capture.md`): `pageRecorder.js` parses the model response (`responseSource:"network"`); `cdp-network-recorder.ts` is an independent main-process CDP witness (metadata only) that says whether the POST to the assistant origin actually happened/finished/failed; DOM scraping in `content.js` is a last-resort, whitespace-lossy `lowFidelity` fallback. `WorkerPool.run` calls `capture-verdict.ts` to arbitrate: a non-network result that the witness can't corroborate throws a typed `o1_code_capture_failure` (`wpp_request_failed` | `recorder_parser_miss` | `submit_or_ui_failure`), the worker is discarded, and `openaiCompat.mjs` retries once as a fresh replay before surfacing a 502. Two *pre-submit* worker failures share this discard-and-replay-once recovery: `o1_code_recorder_not_armed` (the page recorder never acked its reset within `waitForRecorderReset`) and `o1_code_thread_desync` (a pinned tab whose thread was lost). Both are raised before `submitPrompt`, so no model request was sent and replaying is duplicate-safe; `WorkerPool.run` must `discard()` the dead tab (a merely-released worker stays eligible and `acquire()` could re-select it), and `openaiCompat.shouldRetryFreshReplay` gates the single fresh replay for all three types (skipping compaction and any turn that already streamed prose). Once the fresh replay is also exhausted, `openaiCompat.loginRequiredFailure` probes the live session via `bridge.checkAuthState()` (best-effort: `WorkerPool.checkAuthState` reads an already-live worker's page through `classifyWppAuthState` and never spawns one); a logged-out verdict reclassifies the failure as `wpp_auth_required` (401) and calls `markAuthRequired` to pop the SSO window, so a stale-session failure reads as "log in" instead of a bare capture/recorder error. Never treat DOM-fallback output as byte-exact. The model-request predicate is duplicated (TS `isWppModelRequest` + injected `MODEL_REQUEST_FILTER_SOURCE` string) in `model-request-filter.ts` and must be kept in sync.
+Capture pipeline (three layers, arbitrated — see `HANDOVER-wpp-dual-capture.md`): `pageRecorder.js` parses the model response (`responseSource:"network"`); `cdp-network-recorder.ts` is an independent main-process CDP witness (metadata only) that says whether the POST to the assistant origin actually happened/finished/failed; DOM scraping in `content.js` is a last-resort, whitespace-lossy `lowFidelity` fallback.
+
+**Arbitration.** `WorkerPool.run` calls `capture-verdict.ts`: a non-network result that the witness can't corroborate throws a typed `o1_code_capture_failure` (`wpp_request_failed` | `recorder_parser_miss` | `submit_or_ui_failure`), the worker is discarded, and `openaiCompat.mjs` retries once as a fresh replay before surfacing a 502.
+
+**Pre-submit recovery.** Two *pre-submit* worker failures share this discard-and-replay-once recovery: `o1_code_recorder_not_armed` (the page recorder never acked its reset within `waitForRecorderReset`) and `o1_code_thread_desync` (a pinned tab whose thread was lost). Both are raised before `submitPrompt`, so no model request was sent and replaying is duplicate-safe; `WorkerPool.run` must `discard()` the dead tab (a merely-released worker stays eligible and `acquire()` could re-select it), and `openaiCompat.shouldRetryFreshReplay` gates the single fresh replay for all three types (skipping compaction and any turn that already streamed prose).
+
+**Auth reclassification.** Once the fresh replay is also exhausted, `openaiCompat.loginRequiredFailure` probes the live session via `bridge.checkAuthState()` (best-effort: `WorkerPool.checkAuthState` reads an already-live worker's page through `classifyWppAuthState` and never spawns one); a logged-out verdict reclassifies the failure as `wpp_auth_required` (401) and calls `markAuthRequired` to pop the SSO window, so a stale-session failure reads as "log in" instead of a bare capture/recorder error.
+
+**Invariants.** Never treat DOM-fallback output as byte-exact. The model-request predicate is duplicated (TS `isWppModelRequest` + injected `MODEL_REQUEST_FILTER_SOURCE` string) in `model-request-filter.ts` and must be kept in sync.
 
 Concurrency: `SpawnGate` serializes *heavy* spawns (page load + CDP inject + SSO) via a semaphore — `MAX_CONCURRENT_SPAWNS` from `O1_CODE_MAX_SPAWNS` (default 3). Total workers are unbounded (one per job); only the spawn step is throttled. The 60s prune reaps idle workers on three TTL tiers (`worker-slot.ts` `ttlForWorker`): unpinned scratch (10 min, `IDLE_WORKER_TTL_MS`); session-pinned interactive tabs (4h backstop, `O1_CODE_PINNED_TTL_MS` — meant to live for the app run, destroyed on quit); and sub-agent tabs (5 min, `O1_CODE_SUBAGENT_TTL_MS`). A turn is classed sub-agent when the request carries `x-parent-session-id` (OpenCode sets it from `session.parentID` for child sessions).
 
@@ -205,6 +230,63 @@ Auth: a job hitting auth-required calls `markAuthRequired` → fire-once `openWp
 Serializer contract: `openaiCompat.mjs` translates the OpenCode session into the versioned `CM_REQUEST_V1` envelope defined by `proxy/protocol.mjs`. Preserve its instruction/tool/message structure; free-form `[system]` or tool-result framing makes the WPP backend treat the relay as prompt injection. The matching WPP-side instruction is versioned in `wpp-bridge/WPP_AGENT_SYSTEM_PROMPT.md` and must be installed on every routed agent before removing its legacy compatibility paragraph.
 
 The `*.mjs` files in `wpp-bridge/proxy/` are plain ESM (not TS-compiled) and run in the Electron main process — edit them directly.
+
+### Bridge module map
+
+The four numbered files above are the spine. These carry the rest of the behaviour, and nearly every one has a sibling `*.test.*` covered by `bun test src/main/wpp-bridge/`.
+
+**Request in — serialization**
+
+- `proxy/protocol.mjs` — the versioned vocabulary: `CM_REQUEST_V1`, `CM_XML_TOOL_CALL_V1` / `CM_JSON_TOOL_CALL_V1`, `CM_TASK_COMPLETE_V1`, and the `CM_CAPABILITY_PROBE_V1` handshake. `assertCapabilityResponse` fails a routed agent with `409 o1_code_protocol_incompatible` when it does not answer `CM_CAPABILITY_V1_OK` (or `CM_CAPABILITY_V1_PHASES_OK`) — that is, when `WPP_AGENT_SYSTEM_PROMPT.md` was never installed on that agent.
+- `proxy/modelProfiles.mjs` — **the model roster.** Maps each `CM_*` model id to its WPP agent name, `toolFormat` (`xml` | `json`), and `commentaryPhase`. `DEFAULT_MODEL_ID` absorbs unknown ids. Adding or renaming a WPP agent starts here; `providerConfig.mjs` derives the advertised provider models from it.
+- `proxy/messageSerializer.mjs` — builds the envelope. Fresh vs `continue` (delta) mode, folds the tool instructions into the last delegated instruction, tags assistant messages `commentary`/`final_answer` for phase-aware agents, and owns two recovery variants: `serializeIncompleteTaskContinuationRequest` for a turn that stopped early, and `serializeToolRecoveryRequest` for a turn that answered in prose when a tool call was required.
+- `proxy/toolCallReminder.mjs` — the injected instruction text: XML, JSON, and phased tool-call reminders plus the task-completion contract, and the compact tool-router prompt used by the recovery turn.
+- `proxy/imageInputs.mjs` + `imageDimensions.mjs` — image input validation: `data:` URLs only, PNG/JPEG/WebP, header magic bytes must match the declared type, at most 12 images, 10 MB each and 40 MB total, 8192x8192 and 32 MP. Rejects with `400 invalid_image_input`.
+- `proxy/sessionThreads.mjs` — the session-to-WPP-thread mirror behind `continue` mode. Hashes instructions, tools, protocol, and every non-system message; a `continue` requires a live pinned tab, an unchanged context hash, the prior request as an exact prefix, and the WPP assistant echo at the expected boundary. Any mismatch degrades silently to a fresh replay, which is safe because the body still holds the full logical conversation. `acquireThreadTurn` serializes the whole decide → submit → commit lifecycle per session, because the worker pool locks the tab but deltas are computed before a worker is acquired. `resetThread` runs on any failure. Disable with `O1_CODE_THREAD_CONTINUITY=0`.
+
+**Response out — parsing**
+
+- `proxy/toolCallNormalizer.mjs` — the largest module in the bridge: turns model prose back into OpenAI `tool_calls`. It parses only *unfenced* XML so that code fences inside a `content` parameter survive intact, and `chooseAssistantResponse` falls back through recorder tool-call parts and alternate assistant texts. Anyone touching model output lands here.
+- `proxy/anthropicToolFormat.mjs` / `jsonToolFormat.mjs` — render prior tool calls back out in the format the agent itself emits, so a continued thread reads its own history. Selected by `toolFormat`.
+- `proxy/streamGate.mjs` — decides from cumulative text whether a turn is prose (stream it live) or a tool call (suppress until normalized). Buffers the first `DECISION_THRESHOLD` (24) non-whitespace characters, holds back a trailing fragment that could be a marker split across frames, and flips to suppressed on a mid-stream marker. This is why prose starts a beat late; do not "fix" it by streaming raw deltas, or a tool-calling turn will spray XML into the UI and then be retroactively replaced.
+- `proxy/streamAdapter.mjs` — SSE chunk shaping for the streamed OpenAI response.
+- `artifact-capture.ts` + `artifact-resolver.ts` — generated-media (image, video) capture, a **separate channel** from model-response capture. WPP fetches the finished bytes over a direct presigned S3 GET that `isWppModelRequest` deliberately excludes, so this cannot perturb capture-verdict arbitration. Keyed on the `/resource/` path prefix, because agent avatars sit on the same bucket under `/agents/`. Persisted to `<project>/wpp-artifacts` or `O1_CODE_ARTIFACT_DIR`; presigns expire in about 24h, so fetch promptly.
+
+**Cross-cutting**
+
+- `proxy/providerConfig.mjs` — seeds the `cookiemonster` provider, the MCP servers (`chrome-devtools`, `figma`), and `lsp: true`. Two delivery paths: an additive, idempotent merge into the user's `~/.config/opencode/opencode.json` (it refuses to rewrite a file it cannot parse, and strips the retired `o1-code` and `wpp` seeds), and `o1CodeConfigContent()` injected as `OPENCODE_CONFIG_CONTENT` into the bundled sidecar so a clean install sees the roster on its very first start. The advertised context limit (250k) is deliberately kept under `O1_CODE_MAX_PROMPT_CHARS` so OpenCode auto-compacts before the proxy hard-rejects a serialized prompt.
+- `proxy/tokenEstimate.mjs` + `contextMetrics.mjs` — the context-window gauge. `CHARS_PER_TOKEN = 3` is a deliberate over-estimate, because no tokenizer is reachable over an authenticated browser session; images are costed by real 28 px-patch visual tokens when header dimensions are readable, else a flat fallback. WPP's own conversation pill supersedes the heuristic where available — see `HANDOVER-wpp-token-counter.md`.
+- `proxy/logging.mjs` — per-run JSON logs (`O1_CODE_PROXY_LOG_DIR`, default `<cwd>/logs`; `O1_CODE_PROXY_LOGS=0` disables; payloads omitted unless `O1_CODE_PROXY_LOG_PAYLOADS=1`; rotation via `O1_CODE_PROXY_LOG_KEEP`). The log path and capture source come back as response headers `x-o1-code-proxy-log`, `x-o1-code-proxy-run-id`, and `x-o1-code-response-source` — read those first when triaging a bad turn.
+- `proxy/policy.mjs` — `redact()`, applied to every logged request and bridge result. `AGENT_CONTRACT` and `HARNESS_CONTRACT` in the same file are dead legacy prompt text with no importer; do not treat them as the live contract. The live contract is `WPP_AGENT_SYSTEM_PROMPT.md` plus `toolCallReminder.mjs`.
+- `proxy/wppProject.mjs` — the single pinned WPP project URL every worker loads, overridable with `O1_CODE_TARGET_URL`.
+
+### Bridge environment variables
+
+All optional; effective default in parentheses.
+
+| Variable | Effect |
+| --- | --- |
+| `O1_CODE_SHOW_WORKERS` | `1` shows worker tabs at launch (hidden); also a View menu toggle |
+| `O1_CODE_PROXY_HOST` / `O1_CODE_PROXY_PORT` | proxy bind (`127.0.0.1` / `8787`) |
+| `O1_CODE_TARGET_URL` | override the WPP project URL workers load |
+| `O1_CODE_MAX_SPAWNS` | concurrent heavy spawns (`3`) |
+| `O1_CODE_PINNED_TTL_MS` / `O1_CODE_SUBAGENT_TTL_MS` | worker TTL tiers (`4h` / `5min`) |
+| `O1_CODE_SESSION_WAIT_MS` | wait for a busy pinned session's tab (`16min`) |
+| `O1_CODE_MAX_PROMPT_CHARS` | hard-reject a serialized prompt above this size |
+| `O1_CODE_THREAD_CONTINUITY` | `0` disables delta `continue` turns (always replay fresh) |
+| `O1_CODE_ARTIFACT_DIR` | absolute override for generated-media output |
+| `O1_CODE_PROXY_LOGS` / `_LOG_DIR` / `_LOG_PAYLOADS` / `_LOG_KEEP` | run logging |
+| `O1_CODE_VERBOSE_RECORDER` | `1` adds recorder diagnostics for non-recordable requests |
+| `CM_BRAND` / `CM_UNSIGNED` | packaging: brand as CookieMonster / strip signing and notarization |
+
+### Agent browser tools (`packages/cm-browser`)
+
+Two browser surfaces exist in this app; do not conflate them.
+
+- **Browser panel** (below) — what the *user* sees and drives, plus the prompt context scraped out of it.
+- **`packages/cm-browser`** — what the *agent* drives, as five OpenCode tools: `browser_read_state`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_press_key`. Elements are addressed by opaque snapshot refs such as `s4:e12`, and stale refs are rejected.
+
+Wiring, because it is unusual: this is an OpenCode **plugin**, not proxy or extension code, so OpenCode owns the tools and this repo stays transport-only. `main/server.ts` `browserPluginEntry()` resolves `resources/cm-browser/plugin.mjs` when packaged (`<appPath>/../cm-browser/dist/plugin.mjs` in dev) and passes it through `o1CodeConfigContent()` into the sidecar's `OPENCODE_CONFIG_CONTENT`, along with permissions (`browser_read_state: allow`; the four mutating tools `ask`). The plugin runs inside the sidecar utility process and reaches main over `parentPort` `browser_request` messages (`src/port.ts`), which `main/browser/router.ts` executes. `main/browser/allowlist.ts` is authoritative **in main**, because the sidecar cannot be trusted to enforce it; a non-allowlisted host fails `blocked_host`. `bun run build` in the package emits the bundle, and `packages/desktop/scripts/prebuild.ts` does it during desktop packaging.
 
 ### Electron process split
 
