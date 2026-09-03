@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ogilvy.cookiemonster</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>CookieMonster</name>
+  <summary>Ogilvy One AI coding application</summary>
+  <developer id="com.ogilvy">
+    <name>Ogilvy One</name>
+  </developer>
+  <description>
+    <p>
+      CookieMonster is an internal coding application built on OpenCode and the WPP Open AI platform.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.ogilvy.cookiemonster.desktop</launchable>
+  <content_rating type="oars-1.1" />
+</component>

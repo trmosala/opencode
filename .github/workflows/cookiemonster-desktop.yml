@@ -1,9 +1,9 @@
 name: cookiemonster-desktop
 
-# Builds unsigned CookieMonster desktop installers: a Windows .exe (NSIS) and a macOS .dmg.
+# Builds unsigned CookieMonster desktop installers: Windows .exe, macOS .dmg, and Fedora .rpm.
 #
-# Each installer format can only be produced on its own OS, so this is a two-runner matrix rather
-# than one cross-compiling job. There is no Apple Developer certificate and no Azure Trusted Signing
+# Native installers use their respective OS; the RPM is built on Ubuntu and tested in Fedora 44.
+# There is no Apple Developer certificate and no Azure Trusted Signing
 # account for this fork, so CM_UNSIGNED=1 strips signing and notarization from
 # packages/desktop/electron-builder.config.ts. Installing an unsigned build therefore trips
 # SmartScreen on Windows and Gatekeeper on macOS.
@@ -18,12 +18,14 @@ on:
       platform:
         description: "Which installers to build"
         required: true
-        default: both
+        default: all
         type: choice
         options:
+          - all
           - both
           - windows
           - macos
+          - fedora
       revision:
         description: "Two-digit CookieMonster release revision"
         required: true
@@ -53,12 +55,15 @@ jobs:
         env:
           PLATFORM: ${{ inputs.platform }}
         run: |
-          windows='{"name":"windows","host":"windows-latest","platform_flag":"--win","extension":"exe"}'
-          macos='{"name":"macos","host":"macos-latest","platform_flag":"--mac","extension":"dmg"}'
+          windows='{"name":"windows","host":"windows-latest","platform_flag":"--win","extension":"exe","config":"electron-builder.config.ts"}'
+          macos='{"name":"macos","host":"macos-latest","platform_flag":"--mac","extension":"dmg","config":"electron-builder.config.ts"}'
+          fedora='{"name":"fedora","host":"ubuntu-latest","platform_flag":"--linux rpm","extension":"rpm","config":"electron-builder.fedora.config.ts"}'
           case "$PLATFORM" in
             windows) matrix="[$windows]" ;;
             macos)   matrix="[$macos]" ;;
+            fedora)  matrix="[$fedora]" ;;
             both)    matrix="[$windows,$macos]" ;;
+            all)     matrix="[$windows,$macos,$fedora]" ;;
             *)       echo "Unsupported platform: $PLATFORM" >&2; exit 1 ;;
           esac
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -93,6 +98,10 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      - name: Install RPM tooling
+        if: matrix.settings.name == 'fedora'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
+
       - name: Build renderer and main
         # Also runs scripts/prebuild.ts, which copies icons, builds the OpenCode node sidecar and the
         # cm-browser plugin bundle, then downloads the CLI into resources/.
@@ -102,11 +111,15 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Package installer
-        run: npx electron-builder ${{ matrix.settings.platform_flag }} --publish never --config electron-builder.config.ts
+        run: npx electron-builder ${{ matrix.settings.platform_flag }} --publish never --config ${{ matrix.settings.config }}
         working-directory: packages/desktop
 
       - name: List packaged output
         run: ls -la packages/desktop/dist
+
+      - name: Test install on Fedora 44
+        if: matrix.settings.name == 'fedora'
+        run: docker run --rm -v "$PWD/packages/desktop/dist:/dist:ro" fedora:44 sh -c 'dnf install -y /dist/*.rpm && rpm -q cookiemonster'
 
       - name: Upload installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -154,7 +167,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           shopt -s nullglob
-          files=(release-assets/*.exe release-assets/*.dmg)
+          files=(release-assets/*.exe release-assets/*.dmg release-assets/*.rpm)
           if (( ${#files[@]} == 0 )); then
             echo "No CookieMonster installers found." >&2
             exit 1
