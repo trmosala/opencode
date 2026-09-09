@@ -9,6 +9,31 @@
 // The agentName is also the affinity key the extension uses to pin a tab to one agent
 // (extension/background.js) and the label it selects in the composer pill (extension/content.js).
 export const MODEL_PROFILES = {
+  "CM_GPT6_Astra_Low": {
+    agentName: "CM_GPT6_Astra_Low",
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
+  "CM_GPT6_Astra_Medium": {
+    agentName: "CM_GPT6_Astra_Medium",
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
+  "CM_GPT6_Astra_High": {
+    agentName: "CM_GPT6_Astra_High",
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
+  "CM_GPT6_Astra_XHigh": {
+    agentName: "CM_GPT6_Astra_XHigh",
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
+  "CM_GPT6_Astra_Max": {
+    agentName: "CM_GPT6_Astra_Max",
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
   "CM_GPT-5.6 Sol - Low": {
     agentName: "CM_GPT-5.6 Sol - Low",
     toolFormat: "xml",
@@ -29,37 +54,15 @@ export const MODEL_PROFILES = {
     toolFormat: "xml",
     commentaryPhase: true,
   },
-  "CM_GPT-5.5 - Low": {
-    agentName: "CM_GPT-5.5 - Low",
+  "CM_GPT-5.6 Sol - Max": {
+    agentName: "CM_GPT-5.6 Sol - Max",
     toolFormat: "xml",
+    commentaryPhase: true,
   },
-  "CM_GPT-5.5 - Medium": {
-    agentName: "CM_GPT-5.5 - Medium",
+  "CM_GPT-5.6-Sol_High": {
+    agentName: "CM_GPT-5.6-Sol_High",
     toolFormat: "xml",
-  },
-  "CM_GPT-5.5 - High": {
-    agentName: "CM_GPT-5.5 - High",
-    toolFormat: "xml",
-  },
-  "CM_GPT-5.5 - Extra High": {
-    agentName: "CM_GPT-5.5 - Extra High",
-    toolFormat: "xml",
-  },
-  "CM_Opus 4.8 - Low": {
-    agentName: "CM_Opus 4.8 - Low",
-    toolFormat: "xml",
-  },
-  "CM_Opus 4.8 - Auto": {
-    agentName: "CM_Opus 4.8 - Auto",
-    toolFormat: "xml",
-  },
-  "CM_Opus 4.8 - High": {
-    agentName: "CM_Opus 4.8 - High",
-    toolFormat: "xml",
-  },
-  "CM_Opus 4.8 - Extra High": {
-    agentName: "CM_Opus 4.8 - Extra High",
-    toolFormat: "xml",
+    commentaryPhase: true,
   },
   "CM_Opus 5 - Auto": {
     agentName: "CM_Opus 5 - Auto",
@@ -81,9 +84,21 @@ export const MODEL_PROFILES = {
     agentName: "CM_Opus 5 - Max",
     toolFormat: "xml",
   },
+  "CM_Gemini-3.7-Flash_Low": {
+    agentName: "CM_Gemini-3.7-Flash_Low",
+    toolFormat: "xml",
+  },
+  "CM_Gemini-3.7-Flash_Medium": {
+    agentName: "CM_Gemini-3.7-Flash_Medium",
+    toolFormat: "xml",
+  },
+  "CM_Gemini-3.7-Flash_High": {
+    agentName: "CM_Gemini-3.7-Flash_High",
+    toolFormat: "xml",
+  },
 }
 
-export const DEFAULT_MODEL_ID = "CM_Opus 4.8 - Extra High"
+export const DEFAULT_MODEL_ID = "CM_GPT-5.6 Sol - Medium"
 
 export function resolveModelProfile(modelId) {
   return MODEL_PROFILES[modelId] || MODEL_PROFILES[DEFAULT_MODEL_ID]

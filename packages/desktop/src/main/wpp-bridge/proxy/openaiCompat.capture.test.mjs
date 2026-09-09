@@ -11,7 +11,7 @@ const {
 } = await import("./openaiCompat.mjs");
 const { commitThread, resetThread } = await import("./sessionThreads.mjs");
 
-const KEY = "sess-A::CM_Opus 4.8 - Extra High";
+const KEY = "sess-A::CM_Opus 5 - Extra High";
 
 afterEach(() => {
   resetThread(KEY);
@@ -699,7 +699,7 @@ describe("handleChatCompletions session serialization", () => {
 });
 
 function body(...messages) {
-  return { model: "CM_Opus 4.8 - Extra High", stream: false, messages };
+  return { model: "CM_Opus 5 - Extra High", stream: false, messages };
 }
 
 function toolBody(...messages) {

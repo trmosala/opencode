@@ -111,12 +111,12 @@ describe("session.system", () => {
 
   test("uses model-family prompts for CookieMonster models", () => {
     const gpt = SystemPrompt.provider({
-      api: { id: "CM_GPT-5.5 - High" },
+      api: { id: "CM_GPT-5.6 Sol - High" },
       family: "gpt-5",
       providerID: "cookiemonster",
     } as Provider.Model)
     const opus = SystemPrompt.provider({
-      api: { id: "CM_Opus 4.8 - Extra High" },
+      api: { id: "CM_Opus 5 - Extra High" },
       family: "claude",
       providerID: "cookiemonster",
     } as Provider.Model)

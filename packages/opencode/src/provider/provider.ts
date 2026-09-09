@@ -2025,6 +2025,12 @@ const layer = Layer.effect(
         return { providerID: entry.providerID, modelID: entry.modelID }
       }
 
+      const cookieMonsterProviderID = ProviderV2.ID.make("cookiemonster")
+      const cookieMonsterModelID = ModelV2.ID.make("CM_GPT-5.6 Sol - Medium")
+      if (s.providers[cookieMonsterProviderID]?.models[cookieMonsterModelID]) {
+        return { providerID: cookieMonsterProviderID, modelID: cookieMonsterModelID }
+      }
+
       const configured = Object.keys(cfg.provider ?? {})
       const provider = Object.values(s.providers).find((p) => configured.length === 0 || configured.includes(p.id))
       if (!provider) return yield* new NoProvidersError()

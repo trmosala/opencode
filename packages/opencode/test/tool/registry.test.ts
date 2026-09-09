@@ -124,7 +124,7 @@ describe("tool.registry", () => {
       const agents = yield* Agent.Service
       const tools = yield* registry.tools({
         providerID: ProviderV2.ID.make("cookiemonster"),
-        modelID: ModelV2.ID.make("CM_GPT-5.5 - High"),
+        modelID: ModelV2.ID.make("CM_GPT-5.6 Sol - High"),
         agent: yield* agents.defaultInfo(),
       })
       const ids = tools.map((tool) => tool.id)

@@ -6,7 +6,7 @@ import {
 } from "./messageSerializer.mjs"
 import { TASK_COMPLETION_SYSTEM_REMINDER, TOOL_CALL_SYSTEM_REMINDER } from "./toolCallReminder.mjs"
 
-const framed = (model = "CM_Opus 4.8 - Extra High") => ({
+const framed = (model = "CM_Opus 5 - Extra High") => ({
   model,
   tools: [{ function: { name: "bash", description: "run", parameters: { type: "object" } } }],
   messages: [
@@ -37,7 +37,7 @@ describe("CookieMonster request envelope", () => {
   })
 
   test("uses the Opus tool-call protocol for GPT models", () => {
-    const out = JSON.parse(serializeChatCompletionRequest(framed("CM_GPT-5.5 - Extra High")))
+    const out = JSON.parse(serializeChatCompletionRequest(framed("CM_GPT-5.6 Sol - Extra High")))
     expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
     expect(out.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
   })
@@ -139,7 +139,7 @@ describe("CookieMonster request envelope", () => {
 
   test("a bare request still uses the versioned envelope", () => {
     const out = JSON.parse(
-      serializeChatCompletionRequest({ model: "CM_Opus 4.8 - Extra High", messages: [{ role: "user", content: "hi" }] }),
+      serializeChatCompletionRequest({ model: "CM_Opus 5 - Extra High", messages: [{ role: "user", content: "hi" }] }),
     )
     expect(out.type).toBe("CM_REQUEST_V1")
     expect(out.messages).toEqual([{ role: "user", content: "hi" }])

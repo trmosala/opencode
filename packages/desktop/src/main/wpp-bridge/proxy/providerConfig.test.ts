@@ -37,6 +37,7 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.$schema).toBe("https://opencode.ai/config.json")
   expect(config.provider.cookiemonster).toEqual(COOKIE_MONSTER_PROVIDER)
   expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
+  expect(config.provider.cookiemonster.models["CM_Gemini-3.7-Flash_High"].family).toBe("gemini")
   expect(config.provider["o1-code"]).toBeUndefined()
   expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp).toEqual(O1_CODE_MCP)
@@ -107,6 +108,30 @@ test("fills missing project models and cost keys without overriding custom value
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   expect(models[firstAgent].cost).toEqual({ input: 9, output: 30, cache_read: 0.5, cache_write: 0 })
   expect(models[firstAgent].family).toBe("gpt-5")
+  await rm(dir, { recursive: true, force: true })
+})
+
+test("removes retired project models from the seeded CookieMonster provider", async () => {
+  const { dir, file } = await tmpFile()
+  await writeFile(
+    file,
+    JSON.stringify({
+      provider: {
+        cookiemonster: {
+          ...COOKIE_MONSTER_PROVIDER,
+          models: {
+            ...COOKIE_MONSTER_PROVIDER.models,
+            "CM_GPT-5.5 - High": { name: "CM_GPT-5.5 - High" },
+            "CM_Opus 4.8 - Extra High": { name: "CM_Opus 4.8 - Extra High" },
+          },
+        },
+      },
+    }),
+  )
+  await ensureO1CodeProvider(file)
+  const config = JSON.parse(await readFile(file, "utf8"))
+
+  expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
   await rm(dir, { recursive: true, force: true })
 })
 
