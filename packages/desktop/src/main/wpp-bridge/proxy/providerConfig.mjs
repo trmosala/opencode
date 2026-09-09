@@ -126,13 +126,16 @@ export function o1CodeConfigFile() {
 // Self-contained config blob injected into the bundled OpenCode sidecar. A clean install must see
 // the project roster on its very first start even if the persistent opencode.json seed has not
 // completed yet. The disk seed remains useful for external OpenCode sessions and later launches.
-export function o1CodeConfigContent(browserPlugin) {
+/** @param {Awaited<ReturnType<typeof import("../../ae-artifact.mjs").aePluginConfig>>} [ae] */
+export function o1CodeConfigContent(browserPlugin, ae) {
+  const plugins = [...(browserPlugin ? [browserPlugin] : []), ...(ae ? [ae.plugin] : [])]
   return JSON.stringify({
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
     mcp: O1_CODE_MCP,
-    ...(browserPlugin ? { plugin: [browserPlugin] } : {}),
+    ...(plugins.length ? { plugin: plugins } : {}),
+    // AE defaults belong in its config hook, below user policy, not this env-last source.
     permission: {
       browser_read_state: "allow",
       browser_navigate: "ask",

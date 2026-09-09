@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { AE_ARTIFACT_FILES } from "./src/main/ae-artifact.mjs"
 
 // Fork CI has no Apple certificate and no Azure Trusted Signing account. CM_UNSIGNED=1 strips every
 // signing and notarization step so electron-builder emits unsigned installers instead of failing on
@@ -63,7 +64,13 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
+  files: [
+    "out/**/*",
+    "resources/**/*",
+    "!resources/opencode-cli*",
+    "!resources/cm-ae/**/*",
+    "!resources/.cm-ae-*/**/*",
+  ],
   extraResources: [
     {
       from: "resources/icons",
@@ -82,6 +89,9 @@ const getBase = (appId: string): Configuration => ({
       from: "../cm-browser/dist/plugin.mjs",
       to: "cm-browser/plugin.mjs",
     },
+    ...(existsSync(path.join(packageDir, "resources/cm-ae"))
+      ? [{ from: "resources/cm-ae", to: "cm-ae", filter: AE_ARTIFACT_FILES }]
+      : []),
     // native/ is produced by `bun run native:build` and is not committed. electron-builder treats a
     // missing extraResources source as a hard error, so only declare it when it is actually present.
     ...(existsSync(path.join(packageDir, "native"))

@@ -5,6 +5,7 @@ import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
 import { parseBrowserIpcRequest } from "@cookiemonster/cm-browser/protocol"
 import { routeBrowserRequest } from "./browser/router"
+import { aePluginConfig } from "./ae-artifact.mjs"
 import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
@@ -72,7 +73,7 @@ export async function spawnLocalServer(
   const sidecar = join(dirname(fileURLToPath(import.meta.url)), "sidecar.js")
   const child = utilityProcess.fork(sidecar, [], {
     cwd: process.cwd(),
-    env: createSidecarEnv(),
+    env: await createSidecarEnv(),
     serviceName: SIDECAR_SERVICE_NAME,
     stdio: "pipe",
   })
@@ -228,14 +229,27 @@ export async function checkHealth(url: string, password?: string | null): Promis
   return false
 }
 
-function createSidecarEnv(): Record<string, string> {
+async function createSidecarEnv(): Promise<Record<string, string>> {
   const env = Object.fromEntries(
     Object.entries(process.env).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
-  // Browser control is a capability of this bundled utility process, never global OpenCode/WSL config.
-  env.OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(browserPluginEntry())
+  // Bundled plugins belong only to this utility process, never global OpenCode/WSL config.
+  env.OPENCODE_CONFIG_CONTENT =
+    process.env.OPENCODE_CONFIG_CONTENT ??
+    o1CodeConfigContent(
+      browserPluginEntry(),
+      await aePluginConfig(
+        {
+          packaged: app.isPackaged,
+          appPath: app.getAppPath(),
+          resourcesPath: process.resourcesPath,
+          version: app.getVersion(),
+        },
+        (message: string) => getLogger().warn(message),
+      ),
+    )
   return env
 }
 
