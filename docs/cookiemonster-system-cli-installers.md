@@ -29,10 +29,10 @@ This plan does not change:
 
 ## Current state
 
-- `packages/desktop/scripts/prebuild.ts` downloads the platform CLI when `OPENCODE_CHANNEL=dev`.
+- `packages/desktop/scripts/prebuild.ts` downloads the platform CLI for dev or branded builds.
 - `packages/desktop/scripts/utils.ts` writes `resources/opencode-cli` or `resources/opencode-cli.exe`.
-- `packages/desktop/electron-builder.config.ts` includes that binary as an unpacked resource for `dev`.
-- CookieMonster CI sets `OPENCODE_CHANNEL=dev`, `CM_BRAND=1`, and `CM_UNSIGNED=1`.
+- `packages/desktop/electron-builder.config.ts` includes that binary as an unpacked resource for dev or branded builds.
+- CookieMonster CI sets `OPENCODE_CHANNEL=prod`, `CM_BRAND=1`, and `CM_UNSIGNED=1`.
 - `packages/desktop/src/main/background-cli.ts` stages a private copy under Electron `userData`.
 - That private copy is not on `PATH`, so Open Design cannot discover it as `opencode`.
 - Windows ships an NSIS `.exe`.
@@ -324,7 +324,7 @@ Update `.github/workflows/cookiemonster-desktop.yml` to:
 - Upload `.pkg` artifacts.
 - Include `.pkg` in release assets.
 - Run native Windows and macOS installation smoke tests before upload.
-- Keep `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=dev`.
+- Keep `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`.
 - Keep each installer on its native runner.
 
 Update internal installation guidance:

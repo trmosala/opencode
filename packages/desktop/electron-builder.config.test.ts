@@ -83,6 +83,28 @@ test("bundles the CLI outside the dev app archive", async () => {
   })
 })
 
+test("bundles the CLI in branded prod builds", async () => {
+  const previousChannel = process.env.OPENCODE_CHANNEL
+  const previousBrand = process.env.CM_BRAND
+  process.env.OPENCODE_CHANNEL = "prod"
+  process.env.CM_BRAND = "1"
+  const module = await import("./electron-builder.config.ts?branded-prod-cli-resource")
+  const config = module.default as Configuration
+  if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previousChannel
+  if (previousBrand === undefined) delete process.env.CM_BRAND
+  else process.env.CM_BRAND = previousBrand
+
+  expect(config.appId).toBe("com.ogilvy.cookiemonster")
+  expect(config.productName).toBe("CookieMonster")
+  expect(config.publish).toBeNull()
+  expect(config.extraResources).toContainEqual({
+    from: "resources/",
+    to: "",
+    filter: ["opencode-cli*"],
+  })
+})
+
 test("CM_UNSIGNED strips every signing and notarization step", async () => {
   const previousChannel = process.env.OPENCODE_CHANNEL
   const previousUnsigned = process.env.CM_UNSIGNED
@@ -127,13 +149,16 @@ test("keeps signing enabled by default", async () => {
 })
 
 for (const channel of ["beta", "prod"] as const) {
-  test(`does not bundle the CLI in ${channel} builds`, async () => {
+  test(`does not bundle the CLI in unbranded ${channel} builds`, async () => {
     const previous = process.env.OPENCODE_CHANNEL
+    const previousBrand = process.env.CM_BRAND
     process.env.OPENCODE_CHANNEL = channel
+    delete process.env.CM_BRAND
     const module = await import(`./electron-builder.config.ts?no-cli-resource=${channel}`)
     const config = module.default as Configuration
     if (previous === undefined) delete process.env.OPENCODE_CHANNEL
     else process.env.OPENCODE_CHANNEL = previous
+    if (previousBrand !== undefined) process.env.CM_BRAND = previousBrand
 
     expect(config.extraResources).not.toContainEqual({
       from: "resources/",

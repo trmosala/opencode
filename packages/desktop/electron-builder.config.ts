@@ -10,6 +10,7 @@ import type { Configuration } from "electron-builder"
 // signing and notarization step so electron-builder emits unsigned installers instead of failing on
 // absent credentials. Upstream release builds leave it unset and keep signing exactly as before.
 const unsigned = process.env.CM_UNSIGNED === "1"
+const branded = process.env.CM_BRAND === "1"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -68,7 +69,7 @@ const getBase = (appId: string): Configuration => ({
       from: "resources/icons",
       to: "icons",
     },
-    ...(channel === "dev"
+    ...(channel === "dev" || branded
       ? [
           {
             from: "resources/",
@@ -140,10 +141,9 @@ const getBase = (appId: string): Configuration => ({
 })
 
 // Optional fork branding (CM_BRAND=1): rename the app so it never collides with a real OpenCode
-// install and strip publish so a fork build can never auto-update to upstream. Channel stays "dev"
-// internally, keeping the icon/server prebuild pipeline and resolveChannel() unchanged.
+// install and strip publish so a fork build can never auto-update to upstream.
 function applyBranding(cfg: Configuration): Configuration {
-  if (!process.env.CM_BRAND) return cfg
+  if (!branded) return cfg
   return {
     ...cfg,
     appId: "com.ogilvy.cookiemonster",
