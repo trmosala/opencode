@@ -64,6 +64,10 @@ const getBase = (appId: string): Configuration => ({
   },
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
   extraResources: [
+    {
+      from: "resources/icons",
+      to: "icons",
+    },
     ...(channel === "dev"
       ? [
           {

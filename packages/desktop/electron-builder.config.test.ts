@@ -57,6 +57,16 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
   expect(desktop).toContain("NoDisplay=true")
 })
 
+test("copies runtime icons outside the app archive for windows and tray", async () => {
+  const module = await import("./electron-builder.config.ts?runtime-icons")
+  const config = module.default as Configuration
+
+  expect(config.extraResources).toContainEqual({
+    from: "resources/icons",
+    to: "icons",
+  })
+})
+
 test("bundles the CLI outside the dev app archive", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "dev"
