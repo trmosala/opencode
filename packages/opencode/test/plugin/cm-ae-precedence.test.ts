@@ -178,8 +178,9 @@ const cases: { name: string; config: object; action: "ask" | "deny" | "allow"; u
   },
 ]
 
+const instance = entry ? it.instance : it.instance.skip
 for (const scenario of cases) {
-  it.instance(
+  instance(
     `desktop AE precedence: ${scenario.name}`,
     () =>
       Effect.gen(function* () {
@@ -288,6 +289,6 @@ export default {
           )
         })
       }),
-    { skip: !entry, timeout: 30_000 },
+    { timeout: 30_000 },
   )
 }
