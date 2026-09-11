@@ -1,6 +1,6 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import path from "path"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Schema, Semaphore } from "effect"
 import { NamedError } from "@opencode-ai/core/util/error"
 import type { Agent } from "@/agent/agent"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -17,6 +17,9 @@ import { Glob } from "@opencode-ai/core/util/glob"
 import { Discovery } from "./discovery"
 import { isRecord } from "@/util/record"
 import { escapeHtml } from "@/util/html"
+import { ManagedSkill } from "./managed"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { randomBytes } from "node:crypto"
 
 const CLAUDE_EXTERNAL_DIR = ".claude"
 const AGENTS_EXTERNAL_DIR = ".agents"
@@ -100,6 +103,14 @@ export interface Interface {
   readonly all: () => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  readonly catalog: () => Effect.Effect<ManagedSkill.Metadata[], ManagedSkill.Error>
+  readonly resolve: (
+    selected: ManagedSkill.Selection,
+  ) => Effect.Effect<Info & ManagedSkill.Metadata, ManagedSkill.Error>
+  readonly review: (draft: ManagedSkill.Draft) => Effect.Effect<typeof ManagedSkill.Review.Type, ManagedSkill.Error>
+  readonly create: (
+    input: ManagedSkill.Draft & { token: string },
+  ) => Effect.Effect<typeof ManagedSkill.Receipt.Type, ManagedSkill.Error>
 }
 
 const add = Effect.fnUntraced(function* (state: State, match: string, events: EventV2Bridge.Service["Service"]) {
@@ -286,16 +297,127 @@ const layer = Layer.effect(
       }),
     )
 
+    const managedError = (error: unknown) =>
+      new ManagedSkill.Error({
+        message: error instanceof Error ? error.message : String(error),
+      })
+    const fresh = Effect.fn("Skill.fresh")(function* () {
+      const ctx = yield* InstanceState.context
+      const found = yield* discoverSkills(
+        config,
+        discovery,
+        fsys,
+        global,
+        flags.disableExternalSkills,
+        flags.disableClaudeCodeSkills,
+        ctx.directory,
+        ctx.worktree,
+      )
+      // Config's directory list is cached before a first .opencode directory
+      // exists. Discover these roots afresh without disposing the AE instance.
+      const extra: ScanState = { matches: new Set(found.matches), dirs: new Set(found.dirs) }
+      if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
+        const roots = yield* fsys
+          .up({ targets: [".opencode"], start: ctx.directory, stop: ctx.worktree })
+          .pipe(Effect.orDie)
+        for (const root of roots) yield* scan(extra, root, OPENCODE_SKILL_PATTERN)
+      }
+      yield* scan(extra, global.config, OPENCODE_SKILL_PATTERN, { scope: "global" })
+      const list = yield* Effect.forEach([...extra.matches].sort(), (location) =>
+        Effect.tryPromise({ try: () => ManagedSkill.snapshot(location), catch: managedError }).pipe(
+          Effect.catch(() => Effect.succeed(undefined)),
+        ),
+      )
+      const builtin = {
+        name: CUSTOMIZE_OPENCODE_SKILL_NAME,
+        description: CUSTOMIZE_OPENCODE_SKILL_DESCRIPTION,
+        location: "<built-in>",
+        content: CUSTOMIZE_OPENCODE_SKILL_BODY,
+        source: ManagedSkill.digest("builtin:customize-opencode"),
+        revision: ManagedSkill.digest(CUSTOMIZE_OPENCODE_SKILL_BODY),
+      }
+      const disk = list.filter((item) => item !== undefined)
+      return disk.some((item) => item.name === builtin.name) ? disk : [...disk, builtin]
+    })
+    const catalog = Effect.fn("Skill.catalog")(function* () {
+      return (yield* fresh()).map(({ name, description, source, revision }) => ({
+        name,
+        description,
+        source,
+        revision,
+      }))
+    })
+    const resolve = Effect.fn("Skill.resolve")(function* (selected: ManagedSkill.Selection) {
+      const list = (yield* fresh()).filter((item) => item.name === selected.name)
+      if (list.length !== 1 || list[0].source !== selected.source || list[0].revision !== selected.revision)
+        return yield* new ManagedSkill.Error({
+          message: "Skill is missing, changed or has a duplicate name. Refresh and select it again.",
+        })
+      return list[0]
+    })
+    const reviews = new Map<string, { digest: string; expires: number }>()
+    const destination = Effect.fn("Skill.destination")(function* (draft: ManagedSkill.Draft) {
+      yield* Effect.try({ try: () => ManagedSkill.validate(draft), catch: managedError })
+      if (draft.scope === "workspace" && Flag.OPENCODE_DISABLE_PROJECT_CONFIG)
+        return yield* new ManagedSkill.Error({ message: "Workspace skill storage is disabled by CM configuration." })
+      const directory = yield* InstanceState.directory
+      const root = path.join(draft.scope === "workspace" ? path.join(directory, ".opencode") : global.config, "skills")
+      return { directory, root, destination: path.join(root, draft.name, "SKILL.md") }
+    })
+    const review = Effect.fn("Skill.review")(function* (draft: ManagedSkill.Draft) {
+      const target = yield* destination(draft)
+      if ((yield* fresh()).some((item) => item.name.toLowerCase() === draft.name.toLowerCase()))
+        return yield* new ManagedSkill.Error({ message: "A skill with this name already exists. Choose another name." })
+      for (const [token, value] of reviews) if (value.expires < Date.now()) reviews.delete(token)
+      if (reviews.size >= 1000) return yield* new ManagedSkill.Error({ message: "Too many pending reviews." })
+      const token = randomBytes(32).toString("hex")
+      reviews.set(token, { digest: ManagedSkill.digest([target, draft]), expires: Date.now() + 600000 })
+      return {
+        token,
+        digest: ManagedSkill.digest([target, draft]),
+        directory: target.directory,
+        destination: target.destination,
+        scope: draft.scope,
+      }
+    })
+    const saveLock = Semaphore.makeUnsafe(1)
+    const create = Effect.fn("Skill.create")(function* (input: ManagedSkill.Draft & { token: string }) {
+      const { token, ...draft } = input
+      const saved = reviews.get(token)
+      reviews.delete(token)
+      const target = yield* destination(draft)
+      if (!saved || saved.expires < Date.now() || saved.digest !== ManagedSkill.digest([target, draft]))
+        return yield* new ManagedSkill.Error({
+          message: "Review expired, was used, or does not match this exact content and workspace. Review again.",
+        })
+      if ((yield* fresh()).some((item) => item.name.toLowerCase() === draft.name.toLowerCase()))
+        return yield* new ManagedSkill.Error({
+          message: "A skill with this name already exists. Nothing was overwritten.",
+        })
+      const info = yield* Effect.tryPromise({ try: () => ManagedSkill.create(target.root, draft), catch: managedError })
+      yield* resolve(info)
+      return {
+        name: info.name,
+        description: info.description,
+        source: info.source,
+        revision: info.revision,
+        directory: target.directory,
+        destination: target.destination,
+        scope: draft.scope,
+        digest: saved.digest,
+      }
+    })
+
     const get = Effect.fn("Skill.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
       return s.skills[name]
     })
 
     const require = Effect.fn("Skill.require")(function* (name: string) {
-      const s = yield* InstanceState.get(state)
-      const info = s.skills[name]
+      const list = yield* fresh()
+      const info = list.find((item) => item.name === name)
       if (info) return info
-      return yield* new NotFoundError({ name, available: Object.keys(s.skills).toSorted() })
+      return yield* new NotFoundError({ name, available: list.map((item) => item.name).toSorted() })
     })
 
     const all = Effect.fn("Skill.all")(function* () {
@@ -308,13 +430,22 @@ const layer = Layer.effect(
     })
 
     const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
-      const s = yield* InstanceState.get(state)
-      const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
+      const list = (yield* fresh()).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, require, all, dirs, available })
+    return Service.of({
+      get,
+      require,
+      all,
+      dirs,
+      available,
+      catalog,
+      resolve,
+      review,
+      create: (input) => saveLock.withPermits(1)(create(input)),
+    })
   }),
 )
 

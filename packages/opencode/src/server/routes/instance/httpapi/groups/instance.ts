@@ -4,6 +4,7 @@ import { Format } from "@/format"
 import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
+import { ManagedSkill } from "@/skill/managed"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -36,6 +37,14 @@ export class ApiVcsApplyError extends Schema.ErrorClass<ApiVcsApplyError>("VcsAp
       message: Schema.String,
       reason: Schema.Literals(["non-git", "not-clean"]),
     }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export class ApiSkillError extends Schema.ErrorClass<ApiSkillError>("SkillError")(
+  {
+    name: Schema.Literal("SkillError"),
+    data: Schema.Struct({ message: Schema.String }),
   },
   { httpApiStatus: 400 },
 ) {}
@@ -166,6 +175,29 @@ export const InstanceApi = HttpApi.make("instance")
             description: "Get a list of all available skills in the OpenCode system.",
           }),
         ),
+        HttpApiEndpoint.get("skillCatalog", "/skill/catalog", {
+          query: WorkspaceRoutingQuery,
+          success: Schema.Array(ManagedSkill.Metadata),
+          error: ApiSkillError,
+        }),
+        HttpApiEndpoint.post("skillValidate", "/skill/validate", {
+          query: WorkspaceRoutingQuery,
+          payload: ManagedSkill.Selection,
+          success: ManagedSkill.Metadata,
+          error: ApiSkillError,
+        }),
+        HttpApiEndpoint.post("skillReview", "/skill/review", {
+          query: WorkspaceRoutingQuery,
+          payload: ManagedSkill.Draft,
+          success: ManagedSkill.Review,
+          error: ApiSkillError,
+        }),
+        HttpApiEndpoint.post("skillCreate", "/skill/create", {
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({ ...ManagedSkill.Draft.fields, token: Schema.String }),
+          success: ManagedSkill.Receipt,
+          error: ApiSkillError,
+        }),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {
           query: WorkspaceRoutingQuery,
           success: described(Schema.Array(LSP.Status), "LSP server status"),

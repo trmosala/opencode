@@ -516,6 +516,17 @@ const layer = Layer.effect(
               { enabled: true },
             )).enabled
           ) {
+            // Carry request metadata across internal markers, never across a new user turn.
+            const request = input.messages
+              .slice(0, input.messages.indexOf(parent) + 1)
+              .findLast(
+                (message) =>
+                  message.info.role === "user" &&
+                  !(message.parts.length > 0 && message.parts.every((part) => part.type === "compaction")),
+              )
+            const cmSkill = request?.parts.flatMap((part) =>
+              part.type === "text" && part.metadata?.cmSkill ? [part.metadata.cmSkill] : [],
+            )[0]
             const continueMsg = yield* session.updateMessage({
               id: MessageID.ascending(),
               role: "user",
@@ -537,7 +548,7 @@ const layer = Layer.effect(
               // Internal marker for auto-compaction followups so provider plugins
               // can distinguish them from manual post-compaction user prompts.
               // This is not a stable plugin contract and may change or disappear.
-              metadata: { compaction_continue: true },
+              metadata: { compaction_continue: true, ...(cmSkill === undefined ? {} : { cmSkill }) },
               synthetic: true,
               text,
               time: {

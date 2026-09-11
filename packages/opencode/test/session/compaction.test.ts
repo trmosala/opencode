@@ -33,6 +33,10 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Skill } from "../../src/skill"
+import { ManagedSkill } from "../../src/skill/managed"
+import { ToolRegistry } from "../../src/tool/registry"
+import { Tool } from "../../src/tool/tool"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -238,6 +242,13 @@ const env = AppNodeBuilder.build(compactionTestNode, [
 ])
 
 const it = testEffect(env)
+const skillIt = testEffect(
+  AppNodeBuilder.build(LayerNode.group([compactionTestNode, Skill.node, ToolRegistry.node]), [
+    [Provider.node, defaultProvider.layer],
+    [SessionProcessorModule.SessionProcessor.node, processorLayer("continue")],
+    [RuntimeFlags.node, RuntimeFlags.layer({ experimentalEventSystem: true })],
+  ]),
+)
 
 const compactionEnv = AppNodeBuilder.build(
   LayerNode.group([SessionNs.node, SessionProjector.node, Database.node, EventV2Bridge.node, CrossSpawnSpawner.node]),
@@ -932,6 +943,99 @@ describe("session.compaction.process", () => {
       if (last?.parts[0]?.type === "text") {
         expect(last.parts[0].text).toContain("Continue if you have next steps")
       }
+    }),
+  )
+
+  skillIt.instance(
+    "compaction preserves skill revision pins but a new real turn does not inherit them",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const skills = yield* Skill.Service
+      const registry = yield* ToolRegistry.Service
+      const session = yield* ssn.create({})
+      const draft: ManagedSkill.Draft = {
+        name: "compaction-motion",
+        description: "Compaction pin test",
+        instructions: "Keep logo fixed",
+        scope: "workspace",
+      }
+      const review = yield* skills.review(draft)
+      const receipt = yield* skills.create({ ...draft, token: review.token })
+      const selection = { name: receipt.name, source: receipt.source, revision: receipt.revision }
+      const msg = yield* createUserMessage(session.id, "Use the selected technique")
+      yield* ssn.updatePart({
+        id: PartID.ascending(),
+        messageID: msg.id,
+        sessionID: session.id,
+        type: "text",
+        text: "Selected technique",
+        metadata: { cmSkill: selection },
+      })
+      const tool = (yield* registry.tools({
+        providerID: ref.providerID,
+        modelID: ref.modelID,
+        agent: { name: "build", mode: "primary", permission: [], options: {} },
+      })).find((tool) => tool.id === "skill")
+      if (!tool) throw new Error("Skill tool not found")
+      let asks = 0
+      const ctx: Tool.Context = {
+        sessionID: session.id,
+        messageID: MessageID.ascending(),
+        agent: "build",
+        abort: AbortSignal.any([]),
+        messages: [],
+        metadata: () => Effect.void,
+        ask: () =>
+          Effect.sync(() => {
+            asks++
+          }),
+      }
+      // Real compaction creates a separate user marker before its continuation.
+      for (let round = 0; round < 2; round++) {
+        yield* SessionCompaction.use.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+        const messages = yield* ssn.messages({ sessionID: session.id })
+        yield* SessionCompaction.use.process({
+          parentID: messages.at(-1)!.info.id,
+          messages,
+          sessionID: session.id,
+          auto: true,
+        })
+        const last = (yield* ssn.messages({ sessionID: session.id })).at(-1)!
+        expect(last.parts[0]).toMatchObject({
+          type: "text",
+          synthetic: true,
+          metadata: { compaction_continue: true, cmSkill: selection },
+        })
+        // No historical user messages are needed after compaction.
+        ctx.messages = [last]
+        expect((yield* tool.execute({ name: draft.name }, ctx)).metadata).toMatchObject(selection)
+      }
+      yield* Effect.promise(() =>
+        Bun.write(receipt.destination, ManagedSkill.validate({ ...draft, instructions: "Changed after compaction" })),
+      )
+      const stale = yield* tool.execute({ name: draft.name }, ctx).pipe(Effect.exit)
+      expect(Exit.isFailure(stale)).toBe(true)
+      if (Exit.isFailure(stale)) expect(String(Cause.squash(stale.cause))).toContain("changed")
+      expect(asks).toBe(2)
+
+      yield* createUserMessage(session.id, "A new request without a selected skill")
+      ctx.messages = yield* ssn.messages({ sessionID: session.id })
+      const fresh = yield* tool.execute({ name: draft.name }, ctx)
+      expect(fresh.output).toContain("Changed after compaction")
+      expect(fresh.metadata.source).toBeUndefined()
+      yield* SessionCompaction.use.create({ sessionID: session.id, agent: "build", model: ref, auto: true })
+      const messages = yield* ssn.messages({ sessionID: session.id })
+      yield* SessionCompaction.use.process({
+        parentID: messages.at(-1)!.info.id,
+        messages,
+        sessionID: session.id,
+        auto: true,
+      })
+      const last = (yield* ssn.messages({ sessionID: session.id })).at(-1)!
+      expect(last.parts[0]).toMatchObject({ type: "text", metadata: { compaction_continue: true } })
+      if (last.parts[0].type === "text") expect(last.parts[0].metadata?.cmSkill).toBeUndefined()
+      ctx.messages = [last]
+      expect((yield* tool.execute({ name: draft.name }, ctx)).metadata.source).toBeUndefined()
     }),
   )
 

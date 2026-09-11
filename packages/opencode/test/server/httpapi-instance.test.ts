@@ -16,6 +16,9 @@ import { HEADER as FenceHeader } from "../../src/server/shared/fence"
 import { resetDatabase } from "../fixture/db"
 import { tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { createClient } from "../../../sdk/js/src/gen/client/client.gen"
+import { Schema } from "effect"
+import { ManagedSkill } from "../../src/skill/managed"
 
 // Flip the experimental workspaces flag so EventV2.run actually writes to
 // EventSequenceTable (the source of truth the fence middleware reads). Reset
@@ -56,6 +59,55 @@ const handlerContext = Context.empty() as Context.Context<unknown>
 const directoryHeader = (dir: string) => HttpClientRequest.setHeader("x-opencode-directory", dir)
 
 describe("instance HttpApi", () => {
+  it.live("legacy SDK transport creates reviewed skills and sees fresh metadata without disposal", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const client = createClient({
+        baseUrl: "http://localhost",
+        fetch: (request) =>
+          HttpApiApp.webHandler().handler(request instanceof Request ? request : new Request(request), handlerContext),
+      })
+      const draft: ManagedSkill.Draft = {
+        name: "route-motion",
+        description: "Motion rules",
+        instructions: "Keep logo fixed",
+        scope: "workspace",
+      }
+      const post = (url: string, body: unknown) =>
+        Effect.promise(() =>
+          client.post({
+            url,
+            query: { directory: dir },
+            headers: { "Content-Type": "application/json" },
+            body,
+          }),
+        )
+      const before = yield* Effect.promise(() => client.get({ url: "/skill/catalog", query: { directory: dir } }))
+      expect(before.error).toBeUndefined()
+      const reviewed = yield* post("/skill/review", draft)
+      expect(reviewed.error).toBeUndefined()
+      const review = Schema.decodeUnknownSync(ManagedSkill.Review)(reviewed.data)
+      const saved = yield* post("/skill/create", { ...draft, token: review.token })
+      expect(saved.error).toBeUndefined()
+      const receipt = Schema.decodeUnknownSync(ManagedSkill.Receipt)(saved.data)
+      expect(receipt.digest).toBe(review.digest)
+      const fresh = yield* Effect.promise(() => client.get({ url: "/skill/catalog", query: { directory: dir } }))
+      const list = Schema.decodeUnknownSync(Schema.Array(ManagedSkill.Metadata))(fresh.data)
+      expect(list.find((s) => s.name === draft.name)?.revision).toBe(receipt.revision)
+      expect(JSON.stringify(fresh.data)).not.toContain(draft.instructions)
+      const selected = { name: receipt.name, source: receipt.source, revision: receipt.revision }
+      const valid = yield* post("/skill/validate", selected)
+      expect(valid.error).toBeUndefined()
+      expect(JSON.stringify(valid.data)).not.toContain(draft.instructions)
+      const again = yield* post("/skill/create", { ...draft, token: review.token })
+      expect(again.response.status).toBe(400)
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.remove(receipt.destination)
+      const missing = yield* post("/skill/validate", selected)
+      expect(missing.response.status).toBe(400)
+    }),
+  )
+
   it.live("serves the OpenAPI document", () =>
     Effect.gen(function* () {
       const response = yield* HttpClient.get("/doc")
