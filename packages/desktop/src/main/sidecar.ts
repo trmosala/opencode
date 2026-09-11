@@ -82,6 +82,8 @@ async function stop() {
 
 function prepareSidecarEnv(password: string, userDataPath: string) {
   Object.assign(process.env, {
+    // AE's detached supervisor reuses process.execPath; its child must run as Node, not launch the app.
+    ELECTRON_RUN_AS_NODE: "1",
     OPENCODE_SERVER_USERNAME: "opencode",
     OPENCODE_SERVER_PASSWORD: password,
     XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
