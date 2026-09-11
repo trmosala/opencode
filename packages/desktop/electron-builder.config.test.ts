@@ -3,6 +3,31 @@ import type { Configuration } from "electron-builder"
 
 const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
 
+test("default packaging includes AE outside asar without an environment override", async () => {
+  const previous = process.env.CM_AE_ARTIFACT_DIR
+  delete process.env.CM_AE_ARTIFACT_DIR
+  try {
+    const { default: config } = await import("./electron-builder.config.ts?default-ae")
+    expect(config.files).toContain("!resources/cm-ae{,/**/*}")
+    expect(config.extraResources).toContainEqual({
+      from: "resources/cm-ae",
+      to: "cm-ae",
+      filter: ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"],
+    })
+    for (const name of ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"]) {
+      expect(await Bun.file(`resources/cm-ae/${name}`).arrayBuffer()).toEqual(
+        await Bun.file(`vendor/cm-ae/${name}`).arrayBuffer(),
+      )
+    }
+    expect(config.extraResources).toContainEqual({
+      from: "../cm-browser/dist/plugin.mjs",
+      to: "cm-browser/plugin.mjs",
+    })
+  } finally {
+    if (previous !== undefined) process.env.CM_AE_ARTIFACT_DIR = previous
+  }
+})
+
 const channels = [
   { channel: "dev", appId: "ai.opencode.desktop.dev" },
   { channel: "beta", appId: "ai.opencode.desktop.beta" },

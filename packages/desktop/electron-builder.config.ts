@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { CM_AE_FILES, stageCmAeBundle } from "./src/cm-ae"
 
 // Fork CI has no Apple certificate and no Azure Trusted Signing account. CM_UNSIGNED=1 strips every
 // signing and notarization step so electron-builder emits unsigned installers instead of failing on
@@ -63,7 +64,7 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
+  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", "!resources/cm-ae{,/**/*}"],
   extraResources: [
     {
       from: "resources/icons",
@@ -81,6 +82,11 @@ const getBase = (appId: string): Configuration => ({
     {
       from: "../cm-browser/dist/plugin.mjs",
       to: "cm-browser/plugin.mjs",
+    },
+    {
+      from: "resources/cm-ae",
+      to: "cm-ae",
+      filter: [...CM_AE_FILES],
     },
     // native/ is produced by `bun run native:build` and is not committed. electron-builder treats a
     // missing extraResources source as a hard error, so only declare it when it is actually present.
@@ -203,5 +209,8 @@ function getConfig() {
     }
   }
 }
+
+// Re-stage for direct package commands too; fail rather than package a stale or missing bundle.
+stageCmAeBundle(process.env.CM_AE_ARTIFACT_DIR, packageDir)
 
 export default applyUnsigned(applyBranding(getConfig() as Configuration))

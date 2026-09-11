@@ -33,3 +33,4 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+/packages/desktop/resources/cm-ae/
