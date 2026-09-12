@@ -19,6 +19,9 @@ import { testEffect } from "../lib/effect"
 import { createClient } from "../../../sdk/js/src/gen/client/client.gen"
 import { Schema } from "effect"
 import { ManagedSkill } from "../../src/skill/managed"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
+import { OpencodeClient } from "../../../sdk/js/src/gen/sdk.gen"
 
 // Flip the experimental workspaces flag so EventV2.run actually writes to
 // EventSequenceTable (the source of truth the fence middleware reads). Reset
@@ -59,6 +62,115 @@ const handlerContext = Context.empty() as Context.Context<unknown>
 const directoryHeader = (dir: string) => HttpClientRequest.setHeader("x-opencode-directory", dir)
 
 describe("instance HttpApi", () => {
+  const aeSource = process.env.CM_AE_SOURCE_DIR
+  const aeTest = aeSource ? it.live : it.live.skip
+  aeTest("AE chat saves a reviewed skill through CM and reuses it after reload without workspace leakage", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const other = yield* tmpdirScoped({ git: true })
+      if (!path.isAbsolute(aeSource!)) throw new Error("CM_AE_SOURCE_DIR must be absolute")
+      const { createChat } = yield* Effect.promise(() => import(pathToFileURL(path.join(aeSource!, "src/chat.mjs")).href))
+      const { panelFixture } = yield* Effect.promise(() => import(pathToFileURL(path.join(aeSource!, "test/bridge-panel.mjs")).href))
+      const cleanup: Array<() => Promise<void>> = []
+      yield* Effect.addFinalizer(() => Effect.promise(async () => {
+        for (const close of cleanup) await close()
+      }))
+      const panel = yield* Effect.promise(async () => {
+        return await panelFixture({ after: (close: () => Promise<void>) => cleanup.push(close) }) as {
+          dataDir: string
+          bridge: { setChatHandler: (handler: unknown) => void; release: (session: string) => Promise<void> }
+          state: { project: { id: string; path: string; saved: boolean } }
+          send: (route: string, body: Record<string, unknown>) => Promise<{
+            status: number
+            body: {
+              error: { message: string; code: string }
+              result: {
+                sessionID: string
+                destination: string
+                revision: string
+                token: string
+                delivery: string
+                skills: Array<{ name: string; source: string; revision: string; content?: string }>
+              }
+            }
+          }>
+        }
+      })
+      const transport = createClient({
+        baseUrl: "http://localhost",
+        fetch: (request) => HttpApiApp.webHandler().handler(request instanceof Request ? request : new Request(request), handlerContext),
+      })
+      const sdk = new OpencodeClient({ client: transport })
+      const prompts: Array<Parameters<typeof sdk.session.promptAsync>[0]> = []
+      // CM sessions, skill endpoints, files, SDK and AE chat transport are real.
+      // Only model execution and AE composition inspection are replaced.
+      const client = {
+        _client: transport,
+        session: {
+          create: sdk.session.create.bind(sdk.session),
+          get: sdk.session.get.bind(sdk.session),
+          status: sdk.session.status.bind(sdk.session),
+          messages: sdk.session.messages.bind(sdk.session),
+          abort: sdk.session.abort.bind(sdk.session),
+          promptAsync: async (options: Parameters<typeof sdk.session.promptAsync>[0]) => {
+            prompts.push(options)
+            return { data: undefined }
+          },
+        },
+      }
+      const runtime = {
+        dataDir: panel.dataDir, bridge: panel.bridge,
+        checkpoints: { list: async () => [] },
+        workflow: { inspectQuery: async () => ({ items: [{ id: 1, kind: "comp", name: "Main" }] }) },
+      }
+      const connect = async () => {
+        const chat = await createChat(runtime)
+        chat.register({ client, directory: dir })
+        chat.register({ client, directory: other })
+        panel.bridge.setChatHandler(chat.handle)
+        return chat
+      }
+      const send = async (body: Record<string, unknown> = {}) => {
+        const response = await panel.send("/chat", { action: "state", project: panel.state.project, ...body })
+        if (response.status !== 200) throw Object.assign(new Error(response.body.error.message), response.body.error)
+        return response.body.result
+      }
+      yield* Effect.promise(async () => {
+        await panel.bridge.release("session")
+        await connect()
+        const first = await send({ action: "new", directory: dir })
+        const draft = { name: "ae-reusable-motion", description: "Reusable logo easing", instructions: "Keep the logo fixed.\nUse a short ease out.", scope: "workspace" }
+        const review = await send({ action: "skillReview", draft, directory: dir, sessionID: first.sessionID })
+        const receipt = await send({ action: "skillSave", draft, directory: dir, sessionID: first.sessionID, token: review.token })
+        expect(receipt.destination).toBe(path.join(dir, ".opencode", "skills", draft.name, "SKILL.md"))
+        expect((await Bun.file(receipt.destination).text())).toContain(draft.instructions)
+        await connect()
+        expect((await send()).sessionID).toBe(first.sessionID)
+        const later = await send({ action: "new", directory: dir })
+        expect(later.sessionID).not.toBe(first.sessionID)
+        const catalog = await send({ action: "skills" })
+        const selected = catalog.skills.find((item: { name: string }) => item.name === draft.name)
+        if (!selected) throw new Error("Saved skill missing from the real CM catalog")
+        expect(selected?.revision).toBe(receipt.revision)
+        expect(selected.content).toBeUndefined()
+        const skill = { name: selected.name, source: selected.source, revision: selected.revision, directory: dir, sessionID: later.sessionID }
+        const sent = await send({ action: "send", text: "Apply the saved logo easing", compId: 1, requestId: "a".repeat(40), skill })
+        expect(sent.delivery).toBe("accepted")
+        expect(prompts[0]?.body?.parts[0]).toMatchObject({ metadata: { cmSkill: { name: selected.name, source: selected.source, revision: selected.revision } } })
+        await send({ action: "new", directory: other })
+        const foreign = await send({ action: "skills" })
+        expect(foreign.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
+        await expect(send({ action: "send", text: "Do not use the other workspace's skill", compId: 1, requestId: "b".repeat(40), skill })).rejects.toMatchObject({ code: "stale_skill" })
+        expect(prompts.length).toBe(1)
+        await send({ action: "new", directory: dir })
+        await Bun.file(receipt.destination).delete()
+        const missing = await send({ action: "skills" })
+        expect(missing.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
+      })
+    }),
+    { timeout: 60_000 },
+  )
+
   it.live("legacy SDK transport creates reviewed skills and sees fresh metadata without disposal", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })
