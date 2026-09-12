@@ -90,6 +90,9 @@ describe("instance HttpApi", () => {
                 revision: string
                 token: string
                 delivery: string
+                title: string
+                total: number
+                targetCompId: number | null
                 skills: Array<{ name: string; source: string; revision: string; content?: string }>
               }
             }
@@ -109,6 +112,7 @@ describe("instance HttpApi", () => {
         session: {
           create: sdk.session.create.bind(sdk.session),
           get: sdk.session.get.bind(sdk.session),
+          update: sdk.session.update.bind(sdk.session),
           status: sdk.session.status.bind(sdk.session),
           messages: sdk.session.messages.bind(sdk.session),
           abort: sdk.session.abort.bind(sdk.session),
@@ -157,6 +161,16 @@ describe("instance HttpApi", () => {
         const sent = await send({ action: "send", text: "Apply the saved logo easing", compId: 1, requestId: "a".repeat(40), skill })
         expect(sent.delivery).toBe("accepted")
         expect(prompts[0]?.body?.parts[0]).toMatchObject({ metadata: { cmSkill: { name: selected.name, source: selected.source, revision: selected.revision } } })
+        // Conversation metadata also comes from CM. Reopening never dispatches a prompt.
+        await send({ action: "rename", sessionID: first.sessionID, directory: dir, title: "Saved logo technique" })
+        await send({ action: "rename", sessionID: later.sessionID, directory: dir, title: "Apply logo technique" })
+        expect((await send({ action: "conversations", search: "logo technique" })).total).toBe(2)
+        await connect()
+        await send({ action: "reopen", sessionID: first.sessionID, directory: dir })
+        expect((await send()).title).toBe("Saved logo technique")
+        expect((await send({ action: "reopen", sessionID: later.sessionID, directory: dir })).targetCompId).toBe(1)
+        expect((await send()).title).toBe("Apply logo technique")
+        expect(prompts.length).toBe(1)
         await send({ action: "new", directory: other })
         const foreign = await send({ action: "skills" })
         expect(foreign.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
@@ -166,6 +180,8 @@ describe("instance HttpApi", () => {
         await Bun.file(receipt.destination).delete()
         const missing = await send({ action: "skills" })
         expect(missing.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
+        await sdk.session.delete({ path: { id: first.sessionID }, query: { directory: dir } })
+        await expect(send({ action: "reopen", sessionID: first.sessionID, directory: dir })).rejects.toMatchObject({ code: "chat_missing" })
       })
     }),
     { timeout: 60_000 },

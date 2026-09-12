@@ -13977,8 +13977,8 @@ async function startBridge({
       fail("disconnected", "Heartbeat expired; reconnect and explicitly rebind");
     }
     if (endpoint === "/chat") {
-      schema(body, ["action", "project"], ["text", "requestId", "compId", "directory", "permissionId", "response", "takeover", "attachments", "model", "before", "skill", "draft", "token", "sessionID"]);
-      if (!["state", "history", "send", "new", "stop", "permission", "models", "model", "checkpoints", "bind", "skills", "skillReview", "skillSave"].includes(body.action))
+      schema(body, ["action", "project"], ["text", "requestId", "compId", "directory", "permissionId", "response", "takeover", "attachments", "model", "before", "skill", "draft", "token", "sessionID", "expectedSessionID", "search", "offset", "title"]);
+      if (!["state", "history", "send", "new", "stop", "permission", "models", "model", "checkpoints", "bind", "skills", "skillReview", "skillSave", "conversations", "reopen", "rename"].includes(body.action))
         fail("invalid_payload", "Unknown chat action");
       const expected = project(body.project), credentialHash = credential.hash;
       const check2 = () => {
@@ -18300,6 +18300,44 @@ async function createChat(runtime) {
   async function selection(r) {
     return (await result(clientFor(r).session.get(options(r))))?.model || null;
   }
+  function conversationRecords(r) {
+    if (!r)
+      return [];
+    const found = [r, ...r.conversations || []];
+    for (const sessionID of r.previousSessions || [])
+      if (!found.some((item) => item.sessionID === sessionID))
+        found.push({ sessionID, directory: r.directory, requests: [], legacy: true });
+    return found;
+  }
+  function archived(r) {
+    const { conversations, previousSessions, skillReview, ...record2 } = r;
+    return record2;
+  }
+  async function conversationInfo(r) {
+    if (r.deleted)
+      return null;
+    const response = await clientFor(r).session.get(options(r));
+    if (response?.response?.status === 404)
+      return null;
+    const info = await result(Promise.resolve(response));
+    if (!info?.id)
+      fail("chat_backend", "CookieMonster did not return this conversation");
+    if (info.id !== r.sessionID || info.directory && path6.resolve(info.directory) !== path6.resolve(r.directory))
+      fail("stale_workspace", "Conversation belongs to another CookieMonster workspace");
+    return info;
+  }
+  async function assertSwitchable(r, connectionId) {
+    const c = (await runtime.bridge.connections()).find((c2) => c2.id === connectionId);
+    if (!c?.connected || c.busy || c.lock || c.binding && c.binding.sessionID !== r?.sessionID)
+      fail("chat_busy", "Finish AE work or recovery before switching conversations");
+    if (!r)
+      return;
+    if (["pending", "unconfirmed"].includes(r.restore?.status) || ["sending", "unknown"].includes(r.requests.at(-1)?.status))
+      fail("chat_busy", "Resolve uncertain delivery or restore before switching conversations");
+    const statuses = await result(clientFor(r).session.status({ query: { directory: r.directory }, signal: AbortSignal.timeout(20000) }));
+    if (statuses?.[r.sessionID]?.type && statuses[r.sessionID].type !== "idle" || permissions2.get(r.sessionID)?.size)
+      fail("chat_busy", "Wait for the reply to finish or stop it before switching conversations");
+  }
   function validateModel(value, catalog) {
     if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((k2) => !["id", "providerID", "variant"].includes(k2)) || typeof value.id !== "string" || typeof value.providerID !== "string" || !(value.variant === undefined || typeof value.variant === "string"))
       fail("invalid_payload", "Invalid model selection");
@@ -18341,10 +18379,88 @@ async function createChat(runtime) {
     }
     active.set(panelId, key);
     let r = records[key];
+    if (body.expectedSessionID !== undefined && body.expectedSessionID !== (r?.sessionID || null))
+      fail("stale_session", "Conversation changed. Refresh before trying again");
     const workspaces = [...clients.keys()].sort();
     const current = (await runtime.bridge.connections()).find((c) => c.id === connectionId);
     const owned = !!current?.binding && current.binding.sessionID !== r?.sessionID;
     const matchingWorkspace = (dir) => project2.path && (project2.path === dir || project2.path.startsWith(dir + path6.sep));
+    if (body.action === "conversations") {
+      const search = body.search ?? "", offset = body.offset ?? 0;
+      if (typeof search !== "string" || search.length > 256 || !Number.isSafeInteger(offset) || offset < 0 || offset > 1e5)
+        fail("invalid_payload", "Invalid conversation search or page");
+      const refs = conversationRecords(r), entries = [];
+      for (let i = 0;i < refs.length; i += 8) {
+        const batch = await Promise.all(refs.slice(i, i + 8).map(async (ref) => {
+          if (!clients.has(ref.directory))
+            return { sessionID: ref.sessionID, directory: ref.directory, title: "Workspace disconnected", updatedAt: 0, unavailable: true };
+          let legacyUnavailable = false;
+          const info = await conversationInfo(ref).catch((e) => {
+            if (ref.legacy && e.code === "stale_workspace") {
+              legacyUnavailable = true;
+              return null;
+            }
+            throw e;
+          });
+          return {
+            sessionID: ref.sessionID,
+            directory: ref.directory,
+            title: legacyUnavailable ? "Older conversation" : info?.title || "Conversation no longer available",
+            updatedAt: info?.time?.updated || 0,
+            missing: !info && !legacyUnavailable,
+            unavailable: legacyUnavailable,
+            ...legacyUnavailable ? { unavailableReason: "Workspace was not saved by the older extension. Open this conversation in CookieMonster." } : {}
+          };
+        }));
+        check2();
+        if (records[key] !== r)
+          fail("stale_session", "Conversation list changed. Refresh it");
+        entries.push(...batch);
+      }
+      const filtered = entries.filter((item) => item.title.toLowerCase().includes(search.toLowerCase())).sort((a, b2) => b2.updatedAt - a.updatedAt || a.sessionID.localeCompare(b2.sessionID));
+      return {
+        conversations: filtered.slice(offset, offset + 10),
+        offset,
+        total: filtered.length,
+        nextOffset: offset + 10 < filtered.length ? offset + 10 : null
+      };
+    }
+    if (["reopen", "rename"].includes(body.action)) {
+      if (typeof body.sessionID !== "string" || !body.sessionID || body.sessionID.length > 256 || typeof body.directory !== "string")
+        fail("invalid_payload", "Choose a project conversation");
+      const target2 = conversationRecords(r).find((item) => item.sessionID === body.sessionID && item.directory === body.directory);
+      if (!target2)
+        fail("chat_ownership", "This conversation does not belong to this AE project");
+      await assertSwitchable(r, connectionId);
+      const statuses2 = await result(clientFor(target2).session.status({ query: { directory: target2.directory }, signal: AbortSignal.timeout(20000) }));
+      if (statuses2?.[target2.sessionID]?.type && statuses2[target2.sessionID].type !== "idle" || ["sending", "unknown"].includes(target2.requests.at(-1)?.status) || ["pending", "unconfirmed"].includes(target2.restore?.status) || permissions2.get(target2.sessionID)?.size)
+        fail("chat_busy", "The selected conversation still has work or recovery to resolve");
+      const info = await conversationInfo(target2);
+      if (!info)
+        fail("chat_missing", "This conversation was deleted in CookieMonster. Choose another conversation or start a new one");
+      check2();
+      await assertSwitchable(r, connectionId);
+      check2();
+      if (body.action === "rename") {
+        if (typeof body.title !== "string" || !body.title.trim() || body.title.trim().length > 200 || /[\x00-\x1f]/.test(body.title))
+          fail("invalid_payload", "Use a conversation title between 1 and 200 characters");
+        await result(clientFor(target2).session.update({ ...options(target2), body: { title: body.title.trim() } }));
+        check2();
+        const confirmed = await conversationInfo(target2);
+        check2();
+        if (confirmed?.title !== body.title.trim())
+          fail("chat_backend", "Rename was not confirmed. Refresh the list before trying again");
+        return { sessionID: target2.sessionID, title: confirmed.title };
+      }
+      if (target2 !== r) {
+        await runtime.bridge.release(r.sessionID);
+        check2();
+        const conversations = conversationRecords(r).filter((item) => item.sessionID !== target2.sessionID).map(archived);
+        r = records[key] = { ...archived(target2), conversations, previousSessions: conversations.map((item) => item.sessionID) };
+        await save2();
+      }
+      return { sessionID: r.sessionID, targetCompId: r.targetCompId ?? null };
+    }
     if (["skills", "skillReview", "skillSave"].includes(body.action)) {
       const directory = r?.directory || body.directory || workspaces.filter(matchingWorkspace).sort((a, b2) => b2.length - a.length)[0];
       if (!directory || !clients.has(directory))
@@ -18441,25 +18557,39 @@ ${draft.instructions}`)).digest("hex"))
         fail("invalid_payload", "A bounded history cursor is required");
       const page = await messagePage(r, body.before);
       check2();
+      if (records[key] !== r)
+        fail("stale_session", "Conversation changed while loading history");
       return { sessionID: r.sessionID, ...page };
     }
     if (body.action === "state") {
       if (!r)
         return { sessionID: null, messages: [], permissions: [], workspaces, owned, status: "idle" };
+      const info = await conversationInfo(r);
+      check2();
+      if (records[key] !== r)
+        fail("stale_session", "Conversation changed while loading messages");
+      if (!info) {
+        r.deleted = true;
+        await save2();
+        return { sessionID: r.sessionID, directory: r.directory, messages: [], permissions: [], workspaces, owned, status: "idle", missing: true, error: "This conversation was deleted in CookieMonster. Choose another conversation or start a new one." };
+      }
       const client2 = clientFor(r);
-      const [messages, statuses2, model] = await Promise.all([
+      const [messages, statuses2] = await Promise.all([
         messagePage(r),
-        result(client2.session.status({ query: { directory: r.directory }, signal: AbortSignal.timeout(20000) })),
-        selection(r)
+        result(client2.session.status({ query: { directory: r.directory }, signal: AbortSignal.timeout(20000) }))
       ]);
       check2();
+      if (records[key] !== r)
+        fail("stale_session", "Conversation changed while loading messages");
       return {
         sessionID: r.sessionID,
+        title: info.title,
+        targetCompId: r.targetCompId ?? null,
         directory: r.directory,
         workspaceConfirmed: !!r.workspaceConfirmed || !!matchingWorkspace(r.directory),
         workspaces,
         owned,
-        model,
+        model: info.model || null,
         ...messages,
         restore: r.restore || null,
         permissions: [...permissions2.get(r.sessionID)?.values() || []].slice(0, 1),
@@ -18493,6 +18623,8 @@ ${draft.instructions}`)).digest("hex"))
       return { replied: true };
     }
     if (body.action === "send") {
+      if (r?.deleted)
+        fail("chat_missing", "Choose another conversation or start a new one");
       if (r?.restore?.status === "pending" || r?.restore?.status === "unconfirmed")
         fail("restore_unconfirmed", "Check After Effects before continuing: the last restore was not confirmed");
       if (typeof body.text !== "string" || !body.text.trim() || body.text.length > 16000 || typeof body.requestId !== "string" || !/^[a-f0-9]{32,64}$/.test(body.requestId) || !(body.compId === null || Number.isSafeInteger(body.compId) && body.compId > 0) || !(body.takeover === undefined || typeof body.takeover === "boolean"))
@@ -18521,10 +18653,10 @@ ${draft.instructions}`)).digest("hex"))
       chosen = validateModel(body.model, await models({ directory }));
     }
     if (!r || body.action === "new") {
-      if (r) {
-        await pause(r.sessionID);
+      if (body.action === "new")
+        await assertSwitchable(r, connectionId);
+      if (r)
         await runtime.bridge.release(r.sessionID);
-      }
       const matching = workspaces.filter((dir) => project2.path && (project2.path === dir || project2.path.startsWith(dir + path6.sep))).sort((a, b2) => b2.length - a.length);
       const directory = body.directory || matching[0] || (workspaces.length === 1 ? workspaces[0] : null);
       if (!directory || !clients.has(directory))
@@ -18538,7 +18670,8 @@ ${draft.instructions}`)).digest("hex"))
       check2();
       if (!session?.id)
         fail("chat_backend", "CookieMonster did not return a conversation");
-      r = records[key] = { ...fresh, sessionID: session.id, previousSessions: [...r?.previousSessions || [], ...r ? [r.sessionID] : []] };
+      const conversations = conversationRecords(r).map(archived);
+      r = records[key] = { ...fresh, sessionID: session.id, conversations, previousSessions: conversations.map((item) => item.sessionID) };
       await save2();
       if (body.action === "new")
         return { sessionID: r.sessionID };
@@ -18594,6 +18727,7 @@ ${draft.instructions}`)).digest("hex"))
     const request = { id: body.requestId, hash: messageHash(), status: "sending" };
     r.project = project2;
     r.connectionId = connectionId;
+    r.targetCompId = body.compId;
     r.requests = [...r.requests.slice(-99), request];
     await save2();
     check2();
@@ -18661,13 +18795,14 @@ ${draft.instructions}`)).digest("hex"))
       const p = event?.properties, sessionID = p?.sessionID || p?.info?.sessionID;
       if (event?.type === "session.deleted") {
         let removed = false;
-        for (const [key, r] of Object.entries(records))
-          if (r.sessionID === p?.info?.id) {
-            delete records[key];
-            permissions2.delete(r.sessionID);
-            errors4.delete(r.sessionID);
-            removed = true;
-          }
+        for (const r of Object.values(records))
+          for (const item of conversationRecords(r))
+            if (item.sessionID === p?.info?.id) {
+              item.deleted = true;
+              permissions2.delete(item.sessionID);
+              errors4.delete(item.sessionID);
+              removed = true;
+            }
         if (removed)
           return save2();
         return;
@@ -18697,12 +18832,14 @@ ${draft.instructions}`)).digest("hex"))
           fail("chat_closed", "This project chat was replaced; use its current conversation");
         return;
       }
+      if (r.deleted)
+        fail("chat_closed", "This conversation was deleted");
       const b2 = runtime.bridge.binding(sessionID, { allowLocked: true });
       if (!r.project || b2.connectionId !== r.connectionId || hash2(b2.project) !== hash2(r.project))
         fail("stale_project", "This conversation cannot retarget after a project change");
     },
     handle(input) {
-      if (["state", "history", "models", "checkpoints"].includes(input.body.action))
+      if (["state", "history", "models", "checkpoints", "conversations"].includes(input.body.action))
         return handle(input);
       if (input.body.action === "stop") {
         generations.set(input.panelId, (generations.get(input.panelId) || 0) + 1);
