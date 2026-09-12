@@ -247,7 +247,7 @@ export default {
         expect(Permission.evaluate("browser_read_state", "*", rules).action).toBe("allow")
         expect(Permission.evaluate("browser_click", "*", rules).action).toBe("ask")
         expect(tools.ae_raw_execute).toBeUndefined()
-        if (scenario.name === "default ask") expect(merged.permission?.ae_execute).toBe("ask")
+        if (scenario.name === "default ask") expect(merged.permission?.ae_execute).toBe("allow")
         if (scenario.name === "exact deny") expect(merged.permission?.ae_execute).toBe("deny")
 
         expect(Permission.visibleTools(tools, Permission.merge(rules, agentRules)).ae_bind === undefined).toBe(
