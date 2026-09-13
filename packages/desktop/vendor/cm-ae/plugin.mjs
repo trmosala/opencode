@@ -18960,11 +18960,19 @@ function displayMessages(messages) {
         return [{ type: "reasoning", id: part.id, text, markdown: markdown(text) }];
       }
       const files = part.type === "file" ? [part] : part.type === "tool" ? part.state?.attachments || [] : [];
+      let frame = {};
+      if (part.type === "tool" && part.tool === "ae_capture" && typeof part.state?.output === "string" && part.state.output.length < 65536) {
+        try {
+          const meta = JSON.parse(part.state.output);
+          if (Number.isSafeInteger(meta.compId) && meta.compId > 0 && Number.isFinite(meta.time) && meta.time >= 0)
+            frame = { compId: meta.compId, time: meta.time };
+        } catch {}
+      }
       const images = files.flatMap((file2) => {
         if (typeof file2.url !== "string" || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(file2.url) || file2.url.length > imageBudget)
           return [];
         imageBudget -= file2.url.length;
-        return [{ type: "image", id: file2.id, url: file2.url, filename: file2.filename || "Composition frame" }];
+        return [{ type: "image", id: file2.id, url: file2.url, filename: file2.filename || "Composition frame", ...frame }];
       });
       if (part.type === "tool") {
         const cards = [];
