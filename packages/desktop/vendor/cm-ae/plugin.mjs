@@ -13146,7 +13146,8 @@ var panelActions = {
   "checkpoint.restore.propose": ["id"],
   "checkpoint.restore.confirm": ["token"],
   renders: [],
-  diagnostics: []
+  diagnostics: [],
+  "frame.capture": ["compId", "time"]
 };
 function schema(value, required2, optional2 = []) {
   assertObject(value);
@@ -13173,7 +13174,7 @@ function activeComp(value = null) {
     fail("invalid_payload", "Invalid active composition ID");
   return value;
 }
-var RESTORE_PROOF = "compact-restore-v1";
+var RESTORE_PROOF = "compact-restore-v2";
 function restoreReceipt(value, expectedProject) {
   if (value?.protocol !== RESTORE_PROOF)
     fail("restore_unsupported", "A matching compact restore host is required; scene snapshots are not restore proofs");
@@ -13978,7 +13979,7 @@ async function startBridge({
     }
     if (endpoint === "/chat") {
       schema(body, ["action", "project"], ["text", "requestId", "compId", "directory", "permissionId", "response", "takeover", "attachments", "model", "before", "skill", "draft", "token", "sessionID", "expectedSessionID", "search", "offset", "title"]);
-      if (!["state", "history", "send", "new", "stop", "permission", "models", "model", "checkpoints", "bind", "skills", "skillReview", "skillSave", "conversations", "reopen", "rename"].includes(body.action))
+      if (!["state", "history", "send", "new", "stop", "permission", "models", "model", "checkpoints", "bind", "captureBind", "skills", "skillReview", "skillSave", "conversations", "reopen", "rename"].includes(body.action))
         fail("invalid_payload", "Unknown chat action");
       const expected = project(body.project), credentialHash = credential.hash;
       const check2 = () => {
@@ -14122,14 +14123,14 @@ async function startBridge({
           const next = project(r.project), rec = c.restore;
           const b = bindings.get(pending.command.sessionID), lock = targetLock(c.id, pending.project);
           const preparing = p.phase === "restore_prepare";
-          if (!rec || rec.id !== p.recoveryId || rec.owner !== canonical(p.transaction) || rec.phase !== (preparing ? "preparing" : "finishing") || r.status !== (preparing ? "recovery_saved" : "recovered") || next.path !== p.path || !next.saved || !b || b.id !== pending.bindingID || !sameProject(b.project, pending.project) || lock?.state !== "executing" || lock.sessionID !== pending.command.sessionID || lock.restore?.id !== rec.id)
+          if (!rec || rec.id !== p.recoveryId || rec.owner !== canonical(p.transaction) || rec.phase !== (preparing ? "preparing" : "finishing") || r.status !== (preparing ? "recovery_saved" : "recovered") || next.path !== (preparing ? pending.project.path : p.path) || !next.saved || !b || b.id !== pending.bindingID || !sameProject(b.project, pending.project) || lock?.state !== "executing" || lock.sessionID !== pending.command.sessionID || lock.restore?.id !== rec.id)
             fail("invalid_host_result", "Manual restore reply does not match the executing owner");
           restoreReceipt(r.receipt, next);
           if (r.receipt.dirty !== false)
             fail("invalid_host_result", "Restore transition must return a clean project");
           if (preparing) {
             const prior = p.expected;
-            if (r.receipt.projectEpoch !== prior.projectEpoch || r.receipt.revision !== prior.revision)
+            if (!sameProject(next, pending.project) || r.receipt.projectEpoch !== prior.projectEpoch || r.receipt.revision !== prior.revision)
               fail("invalid_host_result", "Manual emergency save changed the approved revision");
             rec.snapshot = canonical(r.receipt);
           } else {
@@ -15071,7 +15072,7 @@ Confirm this is the intended recovered state, including external/raw effects. No
         await permit(ask, `Restore checkpoint ${checkpointId}.
 Source: ${checkpoint.createdAt}
 Destination file: ${destination.mtime.toISOString()} (${b.project.path})
-Save current unsaved edits to a private emergency project and verify a protected checkpoint first. Then restore the original path, retaining its displaced file, and close/reopen through compact native guards. Any Save As revision change stops restoration before publication or close and keeps automation locked, even if the change came from saving alone. These receipts do not prove scene equivalence. If canonical publication fails, open a verified recovery copy and keep automation locked. Never retry an uncertain host call.`, {
+Preserve the existing disk file first, save current edits in place, and verify a private emergency copy and protected checkpoint. Then restore the original path and close/reopen through compact native guards. Any revision change during saving stops restoration before publication or close and keeps automation locked. If canonical publication fails, the canonical file contains your saved current work; open a verified recovery copy and keep automation locked. Never retry an uncertain host call.`, {
           kind: "restore",
           checkpoint,
           binding: b,
@@ -15098,10 +15099,19 @@ Save current unsaved edits to a private emergency project and verify a protected
         restoreLock = current(sessionID, b, { allowLocked: true }).lock;
         if (!restoreLock || restoreLock.state !== "executing")
           fail("outcome_uncertain", "Restore lock was not confirmed");
-        let currentCheckpoint, restored;
+        let currentCheckpoint, previousCheckpoint, restored;
         try {
           await checkpoints.protect(checkpointId, transaction.id);
           await checkApproval(b, initial.fingerprint);
+          const previous = await checkpoints.create({ projectPath: b.project.path, projectId: b.project.id, planHash, pinned: true });
+          previousCheckpoint = await checkpoints.verify(previous.id);
+          if (!await checkpointMatches(previousCheckpoint, b) || previousCheckpoint.hash !== destinationHash)
+            fail("stale_project", "Destination changed before saving current work");
+          await checkpoints.protect(previousCheckpoint.id, transaction.id);
+          await checkApproval(b, initial.fingerprint);
+          const beforeSave = await lstat2(b.project.path);
+          if (["dev", "ino", "size", "mtimeMs", "ctimeMs"].some((key) => beforeSave[key] !== destination[key]) || await fileHash(b.project.path) !== destinationHash)
+            fail("stale_project", "Destination changed before saving current work");
           const saved = bounded(await bridge.call(sessionID, "execute", {
             phase: "restore_prepare",
             transaction,
@@ -15110,15 +15120,16 @@ Save current unsaved edits to a private emergency project and verify a protected
             path: emergencyPath
           }, { allowLocked: true, timeoutMs: 120000 }));
           const recoveryBinding = current(sessionID, null, { write: true, allowLocked: true });
-          if (recoveryBinding.id !== b.id || recoveryBinding.connectionId !== b.connectionId || saved.status !== "recovery_saved" || saved.project?.path !== emergencyPath || !sameProject2(saved.project, recoveryBinding.project))
+          if (recoveryBinding.id !== b.id || recoveryBinding.connectionId !== b.connectionId || saved.status !== "recovery_saved" || saved.project?.path !== b.project.path || !sameProject2(saved.project, recoveryBinding.project))
             fail("invalid_host_result", "Manual recovery save identity was not confirmed");
           restoreReceipt(saved.receipt, saved.project);
           if (saved.receipt.dirty !== false || saved.receipt.projectEpoch !== initial.data.projectEpoch || saved.receipt.revision !== initial.data.revision)
             fail("invalid_host_result", "Current state changed while saving");
           const savedFingerprint = restoreFingerprint(saved.receipt, b.connectionId);
-          const created = await checkpoints.create({ projectPath: emergencyPath, projectId: saved.project.id, planHash, pinned: true });
+          const savedDestination = await lstat2(b.project.path);
+          const created = await checkpoints.create({ projectPath: b.project.path, projectId: saved.project.id, planHash, pinned: true });
           currentCheckpoint = await checkpoints.verify(created.id);
-          if (!await checkpointMatches(currentCheckpoint, recoveryBinding) || currentCheckpoint.planHash !== planHash || await fileHash(emergencyPath) !== currentCheckpoint.hash)
+          if (!await checkpointMatches(currentCheckpoint, recoveryBinding) || currentCheckpoint.planHash !== planHash || await fileHash(emergencyPath) !== currentCheckpoint.hash || await fileHash(b.project.path) !== currentCheckpoint.hash)
             fail("checkpoint_invalid", "Current-state backup did not verify");
           await checkpoints.protect(currentCheckpoint.id, transaction.id);
           await bridge.recordOutcome(sessionID, { outcome: "prepared", planHash, checkpointId, currentCheckpointId: currentCheckpoint.id });
@@ -15127,7 +15138,7 @@ Save current unsaved edits to a private emergency project and verify a protected
           restored = await checkpoints.restore(checkpointId, {
             canonicalPath: checkpoint.projectPath,
             expectedCheckpoint: checkpoint,
-            expectedDestination: { ...destination, hash: destinationHash },
+            expectedDestination: { ...savedDestination, hash: currentCheckpoint.hash },
             beforeReplace: () => checkApproval(recoveryBinding, savedFingerprint, false)
           });
           if (restored.recoveryCopy !== true && restored.recoveryCopy !== false)
@@ -15180,7 +15191,8 @@ Save current unsaved edits to a private emergency project and verify a protected
           }
           const cleanup = restored.recoveryCopy ? null : await Promise.all([
             checkpoints.protect(checkpointId, transaction.id, false),
-            checkpoints.protect(currentCheckpoint.id, transaction.id, false)
+            checkpoints.protect(currentCheckpoint.id, transaction.id, false),
+            checkpoints.protect(previousCheckpoint.id, transaction.id, false)
           ]).then(() => null, () => "Recovery checkpoints remain protected; cleanup failed");
           return {
             ...restored,
@@ -15188,6 +15200,7 @@ Save current unsaved edits to a private emergency project and verify a protected
             canonicalPath: checkpoint.projectPath,
             checkpointId,
             currentCheckpointId: currentCheckpoint.id,
+            previousCheckpointId: previousCheckpoint.id,
             emergencyPath,
             canonicalReplaced: !restored.recoveryCopy,
             rebindRequired: restored.recoveryCopy,
@@ -15196,7 +15209,7 @@ Save current unsaved edits to a private emergency project and verify a protected
             protocol: RESTORE_PROOF,
             receipt: inspected.data,
             cleanup,
-            warning: restored.recoveryCopy ? "Recovery copy opened. Original bytes are retained at the canonical path or originalPath. Do not overwrite newer edits. Review the emergency backup, Save As to the intended path, explicitly rebind and reconcile; automation remains locked." : "Current-state checkpoint and displaced originalPath are retained. Review them before explicit cleanup."
+            warning: restored.recoveryCopy ? "Recovery copy opened. Original bytes are retained at the canonical path or originalPath. Do not overwrite newer edits. Review the emergency backup, Save As to the intended path, explicitly rebind and reconcile; automation remains locked." : "Current-state checkpoint, previous disk checkpoint and displaced originalPath are retained. Review them before explicit cleanup."
           };
         } catch (error45) {
           await bridge.markUncertain(sessionID, "Manual restore was not confirmed; retain all recovery files").catch(() => {});
@@ -15204,6 +15217,7 @@ Save current unsaved edits to a private emergency project and verify a protected
             ...error45.details,
             checkpointId,
             currentCheckpointId: currentCheckpoint?.id || null,
+            previousCheckpointId: previousCheckpoint?.id || null,
             emergencyPath,
             originalPath: restored?.originalPath || null,
             canonicalReplaced: restored?.recoveryCopy === false
@@ -18385,6 +18399,8 @@ async function createChat(runtime) {
     const current = (await runtime.bridge.connections()).find((c) => c.id === connectionId);
     const owned = !!current?.binding && current.binding.sessionID !== r?.sessionID;
     const matchingWorkspace = (dir) => project2.path && (project2.path === dir || project2.path.startsWith(dir + path6.sep));
+    if (body.action === "captureBind")
+      await assertSwitchable(r, connectionId);
     if (body.action === "conversations") {
       const search = body.search ?? "", offset = body.offset ?? 0;
       if (typeof search !== "string" || search.length > 256 || !Number.isSafeInteger(offset) || offset < 0 || offset > 1e5)
@@ -18714,8 +18730,8 @@ ${draft.instructions}`)).digest("hex"))
     const statuses = await result(client.session.status({ query: { directory: r.directory }, signal: AbortSignal.timeout(20000) }));
     if (statuses?.[r.sessionID]?.type && statuses[r.sessionID].type !== "idle")
       fail("chat_busy", "Wait for the current reply or stop it first");
-    if (body.action === "bind")
-      return { bound: true };
+    if (["bind", "captureBind"].includes(body.action))
+      return { bound: true, sessionID: r.sessionID };
     const selectedModel = await selection(r);
     if (selectedModel)
       validateModel(selectedModel, await models(r));
@@ -19473,6 +19489,7 @@ function createTools(runtime) {
               status: "completed",
               checkpointId: result.checkpointId,
               currentCheckpointId: result.currentCheckpointId,
+              previousCheckpointId: result.previousCheckpointId,
               recoveryCopy: result.recoveryCopy,
               path: result.path,
               emergencyPath: result.emergencyPath,
@@ -19838,7 +19855,8 @@ async function panel(r, input) {
     "checkpoint.restore.propose": { id: text },
     "checkpoint.restore.confirm": { token: text },
     renders: {},
-    diagnostics: {}
+    diagnostics: {},
+    "frame.capture": { compId: captureArgs.compId, time: captureArgs.time }
   };
   if (!Object.hasOwn(schemas3, body?.action))
     fail("invalid_payload", "Unknown panel action");
@@ -19847,6 +19865,15 @@ async function panel(r, input) {
     current(r, c, b2);
     return true;
   };
+  if (a.action === "frame.capture") {
+    await r.chat?.assertRestorable(sessionID);
+    current(r, c, b2, { write: true });
+    const result = await capture(r, sessionID, { compId: a.compId, time: a.time, alpha: true, maxWidth: 1200 }, consent, c.check);
+    const attachment = result.attachments[0];
+    if (Buffer.from(attachment.url.slice(attachment.url.indexOf(",") + 1), "base64").length > 2 * 1024 * 1024)
+      fail("payload_too_large", "Captured frame exceeds the 2 MB attachment limit. Nothing was attached");
+    return { attachment, ...JSON.parse(result.output) };
+  }
   if (a.action === "checkpoints")
     return (await checkpointList(r, c)).map((record2) => ({
       id: record2.id,
@@ -19922,6 +19949,7 @@ async function panel(r, input) {
         status: "completed",
         checkpointId: restored.checkpointId,
         currentCheckpointId: restored.currentCheckpointId,
+        previousCheckpointId: restored.previousCheckpointId,
         recoveryCopy: restored.recoveryCopy,
         path: restored.path,
         emergencyPath: restored.emergencyPath,
@@ -19935,6 +19963,7 @@ async function panel(r, input) {
           checkpointId: plan.checkpointId,
           emergencyPath: error45.details?.emergencyPath || null,
           currentCheckpointId: error45.details?.currentCheckpointId || null,
+          previousCheckpointId: error45.details?.previousCheckpointId || null,
           message: "Restore was not confirmed. Inspect After Effects and retain the recovery files before continuing."
         });
       throw error45;
