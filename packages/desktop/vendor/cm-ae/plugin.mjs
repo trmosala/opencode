@@ -12331,7 +12331,7 @@ config(en_default());
 // src/plugin.mjs
 import path7 from "node:path";
 import { realpath as realpath5, stat as stat3 } from "node:fs/promises";
-import { randomBytes as randomBytes4 } from "node:crypto";
+import { randomBytes as randomBytes5 } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 // src/bridge.mjs
@@ -13147,7 +13147,10 @@ var panelActions = {
   "checkpoint.restore.confirm": ["token"],
   renders: [],
   diagnostics: [],
-  "frame.capture": ["compId", "time"]
+  "frame.capture": ["compId", "time"],
+  "render.start": ["tool", "args"],
+  "render.poll": ["token"],
+  "render.reply": ["token", "approvalID", "allow"]
 };
 function schema(value, required2, optional2 = []) {
   assertObject(value);
@@ -18341,6 +18344,8 @@ async function createChat(runtime) {
     return info;
   }
   async function assertSwitchable(r, connectionId) {
+    if (r && runtime.panelRender?.busy(r.sessionID))
+      fail("chat_busy", "Finish the render operation or review first");
     const c = (await runtime.bridge.connections()).find((c2) => c2.id === connectionId);
     if (!c?.connected || c.busy || c.lock || c.binding && c.binding.sessionID !== r?.sessionID)
       fail("chat_busy", "Finish AE work or recovery before switching conversations");
@@ -18639,6 +18644,8 @@ ${draft.instructions}`)).digest("hex"))
       return { replied: true };
     }
     if (body.action === "send") {
+      if (r && runtime.panelRender?.busy(r.sessionID))
+        fail("chat_busy", "Finish the render operation or review first");
       if (r?.deleted)
         fail("chat_missing", "Choose another conversation or start a new one");
       if (r?.restore?.status === "pending" || r?.restore?.status === "unconfirmed")
@@ -18772,7 +18779,16 @@ ${draft.instructions}`)).digest("hex"))
     return { sessionID: r.sessionID, delivery: request.status };
   }
   return {
+    permissionPolicy(sessionID, name) {
+      const record2 = Object.values(records).find((r) => r.sessionID === sessionID);
+      const input = record2 && [...clients.get(record2.directory) || []].at(-1);
+      if (!input?.permissionPolicy)
+        fail("permission_policy_required", "Reconnect the CookieMonster workspace before rendering");
+      return input.permissionPolicy(name);
+    },
     async assertRestorable(sessionID) {
+      if (runtime.panelRender?.busy(sessionID))
+        fail("chat_busy", "Finish the render operation or review first");
       const r = Object.values(records).find((r2) => r2.sessionID === sessionID);
       if (!r)
         return;
@@ -18945,6 +18961,102 @@ function validateAttachments(value) {
       fail("payload_too_large", "References must total 2 MB or less");
     return { type: "file", mime: file2.mime, filename: file2.filename, url: file2.url };
   });
+}
+
+// src/panel-render.mjs
+import { randomBytes as randomBytes4 } from "node:crypto";
+function createPanelRender({ execute, now = Date.now }) {
+  const tasks = new Map;
+  const allowed = new Set(["ae_templates", "ae_grant", "ae_render_submit", "ae_render_recover", "ae_render_status", "ae_render_cancel", "ae_render_result"]);
+  function owned(sessionID, bindingID, token) {
+    const task = tasks.get(sessionID);
+    if (!task || task.bindingID !== bindingID || task.token !== token)
+      fail("invalid_token", "Render operation expired or belongs to another binding");
+    return task;
+  }
+  function state2(task) {
+    return {
+      token: task.token,
+      status: task.status,
+      approval: task.approval || null,
+      result: task.result ?? null,
+      error: task.error || null
+    };
+  }
+  return {
+    busy(sessionID) {
+      return ["running", "approval"].includes(tasks.get(sessionID)?.status);
+    },
+    start(sessionID, bindingID, tool, args, check2) {
+      if (!allowed.has(tool))
+        fail("invalid_payload", "Unsupported render operation");
+      if (this.busy(sessionID))
+        fail("panel_busy", "Finish the current render review first");
+      const task = { token: randomBytes4(24).toString("hex"), bindingID, status: "running" };
+      tasks.set(sessionID, task);
+      const controller = new AbortController;
+      task.cancel = () => {
+        controller.abort();
+        task.reject?.(Object.assign(new Error("Render review cancelled"), { code: "aborted" }));
+      };
+      Promise.resolve().then(() => execute(tool, args, {
+        sessionID,
+        abort: controller.signal,
+        ask: async (request) => {
+          check2();
+          task.status = "approval";
+          const id = randomBytes4(24).toString("hex");
+          task.approval = { id, permission: request.permission, summary: request.patterns.join(`
+`), expiresAt: now() + 120000 };
+          try {
+            await new Promise((resolve, reject) => {
+              task.resolve = resolve;
+              task.reject = reject;
+              task.timer = setTimeout(() => reject(Object.assign(new Error("Render review expired"), { code: "invalid_token" })), 120000);
+              task.timer.unref?.();
+            });
+            check2();
+          } finally {
+            clearTimeout(task.timer);
+            task.approval = null;
+            task.reject = null;
+            task.resolve = null;
+            task.status = "running";
+          }
+        }
+      })).then((result) => {
+        check2();
+        task.result = JSON.parse(result);
+        task.status = "completed";
+      }, (error45) => {
+        task.error = { code: error45.code || "render_failed", message: error45.message || "Render operation failed" };
+        task.status = "failed";
+      }).catch((error45) => {
+        task.error = { code: error45.code || "stale_binding", message: error45.message };
+        task.status = "failed";
+      });
+      return state2(task);
+    },
+    poll(sessionID, bindingID, token) {
+      return state2(owned(sessionID, bindingID, token));
+    },
+    reply(sessionID, bindingID, token, approvalID, allow) {
+      const task = owned(sessionID, bindingID, token);
+      if (!task.approval || task.approval.id !== approvalID || now() >= task.approval.expiresAt || !task.resolve)
+        fail("invalid_token", "Render review expired or was already answered");
+      const { resolve, reject } = task;
+      task.resolve = null;
+      if (allow)
+        resolve();
+      else
+        reject(Object.assign(new Error("Render operation denied"), { code: "permission_denied" }));
+      return { answered: true };
+    },
+    release(sessionID) {
+      tasks.get(sessionID)?.cancel?.();
+      tasks.delete(sessionID);
+    }
+  };
 }
 
 // src/capture.mjs
@@ -19697,6 +19809,7 @@ async function createRuntime(options = {}) {
   let renderer;
   try {
     let cleanup = function(sessionID) {
+      r.panelRender.release(sessionID);
       diagnostics.release(sessionID);
       tokens.delete(sessionID);
       for (const [jobId, owner2] of jobs)
@@ -19827,6 +19940,9 @@ async function createRuntime(options = {}) {
         return closePromise;
       }
     };
+    r.panelRender = createPanelRender({ now: r.now, execute(tool, args, context) {
+      return createTools({ ...r, permissionPolicy: (name) => r.chat.permissionPolicy(context.sessionID, name) })[tool].execute(args, context);
+    } });
     bridge.onRelease(async (sessionID) => {
       sessions.get(sessionID)?.controller.abort();
       cleanup(sessionID);
@@ -19856,7 +19972,10 @@ async function panel(r, input) {
     "checkpoint.restore.confirm": { token: text },
     renders: {},
     diagnostics: {},
-    "frame.capture": { compId: captureArgs.compId, time: captureArgs.time }
+    "frame.capture": { compId: captureArgs.compId, time: captureArgs.time },
+    "render.start": { tool: text, args: exports_external.record(exports_external.string(), exports_external.unknown()) },
+    "render.poll": { token: text },
+    "render.reply": { token: text, approvalID: text, allow: exports_external.boolean() }
   };
   if (!Object.hasOwn(schemas3, body?.action))
     fail("invalid_payload", "Unknown panel action");
@@ -19865,6 +19984,14 @@ async function panel(r, input) {
     current(r, c, b2);
     return true;
   };
+  if (a.action === "render.start") {
+    await r.chat?.assertRestorable(sessionID);
+    return r.panelRender.start(sessionID, b2.id, a.tool, a.args, () => current(r, c, b2, { allowLocked: true }));
+  }
+  if (a.action === "render.poll")
+    return r.panelRender.poll(sessionID, b2.id, a.token);
+  if (a.action === "render.reply")
+    return r.panelRender.reply(sessionID, b2.id, a.token, a.approvalID, a.allow);
   if (a.action === "frame.capture") {
     await r.chat?.assertRestorable(sessionID);
     current(r, c, b2, { write: true });
@@ -19905,7 +20032,7 @@ async function panel(r, input) {
     if (!Number.isFinite(sourceTimestamp) || !Number.isFinite(destinationTimestamp))
       fail("checkpoint_invalid", "Restore timestamps are invalid");
     current(r, c, b2);
-    const token = randomBytes4(32).toString("base64url");
+    const token = randomBytes5(32).toString("base64url");
     r.tokens.set(sessionID, {
       token,
       binding: b2,
@@ -20015,7 +20142,7 @@ async function server(_input, options = {}) {
     entry.chat = createChat(runtime);
   const chat = await entry.chat;
   runtime.chat = chat;
-  const unregisterChat = chat.register(_input);
+  const unregisterChat = chat.register({ ..._input, permissionPolicy: (name) => checkPermissionConfig(config2, name) });
   runtime.bridge.setChatHandler(chat.handle);
   const owned = new Set, owner2 = Symbol("plugin-instance");
   let disposed = false, disposePromise, config2;

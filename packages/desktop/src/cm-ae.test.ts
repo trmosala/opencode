@@ -113,7 +113,7 @@ test("missing or invalid required default fails and clears stale output", () => 
 test("vendored inventory preserves pinned CookieJar 0.2.2 bytes and the Marked license", () => {
   const vendor = fileURLToPath(new URL("../vendor/cm-ae", import.meta.url))
   const hashes = {
-    "plugin.mjs": "b18c4d858a46a775442a67dd3779f4713b20868e6cce3c1d88489e50ffd31567",
+    "plugin.mjs": "9b76a8a5a1e29c57f58ee7774f7fbef2b7c1af54eeaeef951694bbd86f696cbe",
     "render-worker.mjs": "e4d5b9dc7034f8b63f7d66f3a6c121cea1b7bde551591a2f1a75dcddc8e37291",
     "permissions.json": "3b753bb6dc2d2dd513f6500f20f62d8afec47c648a5a4ed981453b190ae2df38",
     "ZOD-LICENSE.txt": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
