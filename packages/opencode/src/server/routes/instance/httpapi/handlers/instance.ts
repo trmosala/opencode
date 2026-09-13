@@ -131,6 +131,13 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
           return { name: info.name, description: info.description, source: info.source, revision: info.revision }
         }),
       )
+      .handle("skillManage", ({ payload }) =>
+        skill
+          .manage(payload)
+          .pipe(
+            Effect.mapError((error) => new ApiSkillError({ name: "SkillError", data: { message: error.message } })),
+          ),
+      )
       .handle("skillReview", ({ payload }) =>
         skill
           .review(payload)

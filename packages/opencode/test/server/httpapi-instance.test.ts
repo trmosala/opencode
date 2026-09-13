@@ -64,126 +64,177 @@ const directoryHeader = (dir: string) => HttpClientRequest.setHeader("x-opencode
 describe("instance HttpApi", () => {
   const aeSource = process.env.CM_AE_SOURCE_DIR
   const aeTest = aeSource ? it.live : it.live.skip
-  aeTest("AE chat saves a reviewed skill through CM and reuses it after reload without workspace leakage", () =>
-    Effect.gen(function* () {
-      const dir = yield* tmpdirScoped({ git: true })
-      const other = yield* tmpdirScoped({ git: true })
-      if (!path.isAbsolute(aeSource!)) throw new Error("CM_AE_SOURCE_DIR must be absolute")
-      const { createChat } = yield* Effect.promise(() => import(pathToFileURL(path.join(aeSource!, "src/chat.mjs")).href))
-      const { panelFixture } = yield* Effect.promise(() => import(pathToFileURL(path.join(aeSource!, "test/bridge-panel.mjs")).href))
-      const cleanup: Array<() => Promise<void>> = []
-      yield* Effect.addFinalizer(() => Effect.promise(async () => {
-        for (const close of cleanup) await close()
-      }))
-      const panel = yield* Effect.promise(async () => {
-        return await panelFixture({ after: (close: () => Promise<void>) => cleanup.push(close) }) as {
-          dataDir: string
-          bridge: { setChatHandler: (handler: unknown) => void; release: (session: string) => Promise<void> }
-          state: { project: { id: string; path: string; saved: boolean } }
-          send: (route: string, body: Record<string, unknown>) => Promise<{
-            status: number
-            body: {
-              error: { message: string; code: string }
-              result: {
-                sessionID: string
-                destination: string
-                revision: string
-                token: string
-                delivery: string
-                title: string
-                total: number
-                targetCompId: number | null
-                skills: Array<{ name: string; source: string; revision: string; content?: string }>
+  aeTest(
+    "AE chat saves a reviewed skill through CM and reuses it after reload without workspace leakage",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* tmpdirScoped({ git: true })
+        const other = yield* tmpdirScoped({ git: true })
+        if (!path.isAbsolute(aeSource!)) throw new Error("CM_AE_SOURCE_DIR must be absolute")
+        const { createChat } = yield* Effect.promise(
+          () => import(pathToFileURL(path.join(aeSource!, "src/chat.mjs")).href),
+        )
+        const { panelFixture } = yield* Effect.promise(
+          () => import(pathToFileURL(path.join(aeSource!, "test/bridge-panel.mjs")).href),
+        )
+        const cleanup: Array<() => Promise<void>> = []
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            for (const close of cleanup) await close()
+          }),
+        )
+        const panel = yield* Effect.promise(async () => {
+          return (await panelFixture({ after: (close: () => Promise<void>) => cleanup.push(close) })) as {
+            dataDir: string
+            bridge: { setChatHandler: (handler: unknown) => void; release: (session: string) => Promise<void> }
+            state: { project: { id: string; path: string; saved: boolean } }
+            send: (
+              route: string,
+              body: Record<string, unknown>,
+            ) => Promise<{
+              status: number
+              body: {
+                error: { message: string; code: string }
+                result: {
+                  sessionID: string
+                  destination: string
+                  revision: string
+                  token: string
+                  delivery: string
+                  title: string
+                  total: number
+                  targetCompId: number | null
+                  skills: Array<{ name: string; source: string; revision: string; content?: string }>
+                }
               }
-            }
-          }>
-        }
-      })
-      const transport = createClient({
-        baseUrl: "http://localhost",
-        fetch: (request) => HttpApiApp.webHandler().handler(request instanceof Request ? request : new Request(request), handlerContext),
-      })
-      const sdk = new OpencodeClient({ client: transport })
-      const prompts: Array<Parameters<typeof sdk.session.promptAsync>[0]> = []
-      // CM sessions, skill endpoints, files, SDK and AE chat transport are real.
-      // Only model execution and AE composition inspection are replaced.
-      const client = {
-        _client: transport,
-        session: {
-          create: sdk.session.create.bind(sdk.session),
-          get: sdk.session.get.bind(sdk.session),
-          update: sdk.session.update.bind(sdk.session),
-          status: sdk.session.status.bind(sdk.session),
-          messages: sdk.session.messages.bind(sdk.session),
-          abort: sdk.session.abort.bind(sdk.session),
-          promptAsync: async (options: Parameters<typeof sdk.session.promptAsync>[0]) => {
-            prompts.push(options)
-            return { data: undefined }
+            }>
+          }
+        })
+        const transport = createClient({
+          baseUrl: "http://localhost",
+          fetch: (request) =>
+            HttpApiApp.webHandler().handler(
+              request instanceof Request ? request : new Request(request),
+              handlerContext,
+            ),
+        })
+        const sdk = new OpencodeClient({ client: transport })
+        const prompts: Array<Parameters<typeof sdk.session.promptAsync>[0]> = []
+        // CM sessions, skill endpoints, files, SDK and AE chat transport are real.
+        // Only model execution and AE composition inspection are replaced.
+        const client = {
+          _client: transport,
+          session: {
+            create: sdk.session.create.bind(sdk.session),
+            get: sdk.session.get.bind(sdk.session),
+            update: sdk.session.update.bind(sdk.session),
+            status: sdk.session.status.bind(sdk.session),
+            messages: sdk.session.messages.bind(sdk.session),
+            abort: sdk.session.abort.bind(sdk.session),
+            promptAsync: async (options: Parameters<typeof sdk.session.promptAsync>[0]) => {
+              prompts.push(options)
+              return { data: undefined }
+            },
           },
-        },
-      }
-      const runtime = {
-        dataDir: panel.dataDir, bridge: panel.bridge,
-        checkpoints: { list: async () => [] },
-        workflow: { inspectQuery: async () => ({ items: [{ id: 1, kind: "comp", name: "Main" }] }) },
-      }
-      const connect = async () => {
-        const chat = await createChat(runtime)
-        chat.register({ client, directory: dir })
-        chat.register({ client, directory: other })
-        panel.bridge.setChatHandler(chat.handle)
-        return chat
-      }
-      const send = async (body: Record<string, unknown> = {}) => {
-        const response = await panel.send("/chat", { action: "state", project: panel.state.project, ...body })
-        if (response.status !== 200) throw Object.assign(new Error(response.body.error.message), response.body.error)
-        return response.body.result
-      }
-      yield* Effect.promise(async () => {
-        await panel.bridge.release("session")
-        await connect()
-        const first = await send({ action: "new", directory: dir })
-        const draft = { name: "ae-reusable-motion", description: "Reusable logo easing", instructions: "Keep the logo fixed.\nUse a short ease out.", scope: "workspace" }
-        const review = await send({ action: "skillReview", draft, directory: dir, sessionID: first.sessionID })
-        const receipt = await send({ action: "skillSave", draft, directory: dir, sessionID: first.sessionID, token: review.token })
-        expect(receipt.destination).toBe(path.join(dir, ".opencode", "skills", draft.name, "SKILL.md"))
-        expect((await Bun.file(receipt.destination).text())).toContain(draft.instructions)
-        await connect()
-        expect((await send()).sessionID).toBe(first.sessionID)
-        const later = await send({ action: "new", directory: dir })
-        expect(later.sessionID).not.toBe(first.sessionID)
-        const catalog = await send({ action: "skills" })
-        const selected = catalog.skills.find((item: { name: string }) => item.name === draft.name)
-        if (!selected) throw new Error("Saved skill missing from the real CM catalog")
-        expect(selected?.revision).toBe(receipt.revision)
-        expect(selected.content).toBeUndefined()
-        const skill = { name: selected.name, source: selected.source, revision: selected.revision, directory: dir, sessionID: later.sessionID }
-        const sent = await send({ action: "send", text: "Apply the saved logo easing", compId: 1, requestId: "a".repeat(40), skill })
-        expect(sent.delivery).toBe("accepted")
-        expect(prompts[0]?.body?.parts[0]).toMatchObject({ metadata: { cmSkill: { name: selected.name, source: selected.source, revision: selected.revision } } })
-        // Conversation metadata also comes from CM. Reopening never dispatches a prompt.
-        await send({ action: "rename", sessionID: first.sessionID, directory: dir, title: "Saved logo technique" })
-        await send({ action: "rename", sessionID: later.sessionID, directory: dir, title: "Apply logo technique" })
-        expect((await send({ action: "conversations", search: "logo technique" })).total).toBe(2)
-        await connect()
-        await send({ action: "reopen", sessionID: first.sessionID, directory: dir })
-        expect((await send()).title).toBe("Saved logo technique")
-        expect((await send({ action: "reopen", sessionID: later.sessionID, directory: dir })).targetCompId).toBe(1)
-        expect((await send()).title).toBe("Apply logo technique")
-        expect(prompts.length).toBe(1)
-        await send({ action: "new", directory: other })
-        const foreign = await send({ action: "skills" })
-        expect(foreign.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
-        await expect(send({ action: "send", text: "Do not use the other workspace's skill", compId: 1, requestId: "b".repeat(40), skill })).rejects.toMatchObject({ code: "stale_skill" })
-        expect(prompts.length).toBe(1)
-        await send({ action: "new", directory: dir })
-        await Bun.file(receipt.destination).delete()
-        const missing = await send({ action: "skills" })
-        expect(missing.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
-        await sdk.session.delete({ path: { id: first.sessionID }, query: { directory: dir } })
-        await expect(send({ action: "reopen", sessionID: first.sessionID, directory: dir })).rejects.toMatchObject({ code: "chat_missing" })
-      })
-    }),
+        }
+        const runtime = {
+          dataDir: panel.dataDir,
+          bridge: panel.bridge,
+          checkpoints: { list: async () => [] },
+          workflow: { inspectQuery: async () => ({ items: [{ id: 1, kind: "comp", name: "Main" }] }) },
+        }
+        const connect = async () => {
+          const chat = await createChat(runtime)
+          chat.register({ client, directory: dir })
+          chat.register({ client, directory: other })
+          panel.bridge.setChatHandler(chat.handle)
+          return chat
+        }
+        const send = async (body: Record<string, unknown> = {}) => {
+          const response = await panel.send("/chat", { action: "state", project: panel.state.project, ...body })
+          if (response.status !== 200) throw Object.assign(new Error(response.body.error.message), response.body.error)
+          return response.body.result
+        }
+        yield* Effect.promise(async () => {
+          await panel.bridge.release("session")
+          await connect()
+          const first = await send({ action: "new", directory: dir })
+          const draft = {
+            name: "ae-reusable-motion",
+            description: "Reusable logo easing",
+            instructions: "Keep the logo fixed.\nUse a short ease out.",
+            scope: "workspace",
+          }
+          const review = await send({ action: "skillReview", draft, directory: dir, sessionID: first.sessionID })
+          const receipt = await send({
+            action: "skillSave",
+            draft,
+            directory: dir,
+            sessionID: first.sessionID,
+            token: review.token,
+          })
+          expect(receipt.destination).toBe(path.join(dir, ".opencode", "skills", draft.name, "SKILL.md"))
+          expect(await Bun.file(receipt.destination).text()).toContain(draft.instructions)
+          await connect()
+          expect((await send()).sessionID).toBe(first.sessionID)
+          const later = await send({ action: "new", directory: dir })
+          expect(later.sessionID).not.toBe(first.sessionID)
+          const catalog = await send({ action: "skills" })
+          const selected = catalog.skills.find((item: { name: string }) => item.name === draft.name)
+          if (!selected) throw new Error("Saved skill missing from the real CM catalog")
+          expect(selected?.revision).toBe(receipt.revision)
+          expect(selected.content).toBeUndefined()
+          const skill = {
+            name: selected.name,
+            source: selected.source,
+            revision: selected.revision,
+            directory: dir,
+            sessionID: later.sessionID,
+          }
+          const sent = await send({
+            action: "send",
+            text: "Apply the saved logo easing",
+            compId: 1,
+            requestId: "a".repeat(40),
+            skill,
+          })
+          expect(sent.delivery).toBe("accepted")
+          expect(prompts[0]?.body?.parts[0]).toMatchObject({
+            metadata: { cmSkill: { name: selected.name, source: selected.source, revision: selected.revision } },
+          })
+          // Conversation metadata also comes from CM. Reopening never dispatches a prompt.
+          await send({ action: "rename", sessionID: first.sessionID, directory: dir, title: "Saved logo technique" })
+          await send({ action: "rename", sessionID: later.sessionID, directory: dir, title: "Apply logo technique" })
+          expect((await send({ action: "conversations", search: "logo technique" })).total).toBe(2)
+          await connect()
+          await send({ action: "reopen", sessionID: first.sessionID, directory: dir })
+          expect((await send()).title).toBe("Saved logo technique")
+          expect((await send({ action: "reopen", sessionID: later.sessionID, directory: dir })).targetCompId).toBe(1)
+          expect((await send()).title).toBe("Apply logo technique")
+          expect(prompts.length).toBe(1)
+          await send({ action: "new", directory: other })
+          const foreign = await send({ action: "skills" })
+          expect(foreign.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
+          await expect(
+            send({
+              action: "send",
+              text: "Do not use the other workspace's skill",
+              compId: 1,
+              requestId: "b".repeat(40),
+              skill,
+            }),
+          ).rejects.toMatchObject({ code: "stale_skill" })
+          expect(prompts.length).toBe(1)
+          await send({ action: "new", directory: dir })
+          await Bun.file(receipt.destination).delete()
+          const missing = await send({ action: "skills" })
+          expect(missing.skills.some((item: { name: string }) => item.name === draft.name)).toBe(false)
+          await sdk.session.delete({ path: { id: first.sessionID }, query: { directory: dir } })
+          await expect(send({ action: "reopen", sessionID: first.sessionID, directory: dir })).rejects.toMatchObject({
+            code: "chat_missing",
+          })
+        })
+      }),
     { timeout: 60_000 },
   )
 
@@ -230,7 +281,38 @@ describe("instance HttpApi", () => {
       const again = yield* post("/skill/create", { ...draft, token: review.token })
       expect(again.response.status).toBe(400)
       const fs = yield* FileSystem.FileSystem
-      yield* fs.remove(receipt.destination)
+      const read = yield* post("/skill/manage", { action: "read", selected })
+      const managed = Schema.decodeUnknownSync(ManagedSkill.Managed)(read.data)
+      expect(managed.document).toContain(draft.instructions)
+      expect(managed.editable).toBe(true)
+      const replacement = { ...draft, instructions: "Use slower easing", name: "renamed-route-motion" }
+      const editReview = yield* post("/skill/manage", {
+        action: "review",
+        operation: "edit",
+        selected,
+        draft: replacement,
+      })
+      const editToken = Schema.decodeUnknownSync(ManagedSkill.Managed)(editReview.data).token
+      const edit = yield* post("/skill/manage", {
+        action: "apply",
+        operation: "edit",
+        selected,
+        draft: replacement,
+        token: editToken,
+      })
+      const edited = Schema.decodeUnknownSync(ManagedSkill.Managed)(edit.data)
+      expect(edited.name).toBe(replacement.name)
+      expect(yield* fs.readFileString(edited.backup!)).toContain(draft.instructions)
+      const deletion = yield* post("/skill/manage", { action: "review", operation: "delete", selected: edited })
+      const deleteToken = Schema.decodeUnknownSync(ManagedSkill.Managed)(deletion.data).token
+      const deleted = yield* post("/skill/manage", {
+        action: "apply",
+        operation: "delete",
+        selected: edited,
+        token: deleteToken,
+      })
+      expect(Schema.decodeUnknownSync(ManagedSkill.Managed)(deleted.data).deleted).toBe(true)
+
       const missing = yield* post("/skill/validate", selected)
       expect(missing.response.status).toBe(400)
     }),

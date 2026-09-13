@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs/promises"
 import { constants } from "node:fs"
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { Schema } from "effect"
 import { ConfigMarkdown } from "@opencode-ai/core/config/markdown"
 
@@ -39,6 +39,26 @@ export const Receipt = Schema.Struct({
   destination: Schema.String,
   scope: Schema.Literals(["workspace", "global"]),
   digest: Schema.String,
+})
+export const Manage = Schema.Struct({
+  action: Schema.Literals(["read", "review", "apply"]),
+  selected: Selection,
+  operation: Schema.optional(Schema.Literals(["edit", "delete"])),
+  draft: Schema.optional(Draft),
+  token: Schema.optional(Schema.String),
+})
+export type Manage = Schema.Schema.Type<typeof Manage>
+export const Managed = Schema.Struct({
+  ...Metadata.fields,
+  content: Schema.String,
+  document: Schema.String,
+  location: Schema.String,
+  editable: Schema.Boolean,
+  scope: Schema.Literals(["workspace", "global", "external"]),
+  token: Schema.optional(Schema.String),
+  digest: Schema.optional(Schema.String),
+  backup: Schema.optional(Schema.String),
+  deleted: Schema.optional(Schema.Boolean),
 })
 export class Error extends Schema.TaggedErrorClass<Error>()("ManagedSkillError", {
   message: Schema.String,
@@ -117,6 +137,7 @@ export async function snapshot(location: string) {
       name: md.data.name,
       description: md.data.description,
       content: md.content,
+      text,
       location: canonical,
       source: digest([canonical, opened.dev, opened.ino]),
       revision: digest(text),
@@ -152,6 +173,69 @@ export async function create(root: string, draft: Draft) {
   if (info.revision !== digest(text))
     throw new Error({ message: "Save could not be verified. Inspect the destination; do not retry." })
   return info
+}
+
+// Only the selected definition is changed. Bundled scripts and other files remain.
+// Retain the exact original bytes under a non-discoverable backup name.
+export async function change(location: string, selected: Selection, draft?: Draft) {
+  await directory(path.dirname(location))
+  const stat = await fs.lstat(location)
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error({ message: "Skill is not a regular file." })
+  const current = await snapshot(location)
+  if (current.source !== selected.source || current.revision !== selected.revision)
+    throw new Error({ message: "Skill changed. Refresh and review again." })
+  const text = draft ? revised(current.text, draft) : undefined
+  const backup = path.join(path.dirname(location), ".SKILL.md." + randomBytes(16).toString("hex") + ".bak")
+  const preserved = await fs.open(backup, "wx", 0o600)
+  try {
+    await preserved.writeFile(current.text, "utf8")
+    await preserved.sync()
+  } finally {
+    await preserved.close()
+  }
+  if (digest(await fs.readFile(backup, "utf8")) !== selected.revision)
+    throw new Error({ message: "Backup could not be verified. Nothing was replaced." })
+  const file = await fs.open(location, constants.O_RDWR | (constants.O_NOFOLLOW || 0))
+  try {
+    const opened = await file.stat()
+    if (
+      opened.ino !== stat.ino ||
+      opened.dev !== stat.dev ||
+      opened.nlink !== 1 ||
+      digest(await file.readFile("utf8")) !== selected.revision
+    )
+      throw new Error({ message: "Skill changed or has multiple links. Nothing was replaced." })
+    if (text !== undefined) {
+      await file.write(text, 0, "utf8")
+      await file.truncate(Buffer.byteLength(text))
+      await file.sync()
+    }
+  } finally {
+    await file.close()
+  }
+  if (text === undefined) {
+    const latest = await snapshot(location)
+    if (latest.source !== selected.source || latest.revision !== selected.revision)
+      throw new Error({ message: "Skill changed before deletion. Refresh and review again." })
+    await fs.unlink(location)
+    return { backup, deleted: true }
+  }
+  const updated = await snapshot(location)
+  if (updated.revision !== digest(text))
+    throw new Error({ message: "Save could not be confirmed. Inspect the backup; do not retry." })
+  return { backup, deleted: false, updated }
+}
+
+function revised(original: string, draft: Draft) {
+  validate(draft)
+  const parsed = ConfigMarkdown.parse(original)
+  // JSON objects are valid YAML and preserve additional frontmatter fields.
+  return (
+    "---\n" +
+    JSON.stringify({ ...parsed.data, name: draft.name, description: draft.description }, null, 2) +
+    "\n---\n" +
+    draft.instructions
+  )
 }
 
 export * as ManagedSkill from "./managed"

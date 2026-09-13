@@ -186,6 +186,12 @@ export const InstanceApi = HttpApi.make("instance")
           success: ManagedSkill.Metadata,
           error: ApiSkillError,
         }),
+        HttpApiEndpoint.post("skillManage", "/skill/manage", {
+          query: WorkspaceRoutingQuery,
+          payload: ManagedSkill.Manage,
+          success: ManagedSkill.Managed,
+          error: ApiSkillError,
+        }),
         HttpApiEndpoint.post("skillReview", "/skill/review", {
           query: WorkspaceRoutingQuery,
           payload: ManagedSkill.Draft,

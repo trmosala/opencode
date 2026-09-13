@@ -98,6 +98,7 @@ type ScanState = {
 }
 
 export interface Interface {
+  readonly manage: (input: ManagedSkill.Manage) => Effect.Effect<typeof ManagedSkill.Managed.Type, ManagedSkill.Error>
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly require: (name: string) => Effect.Effect<Info, NotFoundError>
   readonly all: () => Effect.Effect<Info[]>
@@ -408,6 +409,94 @@ const layer = Layer.effect(
       }
     })
 
+    const management = new Map<string, { digest: string; expires: number }>()
+    const manage = Effect.fn("Skill.manage")(function* (input: ManagedSkill.Manage) {
+      const info = yield* resolve(input.selected)
+      const workspace = yield* InstanceState.directory
+      const roots = {
+        workspace: path.join(workspace, ".opencode", "skills"),
+        global: path.join(global.config, "skills"),
+      }
+      const parent = path.dirname(path.dirname(info.location))
+      const scope =
+        parent === roots.workspace
+          ? ("workspace" as const)
+          : parent === roots.global
+            ? ("global" as const)
+            : ("external" as const)
+      const editable = scope !== "external" && !(scope === "workspace" && Flag.OPENCODE_DISABLE_PROJECT_CONFIG)
+      const value = {
+        name: info.name,
+        description: info.description,
+        source: info.source,
+        revision: info.revision,
+        content: info.content,
+        document: "text" in info && typeof info.text === "string" ? info.text : info.content,
+        location: info.location,
+        editable,
+        scope,
+      }
+      if (input.action === "read") return value
+      if (!editable || !input.operation)
+        return yield* new ManagedSkill.Error({
+          message: "This skill is read-only. Copy it into a managed skill to edit it.",
+        })
+      if (input.operation === "edit") {
+        if (!input.draft || input.draft.scope !== scope)
+          return yield* new ManagedSkill.Error({ message: "Keep the existing skill scope when editing." })
+        yield* Effect.try({ try: () => ManagedSkill.validate(input.draft!), catch: managedError })
+        if (
+          (yield* fresh()).some(
+            (item) => item.source !== info.source && item.name.toLowerCase() === input.draft!.name.toLowerCase(),
+          )
+        )
+          return yield* new ManagedSkill.Error({ message: "Another skill already uses that name." })
+      } else if (input.draft)
+        return yield* new ManagedSkill.Error({ message: "Deletion does not accept replacement content." })
+      yield* Effect.tryPromise({ try: () => ManagedSkill.directory(path.dirname(info.location)), catch: managedError })
+      const digest = ManagedSkill.digest([
+        workspace,
+        info.location,
+        input.selected,
+        input.operation,
+        input.draft || null,
+      ])
+      if (input.action === "review") {
+        for (const [token, review] of management) if (review.expires < Date.now()) management.delete(token)
+        if (management.size >= 1000)
+          return yield* new ManagedSkill.Error({ message: "Too many pending skill reviews." })
+        const token = randomBytes(32).toString("hex")
+        management.set(token, { digest, expires: Date.now() + 600000 })
+        return { ...value, token, digest }
+      }
+      const review = management.get(input.token || "")
+      management.delete(input.token || "")
+      if (!review || review.digest !== digest || review.expires < Date.now())
+        return yield* new ManagedSkill.Error({
+          message: "Review is expired, changed or already used. Refresh before reviewing again.",
+        })
+      const result = yield* Effect.tryPromise({
+        try: () => ManagedSkill.change(info.location, input.selected, input.draft),
+        catch: managedError,
+      })
+      return {
+        ...value,
+        ...(result.updated
+          ? {
+              name: result.updated.name,
+              description: result.updated.description,
+              content: result.updated.content,
+              document: result.updated.text,
+              source: result.updated.source,
+              revision: result.updated.revision,
+            }
+          : {}),
+        backup: result.backup,
+        deleted: result.deleted,
+        digest,
+      }
+    })
+
     const get = Effect.fn("Skill.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
       return s.skills[name]
@@ -436,6 +525,7 @@ const layer = Layer.effect(
     })
 
     return Service.of({
+      manage: (input) => saveLock.withPermits(1)(manage(input)),
       get,
       require,
       all,

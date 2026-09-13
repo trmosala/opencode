@@ -240,3 +240,64 @@ describe("managed skills", () => {
     }),
   )
 })
+
+it.instance("managed editing and deletion retain backups, reject stale reviews and preserve bundled files", () =>
+  Effect.gen(function* () {
+    const service = yield* Skill.Service
+    const review = yield* service.review(draft)
+    const original = yield* service.create({ ...draft, token: review.token })
+    const read = yield* service.manage({ action: "read", selected: original })
+    expect(read.editable).toBe(true)
+    const bundle = path.join(path.dirname(read.location), "animation.jsx")
+    yield* Effect.promise(() => fs.writeFile(bundle, "// preserve me"))
+    const updated = { ...draft, name: "renamed-motion", instructions: "Use slower easing." }
+    const proposal = yield* service.manage({ action: "review", selected: original, operation: "edit", draft: updated })
+    const saved = yield* service.manage({
+      action: "apply",
+      selected: original,
+      operation: "edit",
+      draft: updated,
+      token: proposal.token,
+    })
+    expect(saved.name).toBe(updated.name)
+    expect(saved.content.trim()).toBe(updated.instructions)
+    expect(yield* Effect.promise(() => fs.readFile(saved.backup!, "utf8"))).toBe(ManagedSkill.validate(draft))
+    expect(
+      yield* service
+        .manage({ action: "apply", selected: original, operation: "edit", draft: updated, token: proposal.token })
+        .pipe(Effect.flip),
+    ).toBeInstanceOf(ManagedSkill.Error)
+    const removal = yield* service.manage({ action: "review", selected: saved, operation: "delete" })
+    const deleted = yield* service.manage({
+      action: "apply",
+      selected: saved,
+      operation: "delete",
+      token: removal.token,
+    })
+    expect(deleted.deleted).toBe(true)
+    expect((yield* service.catalog()).some((item) => item.name === saved.name)).toBe(false)
+    expect(yield* Effect.promise(() => fs.readFile(bundle, "utf8"))).toBe("// preserve me")
+    expect(yield* Effect.promise(() => fs.readFile(deleted.backup!, "utf8"))).toContain(updated.instructions)
+  }),
+)
+
+it.instance("management refuses external edits after review and exposes built-ins as read-only", () =>
+  Effect.gen(function* () {
+    const service = yield* Skill.Service
+    const builtin = (yield* service.catalog()).find((item) => item.name === "customize-opencode")!
+    expect((yield* service.manage({ action: "read", selected: builtin })).editable).toBe(false)
+    expect(
+      yield* service.manage({ action: "review", operation: "delete", selected: builtin }).pipe(Effect.flip),
+    ).toBeInstanceOf(ManagedSkill.Error)
+    const review = yield* service.review(draft)
+    const original = yield* service.create({ ...draft, token: review.token })
+    const proposal = yield* service.manage({ action: "review", operation: "delete", selected: original })
+    yield* Effect.promise(() => fs.appendFile(original.destination, "\nExternal editor change"))
+    expect(
+      yield* service
+        .manage({ action: "apply", operation: "delete", selected: original, token: proposal.token })
+        .pipe(Effect.flip),
+    ).toBeInstanceOf(ManagedSkill.Error)
+    expect(yield* Effect.promise(() => fs.readFile(original.destination, "utf8"))).toContain("External editor change")
+  }),
+)
