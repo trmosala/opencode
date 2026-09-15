@@ -8,12 +8,14 @@ import type { BrowserCommand, BrowserTab, BrowserTabs, BrowserClearKind, Browser
 import { BrowserSettings } from "./browser-settings"
 import { BrowserLibrary } from "./browser-library"
 import { BrowserSite } from "./browser-site"
+import { BrowserContacts } from "./browser-contacts"
 
 export type BrowserToolPanel =
   | "find"
   | "zoom"
   | "import"
   | "passwords"
+  | "contacts"
   | "downloads"
   | "history"
   | "clear"
@@ -69,7 +71,11 @@ export function BrowserMenu(props: {
           <DropdownMenu.Item onSelect={() => void props.command({ op: "reopen" })}>
             <DropdownMenu.ItemLabel>{language.t("browser.tabs.reopen")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
-          <For each={["import", "passwords", "downloads", "history", "bookmarks", "clear", "settings"] as const}>
+          <For
+            each={
+              ["import", "passwords", "contacts", "downloads", "history", "bookmarks", "clear", "settings"] as const
+            }
+          >
             {(panel) => (
               <DropdownMenu.Item onSelect={() => props.open(panel)}>
                 <DropdownMenu.ItemLabel>{language.t(`browser.menu.${panel}`)}</DropdownMenu.ItemLabel>
@@ -581,6 +587,9 @@ export function BrowserTools(props: {
             {language.t("browser.clear.submit")}
           </Button>
         </fieldset>
+      </Show>
+      <Show when={props.panel === "contacts" && props.tabs.profile}>
+        {(profile) => <BrowserContacts profile={profile()} tab={props.tab} busy={state.busy} command={run} />}
       </Show>
       <Show when={props.panel === "settings" && props.tabs.profile}>
         {(profile) => <BrowserSettings profile={profile()} busy={state.busy} command={run} open={props.open} />}

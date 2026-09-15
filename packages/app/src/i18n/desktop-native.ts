@@ -222,6 +222,28 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.contacts.preview": "Fill these contact details?",
+  "desktop.browser.contacts.detail":
+    "Website: {{origin}}\nContact: {{label}}\n\n{{fields}}\n\nOnly the listed fields will be filled. The website can read these values. Nothing is submitted.",
+  "desktop.browser.contacts.fill": "Fill fields",
+  "desktop.browser.contacts.delete": "Delete contact {{label}}?",
+  "desktop.browser.contacts.name": "Full name",
+  "desktop.browser.contacts.given-name": "Given name",
+  "desktop.browser.contacts.additional-name": "Additional name",
+  "desktop.browser.contacts.family-name": "Family name",
+  "desktop.browser.contacts.organization": "Organization",
+  "desktop.browser.contacts.email": "Email",
+  "desktop.browser.contacts.tel": "Phone",
+  "desktop.browser.contacts.street-address": "Street address",
+  "desktop.browser.contacts.address-line1": "Address line 1",
+  "desktop.browser.contacts.address-line2": "Address line 2",
+  "desktop.browser.contacts.address-line3": "Address line 3",
+  "desktop.browser.contacts.address-level1": "State, province or region",
+  "desktop.browser.contacts.address-level2": "City or locality",
+  "desktop.browser.contacts.address-level3": "District",
+  "desktop.browser.contacts.address-level4": "Neighborhood",
+  "desktop.browser.contacts.postal-code": "Postal code",
+  "desktop.browser.contacts.country": "Country code",
   "desktop.browser.account.title": "Saved account",
   "desktop.browser.account.entry":
     "Enter the website account for {{origin}}, not your Windows password. Existing passwords are never displayed. Nothing is saved until you confirm in CookieMonster.",

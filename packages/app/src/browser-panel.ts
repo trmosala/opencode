@@ -16,7 +16,35 @@ export type BrowserTab = {
 
 export type BrowserTransferRule = { origin: string; uploads: "ask" | "block"; downloads: BrowserPermission }
 
+export const CONTACT_FIELDS = [
+  "name",
+  "given-name",
+  "additional-name",
+  "family-name",
+  "organization",
+  "email",
+  "tel",
+  "street-address",
+  "address-line1",
+  "address-line2",
+  "address-line3",
+  "address-level1",
+  "address-level2",
+  "address-level3",
+  "address-level4",
+  "postal-code",
+  "country",
+] as const
+export type BrowserContact = {
+  id: string
+  revision: string
+  label: string
+  values: Partial<Record<(typeof CONTACT_FIELDS)[number], string>>
+}
+
 export type BrowserProfile = {
+  contacts?: BrowserContact[]
+  contactsUnavailable?: boolean
   loginOfferExclusions?: string[]
   transferRules?: BrowserTransferRule[]
   bookmarks?: BrowserBookmark[]
@@ -109,6 +137,9 @@ export type BrowserCommand =
   | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password" }
   | { op: "forget-login"; id: string }
   | { op: "edit-login"; origin: string; id?: string }
+  | { op: "contact-save"; contact: BrowserContact; create: boolean }
+  | { op: "contact-delete"; id: string; revision: string }
+  | { op: "contact-fill"; tabID: string; id: string; revision: string }
   | { op: "unlock-vault" | "lock-vault" }
   | { op: "import"; kind: "passwords" | "cookies" }
   | { op: "settings"; rememberHistory: boolean }

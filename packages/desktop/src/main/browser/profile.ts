@@ -17,6 +17,7 @@ import { transferRules } from "./transfer-permissions"
 import { loginOfferExclusions } from "./login-offers"
 import { bookmarks } from "./bookmarks"
 import { loginEntry, loginEntryAvailable } from "./login-entry"
+import { contactSummary } from "./contacts"
 
 let editingLogin = false
 
@@ -52,6 +53,7 @@ export function browserProfile(): BrowserProfile {
     agentHosts: loadAllowlist(),
     loginEntryAvailable: loginEntryAvailable(),
     ...loginSummary(),
+    ...contactSummary(),
   }
 }
 

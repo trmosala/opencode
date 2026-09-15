@@ -29,6 +29,9 @@ import { vaultAccess } from "./vault-session"
 import { savedTabs } from "./tab-recovery"
 import { bookmarks } from "./bookmarks"
 import { parseBookmarks } from "./bookmark-format"
+import { randomUUID } from "node:crypto"
+import { readContacts, requireContact } from "./contacts"
+import { prepareContactScript, completeContactScript } from "./contact-form"
 
 const profile = process.env.CM_BROWSER_SMOKE_PROFILE
 if (!profile) throw new Error("Run bun scripts/browser-smoke.ts; never use a real profile")
@@ -300,6 +303,223 @@ async function run() {
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
+
+  if (process.argv.includes("--contacts")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    const storage = getStore("cm-browser")
+    const contact = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      label: "Synthetic contact",
+      values: {
+        name: "Test Person",
+        email: "person@example.test",
+        tel: "+27 11 123 4567",
+        "street-address": "1 Test Street\nUnit 2",
+        "address-level1": "Gauteng",
+        "address-level2": "Johannesburg",
+        "postal-code": "2000",
+        country: "ZA",
+      },
+    }
+    const form = `<form method="post"><input autocomplete="name"><input autocomplete="email">
+      <input autocomplete="tel"><textarea autocomplete="street-address"></textarea>
+      <input autocomplete="address-level1"><input autocomplete="address-level2"><input autocomplete="postal-code">
+      <select autocomplete="country"><option value="">Choose</option><option value="ZA">South Africa</option>
+      <option value="JP">Japan</option></select>
+      <input style="display:none" autocomplete="name" value="hidden">
+      <fieldset disabled><input autocomplete="email" value="disabled"></fieldset></form>`
+    const reset = async (html = form) => {
+      await one.view.webContents.loadURL(url)
+      await one.view.webContents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(html)}`)
+    }
+    const values = () =>
+      one.view.webContents.executeJavaScript(
+        "[...document.querySelectorAll('input,textarea,select')].map(el=>el.value)",
+      )
+    const fill = () =>
+      command({ op: "contact-fill", tabID: first, id: contact.id, revision: readContacts()[0].revision })
+    try {
+      stage("contact storage and validation")
+      await assert.rejects(command({ op: "contact-save", contact, create: true }))
+      vaultAuthentication.verify = async () => {}
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "unlock-vault" })
+      await command({ op: "contact-save", contact, create: true })
+      assert.equal(readContacts()[0].values.name, contact.values.name)
+      assert(!JSON.stringify(storage.store).includes(contact.values.email))
+      for (const invalid of [
+        { ...contact, values: {} },
+        { ...contact, label: "bad\nlabel" },
+        { ...contact, values: { country: "Japan" } },
+        { ...contact, values: { email: "x\nBcc:y" } },
+        { ...contact, values: { password: "not-a-contact" } },
+      ])
+        assert.throws(() => requireContact(invalid))
+      await assert.rejects(command({ op: "contact-save", contact, create: true }))
+      await assert.rejects(command({ op: "contact-save", contact, create: false }))
+      stage("contact explicit preview and fill")
+      await reset()
+      dialog.showMessageBox = (async (_win, options) => {
+        assert.equal(options?.defaultId, 0)
+        assert.equal(options?.cancelId, 0)
+        assert(options?.detail?.includes(new URL(url).origin))
+        assert(options?.detail?.includes(contact.values.email))
+        return { response: 0, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await fill()
+      assert.equal((await values())[0], "")
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await fill()
+      assert.deepEqual(await values(), [...Object.values(contact.values), "hidden", "disabled"])
+      stage("contact detached views and queued delivery")
+      await reset()
+      browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 0, height: 0 } })
+      await assert.rejects(fill())
+      browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
+      dialog.showMessageBox = (async () => {
+        browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 0, height: 0 } })
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await assert.rejects(fill())
+      assert.equal((await values())[0], "")
+      browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      const executeContact = one.view.webContents.executeJavaScriptInIsolatedWorld.bind(one.view.webContents)
+      let deliveryChecked = false
+      one.view.webContents.executeJavaScriptInIsolatedWorld = async (world, scripts, gesture) => {
+        if (scripts.some((script) => script.code.includes("Contact delivery expired"))) {
+          deliveryChecked = true
+          const current = readContacts()[0]
+          await assert.rejects(
+            command({ op: "contact-save", contact: { ...current, label: "Queued edit" }, create: false }),
+          )
+          await assert.rejects(command({ op: "contact-delete", id: current.id, revision: current.revision }))
+          assert.equal(readContacts()[0].label, current.label)
+        }
+        return executeContact(world, scripts, gesture)
+      }
+      try {
+        await fill()
+        assert(deliveryChecked)
+      } finally {
+        one.view.webContents.executeJavaScriptInIsolatedWorld = executeContact
+      }
+      stage("contact hostile fields and navigation races")
+      for (const html of [
+        form.replace("</form>", '<input autocomplete="name"></form>'),
+        form.replace('method="post"', 'method="get"'),
+        form.replace('method="post"', 'method="post" action="https://other.example"'),
+        form.replace('autocomplete="name"', 'autocomplete="name" maxlength="2"'),
+        form.replace('value="ZA"', 'value="XX"'),
+        form.replace('autocomplete="email"', 'autocomplete="shipping email"'),
+        form.replace('<textarea autocomplete="street-address"></textarea>', '<input autocomplete="street-address">'),
+      ]) {
+        await reset(html)
+        await assert.rejects(fill())
+        assert.equal((await values())[0], "")
+      }
+      for (const mutation of [
+        "document.querySelector('input').outerHTML='<input autocomplete=name>'",
+        "document.querySelector('input').value='changed'",
+        "document.querySelector('form').action='https://other.example'",
+        "document.querySelector('select').innerHTML='<option value=ZA>Changed</option>'",
+      ]) {
+        await reset()
+        dialog.showMessageBox = (async () => {
+          await one.view.webContents.executeJavaScript(mutation)
+          return { response: 1, checkboxChecked: false }
+        }) as typeof dialog.showMessageBox
+        await assert.rejects(fill())
+      }
+      await reset()
+      dialog.showMessageBox = (async () => {
+        await one.view.webContents.loadURL(url)
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await assert.rejects(fill())
+      await reset()
+      dialog.showMessageBox = (async () => {
+        vaultAccess.lock()
+        await vaultAccess.unlock(win)
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await assert.rejects(fill())
+      assert.equal((await values())[0], "")
+      dialog.showMessageBox = (async () => {
+        const row = readContacts()[0]
+        await command({ op: "contact-save", contact: { ...row, label: "Changed contact" }, create: false })
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await assert.rejects(fill())
+      assert.equal((await values())[0], "")
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "access", tabID: first, enabled: true })
+      await assert.rejects(fill())
+      await command({ op: "access", tabID: first, enabled: false })
+      stage("international contacts, expiry, deletion and corruption")
+      const row = readContacts()[0]
+      await command({
+        op: "contact-save",
+        create: false,
+        contact: {
+          ...row,
+          values: {
+            name: "\u5c71\u7530 \u592a\u90ce",
+            "address-level1": "\u6771\u4eac\u90fd",
+            "address-level2": "\u65b0\u5bbf\u533a",
+            "postal-code": "160-0022",
+            country: "JP",
+          },
+        },
+      })
+      await reset()
+      await fill()
+      assert.equal((await values())[0], "\u5c71\u7530 \u592a\u90ce")
+      assert.equal((await values())[7], "JP")
+      await reset()
+      await one.view.webContents.executeJavaScriptInIsolatedWorld(999, [
+        {
+          code: prepareContactScript(new URL(url).origin, "expired", ["name"]),
+        },
+      ])
+      await assert.rejects(
+        one.view.webContents.executeJavaScriptInIsolatedWorld(999, [
+          {
+            code: completeContactScript(new URL(url).origin, "expired", { name: "Not delivered" }, 0),
+          },
+        ]),
+      )
+      const encrypted = storage.get("contacts")
+      saveLogins([{ origin: url, username: "unaffected-user", password: "synthetic-unaffected-secret" }])
+      storage.set("contacts", "corrupt")
+      assert.throws(() => readContacts())
+      assert.equal(browserProfile().contactsUnavailable, true)
+      assert.equal(browserProfile().vaultAvailable, true)
+      assert.equal(browserProfile().credentials[0].username, "unaffected-user")
+      await assert.rejects(command({ op: "contact-save", contact, create: false }))
+      assert.equal(storage.get("contacts"), "corrupt")
+      storage.set("contacts", encrypted)
+      vaultAccess.lock()
+      assert(!JSON.stringify(browserProfile()).includes("Changed contact"))
+      await assert.rejects(command({ op: "contact-fill", tabID: first, id: contact.id, revision: row.revision }))
+      await vaultAccess.unlock(win)
+      dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "contact-delete", id: contact.id, revision: readContacts()[0].revision })
+      assert.equal(readContacts().length, 1)
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "contact-delete", id: contact.id, revision: readContacts()[0].revision })
+      assert.deepEqual(readContacts(), [])
+      stage("PASS focused contacts")
+    } finally {
+      vaultAccess.lock()
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
 
   stage("session switching")
   const other = await browserCommand(owner, "other-session", { op: "new" })

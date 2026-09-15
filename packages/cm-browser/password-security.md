@@ -66,6 +66,14 @@ Remaining evidence: actual CredUI success/cancellation and Unicode round-trip, c
 
 Native reference: [Microsoft CredUIPromptForCredentialsW](https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-creduipromptforcredentialsw).
 
+## Contact autofill (#6)
+
+Contacts use OS-encrypted storage, separate from passwords, and the same unlock window. The app renderer receives contact data for editing only while unlocked; the agent browser plugin has no contact API. Explicit native preview lists the exact origin and field values before filling. Supported targets are visible top-frame fields with explicit autocomplete tokens in one unambiguous section/form, same-origin POST destinations, and exact select option values. International parts are preserved without US-specific rearrangement; multiline addresses require a textarea.
+
+The isolated `bun scripts/browser-smoke.ts --contacts` fixture covers encrypted CRUD, stale revisions, corrupt-data preservation without disabling healthy passwords, cancellation, hidden/disabled/ambiguous fields, document/form replacement, navigation, lock/re-unlock, detached views, edits during delivery, and South African/Japanese address shapes. Authentication and dialog choices are simulated, not native UI evidence.
+
+Contact changes are refused during final delivery. Like password filling, an already-dispatched script cannot be recalled on manual lock; its execution deadline is at most five seconds and never exceeds the unlock window. This is not instantaneous revocation. Native long/multiline/RTL preview readability, keyboard interaction and supported macOS/packaged builds still need validation. No browser-security parity claim is made.
+
 ## Multi-step filling
 
 Explicit username-only and password-only actions retain the same exact-origin, vault-grant, visible-field and document-ticket checks. Native consent names the selected field and account. Only the requested field is serialized into the delivery script; username-only filling never sends the saved password. Cross-origin steps and iframe filling remain unsupported. The native fixture verifies both steps, missing-field rejection, and cross-origin form action rejection with synthetic credentials.

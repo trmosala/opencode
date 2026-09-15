@@ -40,6 +40,8 @@ import { invalidateSnapshots } from "./driver"
 import { browserContext, cancelPicker } from "./context"
 import { initializeVaultLocking, vaultAccess } from "./vault-session"
 import { vaultAvailable } from "./vault"
+import { readContacts, saveContact, deleteContact } from "./contacts"
+import { prepareContactScript, completeContactScript } from "./contact-form"
 import { resolveExternalURL } from "../external-url"
 import { linkDestination } from "./link-destination"
 import { saveBookmark, deleteBookmark, transferBookmarks } from "./bookmarks"
@@ -93,6 +95,7 @@ type Owner = {
   suspended: number
   shutting?: boolean
 }
+const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
 const transfers = new Map<string, { item: DownloadItem; owner: Owner; group: Group; download: BrowserDownload }>()
 setBrowserHistoryHandler(async (sessionID, request) => {
@@ -781,6 +784,8 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "settings",
       "forget-login",
       "edit-login",
+      "contact-save",
+      "contact-delete",
       "allow-login-offers",
       "preferences",
       "download-directory",
@@ -869,6 +874,27 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       }
       if (command.op === "edit-login") await editLogin(owner.win, command)
       if (command.op === "forget-login") forgetLogin(command.id)
+      if (command.op === "contact-save") {
+        if (contactDeliveries.has(command.contact?.id)) throw new Error("Contact delivery pending; retry the edit")
+        saveContact(command.contact, command.create)
+      }
+      if (command.op === "contact-delete") {
+        const ticket = vaultAccess.require()
+        const contact = readContacts().find((row) => row.id === command.id && row.revision === command.revision)
+        if (!contact) throw new Error("Contact changed")
+        const answer = await dialog.showMessageBox(owner.win, {
+          type: "warning",
+          message: nativeT("desktop.browser.contacts.delete", { label: contact.label }),
+          buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.clearConfirm")],
+          defaultId: 0,
+          cancelId: 0,
+        })
+        vaultAccess.require(ticket)
+        if (answer.response === 1) {
+          if (contactDeliveries.has(command.id)) throw new Error("Contact delivery pending; retry deletion")
+          deleteContact(command.id, command.revision)
+        }
+      }
       if (command.op === "clear") {
         if (!["history", "cache", "cookies", "passwords", "downloads"].includes(command.kind))
           throw new Error("Invalid data type")
@@ -964,6 +990,103 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         success || /cancel/i.test(reason) ? resolve() : reject(new Error("Print failed")),
       ),
     )
+  } else if (command.op === "contact-fill") {
+    if (tab.loginBusy || owner.suspended) throw new Error("A browser dialog or fill operation is already pending")
+    const ticket = vaultAccess.require()
+    const revision = tab.revision
+    const origin = new URL(contents.getURL()).origin
+    const contact = readContacts().find((row) => row.id === command.id && row.revision === command.revision)
+    if (!contact) throw new Error("Contact changed")
+    const check = (attached = false) => {
+      vaultAccess.require(ticket)
+      if (
+        contents.isDestroyed() ||
+        contents.isLoadingMainFrame() ||
+        tab.revision !== revision ||
+        group.activeID !== tab.id ||
+        owner.viewport?.sessionID !== group.sessionID ||
+        owner.win.isDestroyed() ||
+        !owner.win.isVisible() ||
+        owner.win.isMinimized() ||
+        tab.agentAccess ||
+        (attached && (owner.attached !== tab || owner.suspended !== 0)) ||
+        !readContacts().some((row) => row.id === contact.id && row.revision === contact.revision)
+      )
+        throw new Error("Contact fill requires an unchanged active private tab and contact")
+    }
+    check(true)
+    tab.loginBusy = true
+    tab.accessRevision = (tab.accessRevision ?? 0) + 1
+    const token = randomUUID()
+    const expires = Date.now() + Math.min(120_000, vaultAccess.remaining())
+    try {
+      const keys: string[] = await contents.executeJavaScriptInIsolatedWorld(999, [
+        {
+          code: prepareContactScript(
+            origin,
+            token,
+            Object.keys(contact.values).filter((key) => contact.values[key as keyof typeof contact.values]?.trim()),
+          ),
+        },
+      ])
+      check(true)
+      const values = Object.fromEntries(keys.map((key) => [key, contact.values[key as keyof typeof contact.values]!]))
+      owner.suspended++
+      layout(owner)
+      try {
+        const answer = await dialog.showMessageBox(owner.win, {
+          type: "question",
+          message: nativeT("desktop.browser.contacts.preview"),
+          detail: nativeT("desktop.browser.contacts.detail", {
+            origin,
+            label: contact.label,
+            fields: keys
+              .map(
+                (key) => `${nativeT(`desktop.browser.contacts.${key as keyof typeof contact.values}`)}: ${values[key]}`,
+              )
+              .join("\n"),
+          }),
+          buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.contacts.fill")],
+          defaultId: 0,
+          cancelId: 0,
+        })
+        check()
+        if (answer.response === 1) {
+          owner.suspended--
+          layout(owner)
+          try {
+            check(true)
+            if (contactDeliveries.has(contact.id)) throw new Error("Contact delivery already pending")
+            contactDeliveries.add(contact.id)
+            try {
+              // Dispatched values cannot be recalled; Chromium rejects execution after this short deadline.
+              await contents.executeJavaScriptInIsolatedWorld(999, [
+                {
+                  code: completeContactScript(
+                    origin,
+                    token,
+                    values,
+                    Math.min(expires, Date.now() + Math.min(5000, vaultAccess.remaining())),
+                  ),
+                },
+              ])
+              check(true)
+            } finally {
+              contactDeliveries.delete(contact.id)
+            }
+          } finally {
+            owner.suspended++
+          }
+        }
+      } finally {
+        owner.suspended--
+        layout(owner)
+      }
+    } finally {
+      tab.loginBusy = false
+      tab.revision++
+      invalidateSnapshots(contents)
+    }
   } else if (command.op === "save-login" || command.op === "fill-login") {
     if (tab.loginBusy || owner.suspended) throw new Error("A browser dialog or login operation is already pending")
     const ticket = vaultAccess.require()
