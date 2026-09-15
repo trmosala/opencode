@@ -135,6 +135,7 @@ export type BrowserCommand =
   | { op: "device"; tabID: string; enabled: boolean }
   | { op: "print" | "save-login"; tabID: string }
   | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password" }
+  | { op: "generate-password"; tabID: string; length?: number; symbols?: boolean }
   | { op: "forget-login"; id: string }
   | { op: "edit-login"; origin: string; id?: string }
   | { op: "contact-save"; contact: BrowserContact; create: boolean }

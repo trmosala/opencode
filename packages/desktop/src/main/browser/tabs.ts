@@ -60,7 +60,16 @@ import {
   saveLogins,
 } from "./profile"
 
-import { watchLoginOffers, allowLoginOffers } from "./login-offers"
+import { watchLoginOffers, allowLoginOffers, loginOfferExclusions } from "./login-offers"
+import { loginOrigin } from "./import-data"
+import { readLogins } from "./vault"
+import {
+  passwordOptions,
+  generatePassword,
+  prepareGenerationScript,
+  completeGenerationScript,
+  clearGenerationScript,
+} from "./password-generation"
 import { agentHistory } from "./agent-history"
 import { failure } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
@@ -76,6 +85,7 @@ type Tab = BrowserRegistration & {
   findRequest?: number
   permissionReload?: boolean
   cancelLoginOffer?: () => void
+  readyLoginOffers?: (check: () => void) => Promise<number>
   loginBusy?: boolean
 }
 type Group = {
@@ -94,6 +104,7 @@ type Owner = {
   attached?: Tab
   suspended: number
   shutting?: boolean
+  generationCheck?: () => void
 }
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
@@ -321,6 +332,7 @@ function publish(owner: Owner, group: Group) {
 }
 
 function layout(owner: Owner) {
+  owner.generationCheck?.()
   const viewport = owner.viewport
   const tab =
     viewport &&
@@ -554,10 +566,10 @@ function createTab(
   group.tabs.push(tab)
   group.activeID = tab.id
   const unregister = registerBrowserTab(tab)
-  tab.cancelLoginOffer = watchLoginOffers(
+  const offers = watchLoginOffers(
     owner.win,
     contents,
-    () => owner.attached === tab && !tab.agentAccess,
+    () => owner.attached === tab && owner.win.contentView.children.includes(tab.view) && !tab.agentAccess,
     () => !tab.loginBusy && !owner.suspended,
     (value) => {
       tab.loginBusy = value
@@ -565,6 +577,8 @@ function createTab(
     },
     () => publish(owner, group),
   )
+  tab.cancelLoginOffer = offers.disable
+  tab.readyLoginOffers = offers.ready
   const changed = () => publish(owner, group)
   const invalidate = () => {
     tab.revision++
@@ -1086,6 +1100,166 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       tab.loginBusy = false
       tab.revision++
       invalidateSnapshots(contents)
+    }
+  } else if (command.op === "generate-password") {
+    if (tab.loginBusy || owner.suspended || owner.generationCheck)
+      throw new Error(nativeT("desktop.browser.generation.failed"))
+    const options = (() => {
+      try {
+        return passwordOptions(command)
+      } catch {
+        throw new Error(nativeT("desktop.browser.generation.settings"))
+      }
+    })()
+    if (
+      !browserPreferencesState().offerSaveLogins ||
+      loginOfferExclusions().includes(new URL(contents.getURL()).origin)
+    )
+      throw new Error(nativeT("desktop.browser.generation.offers"))
+    try {
+      const ticket = vaultAccess.require()
+      const origin = loginOrigin(contents.getURL())
+      const revision = tab.revision
+      const viewport = owner.viewport
+      const consent = new AbortController()
+      const expires = Date.now() + Math.min(120_000, vaultAccess.remaining())
+      const accessRevision = (tab.accessRevision ?? 0) + 1
+      tab.accessRevision = accessRevision
+      const check = (attached = false) => {
+        vaultAccess.require(ticket)
+        if (
+          consent.signal.aborted ||
+          Date.now() >= expires ||
+          contents.isDestroyed() ||
+          contents.isLoadingMainFrame() ||
+          tab.revision !== revision ||
+          tab.accessRevision !== accessRevision ||
+          group.activeID !== tab.id ||
+          !group.tabs.includes(tab) ||
+          owner.groups.get(group.sessionID) !== group ||
+          owner.viewport?.sessionID !== group.sessionID ||
+          owner.viewport?.lease !== viewport?.lease ||
+          owner.win.isDestroyed() ||
+          owner.shutting ||
+          !owner.win.isVisible() ||
+          owner.win.isMinimized() ||
+          tab.agentAccess ||
+          loginOrigin(contents.getURL()) !== origin ||
+          !browserPreferencesState().offerSaveLogins ||
+          loginOfferExclusions().includes(origin) ||
+          (attached &&
+            (owner.attached !== tab || owner.suspended !== 0 || !owner.win.contentView.children.includes(tab.view)))
+        )
+          throw new Error("Generation revoked")
+      }
+      check(true)
+      tab.loginBusy = true
+      const token = randomUUID()
+      const revoke = () => consent.abort()
+      const unsubscribe = vaultAccess.subscribe(revoke)
+      const timer = setTimeout(revoke, Math.max(0, expires - Date.now()))
+      contents.on("did-start-navigation", revoke)
+      owner.generationCheck = () => {
+        try {
+          check()
+        } catch {
+          revoke()
+        }
+      }
+      try {
+        const constraints = await contents.executeJavaScriptInIsolatedWorld(999, [
+          { code: prepareGenerationScript(origin, token, expires) },
+        ])
+        check(true)
+        if (
+          !constraints ||
+          typeof constraints !== "object" ||
+          typeof constraints.min !== "number" ||
+          typeof constraints.max !== "number" ||
+          typeof constraints.hasUsername !== "boolean"
+        )
+          throw new Error("Invalid constraints")
+        passwordOptions(options, constraints.min, constraints.max)
+        if (!constraints.hasUsername) {
+          const accounts = readLogins().filter((row) => row.origin === origin)
+          if (
+            !accounts.length ||
+            accounts.length > 5 ||
+            new Set(accounts.map((row) => row.username)).size !== accounts.length ||
+            accounts.some(
+              (row) => !row.username.trim() || row.username.length > 80 || /[\p{Cc}\p{Cf}]/u.test(row.username),
+            )
+          )
+            throw new Error("No usable saved account")
+        }
+        owner.suspended++
+        layout(owner)
+        try {
+          const answer = await dialog.showMessageBox(owner.win, {
+            type: "question",
+            message: nativeT("desktop.browser.generation.title"),
+            detail: nativeT("desktop.browser.generation.detail", {
+              origin,
+              length: options.length,
+              min: constraints.min,
+              max: constraints.max,
+              characters: nativeT(
+                options.symbols ? "desktop.browser.generation.symbols" : "desktop.browser.generation.alphanumeric",
+              ),
+            }),
+            buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.generation.fill")],
+            defaultId: 0,
+            cancelId: 0,
+            signal: consent.signal,
+          })
+          check()
+          if (answer.response === 1) {
+            owner.suspended--
+            layout(owner)
+            try {
+              check(true)
+              const captureUntil = await tab.readyLoginOffers!(() => check(true))
+              check(true)
+              // Arm before fields become submittable; never outlive the acknowledged capture grant.
+              // Dispatched code still cannot be recalled. No generated-secret cache is retained.
+              await contents.executeJavaScriptInIsolatedWorld(999, [
+                {
+                  code: completeGenerationScript(
+                    origin,
+                    token,
+                    generatePassword(options),
+                    Math.min(expires, captureUntil, Date.now() + Math.min(5000, vaultAccess.remaining())),
+                  ),
+                },
+              ])
+              check(true)
+            } finally {
+              owner.suspended++
+            }
+          }
+        } finally {
+          owner.suspended--
+          layout(owner)
+        }
+      } finally {
+        clearTimeout(timer)
+        unsubscribe()
+        contents.removeListener("did-start-navigation", revoke)
+        owner.generationCheck = undefined
+        try {
+          if (!contents.isDestroyed())
+            await contents.executeJavaScriptInIsolatedWorld(999, [{ code: clearGenerationScript(token) }])
+        } catch {
+          // A departed document already discarded its ticket.
+        } finally {
+          tab.loginBusy = false
+          tab.revision++
+          invalidateSnapshots(contents)
+        }
+      }
+    } catch {
+      // Never forward a page exception or secret-bearing execution details to app IPC.
+      throw new Error(nativeT("desktop.browser.generation.failed"))
     }
   } else if (command.op === "save-login" || command.op === "fill-login") {
     if (tab.loginBusy || owner.suspended) throw new Error("A browser dialog or login operation is already pending")

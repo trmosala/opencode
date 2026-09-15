@@ -100,6 +100,8 @@ export function BrowserTools(props: {
   const [state, setState] = createStore({
     query: "",
     accountOrigin: "",
+    generationLength: 20,
+    generationSymbols: true,
     busy: false,
     range: "all" as BrowserClearRange,
     kinds: ["history"] as BrowserClearKind[],
@@ -284,6 +286,51 @@ export function BrowserTools(props: {
         >
           {language.t("browser.passwords.save")}
         </Button>
+        <form
+          class="flex flex-wrap items-center gap-2 my-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (props.tab)
+              void run({
+                op: "generate-password",
+                tabID: props.tab.id,
+                length: state.generationLength,
+                symbols: state.generationSymbols,
+              })
+          }}
+        >
+          <label class="flex items-center gap-2">
+            {language.t("browser.passwords.generateLength")}
+            <input
+              type="number"
+              min={16}
+              max={64}
+              step={1}
+              required
+              class="w-16 border border-border-weak-base rounded px-2 py-1"
+              value={state.generationLength}
+              onInput={(event) => setState("generationLength", event.currentTarget.valueAsNumber)}
+            />
+          </label>
+          <label class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={state.generationSymbols}
+              onChange={(event) => setState("generationSymbols", event.currentTarget.checked)}
+            />
+            {language.t("browser.passwords.generateSymbols")}
+          </label>
+          <Button
+            type="submit"
+            size="small"
+            disabled={
+              state.busy || !props.tab || props.tab.agentAccess || props.tabs.profile?.vaultStatus !== "unlocked"
+            }
+          >
+            {language.t("browser.passwords.generate")}
+          </Button>
+          <p class="w-full text-text-weak">{language.t("browser.passwords.generateHelp")}</p>
+        </form>
         <Show when={props.tabs.profile?.vaultStatus === "unlocked"}>
           <p class="my-2 text-text-weak">{language.t("browser.passwords.entryHelp")}</p>
           <Show when={props.tabs.profile?.loginEntryAvailable}>

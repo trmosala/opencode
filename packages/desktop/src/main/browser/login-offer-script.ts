@@ -1,4 +1,4 @@
-import { loginVisibility } from "./login-form"
+import { loginVisibility, loginFormElements } from "./login-form"
 
 // Installed in a dedicated isolated world; page scripts cannot access the binding or controller.
 export function loginOfferScript(binding: string) {
@@ -13,8 +13,9 @@ export function loginOfferScript(binding: string) {
       if (performance.now() - gesture > 1500 || Date.now() >= state.until || !isSecureContext || top !== self) return
       const form = event.target
       if (!(form instanceof HTMLFormElement) || form !== gestureForm || form.method !== 'post' || new URL(form.action).origin !== location.origin) return
-      if ([...form.elements].some(el => el.hasAttribute('formaction') && new URL(el.formAction).origin !== location.origin || el.hasAttribute('formmethod') && el.formMethod !== 'post')) return
-      const fields = [...form.elements].filter(el => el instanceof HTMLInputElement)
+      const elements = ${loginFormElements}
+      if (elements.some(el => el.hasAttribute('formaction') && new URL(el.formAction).origin !== location.origin || el.hasAttribute('formmethod') && el.formMethod !== 'post')) return
+      const fields = elements.filter(el => el instanceof HTMLInputElement)
       const marked = (el, token) => el.autocomplete.split(/\\s+/).includes(token)
       const passwords = fields.filter(el => el.type === 'password' || marked(el, 'new-password') || marked(el, 'current-password'))
       // Revealed credential fields remain credentials, never username candidates.

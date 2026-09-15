@@ -311,6 +311,802 @@ async function run() {
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
 
+  if (process.argv.includes("--generation")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    const contents = one.view.webContents
+    const execute = contents.executeJavaScriptInIsolatedWorld.bind(contents)
+    const origin = new URL(url).origin
+    const user = '<input autocomplete="username" value="generated-account">'
+    const next = '<input type="password" autocomplete="new-password">'
+    const current = '<input type="password" autocomplete="current-password" value="fixture-current-secret">'
+    const secrets: string[] = []
+    const dialogErrors: unknown[] = []
+    let dialogs = 0
+    let deliveries = 0
+    let bindings = 0
+    let captureMessages = 0
+    let currentLeaks = 0
+    let offerContext = 0
+    let answer: (options: Electron.MessageBoxOptions) => Promise<number> = async () => 1
+    let intercept: (() => Promise<void>) | undefined
+    const observe = (
+      _event: unknown,
+      method: string,
+      params: {
+        context?: { id: number; name: string }
+        name?: string
+        payload?: string
+      },
+    ) => {
+      if (method === "Runtime.executionContextCreated" && params.context?.name.startsWith("CookieMonster login offers"))
+        offerContext = params.context.id
+      if (method !== "Runtime.bindingCalled" || !params.name?.startsWith("cmLoginOffer")) return
+      captureMessages++
+      if (params.payload !== "null") bindings++
+      if (params.payload?.includes("fixture-current-secret")) currentLeaks++
+    }
+    contents.debugger.on("message", observe)
+    contents.executeJavaScriptInIsolatedWorld = (async (world, scripts, ...rest) => {
+      if (scripts[0]?.code.includes("const password = ")) {
+        deliveries++
+        await intercept?.()
+      }
+      const result = await execute(world, scripts, ...rest)
+      if (scripts[0]?.code.includes("return { min, max, hasUsername:"))
+        assert.deepEqual(Object.keys(result).sort(), ["hasUsername", "max", "min"])
+      return result
+    }) as typeof contents.executeJavaScriptInIsolatedWorld
+    const isolated = (code: string) => execute(999, [{ code }])
+    const form = async (fields = user + next + next, attributes = 'method="post"') => {
+      await contents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(`<form ${attributes}>${fields}<button>Submit</button></form>`)};
+        window.submissions = 0; window.fillEvents = 0; window.atomic = true;
+        document.querySelector('form').onsubmit = event => { event.preventDefault(); window.submissions++; event.target.remove() };
+        document.addEventListener('input', () => {
+          window.fillEvents++;
+          const values = [...document.querySelectorAll('input[autocomplete="new-password"]')].map(el => el.value);
+          window.atomic &&= values.every(value => value === values[0]);
+        }, { once: true }); true`)
+    }
+    const generate = (settings: Record<string, unknown> = {}) =>
+      command({ op: "generate-password", tabID: first, ...settings })
+    const clean = async () => {
+      assert.equal(one.loginBusy, false)
+      assert.equal(owner.suspended, 0)
+      assert.equal(owner.generationCheck, undefined)
+      assert.equal(await isolated("!!document.__cmLoginTicket"), false)
+    }
+    const unchanged = async () => {
+      assert(
+        await contents.executeJavaScript(
+          "[...document.querySelectorAll('input[autocomplete=\"new-password\"]')].every(el => el.value === '')",
+        ),
+        "Rejected generation does not change either field",
+      )
+      assert.equal(await contents.executeJavaScript("window.fillEvents"), 0)
+      assert.equal(await contents.executeJavaScript("window.submissions"), 0)
+      await clean()
+    }
+    const submit = async (waitForOffer = false) => {
+      // Only raw, non-generated offer fixtures need installation; generation must hand off ready.
+      if (waitForOffer)
+        await wait(async () => {
+          if (!offerContext) return false
+          const result = await contents.debugger.sendCommand("Runtime.evaluate", {
+            contextId: offerContext,
+            expression: "globalThis.__cmOffers?.until > Date.now()",
+            returnByValue: true,
+          })
+          return result.result.value === true
+        })
+      const point = await contents.executeJavaScript(
+        "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()",
+      )
+      contents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+      contents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+      await wait(() => contents.executeJavaScript("window.submissions === 1"))
+    }
+    try {
+      vaultAuthentication.verify = async () => {}
+      await command({ op: "unlock-vault" })
+      await command({ op: "preferences", values: { offerSaveLogins: true } })
+      dialog.showMessageBox = (async (_win, options) => {
+        try {
+          assert(options)
+          assert.equal(options.defaultId, 0)
+          assert.equal(options.cancelId, 0)
+          assert(options.signal)
+          assert(options.detail?.includes(origin))
+          assert(!JSON.stringify(options).includes("fixture-current-secret"))
+          assert(secrets.every((secret) => !JSON.stringify(options).includes(secret)))
+          dialogs++
+          return { response: await answer(options), checkboxChecked: false }
+        } catch (error) {
+          dialogErrors.push(error)
+          return { response: 0, checkboxChecked: false }
+        }
+      }) as typeof dialog.showMessageBox
+
+      const handoffFailures: string[] = []
+      stage("generation handoff: capture survives pending cleanup beyond the original grant")
+      await form()
+      const cleanupExecute = contents.executeJavaScriptInIsolatedWorld
+      const cleanupAccounts = readLogins()
+      let releaseCleanup!: () => void
+      const cleanupGate = new Promise<void>((resolve) => {
+        releaseCleanup = resolve
+      })
+      let cleaning = false
+      let settled = false
+      let cleanupConsent: ((value: number) => void) | undefined
+      contents.executeJavaScriptInIsolatedWorld = (async (world, scripts, ...rest) => {
+        if (scripts[0]?.code.startsWith("if (document.__cmLoginTicket?.token === ")) {
+          cleaning = true
+          await cleanupGate
+        }
+        return cleanupExecute(world, scripts, ...rest)
+      }) as typeof contents.executeJavaScriptInIsolatedWorld
+      const generation = generate().finally(() => {
+        settled = true
+      })
+      try {
+        await wait(() => cleaning)
+        const generated: string = await contents.executeJavaScript(
+          "document.querySelector('input[autocomplete=new-password]').value",
+        )
+        secrets.push(generated)
+        assert.equal(generated.length, 20)
+        answer = async () =>
+          new Promise<number>((resolve) => {
+            cleanupConsent = resolve
+          })
+        // Delay the real cleanup, not submission until a fixture-observed capture grant.
+        await new Promise((resolve) => setTimeout(resolve, 1200))
+        assert(
+          !settled && one.loginBusy,
+          "Generation remains pending and serialized past the original one-second grant",
+        )
+        const before = bindings
+        const messages = captureMessages
+        await submit()
+        await wait(() => captureMessages > messages)
+        if (bindings === before) handoffFailures.push("capture expired during pending generation cleanup")
+        await new Promise((resolve) => setTimeout(resolve, 1700))
+        assert(!settled && one.loginBusy && !cleanupConsent, "Capture renewal must not prompt while generation is busy")
+        assert(JSON.stringify(readLogins()) === JSON.stringify(cleanupAccounts), "No save before separate consent")
+        releaseCleanup()
+        await generation
+        if (bindings > before) {
+          await wait(() => !!cleanupConsent)
+          assert(JSON.stringify(readLogins()) === JSON.stringify(cleanupAccounts), "Showing an offer never saves")
+          cleanupConsent!(1)
+          await wait(() => !one.loginBusy)
+          assert(
+            readLogins().some(
+              (row) => row.origin === origin && row.username === "generated-account" && row.password === generated,
+            ),
+            "Pending-cleanup submission saves exactly the generated password after consent",
+          )
+        }
+      } finally {
+        releaseCleanup()
+        cleanupConsent?.(0)
+        await generation
+        contents.executeJavaScriptInIsolatedWorld = cleanupExecute
+        writeLogins(cleanupAccounts)
+        answer = async () => 1
+      }
+
+      stage("generation handoff: background acknowledgement cannot erase a navigated submission")
+      await form()
+      await contents.executeJavaScript(
+        `document.querySelector('form').action = ${JSON.stringify(url + "generation-success")}; document.querySelector('form').onsubmit = null; true`,
+      )
+      await generate()
+      const navigatedSecret: string = await contents.executeJavaScript(
+        "document.querySelector('input[autocomplete=new-password]').value",
+      )
+      secrets.push(navigatedSecret)
+      const navigationAccounts = readLogins()
+      const backgroundSend = contents.debugger.sendCommand.bind(contents.debugger)
+      let releaseBackground!: () => void
+      const backgroundGate = new Promise<void>((resolve) => {
+        releaseBackground = resolve
+      })
+      let backgroundHeld = false
+      let navigationConsent: ((value: number) => void) | undefined
+      answer = async () =>
+        new Promise<number>((resolve) => {
+          navigationConsent = resolve
+        })
+      contents.debugger.sendCommand = (async (method, params, ...rest) => {
+        const result = await backgroundSend(method, params, ...rest)
+        if (
+          !backgroundHeld &&
+          !one.loginBusy &&
+          method === "Runtime.evaluate" &&
+          params?.expression?.startsWith("globalThis.__cmOffers.until = ")
+        ) {
+          backgroundHeld = true
+          await backgroundGate
+        }
+        return result
+      }) as typeof contents.debugger.sendCommand
+      try {
+        // Hold a real BACKGROUND response after Chromium arms it; never call generation readiness here.
+        await wait(() => backgroundHeld)
+        assert(!one.loginBusy, "The intercepted acknowledgement belongs to background renewal")
+        const before = bindings
+        const point = await contents.executeJavaScript(
+          "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()",
+        )
+        contents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+        contents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+        await wait(() => contents.getURL() === url + "generation-success" && !contents.isLoading())
+        assert(bindings > before, "Trusted submission reaches the real binding before same-origin navigation")
+        assert.equal(Boolean(navigationConsent), false)
+        assert(JSON.stringify(readLogins()) === JSON.stringify(navigationAccounts))
+        releaseBackground()
+        await wait(() => !!navigationConsent).catch(() => {
+          handoffFailures.push("stale background acknowledgement erased same-origin submission")
+        })
+        if (navigationConsent) {
+          assert(
+            JSON.stringify(readLogins()) === JSON.stringify(navigationAccounts),
+            "Navigation never replaces save consent",
+          )
+          navigationConsent(1)
+          await wait(() => !one.loginBusy)
+          assert(
+            readLogins().some(
+              (row) =>
+                row.origin === origin && row.username === "generated-account" && row.password === navigatedSecret,
+            ),
+            "Navigated submission saves exactly the generated password after consent",
+          )
+        }
+      } finally {
+        releaseBackground()
+        navigationConsent?.(0)
+        contents.debugger.sendCommand = backgroundSend
+        writeLogins(navigationAccounts)
+        answer = async () => 1
+        await contents.loadURL(url)
+      }
+      assert.deepEqual(handoffFailures, [], "Watcher handoff races preserve submitted credentials and separate consent")
+
+      stage("generation handoff: superseded installation is reinstalled before rearming")
+      let installRevoked = false
+      let installedAfterRevocation = false
+      let prematureArm = false
+      contents.debugger.sendCommand = (async (method, params, ...rest) => {
+        if (!installRevoked && method === "Runtime.addBinding" && params?.name?.startsWith("cmLoginOffer")) {
+          installRevoked = true
+          vaultAccess.lock()
+          await vaultAccess.unlock(win)
+        }
+        if (installRevoked && method === "Runtime.evaluate") {
+          if (params?.expression?.includes("const state = globalThis.__cmOffers = ")) installedAfterRevocation = true
+          if (params?.expression?.startsWith("globalThis.__cmOffers.until = ") && !installedAfterRevocation)
+            prematureArm = true
+        }
+        return backgroundSend(method, params, ...rest)
+      }) as typeof contents.debugger.sendCommand
+      try {
+        await contents.loadURL(url)
+        await wait(() => installRevoked)
+        await wait(() => installedAfterRevocation)
+        assert(!prematureArm, "A superseded partial installation is discarded before capture is rearmed")
+        await form()
+        await generate()
+        await clean()
+      } finally {
+        contents.debugger.sendCommand = backgroundSend
+      }
+
+      stage("generation: review regressions")
+      const reviewFailures: string[] = []
+      for (const [label, setup, mutation] of [
+        [
+          "internal image action",
+          "document.querySelector('form').insertAdjacentHTML('beforeend', '<input type=image formaction=https://other.example>')",
+          "",
+        ],
+        [
+          "external image method",
+          "document.querySelector('form').id = 'generation'; document.body.insertAdjacentHTML('beforeend', '<input type=image form=generation formmethod=get>')",
+          "",
+        ],
+        [
+          "image action mutation",
+          "document.querySelector('form').insertAdjacentHTML('beforeend', '<input type=image>')",
+          "document.querySelector('input[type=image]').formAction = 'https://other.example'",
+        ],
+        [
+          "external image identity",
+          "document.querySelector('form').id = 'generation'; document.body.insertAdjacentHTML('beforeend', '<input type=image form=generation>')",
+          "document.querySelector('input[type=image]').replaceWith(document.querySelector('input[type=image]').cloneNode())",
+        ],
+        [
+          "image effective destination",
+          "document.querySelector('form').insertAdjacentHTML('beforeend', '<input type=image formaction=relative>')",
+          "document.head.insertAdjacentHTML('beforeend', '<base href=/changed/>')",
+        ],
+        [
+          "disabled fieldset",
+          "document.querySelector('form').insertAdjacentHTML('afterbegin', '<fieldset disabled></fieldset>'); document.querySelector('fieldset').append(...document.querySelectorAll('input[autocomplete=new-password]'))",
+          "",
+        ],
+        [
+          "fieldset mutation",
+          "document.querySelector('form').insertAdjacentHTML('afterbegin', '<fieldset></fieldset>'); document.querySelector('fieldset').append(...document.querySelectorAll('input[autocomplete=new-password]'))",
+          "document.querySelector('fieldset').disabled = true",
+        ],
+        ["detached view", "", ""],
+      ]) {
+        stage(`generation review: ${label}`)
+        await form()
+        if (setup) await contents.executeJavaScript(`${setup}; true`)
+        answer = async () => {
+          if (mutation) await contents.executeJavaScript(`${mutation}; true`)
+          return 1
+        }
+        if (label === "detached view") win.contentView.removeChildView(one.view)
+        let rejected = false
+        try {
+          await generate()
+        } catch {
+          rejected = true
+        } finally {
+          if (!win.contentView.children.includes(one.view)) win.contentView.addChildView(one.view)
+          await contents.executeJavaScript("document.querySelector('base')?.remove(); true")
+        }
+        if (!rejected) reviewFailures.push(label)
+        else await unchanged()
+      }
+      answer = async () => 1
+      stage("generation review: immediate submission without watcher wait")
+      for (const response of [0, 1]) {
+        await form()
+        await contents.executeJavaScript(`document.querySelector('form').addEventListener('submit', event => {
+          window.submittedPassword = event.target.querySelector('input[autocomplete=new-password]').value
+        }, true); true`)
+        const instantPoint = await contents.executeJavaScript(
+          "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()",
+        )
+        const instantBindings = bindings
+        const instantAccounts = readLogins()
+        const instantDialogs = dialogs
+        answer = async () => 1
+        await generate()
+        answer = async () => {
+          assert(
+            JSON.stringify(readLogins()) === JSON.stringify(instantAccounts),
+            "Immediate submission still requires save consent",
+          )
+          return response
+        }
+        contents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...instantPoint })
+        contents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...instantPoint })
+        await wait(() => contents.executeJavaScript("window.submissions === 1"))
+        if (bindings === instantBindings) reviewFailures.push("immediate submission capture")
+        else {
+          await wait(() => dialogs > instantDialogs + 1 && !one.loginBusy)
+          if (response === 1) {
+            const submitted: string = await contents.executeJavaScript("window.submittedPassword")
+            assert(
+              submitted.length === 20 &&
+                readLogins().some(
+                  (row) => row.origin === origin && row.username === "generated-account" && row.password === submitted,
+                ),
+              "Immediate successful submission saves exactly the generated password after consent",
+            )
+          } else assert(JSON.stringify(readLogins()) === JSON.stringify(instantAccounts), "Cancellation never saves")
+        }
+        writeLogins(instantAccounts)
+      }
+      stage("generation review: offer capture rejects image overrides and disabled fields")
+      for (const [label, setup] of [
+        [
+          "offer internal image",
+          "document.querySelector('form').insertAdjacentHTML('beforeend', '<input type=image formaction=https://other.example>')",
+        ],
+        [
+          "offer external image",
+          "document.querySelector('form').id = 'generation'; document.body.insertAdjacentHTML('beforeend', '<input type=image form=generation formmethod=get>')",
+        ],
+        [
+          "offer disabled fieldset",
+          "document.querySelector('form').insertAdjacentHTML('afterbegin', '<fieldset disabled></fieldset>'); document.querySelector('fieldset').append(...document.querySelectorAll('input[autocomplete=new-password]'))",
+        ],
+      ]) {
+        await form()
+        await contents.executeJavaScript(
+          `document.querySelectorAll('input[autocomplete=new-password]').forEach(el => el.value = 'fixture-review-secret'); ${setup}; true`,
+        )
+        const before = bindings
+        const messages = captureMessages
+        await submit(true)
+        await wait(() => captureMessages > messages)
+        if (bindings !== before) reviewFailures.push(label)
+      }
+      assert.deepEqual(
+        reviewFailures,
+        [],
+        "Review regressions must reject unsafe delivery and capture immediate submission",
+      )
+      answer = async () => 1
+
+      stage("generation review: first legend remains enabled, later legends do not")
+      await form(user + "<fieldset disabled><legend>" + next + next + "</legend></fieldset>")
+      await generate()
+      assert(
+        await contents.executeJavaScript(
+          "[...document.querySelectorAll('input[autocomplete=new-password]')].every(el => !el.matches(':disabled') && el.value.length === 20)",
+        ),
+      )
+      await clean()
+      await form(user + "<fieldset disabled><legend>First</legend><legend>" + next + next + "</legend></fieldset>")
+      await assert.rejects(generate())
+      await unchanged()
+
+      stage("generation review: revocation while acknowledging capture readiness")
+      const sendCommand = contents.debugger.sendCommand.bind(contents.debugger)
+      for (const reason of ["lock", "tab", "detached", "offers", "failure"]) {
+        await form()
+        const before = deliveries
+        let intercepted = false
+        contents.debugger.sendCommand = (async (method, params, ...rest) => {
+          if (
+            !intercepted &&
+            one.loginBusy &&
+            owner.suspended === 0 &&
+            method === "Runtime.evaluate" &&
+            params?.expression?.startsWith("globalThis.__cmOffers.until = ")
+          ) {
+            intercepted = true
+            if (reason === "lock") {
+              vaultAccess.lock()
+              await vaultAccess.unlock(win)
+            }
+            if (reason === "tab") {
+              await command({ op: "new" })
+              await command({ op: "select", tabID: first })
+            }
+            if (reason === "detached") win.contentView.removeChildView(one.view)
+            if (reason === "offers") await command({ op: "preferences", values: { offerSaveLogins: false } })
+            if (reason === "failure") throw new Error("Fixture capture acknowledgement failure")
+          }
+          return sendCommand(method, params, ...rest)
+        }) as typeof contents.debugger.sendCommand
+        try {
+          await assert.rejects(generate())
+          assert(intercepted, "Readiness revocation reaches the production CDP handoff")
+          assert.equal(deliveries, before, "No credential dispatch after readiness revocation")
+          await unchanged()
+        } finally {
+          contents.debugger.sendCommand = sendCommand
+          if (!win.contentView.children.includes(one.view)) win.contentView.addChildView(one.view)
+          await command({ op: "preferences", values: { offerSaveLogins: true } })
+        }
+      }
+
+      stage("generation: matching registration and change, separate submission and final consent")
+      for (const change of [false, true]) {
+        const before = readLogins()
+        const captures = bindings
+        await form(user + (change ? current : "") + next + next)
+        const result = await generate(change ? { length: 24, symbols: false } : {})
+        const generated: string = await contents.executeJavaScript(
+          'document.querySelector("input[autocomplete=new-password]").value',
+        )
+        secrets.push(generated)
+        assert(generated.length === (change ? 24 : 20))
+        assert(change ? /^[a-zA-Z0-9]+$/.test(generated) : /[^a-zA-Z0-9]/.test(generated))
+        assert(
+          await contents.executeJavaScript(
+            "[...document.querySelectorAll('input[autocomplete=new-password]')].every(el => el.value === document.querySelector('input[autocomplete=new-password]').value) && window.atomic",
+          ),
+        )
+        if (change)
+          assert(
+            await contents.executeJavaScript(
+              "document.querySelector('input[autocomplete=current-password]').value === 'fixture-current-secret'",
+            ),
+          )
+        assert.equal(await contents.executeJavaScript("window.submissions"), 0)
+        assert.equal(bindings, captures, "Filling does not capture or save")
+        assert(JSON.stringify(readLogins()) === JSON.stringify(before), "No persistence at fill")
+        assert(!JSON.stringify(result).includes(generated), "Renderer response is secret-free")
+        assert(!JSON.stringify(browserProfile()).includes(generated))
+        assert(!JSON.stringify(await route({ op: "read_state", tabID: first })).includes(generated))
+        await clean()
+        let finish: ((value: number) => void) | undefined
+        answer = async () =>
+          new Promise<number>((resolve) => {
+            finish = resolve
+          })
+        await submit()
+        await wait(() => !!finish)
+        assert(JSON.stringify(readLogins()) === JSON.stringify(before), "User submission still requires final consent")
+        finish!(1)
+        await wait(() =>
+          readLogins().some(
+            (row) => row.origin === origin && row.username === "generated-account" && row.password === generated,
+          ),
+        )
+        await wait(() => !one.loginBusy)
+        assert(!readFileSync(join(profile!, "profile", "cm-browser"), "utf8").includes(generated))
+        answer = async () => 1
+      }
+
+      stage("generation: username-free change requires account selection and separate final consent")
+      await form(current + next + next)
+      const priorAccounts = JSON.stringify(readLogins())
+      await generate()
+      const selectedSecret: string = await contents.executeJavaScript(
+        "document.querySelector('input[autocomplete=new-password]').value",
+      )
+      secrets.push(selectedSecret)
+      assert(JSON.stringify(readLogins()) === priorAccounts)
+      let selectionCalls = 0
+      let confirm: ((value: number) => void) | undefined
+      answer = async () => {
+        selectionCalls++
+        if (selectionCalls === 1) return 1
+        return new Promise<number>((resolve) => {
+          confirm = resolve
+        })
+      }
+      await submit()
+      await wait(() => !!confirm)
+      assert.equal(selectionCalls, 2)
+      assert(JSON.stringify(readLogins()) === priorAccounts, "Selection is not save consent")
+      confirm!(1)
+      await wait(() =>
+        readLogins().some(
+          (row) => row.origin === origin && row.username === "generated-account" && row.password === selectedSecret,
+        ),
+      )
+      await wait(() => !one.loginBusy)
+      answer = async () => 1
+
+      stage("generation: one field, intersected length limits and final save cancellation")
+      await form(
+        user +
+          next.replace(">", ' minlength="24" maxlength="28">') +
+          next.replace(">", ' minlength="20" maxlength="24">'),
+      )
+      await assert.rejects(generate())
+      await unchanged()
+      await generate({ length: 24 })
+      await clean()
+      await form(user + next)
+      const saved = JSON.stringify(readLogins())
+      await generate({ length: 16, symbols: false })
+      answer = async () => 0
+      const offered = dialogs
+      await submit()
+      await wait(() => dialogs > offered && !one.loginBusy)
+      assert(JSON.stringify(readLogins()) === saved, "Cancelling final save preserves saved password")
+      answer = async () => 1
+
+      stage("generation: invalid settings and unsupported forms never dispatch a password")
+      for (const settings of [{ length: 15 }, { length: 65 }, { length: 20.5 }, { length: "20" }, { symbols: "yes" }]) {
+        await form()
+        const before = deliveries
+        await assert.rejects(generate(settings))
+        assert.equal(deliveries, before)
+        await unchanged()
+      }
+      for (const fields of [
+        user + next.replace(">", ' maxlength="15">'),
+        user + next.replace(">", ' minlength="65">'),
+        user + next.replace(">", ' minlength="invalid">'),
+        user + next.replace(">", ' pattern=".*">'),
+        user + next.replace('type="password"', 'type="text"'),
+        user + current.replace('type="password"', 'type="text"') + next,
+        user + next.replace(">", " hidden>"),
+        user + next.replace(">", " readonly>"),
+        user + next.replace(">", " disabled>"),
+        user + next + next + next,
+        user + current + current + next,
+        user + next + '<input type="password">',
+        user + user + next,
+        user + next + next.replace(">", ' value="mismatch">'),
+        user + next + '<button formaction="https://other.example">Other</button>',
+        user + next + '<button formmethod="get">Other</button>',
+      ]) {
+        await form(fields)
+        const before = deliveries
+        await assert.rejects(generate())
+        assert.equal(deliveries, before)
+        assert.equal(await contents.executeJavaScript("window.fillEvents"), 0)
+        await clean()
+      }
+      for (const attributes of ['method="get"', 'method="post" action="https://other.example"']) {
+        await form(user + next, attributes)
+        await assert.rejects(generate())
+        await unchanged()
+      }
+      await form()
+      await contents.executeJavaScript(
+        "document.querySelector('input[autocomplete=new-password]').setCustomValidity('unsupported'); true",
+      )
+      await assert.rejects(generate())
+      await unchanged()
+
+      stage("generation: preferences, excluded origins and missing accounts")
+      await form()
+      await command({ op: "preferences", values: { offerSaveLogins: false } })
+      await assert.rejects(generate())
+      assert.equal(browserPreferencesState().offerSaveLogins, false)
+      await unchanged()
+      await command({ op: "preferences", values: { offerSaveLogins: true } })
+      getStore("cm-browser").set("loginOfferExclusions", [origin])
+      await assert.rejects(generate())
+      assert.deepEqual(getStore("cm-browser").get("loginOfferExclusions"), [origin])
+      await unchanged()
+      await command({ op: "allow-login-offers", origin })
+      const accounts = readLogins()
+      writeLogins([])
+      await form(current + next + next)
+      await assert.rejects(generate())
+      await unchanged()
+      writeLogins(accounts)
+
+      stage("generation: cancel, lock/reunlock, tab, navigation, viewport and access revocation")
+      for (const reason of [
+        "cancel",
+        "lock",
+        "tab",
+        "navigation",
+        "viewport",
+        "session",
+        "access",
+        "offers",
+        "expiry",
+      ]) {
+        stage(`generation: ${reason}`)
+        await form()
+        answer = async (options) => {
+          if (reason === "lock") {
+            vaultAccess.lock()
+            await vaultAccess.unlock(win)
+          }
+          if (reason === "tab") {
+            await command({ op: "new" })
+            await command({ op: "select", tabID: first })
+          }
+          if (reason === "navigation") await contents.loadURL(url)
+          if (reason === "viewport") {
+            browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: null })
+            browserViewport(owner, {
+              sessionID: "smoke",
+              lease: "first",
+              bounds: { x: 0, y: 100, width: 800, height: 500 },
+            })
+          }
+          if (reason === "session") {
+            await browserCommand(owner, "generation-other", { op: "state" })
+            browserViewport(owner, {
+              sessionID: "generation-other",
+              lease: "other",
+              bounds: { x: 0, y: 100, width: 800, height: 500 },
+            })
+            browserViewport(owner, {
+              sessionID: "smoke",
+              lease: "first",
+              bounds: { x: 0, y: 100, width: 800, height: 500 },
+            })
+          }
+          if (reason === "access") await command({ op: "access", tabID: first, enabled: false })
+          if (reason === "offers") await command({ op: "preferences", values: { offerSaveLogins: false } })
+          if (reason === "expiry") await isolated("document.__cmLoginTicket.expires = 0; true")
+          if (["lock", "tab", "navigation", "viewport", "session"].includes(reason)) assert(options.signal?.aborted)
+          return reason === "cancel" ? 0 : 1
+        }
+        const before = deliveries
+        if (reason === "cancel") await generate()
+        else await assert.rejects(generate())
+        if (reason !== "expiry") assert.equal(deliveries, before)
+        if (reason === "navigation") await form()
+        await unchanged()
+        await command({ op: "preferences", values: { offerSaveLogins: true } })
+      }
+
+      stage("generation: pre-consent identity/value/constraint changes reject atomically")
+      for (const mutation of [
+        "document.querySelector('input[autocomplete=new-password]').replaceWith(document.querySelector('input[autocomplete=new-password]').cloneNode())",
+        "document.querySelector('form').replaceWith(document.querySelector('form').cloneNode(true))",
+        "document.querySelector('input').value = 'different-account'",
+        "document.querySelector('input[autocomplete=new-password]').type = 'text'",
+        "document.querySelector('input[autocomplete=new-password]').hidden = true",
+        "document.querySelector('input[autocomplete=new-password]').maxLength = 21",
+        "document.querySelector('input[autocomplete=new-password]').setCustomValidity('changed')",
+        "document.querySelector('form').action = '/other'",
+        "document.querySelector('form').action = 'https://other.example'",
+        "document.querySelector('form').method = 'get'",
+        "document.querySelector('button').formAction = 'https://other.example'",
+      ]) {
+        await form()
+        answer = async () => {
+          await contents.executeJavaScript(`${mutation}; true`)
+          return 1
+        }
+        await assert.rejects(generate())
+        await unchanged()
+      }
+
+      stage("generation: queued delivery mutation/expiry, concurrent agent access and generation")
+      answer = async () => 1
+      for (const mutation of [
+        "document.querySelectorAll('input[autocomplete=new-password]')[1].value = 'user-edit'",
+        "document.__cmLoginTicket.expires = 0",
+      ]) {
+        await form()
+        intercept = async () => {
+          await isolated(`${mutation}; true`)
+        }
+        await assert.rejects(generate())
+        assert(
+          await contents.executeJavaScript("document.querySelector('input[autocomplete=new-password]').value === ''"),
+        )
+        assert.equal(await contents.executeJavaScript("window.fillEvents"), 0)
+        await clean()
+      }
+      stage("generation: dispatched execution expires within five seconds")
+      await form()
+      intercept = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5100))
+      }
+      await assert.rejects(generate())
+      await unchanged()
+      intercept = async () => {
+        await assert.rejects(command({ op: "access", tabID: first, enabled: true }))
+        await assert.rejects(generate())
+      }
+      await form()
+      await generate()
+      await clean()
+      intercept = async () => {
+        vaultAccess.lock()
+        await vaultAccess.unlock(win)
+      }
+      await form()
+      await assert.rejects(generate())
+      // Dispatch cannot be recalled. A result error is not a guarantee the already-authorized page stayed unchanged.
+      assert.equal(await contents.executeJavaScript("window.submissions"), 0)
+      assert(JSON.stringify(readLogins()) === saved)
+      await clean()
+      intercept = undefined
+      await form()
+      vaultAccess.lock()
+      await assert.rejects(generate())
+      await unchanged()
+      await vaultAccess.unlock(win)
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "access", tabID: first, enabled: true })
+      assert(one.agentAccess)
+      const before = deliveries
+      await assert.rejects(generate())
+      assert.equal(deliveries, before)
+      await unchanged()
+      assert.equal(currentLeaks, 0)
+      assert.deepEqual(dialogErrors, [])
+      stage("PASS focused generation")
+    } finally {
+      intercept = undefined
+      contents.executeJavaScriptInIsolatedWorld = execute
+      contents.debugger.removeListener("message", observe)
+      vaultAccess.lock()
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
+
   if (process.argv.includes("--registration")) {
     const verify = vaultAuthentication.verify
     const consent = dialog.showMessageBox

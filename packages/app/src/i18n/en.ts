@@ -113,6 +113,11 @@ export const browser = {
   "browser.contacts.address-level4": "Neighborhood",
   "browser.contacts.postal-code": "Postal code",
   "browser.contacts.country": "Country code",
+  "browser.passwords.generate": "Generate password",
+  "browser.passwords.generateLength": "Password length (16-64)",
+  "browser.passwords.generateSymbols": "Include symbols",
+  "browser.passwords.generateHelp":
+    "Fill explicit new-password fields after native confirmation. Submit on the website yourself, then confirm saving. Save offers must be enabled for this site. Site length limits are checked; pattern and custom-validation rules are unsupported.",
   "browser.passwords.search": "Search websites and usernames",
   "browser.passwords.create": "Add account",
   "browser.passwords.edit": "Edit account",

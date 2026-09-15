@@ -1,7 +1,10 @@
 import type { BrowserLogin } from "./import-data"
 
+// HTMLFormControlsCollection omits image submitters, including external form-associated inputs.
+export const loginFormElements = `[...form.elements, ...[...document.querySelectorAll('input[type=image]')].filter(el => el.form === form)]`
+
 export const loginVisibility = `  const visible = (el) => {
-    if (!el.isConnected || el.disabled || el.readOnly || el.closest('[inert]')) return false
+    if (!el.isConnected || el.matches(':disabled') || el.readOnly || el.closest('[inert]')) return false
     const rect = el.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) return false
     for (let node = el; node; node = node.parentElement) {
@@ -30,9 +33,10 @@ const fields = `
   const username = field === "password" ? undefined : usernames[0]
   const form = (password || username).form
   if (form) {
-    const actions = [form.action, ...[...form.elements].filter(el => el.hasAttribute("formaction")).map(el => el.formAction)]
+    const elements = ${loginFormElements}
+    const actions = [form.action, ...elements.filter(el => el.hasAttribute("formaction")).map(el => el.formAction)]
     if (actions.some(action => new URL(action, location.href).origin !== origin)) throw new Error("Unsafe login destination")
-    if (form.method !== "post" || [...form.elements].some(el => el.hasAttribute("formmethod") && el.formMethod !== "post")) throw new Error("Unsafe login method")
+    if (form.method !== "post" || elements.some(el => el.hasAttribute("formmethod") && el.formMethod !== "post")) throw new Error("Unsafe login method")
   }
 `
 

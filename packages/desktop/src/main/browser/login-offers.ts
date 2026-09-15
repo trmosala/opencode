@@ -30,6 +30,7 @@ export function watchLoginOffers(
   const binding = `cmLoginOffer${randomUUID().replaceAll("-", "")}`
   const world = `CookieMonster login offers ${randomUUID()}`
   let revision = 0
+  let captureRevision = 0
   let context: number | undefined
   let installing = false
   let checking = false
@@ -62,6 +63,7 @@ export function watchLoginOffers(
     vaultAccess.status() === "unlocked" &&
     vaultAvailable()
   const disable = () => {
+    captureRevision++
     clear()
     if (context && !contents.isDestroyed() && contents.debugger.isAttached())
       void contents.debugger
@@ -74,41 +76,64 @@ export function watchLoginOffers(
   const unsubscribe = vaultAccess.subscribe(() => {
     if (vaultAccess.status() !== "unlocked") disable()
   })
-  const tick = async () => {
+  const tick = async (handoff?: () => void) => {
     if (!permitted()) {
       disable()
       return
     }
-    if (prompt || checking || installing || !available() || contents.isLoading()) return
+    if (prompt || checking || installing || contents.isLoading()) return
     checking = true
+    const generation = captureRevision
+    let captureContext = context
     try {
       const origin = loginOrigin(contents.getURL())
-      if (loginOfferExclusions().includes(origin)) {
-        disable()
-        return
+      const ticket = vaultAccess.require()
+      const check = () => {
+        handoff?.()
+        vaultAccess.require(ticket)
+        if (
+          !permitted() ||
+          captureRevision !== generation ||
+          loginOrigin(contents.getURL()) !== origin ||
+          loginOfferExclusions().includes(origin)
+        )
+          throw new Error("Offer capture revoked")
       }
+      check()
       if (!context) {
         installing = true
         if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
         const frame = await contents.debugger.sendCommand("Page.getFrameTree")
+        check()
         const created = await contents.debugger.sendCommand("Page.createIsolatedWorld", {
           frameId: frame.frameTree.frame.id,
           worldName: world,
         })
-        if (!permitted()) return
-        context = created.executionContextId
+        check()
+        captureContext = context = created.executionContextId
         await contents.debugger.sendCommand("Runtime.addBinding", { name: binding, executionContextId: context })
+        check()
         await contents.debugger.sendCommand("Runtime.enable")
-        await contents.debugger.sendCommand("Runtime.evaluate", {
+        check()
+        const installed = await contents.debugger.sendCommand("Runtime.evaluate", {
           contextId: context,
           expression: loginOfferScript(binding),
         })
+        if (installed.exceptionDetails) throw new Error("Offer capture unavailable")
       }
-      if (!permitted()) return
-      await contents.debugger.sendCommand("Runtime.evaluate", {
+      check()
+      const until = Date.now() + Math.min(1000, vaultAccess.remaining())
+      const armed = await contents.debugger.sendCommand("Runtime.evaluate", {
         contextId: context,
-        expression: `globalThis.__cmOffers.until = ${Date.now() + Math.min(1000, vaultAccess.remaining())}`,
+        expression: `globalThis.__cmOffers.until = ${until}`,
+        returnByValue: true,
       })
+      check()
+      if (armed.exceptionDetails || armed.result?.value !== until || Date.now() >= until)
+        throw new Error("Offer capture unavailable")
+      if (handoff) return until
+      // Renew capture during generation delivery/cleanup; only prompting requires the busy slot.
+      if (!available()) return
       const attempt = candidate
       if (!attempt) return
       if (attempt.login.origin !== origin || performance.now() - attempt.time > 60_000) {
@@ -123,7 +148,8 @@ export function watchLoginOffers(
         expression: loginOfferSucceeded,
         returnByValue: true,
       })
-      if (!ready.result.value || !permitted() || candidate !== attempt || revision !== observedRevision) return
+      if (!ready.result.value || !permitted() || !available() || candidate !== attempt || revision !== observedRevision)
+        return
       const accounts = readLogins().filter((row) => row.origin === origin)
       clear()
       const matches = accounts.filter((row) => row.username === attempt.login.username)
@@ -221,8 +247,14 @@ export function watchLoginOffers(
         changed()
       }
     } catch {
-      clear()
-      context = undefined
+      // A departed refresh does not own the candidate/context preserved by navigation.
+      // Permission revocation still clears current state; ready() rejects a missing acknowledgement.
+      if (!permitted() || (captureRevision === generation && context === captureContext)) {
+        disable()
+        context = undefined
+      }
+      // A superseded partial installation must not look ready on the next refresh.
+      if (installing && context === captureContext) context = undefined
     } finally {
       checking = false
       installing = false
@@ -281,6 +313,7 @@ export function watchLoginOffers(
   })
   contents.on("did-start-navigation", (_event, url, _inPlace, main) => {
     if (!main) return
+    captureRevision++
     revision++
     releaseInput()
     context = undefined
@@ -293,14 +326,38 @@ export function watchLoginOffers(
   })
   contents.on("did-fail-load", () => clear())
   contents.debugger.on("detach", () => {
+    captureRevision++
     context = undefined
     clear()
   })
-  const timer = setInterval(() => void tick(), 400)
+  let pending: ReturnType<typeof tick> | undefined
+  const run = async (handoff?: () => void) => {
+    if (pending) {
+      if (!handoff) return
+      await pending
+    }
+    const task = tick(handoff)
+    pending = task
+    try {
+      return await task
+    } finally {
+      if (pending === task) pending = undefined
+    }
+  }
+  const timer = setInterval(() => void run(), 400)
   contents.once("destroyed", () => {
     clearInterval(timer)
     unsubscribe()
     clear()
   })
-  return disable
+  return {
+    disable,
+    async ready(check: () => void) {
+      check()
+      const until = await run(check)
+      check()
+      if (!until || Date.now() >= until) throw new Error("Offer capture unavailable")
+      return until
+    },
+  }
 }

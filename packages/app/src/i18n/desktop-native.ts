@@ -259,6 +259,17 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Choose the saved account to update for {{origin}}:\n\n{{accounts}}\n\nNothing is saved until you confirm.",
   "desktop.browser.offer.passwordDetail":
     "Website: {{origin}}\nAccount: {{username}}\nOnly save if this registration or password change succeeded. The password stays in your encrypted vault.",
+  "desktop.browser.generation.title": "Generate and fill a new password?",
+  "desktop.browser.generation.detail":
+    "Website: {{origin}}\nLength: {{length}} (supported range: {{min}}-{{max}})\nCharacters: {{characters}}\nThis replaces only the new-password fields. Nothing is submitted or saved now. Submit the form yourself, then confirm saving only if the website accepted it. Keep the vault unlocked and this tab private; saving is not guaranteed if the page cannot be recognized.",
+  "desktop.browser.generation.alphanumeric": "Uppercase and lowercase letters and digits",
+  "desktop.browser.generation.symbols": "Uppercase and lowercase letters, digits and symbols",
+  "desktop.browser.generation.fill": "Generate and fill",
+  "desktop.browser.generation.settings": "Choose a length from 16 to 64 and a supported character option.",
+  "desktop.browser.generation.offers":
+    "Generation requires automatic save offers for this website. Enable save offers in browser settings and remove this website from exclusions before trying again. No preferences were changed.",
+  "desktop.browser.generation.failed":
+    "Password generation could not complete. Unlock the vault and use an unchanged active private tab with a secure, same-origin POST form and one or two visible new-password fields. Check the selected length against the site limits; pattern and custom-validation rules are unsupported. If filling already occurred, it cannot be recalled; nothing was saved by generation.",
   "desktop.browser.offer.notNow": "Not now",
   "desktop.browser.offer.updateButton": "Update",
   "desktop.browser.offer.never": "Never for this site",
