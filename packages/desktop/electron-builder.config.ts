@@ -154,6 +154,16 @@ function applyBranding(cfg: Configuration): Configuration {
     ...cfg,
     appId: "com.ogilvy.cookiemonster",
     productName: "CookieMonster",
+    extraMetadata: { ...cfg.extraMetadata, cmUserInstall: true },
+    dmg: {
+      ...cfg.dmg,
+      backgroundColor: "#ffffff",
+      window: { width: 540, height: 360 },
+      contents: [
+        { x: 160, y: 160, type: "file" },
+        { x: 380, y: 160, type: "file", path: path.join(packageDir, "resources", "Install CookieMonster.txt") },
+      ],
+    },
     artifactName: "cookiemonster-${os}-${arch}.${ext}",
     publish: null,
   }

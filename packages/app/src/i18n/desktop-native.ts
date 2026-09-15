@@ -222,6 +222,15 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.install.title": "Install CookieMonster",
+  "desktop.install.confirm": "Install for My User",
+  "desktop.install.detail":
+    "Install CookieMonster at {{destination}} and open it there? No administrator access is needed. Existing apps will not be replaced.",
+  "desktop.install.manual":
+    "Automatic installation cannot safely identify the original disk-image app. Quit, open the mounted CookieMonster disk image in Finder, and copy CookieMonster.app into your home Applications folder (Go > Go to Folder: ~/Applications). Create that folder if needed. Do not replace an existing app. Then open the copied app and eject the disk image.",
+  "desktop.install.failed":
+    "CookieMonster could not be installed or opened at {{destination}}. Existing apps were not replaced. If a partial copy was created, inspect it in Finder before removing it and retrying. If the copy is complete, open it in Finder. Follow any macOS security prompts or contact your administrator.",
+
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "File",
   "desktop.menu.edit": "Edit",
