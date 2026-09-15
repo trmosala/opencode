@@ -255,6 +255,10 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.offer.update": "Update this saved login?",
   "desktop.browser.offer.detail":
     "Website: {{origin}}\nAccount: {{username}}\nOnly save if this sign-in succeeded. The password stays in your encrypted vault.",
+  "desktop.browser.offer.chooseAccount":
+    "Choose the saved account to update for {{origin}}:\n\n{{accounts}}\n\nNothing is saved until you confirm.",
+  "desktop.browser.offer.passwordDetail":
+    "Website: {{origin}}\nAccount: {{username}}\nOnly save if this registration or password change succeeded. The password stays in your encrypted vault.",
   "desktop.browser.offer.notNow": "Not now",
   "desktop.browser.offer.updateButton": "Update",
   "desktop.browser.offer.never": "Never for this site",

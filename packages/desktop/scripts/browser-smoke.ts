@@ -17,7 +17,10 @@ try {
   const env = { ...process.env, CM_BROWSER_STATE_DIR: directory, CM_BROWSER_SMOKE_PROFILE: directory }
   delete env.ELECTRON_RUN_AS_NODE
   const child = Bun.spawn([electron, entry, ...process.argv.slice(2)], { env, stdout: "inherit", stderr: "inherit" })
-  const timeout = setTimeout(() => child.kill(), process.env.CM_BROWSER_LIVE_SMOKE === "1" ? 120_000 : 60_000)
+  const timeout = setTimeout(
+    () => child.kill(),
+    process.argv.includes("--registration") || process.env.CM_BROWSER_LIVE_SMOKE === "1" ? 120_000 : 60_000,
+  )
   const code = await child.exited
   clearTimeout(timeout)
   console.log(

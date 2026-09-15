@@ -33,7 +33,7 @@ export function watchLoginOffers(
   let context: number | undefined
   let installing = false
   let checking = false
-  let candidate: { login: BrowserLogin; ticket: number; time: number } | undefined
+  let candidate: { login: BrowserLogin; newPassword: boolean; ticket: number; time: number } | undefined
   let username: { origin: string; value: string; time: number } | undefined
   let prompt: AbortController | undefined
   const releaseInput = () => {
@@ -124,21 +124,59 @@ export function watchLoginOffers(
         returnByValue: true,
       })
       if (!ready.result.value || !permitted() || candidate !== attempt || revision !== observedRevision) return
-      const existing = readLogins().find((row) => row.origin === origin && row.username === attempt.login.username)
-      if (existing?.password === attempt.login.password) {
-        clear()
-        return
-      }
+      const accounts = readLogins().filter((row) => row.origin === origin)
       clear()
+      const matches = accounts.filter((row) => row.username === attempt.login.username)
+      if (attempt.login.username && matches.length > 1) return
+      let existing = attempt.login.username ? matches[0] : undefined
+      if (existing?.password === attempt.login.password) return
+      // ponytail: a small native chooser; larger or unreadable lists require manual account editing.
+      if (
+        !attempt.login.username &&
+        (!accounts.length ||
+          accounts.length > 5 ||
+          new Set(accounts.map((row) => row.username)).size !== accounts.length ||
+          accounts.some(
+            (row) => !row.username.trim() || row.username.length > 80 || /[\p{Cc}\p{Cf}]/u.test(row.username),
+          ))
+      )
+        return
       const consent = new AbortController()
       prompt = consent
       const timer = setTimeout(() => prompt?.abort(), Math.min(60_000, vaultAccess.remaining()))
       busy(true)
       try {
+        if (!attempt.login.username) {
+          const selection = await dialog.showMessageBox(win, {
+            type: "question",
+            message: nativeT("desktop.browser.offer.update"),
+            detail: nativeT("desktop.browser.offer.chooseAccount", {
+              origin,
+              accounts: accounts.map((row, index) => `${index + 1}. ${row.username}`).join("\n"),
+            }),
+            buttons: [nativeT("desktop.browser.offer.notNow"), ...accounts.map((_row, index) => String(index + 1))],
+            defaultId: 0,
+            cancelId: 0,
+            signal: consent.signal,
+          })
+          vaultAccess.require(attempt.ticket)
+          if (consent.signal.aborted || !permitted() || loginOrigin(contents.getURL()) !== origin) return
+          if (!Number.isInteger(selection.response) || selection.response < 1 || selection.response > accounts.length)
+            return
+          existing = accounts[selection.response - 1]
+          attempt.login.username = existing.username
+          if (existing.password === attempt.login.password) return
+        }
         const answer = await dialog.showMessageBox(win, {
           type: "question",
           message: nativeT(existing ? "desktop.browser.offer.update" : "desktop.browser.offer.save"),
-          detail: nativeT("desktop.browser.offer.detail", { origin, username: attempt.login.username }),
+          detail: nativeT(
+            attempt.newPassword ? "desktop.browser.offer.passwordDetail" : "desktop.browser.offer.detail",
+            {
+              origin,
+              username: attempt.login.username,
+            },
+          ),
           buttons: [
             nativeT("desktop.browser.offer.notNow"),
             nativeT(existing ? "desktop.browser.offer.updateButton" : "desktop.browser.save"),
@@ -158,9 +196,10 @@ export function watchLoginOffers(
         }
         if (answer.response !== 1) return
         const current = readLogins()
-        const match = current.find((row) => row.origin === origin && row.username === attempt.login.username)
-        // Don't overwrite a credential another operation changed while the prompt was open.
-        if (match?.password !== existing?.password || match?.id !== existing?.id) return
+        const matches = current.filter((row) => row.origin === origin && row.username === attempt.login.username)
+        const match = matches[0]
+        // Compare against the pre-selection snapshot, not a refreshed credential after choosing.
+        if (matches.length > 1 || match?.password !== existing?.password || match?.id !== existing?.id) return
         try {
           writeLogins([
             { id: match?.id ?? randomUUID(), ...attempt.login },
@@ -182,8 +221,8 @@ export function watchLoginOffers(
         changed()
       }
     } catch {
-      context = undefined
       clear()
+      context = undefined
     } finally {
       checking = false
       installing = false
@@ -194,28 +233,48 @@ export function watchLoginOffers(
       method !== "Runtime.bindingCalled" ||
       params.name !== binding ||
       params.executionContextId !== context ||
-      !permitted() ||
-      prompt
+      !permitted()
     )
       return
     try {
-      if (typeof params.payload !== "string" || params.payload.length > 24000) return
+      if (prompt || typeof params.payload !== "string" || params.payload.length > 24000) {
+        clear()
+        return
+      }
       const value = JSON.parse(params.payload)
       const origin = loginOrigin(contents.getURL())
-      if (value.origin !== origin || loginOfferExclusions().includes(origin)) return
+      if (!value || value.origin !== origin || loginOfferExclusions().includes(origin)) {
+        clear()
+        return
+      }
+      revision++
+      candidate = undefined
       if (!value.password) {
-        if (typeof value.username === "string" && value.username && value.username.length <= 4096)
-          username = { origin, value: value.username, time: performance.now() }
+        if (typeof value.username !== "string" || !value.username || value.username.length > 4096) {
+          clear()
+          return
+        }
+        username = { origin, value: value.username, time: performance.now() }
         return
       }
       const login = requireLogin({
         ...value,
-        username:
-          value.username ||
-          (username?.origin === origin && performance.now() - username.time < 60_000 ? username.value : ""),
+        // A new-password form must select its own account, never inherit an earlier login step.
+        username: value.newPassword
+          ? value.username
+          : value.username ||
+            (username?.origin === origin && performance.now() - username.time < 60_000 ? username.value : ""),
       })
-      if (!login.username) return
-      candidate = { login, ticket: vaultAccess.require(), time: performance.now() }
+      if (!login.username && value.newPassword !== true) {
+        clear()
+        return
+      }
+      candidate = {
+        login,
+        newPassword: value.newPassword === true,
+        ticket: vaultAccess.require(),
+        time: performance.now(),
+      }
     } catch {
       clear()
     }

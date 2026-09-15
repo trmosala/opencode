@@ -21,7 +21,7 @@ import { browserProfile, clearBrowserData, saveLogins } from "./profile"
 import { snapshotScript } from "./snapshot"
 import { browserPreferencesState, downloadDirectory, downloadHistory, mediaOrigin } from "./preferences"
 import { getStore } from "../store"
-import { readLogins } from "./vault"
+import { readLogins, writeLogins } from "./vault"
 import { loginEntry, decodeLoginEntry } from "./login-entry"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
 import { vaultAuthentication } from "./vault-auth"
@@ -55,6 +55,11 @@ const server = createServer((request, response) => {
     response.write(request.url === "/download" ? "browser download" : "x".repeat(4096))
     if (request.url === "/download") response.end()
     if (request.url === "/download-fail") setTimeout(() => response.destroy(), 50)
+    return
+  }
+  if (request.url === "/registration-failed") {
+    response.writeHead(401, { "Content-Type": "text/html" })
+    response.end("<!doctype html><title>Rejected</title><p>Rejected</p>")
     return
   }
   if (request.url === "/fail") {
@@ -305,6 +310,354 @@ async function run() {
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
+
+  if (process.argv.includes("--registration")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    const contents = one.view.webContents
+    const origin = new URL(url).origin
+    let context = 0
+    let captures = 0
+    let credentialCaptures = 0
+    let currentPasswordCaptures = 0
+    let dialogs = 0
+    const dialogErrors: unknown[] = []
+    let answer: (options: Electron.MessageBoxOptions) => Promise<number> = async () => 1
+    const observe = (
+      _event: unknown,
+      method: string,
+      params: { name?: string; executionContextId?: number; payload?: string },
+    ) => {
+      if (method !== "Runtime.bindingCalled" || !params.name?.startsWith("cmLoginOffer")) return
+      context = params.executionContextId!
+      captures++
+      if (params.payload !== "null") credentialCaptures++
+      if (params.payload?.includes("fixture-secret-current")) currentPasswordCaptures++
+    }
+    contents.debugger.on("message", observe)
+    const isolated = async (expression: string) =>
+      (await contents.debugger.sendCommand("Runtime.evaluate", { contextId: context, expression, returnByValue: true }))
+        .result.value
+    const newFields =
+      '<input type="password" autocomplete="new-password" value="fixture-secret-new"><input type="password" autocomplete="new-password" value="fixture-secret-new">'
+    const currentField = '<input type="password" autocomplete="current-password" value="fixture-secret-current">'
+    const userField = '<input autocomplete="username" value="registered">'
+    const form = async (fields: string, outcome = "success", attributes = 'method="post"') => {
+      await contents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(`<form ${attributes}>${fields}<button>Submit</button></form>`)};
+        window.submissions = 0;
+        document.querySelector('form').onsubmit = event => {
+          window.submissions++;
+          ${
+            outcome === "navigate"
+              ? ""
+              : `event.preventDefault();
+          ${outcome === "success" ? "event.target.remove()" : outcome === "failed" ? "event.target.remove(); document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>')" : ""}`
+          }
+        }; true`)
+      await new Promise((resolve) => setTimeout(resolve, 450))
+      assert.equal(await contents.executeJavaScript("window.submissions"), 0, "Offers never submit the page")
+    }
+    const submit = async (captured = true) => {
+      const before = captures
+      const point = await contents.executeJavaScript(
+        "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()",
+      )
+      contents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+      contents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+      if (captured) await wait(() => captures > before)
+    }
+    const quiet = async (expected = dialogs) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      assert.equal(dialogs, expected, "Rejected attempts must not prompt")
+    }
+    const released = async () => {
+      await wait(async () => (await isolated("globalThis.__cmOffers.input === null")) === true)
+    }
+    try {
+      vaultAuthentication.verify = async () => {}
+      await command({ op: "unlock-vault" })
+      await command({ op: "preferences", values: { offerSaveLogins: true } })
+      dialog.showMessageBox = (async (_win, options) => {
+        try {
+          assert(options)
+          assert.equal(options.defaultId, 0)
+          assert.equal(options.cancelId, 0)
+          assert(options.signal)
+          assert(!JSON.stringify(options).includes("fixture-secret-"))
+          dialogs++
+          return { response: await answer(options), checkboxChecked: false }
+        } catch (error) {
+          // The production watcher catches dialog failures; keep fixture assertions observable.
+          dialogErrors.push(error)
+          return { response: 0, checkboxChecked: false }
+        }
+      }) as typeof dialog.showMessageBox
+      await new Promise((resolve) => setTimeout(resolve, 800))
+
+      stage("registration: consent, matching confirmation and reference release")
+      let finish: ((response: number) => void) | undefined
+      answer = async () =>
+        new Promise<number>((resolve) => {
+          finish = resolve
+        })
+      await form(userField + newFields)
+      await submit()
+      assert.equal(await isolated("globalThis.__cmOffers.input.length"), 2)
+      await wait(() => !!finish)
+      assert.equal(readLogins().length, 0, "No save before consent")
+      await released()
+      finish!(1)
+      await wait(() => readLogins().length === 1)
+      assert(readLogins()[0].password === "fixture-secret-new")
+      assert.equal(await contents.executeJavaScript("window.submissions"), 1)
+      assert.equal(await contents.executeJavaScript("typeof globalThis.__cmOffers"), "undefined")
+
+      stage("registration: visible-account change stores only the new password")
+      answer = async () => 1
+      await form(userField + currentField + newFields.replaceAll("fixture-secret-new", "fixture-secret-updated"))
+      await submit()
+      assert.equal(await isolated("globalThis.__cmOffers.input.length"), 3)
+      await wait(() => readLogins()[0].password === "fixture-secret-updated")
+      await released()
+
+      stage("registration: explicit account selection, exact origin, no previous-step inference")
+      saveLogins([
+        { origin, username: "other-account", password: "fixture-secret-current" },
+        { origin: "https://other.example", username: "foreign-account", password: "fixture-secret-foreign" },
+      ])
+      const before = readLogins()
+      const selected = before.find((row) => row.username === "registered")!
+      const index = before.filter((row) => row.origin === origin).findIndex((row) => row.id === selected.id) + 1
+      await form('<input autocomplete="username" value="other-account">')
+      await submit()
+      let step = 0
+      answer = async (options) => {
+        step++
+        assert(!options.detail?.includes("foreign-account"))
+        if (step === 1) {
+          assert.deepEqual(options.buttons, ["Not now", "1", "2"])
+          assert(options.detail?.includes("registered") && options.detail.includes("other-account"))
+          assert(readLogins().every((row) => before.some((old) => old.id === row.id && old.password === row.password)))
+          return index
+        }
+        assert(options.detail?.includes("Account: registered"))
+        return 1
+      }
+      await form(currentField + newFields)
+      await submit()
+      await wait(() => readLogins().find((row) => row.id === selected.id)?.password === "fixture-secret-new")
+      assert.equal(step, 2)
+      assert(readLogins().find((row) => row.username === "other-account")?.password === "fixture-secret-current")
+      await released()
+
+      stage("registration: mismatch, mixed/unmarked, duplicate current and ambiguous username rejection")
+      answer = async () => 1
+      for (const fields of [
+        userField + newFields.replace('value="fixture-secret-new"', 'value="fixture-secret-mismatch"'),
+        userField + newFields + '<input type="password" value="fixture-secret-unmarked">',
+        userField + currentField + currentField + newFields,
+        userField + userField + newFields,
+        userField +
+          '<input type="password" value="fixture-secret-one"><input type="password" value="fixture-secret-two">',
+      ]) {
+        const prior = dialogs
+        await form(fields.replaceAll("fixture-secret-new", "fixture-secret-ambiguous"))
+        await submit()
+        await quiet(prior)
+        await released()
+      }
+
+      stage("registration: revealed credential fields never reach the binding")
+      for (const fields of [
+        currentField.replace('type="password"', 'type="text"') + newFields,
+        userField +
+          newFields
+            .replace('type="password"', 'type="text"')
+            .replace('value="fixture-secret-new"', 'value="fixture-secret-mismatch"'),
+      ]) {
+        const delivered = credentialCaptures
+        const offered = dialogs
+        await form(fields)
+        await submit()
+        await quiet(offered)
+        assert.equal(credentialCaptures, delivered, "Revealed credential forms send only revocation, never values")
+        await released()
+      }
+
+      stage("registration: failed submission and invalid resubmission discard stale candidate")
+      const prior = dialogs
+      await form(userField + newFields.replaceAll("fixture-secret-new", "fixture-secret-failed"), "failed")
+      await submit()
+      await quiet(prior)
+      await form(userField + newFields.replaceAll("fixture-secret-new", "fixture-secret-stale"), "keep")
+      await submit()
+      await contents.executeJavaScript(
+        "document.querySelector('input[type=password]').value = 'fixture-secret-mismatch'; true",
+      )
+      await submit()
+      await released()
+      await contents.executeJavaScript("document.body.replaceChildren(); true")
+      await quiet(prior)
+
+      stage("registration: browser validation revokes a prior failed attempt without submit")
+      for (const invalidate of [
+        "field.required = true; field.value = ''",
+        "field.pattern = 'different-username'",
+        "field.setCustomValidity('Fixture validation failure')",
+      ]) {
+        const offered = dialogs
+        await form(userField + newFields.replaceAll("fixture-secret-new", "fixture-secret-validation"), "keep")
+        await submit()
+        assert.equal(await isolated("globalThis.__cmOffers.input.length"), 2)
+        const delivered = credentialCaptures
+        await contents.executeJavaScript(`(() => {
+          window.invalidations = 0;
+          document.querySelector('form').addEventListener('invalid', () => window.invalidations++, true);
+          const field = document.querySelector('input'); ${invalidate};
+        })()`)
+        await submit(false)
+        await wait(() => contents.executeJavaScript("window.invalidations > 0"))
+        assert.equal(await contents.executeJavaScript("window.submissions"), 1, "Invalid resubmission emits no submit")
+        await contents.executeJavaScript("document.body.replaceChildren(); true")
+        await quiet(offered)
+        assert.equal(credentialCaptures, delivered, "Validation failures send no credential payload")
+        await released()
+        assert(!readLogins().some((row) => row.password === "fixture-secret-validation"))
+      }
+
+      stage("registration: secure POST and submitter destination checks")
+      for (const attributes of ['method="get"', 'method="post" action="https://other.example"']) {
+        await form(
+          userField + newFields.replaceAll("fixture-secret-new", "fixture-secret-unsafe"),
+          "success",
+          attributes,
+        )
+        await submit()
+        assert.equal(await isolated("globalThis.__cmOffers.input"), null)
+      }
+      await form(
+        userField +
+          newFields.replaceAll("fixture-secret-new", "fixture-secret-unsafe") +
+          '<button formaction="https://other.example">Other</button>',
+      )
+      await submit()
+      await quiet(prior)
+
+      stage("registration: selection and final-consent cancellation and revocation")
+      for (const phase of [1, 2]) {
+        for (const reason of ["cancel", "lock", "navigation", "selection", "edit"]) {
+          stage(`registration: ${reason} during dialog ${phase}`)
+          const snapshot = readLogins()
+          const previous = snapshot.find((row) => row.origin === origin && row.username === "registered")!
+          let calls = 0
+          let expectedID = previous.id
+          answer = async (options) => {
+            calls++
+            if (calls !== phase) return calls === 1 ? index : 1
+            if (reason === "lock") {
+              vaultAccess.lock()
+              await vaultAccess.unlock(win)
+              assert(options.signal?.aborted)
+            }
+            if (reason === "navigation") {
+              await contents.loadURL(url)
+              assert(options.signal?.aborted)
+            }
+            if (reason === "selection") {
+              await command({ op: "new" })
+              await command({ op: "select", tabID: first })
+              assert(options.signal?.aborted)
+            }
+            if (reason === "edit") {
+              saveLogins([{ origin, username: "registered", password: "fixture-secret-concurrent" }])
+              expectedID = readLogins().find((row) => row.origin === origin && row.username === "registered")!.id
+              assert.notEqual(expectedID, selected.id, "Concurrent edit replaces the credential ID")
+            }
+            return reason === "cancel" ? 0 : phase === 1 ? index : 1
+          }
+          await form(currentField + newFields.replaceAll("fixture-secret-new", "fixture-secret-rejected"))
+          await submit()
+          await wait(() => calls >= phase && !one.loginBusy)
+          const retained = readLogins().filter((row) => row.origin === origin && row.username === "registered")
+          assert.equal(retained.length, 1, "The exact-origin account still exists without duplicates")
+          assert.equal(retained[0].id, expectedID, `Credential ID retained after ${reason} during dialog ${phase}`)
+          assert(
+            retained[0].password === (reason === "edit" ? "fixture-secret-concurrent" : previous.password),
+            `Credential password retained after ${reason} during dialog ${phase}`,
+          )
+          assert.equal(calls, reason === "edit" ? 2 : phase)
+          writeLogins(snapshot)
+        }
+      }
+
+      stage("registration: one new-password field with same-origin navigation")
+      answer = async () => 1
+      await form(
+        userField + '<input type="password" autocomplete="new-password" value="fixture-secret-single">',
+        "navigate",
+        'method="post" action="/registration-success"',
+      )
+      await submit()
+      await wait(() => readLogins().find((row) => row.id === selected.id)?.password === "fixture-secret-single")
+
+      stage("registration: HTTP rejection discards a captured password")
+      const rejected = dialogs
+      await form(
+        userField + newFields.replaceAll("fixture-secret-new", "fixture-secret-http-failed"),
+        "navigate",
+        'method="post" action="/registration-failed"',
+      )
+      await submit()
+      await wait(() => contents.getURL().endsWith("/registration-failed") && !contents.isLoading())
+      await quiet(rejected)
+      assert(readLogins().find((row) => row.id === selected.id)?.password === "fixture-secret-single")
+      await contents.loadURL(url)
+
+      stage("registration: bounded chooser refuses overflow instead of choosing an arbitrary row")
+      saveLogins(
+        Array.from({ length: 5 }, (_row, i) => ({ origin, username: `extra-${i}`, password: "fixture-secret-extra" })),
+      )
+      const bounded = dialogs
+      await form(newFields)
+      await submit()
+      await quiet(bounded)
+      await released()
+
+      stage("registration: locked and agent-accessible tabs never capture")
+      const delivered = credentialCaptures
+      vaultAccess.lock()
+      await form(userField + newFields)
+      await submit(false)
+      await quiet(bounded)
+      assert.equal(await contents.executeJavaScript("window.submissions"), 1)
+      assert.equal(credentialCaptures, delivered, "Locked vault sends no credential-bearing binding payload")
+      await vaultAccess.unlock(win)
+      const offerDialog = dialog.showMessageBox
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "access", tabID: first, enabled: true })
+      dialog.showMessageBox = offerDialog
+      assert(one.agentAccess)
+      await form(userField + newFields)
+      await submit(false)
+      await quiet(bounded)
+      assert.equal(await contents.executeJavaScript("window.submissions"), 1)
+      assert.equal(credentialCaptures, delivered, "Agent-enabled tab sends no credential-bearing binding payload")
+      assert(!JSON.stringify(browserProfile()).includes("fixture-secret-"))
+      assert.equal(currentPasswordCaptures, 0, "Current passwords never leave the capture world")
+      assert.deepEqual(dialogErrors, [], "Native dialog assertions must not be swallowed by the watcher")
+      stage("PASS focused registration and password changes")
+      console.log(
+        "PASS registration: consent, selected account, mismatch, ambiguity, failure, stale resubmission, cancellation, lock, navigation, tab selection, concurrent edit, bounds, private-tab guard",
+      )
+    } finally {
+      vaultAccess.lock()
+      contents.debugger.removeListener("message", observe)
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
 
   if (process.argv.includes("--offers")) {
     const verify = vaultAuthentication.verify
