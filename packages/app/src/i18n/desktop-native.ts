@@ -222,6 +222,12 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.history.search": "Allow the agent to search browsing history?",
+  "desktop.browser.history.searchDetail":
+    "This searches saved visits across your browser profile.\nQuery: {{query}}\nFrom (UTC): {{from}}\nTo (UTC): {{to}}\nMaximum results: {{limit}}",
+  "desktop.browser.history.open": "Open this history result in a new tab? Agent access will remain off.",
+  "desktop.browser.history.all": "Any",
+
   "desktop.browser.transfer.download": "Allow this download from an agent-accessible tab?",
   "desktop.browser.transfer.downloadDetail": "Page: {{origin}}\nFile: {{filename}}\nDownload: {{url}}",
   "desktop.browser.transfer.upload": "Choose files to share with {{origin}}",

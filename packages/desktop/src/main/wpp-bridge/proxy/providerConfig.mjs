@@ -137,6 +137,8 @@ export function o1CodeConfigContent(browserPlugin, aePlugin) {
     // AE defaults belong to its config hook, below user policy, not this high-precedence blob.
     permission: {
       browser_read_state: "allow",
+      browser_search_history: "allow",
+      browser_open_history: "ask",
       browser_navigate: "ask",
       browser_click: "ask",
       browser_fill: "ask",

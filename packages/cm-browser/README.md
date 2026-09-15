@@ -48,7 +48,7 @@ Settings reuse Electron session permission handlers and DownloadItem APIs. Camer
 
 Show full URL controls the unfocused address display; editing always exposes the complete URL. Include screenshots with selections adds a screenshot to the same captured chat draft as Add Selection. The global agent switch immediately revokes every tab grant; enabling it again does not restore old grants. Agent site access edits the actual main-enforced host allowlist; host rules include subdomains, and the existing tool approval remains separate.
 
-The settings page links to the existing password manager, imports, browsing history, and data clearing. It deliberately does not advertise contact/payment autofill, agent history permissions, automatic path-based uploads, WebMCP discovery, or unrestricted agent CDP access, which are not implemented. Controls requiring a newer main process are disabled during renderer hot reload until the next launch.
+The settings page links to the existing password manager, imports, browsing history, and data clearing. It deliberately does not advertise contact/payment autofill, automatic path-based uploads, WebMCP discovery, or unrestricted agent CDP access, which are not implemented. Controls requiring a newer main process are disabled during renderer hot reload until the next launch.
 
 ## Agent uploads and downloads
 
@@ -58,11 +58,21 @@ Downloads are checked at Electron's `will-download` boundary, including click, n
 
 Uploads reuse Chromium's [file chooser interception](https://chromedevtools.github.io/devtools-protocol/1-3/Page/#method-setInterceptFileChooserDialog) and file-input delivery. Clicking a file input with the existing agent tool opens a native picker naming the receiving origin. The user alone chooses files; the agent cannot pass local paths. A page can read the chosen files immediately and may submit them through its own script. Navigation, revoked access, rule changes or window destruction while choosing files discard the result. Concurrent pickers are suppressed. Directory inputs and iframe file choosers are blocked in guarded tabs; native chooser filters are not copied from the page. Losing interception closes the guarded tab instead of silently restoring unrestricted selection. This is file-selection consent, not a network upload firewall: it does not prevent a page from transmitting data it already holds.
 
+## Agent history search
+
+**Agent access to browsing history** is a profile-wide setting: Never, Ask each time (default), or Allow. It is separate from the page host allowlist and tab opt-in; consenting to a history search can reveal saved visits to hosts the agent cannot browse. The global browser-agent switch also blocks these tools.
+
+`browser_search_history` matches title or URL case-insensitively, with optional inclusive `from`/`to` Unix millisecond timestamps. It returns newest-first visits (including repeat visits), default 10 and maximum 20, with bounded titles/URLs and five-minute, task-bound result references. Empty queries search all visits within the supplied dates. Ask uses a native default-cancel prompt displaying the query, UTC date bounds and result limit. History is read after approval. Pending approvals expire after one minute, and changing browser preferences invalidates pending approval and previously issued references.
+
+`browser_open_history` accepts only a result reference from the same task and live app window. It always asks native confirmation showing the URL, opens a new tab with agent access off, and consumes the reference. Main rereads history before confirmation and before opening, so deleted visits cannot be reopened from an old result. Old browser builds reject these new operations. The tools work for tasks currently open in the app or with existing browser groups; unknown tasks cannot access the profile.
+
+Deleting visits prevents future searches/opening through these tools. It cannot remove results already shared in chat. Search never exposes page bodies, vault data or a filesystem path. Native smoke coverage checks denied/allowed access, concurrent prompts, revoke/re-enable during approval, deletion while awaiting approval, cross-task references and private-tab opening.
+
 ## Agent access
 
 New tabs, including pop-ups, start with agent access disabled. The user must enable **Allow agent access** and accept the native confirmation for each tab. Revoking access interrupts further agent input and invalidates snapshots.
 
-The existing five tools run in the OpenCode sidecar plugin and reach main through its parent port:
+The five page tools run in the OpenCode sidecar plugin and reach main through its parent port:
 
 - `browser_read_state` without `tabID` lists opted-in tabs for the current session whose hosts are allowed, plus opted-in blank tabs.
 - `browser_read_state` with `tabID` returns that tab's page and opaque element references.

@@ -15,7 +15,13 @@ import type {
 import { browserShortcut } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
 import { browserPreferences, browserURL, BROWSER_PARTITION } from "./policy"
-import { registerBrowserTab, setBrowserAgentEnabled, browserAgentEnabled, type BrowserRegistration } from "./registry"
+import {
+  registerBrowserTab,
+  setBrowserAgentEnabled,
+  browserAgentEnabled,
+  setBrowserHistoryHandler,
+  type BrowserRegistration,
+} from "./registry"
 import {
   browserPreferencesState,
   saveBrowserPreferences,
@@ -51,6 +57,8 @@ import {
   saveLogins,
 } from "./profile"
 
+import { agentHistory } from "./agent-history"
+import { failure } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 
 type Tab = BrowserRegistration & {
@@ -84,6 +92,21 @@ type Owner = {
 }
 const owners = new Map<number, Owner>()
 const transfers = new Map<string, { item: DownloadItem; owner: Owner; group: Group; download: BrowserDownload }>()
+setBrowserHistoryHandler(async (sessionID, request) => {
+  const owner = [...owners.values()].find(
+    (entry) => entry.linkContext?.sessionID === sessionID || entry.groups.has(sessionID),
+  )
+  if (!owner || owner.shutting || owner.win.isDestroyed())
+    return failure("no_target", "Open this task in CookieMonster before using browser history.")
+  return agentHistory(owner.win, sessionID, request, (row) => {
+    const group = groupFor(owner, sessionID)
+    if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
+    const tab = createTab(owner, group, undefined, row)
+    publish(owner, group)
+    owner.win.webContents.send("browser-opened", sessionID)
+    return tab.id
+  }).catch(() => failure("unavailable", "Browser history operation unavailable."))
+})
 let profileReady = false
 vaultAccess.subscribe(() => owners.forEach((owner) => owner.groups.forEach((group) => publish(owner, group))))
 

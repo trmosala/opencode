@@ -1,6 +1,12 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const browser = {
+  "browser.history.agent": "Agent access to browsing history",
+  "browser.history.agent.help":
+    "Controls agent searches across this browser profile's saved visits, independently of page access. Opening a result always asks for confirmation and leaves page access off. Deleting history does not remove results already shared in chat.",
+  "browser.history.agent.never": "Never",
+  "browser.history.agent.ask": "Ask each time",
+  "browser.history.agent.allow": "Allow",
   "browser.transfer.title": "Agent uploads and downloads",
   "browser.transfer.help":
     "Rules apply to tabs that have had agent access and connected pop-ups or opener tabs, until those tabs close. They also cover manual transfers in these tabs. Uploads always require you to choose the files; directory and iframe uploads are unavailable in these tabs.",

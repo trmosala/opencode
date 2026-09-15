@@ -151,7 +151,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 100))
 
 export async function execute(
   target: Target,
-  request: Exclude<Request, { op: "list_tabs" }>,
+  request: Extract<Request, { tabID: string }>,
 ): Promise<Response<BrowserState>> {
   if (request.tabID !== target.tabID) return failure("no_target", "Browser tab mismatch.")
   target.check?.()

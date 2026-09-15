@@ -77,6 +77,25 @@ describe("browser tools", () => {
     expect(browser.sent.at(-1)?.request).toEqual({ tabID: "one", op: "fill", ref: "s4:e1", text: "hi" })
   })
 
+  test("history tools expose bounded result refs and never imply page access", async () => {
+    const browser = fakePort(
+      success({ ...state, history: [{ ref: "history-ref", url: state.url, title: "Teams", time: 100 }] }),
+    )
+    const call = fakeContext()
+    const reply = await browserTools(browser.port).browser_search_history.execute(
+      { query: "Teams", from: 0, to: 200 },
+      call.context,
+    )
+    expect(browser.sent[0].request).toEqual({ op: "search_history", query: "Teams", from: 0, to: 200, limit: 10 })
+    expect(call.asked[0].permission).toBe("browser_search_history")
+    expect(typeof reply === "string" ? reply : reply.output).toContain("history-ref")
+    const opened = fakePort(success({ ...state, opened: true }))
+    const result = await browserTools(opened.port).browser_open_history.execute({ ref: "history-ref" }, call.context)
+    expect(opened.sent[0].request).toEqual({ op: "open_history", ref: "history-ref" })
+    expect(call.asked.at(-1)?.permission).toBe("browser_open_history")
+    expect(typeof result === "string" ? result : result.output).toContain("Agent access is off")
+  })
+
   test("failures surface their typed code", async () => {
     const browser = fakePort(failure("stale_ref", "read again"))
     await expect(

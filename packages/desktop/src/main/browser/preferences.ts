@@ -7,10 +7,13 @@ import { getStore } from "../store"
 import { nativeT } from "../native-translations"
 import { loginOrigin } from "./import-data"
 
+let revision = 0
+export const browserPreferencesRevision = () => revision
 const store = () => getStore("cm-browser")
 export function browserPreferencesState(): BrowserPreferences {
   const value = store().get("preferences", {}) as Partial<BrowserPreferences>
   return {
+    agentHistory: value.agentHistory === "allow" ? "allow" : value.agentHistory === "never" ? "never" : "ask",
     webLinks: value.webLinks === "browser" ? "browser" : "external",
     localLinks: value.localLinks === "external" ? "external" : "browser",
     agentEnabled: value.agentEnabled !== false,
@@ -28,13 +31,16 @@ export function saveBrowserPreferences(values: Partial<BrowserPreferences>) {
     Object.entries(values).some(
       ([key, value]) =>
         !Object.hasOwn(current, key) ||
-        (["webLinks", "localLinks"].includes(key)
-          ? value !== "browser" && value !== "external"
-          : typeof value !== "boolean"),
+        (key === "agentHistory"
+          ? !["never", "ask", "allow"].includes(String(value))
+          : ["webLinks", "localLinks"].includes(key)
+            ? value !== "browser" && value !== "external"
+            : typeof value !== "boolean"),
     )
   )
     throw new Error("Invalid browser preferences")
   store().set("preferences", { ...current, ...values })
+  revision++
 }
 export function downloadDirectory() {
   return store().get("downloadDirectory", app.getPath("downloads")) as string

@@ -226,6 +226,8 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   expect(config.plugin).toEqual([plugin])
   expect(config.permission).toEqual({
     browser_read_state: "allow",
+    browser_search_history: "allow",
+    browser_open_history: "ask",
     browser_navigate: "ask",
     browser_click: "ask",
     browser_fill: "ask",

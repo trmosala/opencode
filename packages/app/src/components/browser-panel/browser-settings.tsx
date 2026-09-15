@@ -146,6 +146,30 @@ export function BrowserSettings(props: {
             {language.t("browser.settings.downloads.manage")}
           </Button>
         </section>
+        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
+          <label class="flex items-center justify-between gap-4">
+            <span>
+              <strong>{language.t("browser.history.agent")}</strong>
+              <p class="text-text-weak mt-1">{language.t("browser.history.agent.help")}</p>
+            </span>
+            <select
+              disabled={props.profile.preferences?.agentHistory === undefined}
+              value={props.profile.preferences?.agentHistory ?? "ask"}
+              onChange={(event) => {
+                const value = event.currentTarget.value
+                if (value !== "never" && value !== "ask" && value !== "allow") return
+                void props.command({
+                  op: "preferences",
+                  values: { agentHistory: value },
+                })
+              }}
+            >
+              <For each={["never", "ask", "allow"] as const}>
+                {(value) => <option value={value}>{language.t(`browser.history.agent.${value}`)}</option>}
+              </For>
+            </select>
+          </label>
+        </section>
         <BrowserTransfers rules={props.profile.transferRules} command={(value) => props.command(value)} />
         <h3 class="text-14-medium">{language.t("browser.settings.sites")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">

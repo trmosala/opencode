@@ -9,7 +9,7 @@ import {
 } from "@cookiemonster/cm-browser/protocol"
 import { allowed } from "./allowlist"
 import { execute } from "./driver"
-import { browserTabs, browserRegistration, browserAgentEnabled } from "./registry"
+import { browserTabs, browserRegistration, browserAgentEnabled, routeBrowserHistory } from "./registry"
 import { browserURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 
@@ -22,6 +22,8 @@ export async function routeBrowserRequest(
   const request = parseRequest(message.request)
   if (!request) return failure("bad_request", "Invalid browser request.")
   if (!browserAgentEnabled()) return failure("access_denied", "Browser agent access is disabled in browser settings.")
+  if (request.op === "search_history" || request.op === "open_history")
+    return routeBrowserHistory(message.sessionID, request)
   if (request.op === "list_tabs") {
     return success({
       tabID: "",

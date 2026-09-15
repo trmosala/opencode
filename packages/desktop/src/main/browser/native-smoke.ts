@@ -455,9 +455,14 @@ async function run() {
     childSession,
   )
   assert.equal(iframeFiles.result.value, 0)
-  const iframeCancelled = await one.view.webContents.debugger.sendCommand("Runtime.evaluate", {
-    expression: "window.uploadCancelled", returnByValue: true,
-  }, childSession)
+  const iframeCancelled = await one.view.webContents.debugger.sendCommand(
+    "Runtime.evaluate",
+    {
+      expression: "window.uploadCancelled",
+      returnByValue: true,
+    },
+    childSession,
+  )
   assert.equal(iframeCancelled.result.value, true, "Chromium cancels iframe selection without a native picker")
   assert(one.transferGuarded, "Revocation retains delayed-transfer protection")
   assert(popup.transferGuarded, "Pop-ups inherit transfer protection without agent access")
@@ -957,6 +962,76 @@ async function run() {
   assert.equal((await browserCommand(recoveredOwner, "smoke", { op: "state" })).tabs[0].url, restoredURL)
   await browserCommand(recoveredOwner, "smoke", { op: "preferences", values: { restoreTabs: false } })
   assert.equal(savedTabs("smoke"), undefined)
+  stage("agent history permissions")
+  const historyCommand = (value: Parameters<typeof browserCommand>[2]) => browserCommand(recoveredOwner, "smoke", value)
+  const searchRequest = { op: "search_history", query: "guide", limit: 10 } as const
+  const visits = [
+    { id: "guide-old", url: `${url}guide-old`, title: "Guide", time: 100 },
+    { id: "guide-new", url: `${url}guide-new`, title: "Guide newer", time: 200 },
+  ]
+  getStore("cm-browser").set("history", visits)
+  await historyCommand({ op: "preferences", values: { agentHistory: "never" } })
+  assert.equal((await route(searchRequest)).ok, false)
+  await historyCommand({ op: "preferences", values: { agentHistory: "ask" } })
+  dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as typeof dialog.showMessageBox
+  assert.equal((await route(searchRequest)).ok, false)
+  let approveHistory: ((value: { response: number; checkboxChecked: boolean }) => void) | undefined
+  dialog.showMessageBox = (() =>
+    new Promise((resolve) => {
+      approveHistory = resolve
+    })) as typeof dialog.showMessageBox
+  const revokedSearch = route(searchRequest)
+  await wait(() => !!approveHistory)
+  assert.equal((await route(searchRequest)).ok, false, "Concurrent history prompts are suppressed")
+  await historyCommand({ op: "preferences", values: { agentHistory: "never" } })
+  await historyCommand({ op: "preferences", values: { agentHistory: "ask" } })
+  approveHistory!({ response: 1, checkboxChecked: false })
+  assert.equal((await revokedSearch).ok, false, "Re-enabling must not revive pending consent")
+  approveHistory = undefined
+  const deletedSearch = route(searchRequest)
+  await wait(() => !!approveHistory)
+  await historyCommand({ op: "forget-history", id: "guide-old" })
+  await historyCommand({ op: "forget-history", id: "guide-new" })
+  approveHistory!({ response: 1, checkboxChecked: false })
+  const deletedReply = await deletedSearch
+  assert(deletedReply.ok)
+  assert.deepEqual(deletedReply.result.history, [])
+  await historyCommand({ op: "preferences", values: { agentHistory: "allow" } })
+  getStore("cm-browser").set("history", visits)
+  const foundHistory = await route({ ...searchRequest, from: 100, to: 200, limit: 1 })
+  assert(foundHistory.ok)
+  assert.equal(foundHistory.result.history!.length, 1)
+  assert.equal(foundHistory.result.history![0].url, `${url}guide-new`)
+  const historyRef = foundHistory.result.history![0].ref
+  await browserCommand(recoveredOwner, "other-history-task", { op: "state" })
+  const foreignHistory = await routeBrowserRequest({
+    type: "browser_request",
+    id: "foreign",
+    sessionID: "other-history-task",
+    request: { op: "open_history", ref: historyRef },
+  })
+  assert.equal(foreignHistory.ok, false)
+  dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+  const openedHistory = await route({ op: "open_history", ref: historyRef })
+  assert(openedHistory.ok)
+  assert.equal(openedHistory.result.opened, true)
+  assert.equal(
+    (await historyCommand({ op: "state" })).tabs.find((tab) => tab.id === openedHistory.result.tabID)?.agentAccess,
+    false,
+  )
+  assert.equal((await route({ op: "read_state", tabID: openedHistory.result.tabID })).ok, false)
+  assert.equal((await route({ op: "open_history", ref: historyRef })).ok, false, "Open refs are one-use")
+  await historyCommand({ op: "close", tabID: openedHistory.result.tabID })
+  const beforeDelete = await route(searchRequest)
+  assert(beforeDelete.ok)
+  const deletedRef = beforeDelete.result.history![0].ref
+  await historyCommand({ op: "forget-history", id: "guide-old" })
+  await historyCommand({ op: "forget-history", id: "guide-new" })
+  assert.equal((await route({ op: "open_history", ref: deletedRef })).ok, false)
+  const emptyHistory = await route(searchRequest)
+  assert(emptyHistory.ok)
+  assert.deepEqual(emptyHistory.result.history, [])
+  await historyCommand({ op: "preferences", values: { agentHistory: "ask" } })
   stage("link destinations")
   const external = shell.openExternal
   const externalURLs: string[] = []

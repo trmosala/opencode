@@ -10,23 +10,27 @@ async function run(port: BrowserPort, context: ToolContext, request: Request) {
 
 const result = (state: BrowserState) => ({
   title: state.title || state.url || "Browser tabs",
-  output: state.tabs
-    ? state.tabs.map((tab) => `${tab.tabID} ${tab.url}`).join("\n") ||
-      "No opted-in tabs. Enable agent access in the browser panel."
-    : [
-        `tabID: ${state.tabID}`,
-        `url: ${state.url}`,
-        `title: ${state.title}`,
-        "",
-        "visible text:",
-        state.visibleText || "(none)",
-        "",
-        "interactive elements:",
-        ...state.elements.map(
-          (element) =>
-            `[${element.ref}] <${element.tag}>${element.role ? ` role=${element.role}` : ""} ${element.label || element.text || "(no label)"}`,
-        ),
-      ].join("\n"),
+  output: state.history
+    ? JSON.stringify(state.history)
+    : state.opened
+      ? `Opened private tab ${state.tabID}: ${state.url}. Agent access is off; the user must enable it before page tools can read or control it.`
+      : state.tabs
+        ? state.tabs.map((tab) => `${tab.tabID} ${tab.url}`).join("\n") ||
+          "No opted-in tabs. Enable agent access in the browser panel."
+        : [
+            `tabID: ${state.tabID}`,
+            `url: ${state.url}`,
+            `title: ${state.title}`,
+            "",
+            "visible text:",
+            state.visibleText || "(none)",
+            "",
+            "interactive elements:",
+            ...state.elements.map(
+              (element) =>
+                `[${element.ref}] <${element.tag}>${element.role ? ` role=${element.role}` : ""} ${element.label || element.text || "(no label)"}`,
+            ),
+          ].join("\n"),
   metadata: { tabID: state.tabID, url: state.url },
 })
 
@@ -38,7 +42,7 @@ async function askWrite(
   port: BrowserPort,
   context: ToolContext,
   permission: string,
-  request: Exclude<Request, { op: "read_state" | "list_tabs" }>,
+  request: Exclude<Extract<Request, { tabID: string }>, { op: "read_state" }>,
 ) {
   if (request.op !== "navigate") await askRead(context)
   const url =
@@ -60,6 +64,29 @@ const tabID = tool.schema.string().min(1).max(128).describe("Explicit tab ID fro
 
 export function browserTools(port: BrowserPort): Record<string, ToolDefinition> {
   return {
+    browser_search_history: tool({
+      description:
+        "Search the local browser visit history by title/URL and optional inclusive Unix millisecond dates. Returns at most 20 visits with short-lived refs. Main-process Never/Ask/Allow policy applies independently of page access. Deleted history is unavailable.",
+      args: {
+        query: tool.schema.string().max(256),
+        from: tool.schema.number().int().nonnegative().optional(),
+        to: tool.schema.number().int().nonnegative().optional(),
+        limit: tool.schema.number().int().min(1).max(20).optional(),
+      },
+      async execute(args, context) {
+        await context.ask({ permission: "browser_search_history", patterns: ["*"], always: ["*"], metadata: args })
+        return result(await run(port, context, { op: "search_history", ...args, limit: args.limit ?? 10 }))
+      },
+    }),
+    browser_open_history: tool({
+      description:
+        "Open a ref returned by browser_search_history in a new private tab. Main asks for native confirmation. This does not grant agent page access. Deleted, expired and other-task refs are rejected.",
+      args: { ref: tool.schema.string().min(1).max(128) },
+      async execute(args, context) {
+        await context.ask({ permission: "browser_open_history", patterns: ["*"], always: ["*"], metadata: args })
+        return result(await run(port, context, { op: "open_history", ref: args.ref }))
+      },
+    }),
     browser_read_state: tool({
       description:
         "Without tabID, list only tabs the user opted into agent access. With tabID, read that tab's bounded visible text and opaque element refs. Private tabs are never exposed.",

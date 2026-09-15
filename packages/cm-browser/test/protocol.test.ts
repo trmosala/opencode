@@ -40,3 +40,24 @@ test("host policy allows exact hosts and subdomains, not lookalikes or other sch
   expect(stateDirectory({ APPDATA: "C:\\Users\\x\\AppData\\Roaming" }, "win32")).toContain("CookieMonster")
   expect(stateDirectory({ HOME: "/home/x" }, "linux")).toContain(".config")
 })
+
+test("history requests validate result bounds and date ranges without requiring a tab", () => {
+  expect(parseRequest({ op: "search_history", query: "guide", limit: 20, from: 0, to: 100 })).toEqual({
+    op: "search_history",
+    query: "guide",
+    limit: 20,
+    from: 0,
+    to: 100,
+  })
+  for (const values of [
+    { limit: 21 },
+    { limit: 0 },
+    { from: 200, to: 100 },
+    { from: -1 },
+    { to: 9e15 },
+    { query: "x".repeat(257) },
+  ])
+    expect(parseRequest({ op: "search_history", query: "", limit: 10, ...values })).toBeUndefined()
+  expect(parseRequest({ op: "open_history", ref: "" })).toBeUndefined()
+  expect(parseRequest({ op: "open_history", ref: "opaque" })).toEqual({ op: "open_history", ref: "opaque" })
+})

@@ -32,10 +32,13 @@ export function ipcPort(parent = (process as NodeJS.Process & { parentPort?: Par
       if (!parent) return Promise.resolve(failure("unavailable", "CookieMonster parent IPC is unavailable."))
       const id = randomUUID()
       return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          pending.delete(id)
-          resolve(failure("timeout", "Browser operation timed out."))
-        }, OPERATION_TIMEOUT_MS + 1_000)
+        const timeout = setTimeout(
+          () => {
+            pending.delete(id)
+            resolve(failure("timeout", "Browser operation timed out."))
+          },
+          (request.op === "search_history" || request.op === "open_history" ? 60_000 : OPERATION_TIMEOUT_MS) + 1_000,
+        )
         pending.set(id, (response) => {
           clearTimeout(timeout)
           resolve(response)

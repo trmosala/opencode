@@ -32,6 +32,7 @@ export type BrowserProfile = {
 
 export type BrowserPermission = "ask" | "allow" | "block"
 export type BrowserPreferences = {
+  agentHistory: "never" | "ask" | "allow"
   webLinks: "browser" | "external"
   localLinks: "browser" | "external"
   agentEnabled: boolean

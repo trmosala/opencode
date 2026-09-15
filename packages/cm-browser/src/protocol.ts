@@ -21,6 +21,8 @@ export type ElementRef = {
 }
 
 export type BrowserState = {
+  readonly history?: readonly { ref: string; url: string; title: string; time: number }[]
+  readonly opened?: boolean
   readonly tabID: string
   readonly tabs?: readonly { tabID: string; url: string; title: string }[]
   readonly url: string
@@ -29,7 +31,18 @@ export type BrowserState = {
   readonly elements: readonly ElementRef[]
 }
 
+export type HistoryRequest =
+  | {
+      readonly op: "search_history"
+      readonly query: string
+      readonly from?: number
+      readonly to?: number
+      readonly limit: number
+    }
+  | { readonly op: "open_history"; readonly ref: string }
+
 export type Request =
+  | HistoryRequest
   | { readonly op: "list_tabs" }
   | ({ readonly tabID: string } & (
       | { readonly op: "read_state" }
@@ -93,6 +106,37 @@ export function parseAllowlist(value: unknown): readonly string[] | undefined {
 export function parseRequest(value: unknown): Request | undefined {
   if (!value || typeof value !== "object") return
   const input = value as Record<string, unknown>
+  if (input.op === "search_history") {
+    if (
+      typeof input.query !== "string" ||
+      input.query.length > 256 ||
+      !Number.isInteger(input.limit) ||
+      Number(input.limit) < 1 ||
+      Number(input.limit) > 20
+    )
+      return
+    for (const key of ["from", "to"] as const)
+      if (
+        input[key] !== undefined &&
+        (typeof input[key] !== "number" ||
+          !Number.isSafeInteger(input[key]) ||
+          input[key] < 0 ||
+          input[key] > 8_640_000_000_000_000)
+      )
+        return
+    if (typeof input.from === "number" && typeof input.to === "number" && input.from > input.to) return
+    return {
+      op: "search_history",
+      query: input.query,
+      limit: Number(input.limit),
+      from: typeof input.from === "number" ? input.from : undefined,
+      to: typeof input.to === "number" ? input.to : undefined,
+    }
+  }
+  if (input.op === "open_history")
+    return typeof input.ref === "string" && input.ref.length > 0 && input.ref.length <= 128
+      ? { op: "open_history", ref: input.ref }
+      : undefined
   if (input.op === "list_tabs") return { op: "list_tabs" }
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
