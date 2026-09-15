@@ -13,6 +13,7 @@ const store = () => getStore("cm-browser")
 export function browserPreferencesState(): BrowserPreferences {
   const value = store().get("preferences", {}) as Partial<BrowserPreferences>
   return {
+    offerSaveLogins: value.offerSaveLogins !== false,
     agentHistory: value.agentHistory === "allow" ? "allow" : value.agentHistory === "never" ? "never" : "ask",
     webLinks: value.webLinks === "browser" ? "browser" : "external",
     localLinks: value.localLinks === "external" ? "external" : "browser",

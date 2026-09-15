@@ -57,6 +57,7 @@ import {
   saveLogins,
 } from "./profile"
 
+import { watchLoginOffers, allowLoginOffers } from "./login-offers"
 import { agentHistory } from "./agent-history"
 import { failure } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
@@ -71,6 +72,7 @@ type Tab = BrowserRegistration & {
   find?: { active: number; matches: number }
   findRequest?: number
   permissionReload?: boolean
+  cancelLoginOffer?: () => void
   loginBusy?: boolean
 }
 type Group = {
@@ -322,6 +324,7 @@ function layout(owner: Owner) {
   const visible =
     !owner.suspended && owner.win.isVisible() && !owner.win.isMinimized() && tab && !tab.contents.isDestroyed()
   if (owner.attached && (owner.attached !== tab || !visible)) {
+    owner.attached.cancelLoginOffer?.()
     cancelPicker(owner.attached.view.webContents)
     owner.win.contentView.removeChildView(owner.attached.view)
     owner.attached = undefined
@@ -334,6 +337,7 @@ function layout(owner: Owner) {
   const width = Math.max(0, Math.min(Math.round(viewport.bounds.width * zoom), size.width - x))
   const height = Math.max(0, Math.min(Math.round(viewport.bounds.height * zoom), size.height - y))
   if (!width || !height) {
+    owner.attached?.cancelLoginOffer?.()
     if (owner.attached) owner.win.contentView.removeChildView(owner.attached.view)
     owner.attached = undefined
     return
@@ -546,6 +550,17 @@ function createTab(
   group.tabs.push(tab)
   group.activeID = tab.id
   const unregister = registerBrowserTab(tab)
+  tab.cancelLoginOffer = watchLoginOffers(
+    owner.win,
+    contents,
+    () => owner.attached === tab && !tab.agentAccess,
+    () => !tab.loginBusy && !owner.suspended,
+    (value) => {
+      tab.loginBusy = value
+      if (value) tab.accessRevision = (tab.accessRevision ?? 0) + 1
+    },
+    () => publish(owner, group),
+  )
   const changed = () => publish(owner, group)
   const invalidate = () => {
     tab.revision++
@@ -764,6 +779,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "forget-download",
       "settings",
       "forget-login",
+      "allow-login-offers",
       "preferences",
       "download-directory",
       "reveal-download",
@@ -779,6 +795,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     owner.suspended++
     layout(owner)
     try {
+      if (command.op === "allow-login-offers") allowLoginOffers(command.origin)
       if (command.op === "transfer-rule") saveTransferRule(command.rule, command.remove)
       if (command.op === "bookmark-save") saveBookmark(command)
       if (command.op === "bookmark-delete") deleteBookmark(command.id)

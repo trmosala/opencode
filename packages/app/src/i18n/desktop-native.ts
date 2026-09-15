@@ -222,6 +222,15 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.offer.failed": "The login could not be saved. Unlock the vault and try saving it manually.",
+  "desktop.browser.offer.save": "Save this submitted login?",
+  "desktop.browser.offer.update": "Update this saved login?",
+  "desktop.browser.offer.detail":
+    "Website: {{origin}}\nAccount: {{username}}\nOnly save if this sign-in succeeded. The password stays in your encrypted vault.",
+  "desktop.browser.offer.notNow": "Not now",
+  "desktop.browser.offer.updateButton": "Update",
+  "desktop.browser.offer.never": "Never for this site",
+
   "desktop.browser.history.search": "Allow the agent to search browsing history?",
   "desktop.browser.history.searchDetail":
     "This searches saved visits across your browser profile.\nQuery: {{query}}\nFrom (UTC): {{from}}\nTo (UTC): {{to}}\nMaximum results: {{limit}}",

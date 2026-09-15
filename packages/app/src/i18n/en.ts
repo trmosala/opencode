@@ -1,6 +1,11 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const browser = {
+  "browser.passwords.offers": "Offer to save submitted logins",
+  "browser.passwords.offers.help":
+    "Unlock the vault before signing in. Offers run on the active tab with agent access off, after a submitted login form disappears. Confirm sign-in succeeded before saving. Some sites, iframe forms and cross-site sign-ins require manual saving.",
+  "browser.passwords.offers.never": "Sites excluded from save offers",
+  "browser.passwords.offers.allow": "Allow offers again",
   "browser.history.agent": "Agent access to browsing history",
   "browser.history.agent.help":
     "Controls agent searches across this browser profile's saved visits, independently of page access. Opening a result always asks for confirmation and leaves page access off. Deleting history does not remove results already shared in chat.",

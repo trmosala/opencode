@@ -847,6 +847,113 @@ async function run() {
   )
   dialog.showOpenDialog = chooser
   vaultAccess.lock()
+  stage("automatic password save and update offers")
+  await command({ op: "unlock-vault" })
+  await command({ op: "select", tabID: first })
+  await command({ op: "access", tabID: first, enabled: false })
+  await command({ op: "preferences", values: { offerSaveLogins: true } })
+  let offerContext: number | undefined
+  const observeOffer = (_event: unknown, method: string, params: { name?: string; executionContextId?: number }) => {
+    if (method === "Runtime.bindingCalled" && params.name?.startsWith("cmLoginOffer"))
+      offerContext = params.executionContextId
+  }
+  one.view.webContents.debugger.on("message", observeOffer)
+  let offers = 0
+  let offerAnswer = 1
+  const automaticDialog = dialog.showMessageBox
+  dialog.showMessageBox = (async (_window, options) => {
+    assert(options?.message?.includes("login"))
+    assert(!options?.detail?.includes("auto-secret"))
+    offers++
+    return { response: offerAnswer, checkboxChecked: false }
+  }) as typeof dialog.showMessageBox
+  const submitLogin = async (secret: string, outcome = "spa", user = "automatic-user") => {
+    await one.view.webContents.executeJavaScript(
+      `document.body.innerHTML = '<form method="post" action="/login-success"><input autocomplete="username"><input type="password"><button type="submit">Sign in</button></form>'; document.querySelector('input').value = ${JSON.stringify(user)}; document.querySelector('input[type=password]').value = ${JSON.stringify(secret)}; ${outcome === "spa" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); event.target.remove(); document.body.append('Welcome') }" : outcome === "failed" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>') }" : ""}; true`,
+    )
+    if (!secret)
+      await one.view.webContents.executeJavaScript("document.querySelector('input[type=password]').remove(); true")
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    const point = await one.view.webContents.executeJavaScript(
+      "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()",
+    )
+    one.view.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+    one.view.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+  }
+  await submitLogin("auto-secret")
+  await wait(() => readLogins().some((row) => row.username === "automatic-user"))
+  assert.equal(offers, 1)
+  assert(offerContext)
+  assert.equal(
+    (
+      await one.view.webContents.debugger.sendCommand("Runtime.evaluate", {
+        contextId: offerContext,
+        expression: "globalThis.__cmOffers.input === null",
+        returnByValue: true,
+      })
+    ).result.value,
+    true,
+    "Consumed offers release detached password fields",
+  )
+  one.view.webContents.debugger.removeListener("message", observeOffer)
+  const autoID = readLogins().find((row) => row.username === "automatic-user")!.id
+  assert.equal(await one.view.webContents.executeJavaScript("typeof globalThis.__cmOffers"), "undefined")
+  await submitLogin("auto-secret-updated")
+  await wait(() => readLogins().some((row) => row.id === autoID && row.password === "auto-secret-updated"))
+  assert.equal(offers, 2)
+  await submitLogin("auto-secret-updated")
+  await new Promise((resolve) => setTimeout(resolve, 1900))
+  assert.equal(offers, 2, "Unchanged credentials do not prompt")
+  await submitLogin("wrong-password", "failed")
+  await new Promise((resolve) => setTimeout(resolve, 1900))
+  assert.equal(offers, 2, "Visible login failure does not prompt")
+  await submitLogin("navigation-secret", "navigation", "navigation-user")
+  await wait(() => readLogins().some((row) => row.username === "navigation-user"))
+  assert.equal(offers, 3)
+  offerAnswer = 0
+  await submitLogin("declined-secret", "spa", "declined-user")
+  await wait(() => offers === 4)
+  assert(!readLogins().some((row) => row.username === "declined-user"))
+  offerAnswer = 2
+  await submitLogin("never-secret", "spa", "never-user")
+  await wait(() => browserProfile().loginOfferExclusions?.includes(new URL(url).origin) === true)
+  assert(!readLogins().some((row) => row.username === "never-user"))
+  await submitLogin("excluded-secret", "spa", "excluded-user")
+  await new Promise((resolve) => setTimeout(resolve, 1900))
+  assert.equal(offers, 5)
+  await command({ op: "allow-login-offers", origin: url })
+  assert.deepEqual(browserProfile().loginOfferExclusions, [])
+  offerAnswer = 1
+  await submitLogin("", "spa", "two-step-user")
+  await submitLogin("two-step-secret", "spa", "")
+  await wait(() => readLogins().some((row) => row.username === "two-step-user" && row.password === "two-step-secret"))
+  let resolveOffer: ((value: { response: number; checkboxChecked: boolean }) => void) | undefined
+  dialog.showMessageBox = (() =>
+    new Promise((resolve) => {
+      resolveOffer = resolve
+    })) as typeof dialog.showMessageBox
+  await submitLogin("discard-on-lock", "spa", "lock-race-user")
+  await wait(() => !!resolveOffer)
+  vaultAccess.lock()
+  await vaultAccess.unlock(win)
+  resolveOffer!({ response: 1, checkboxChecked: false })
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert(!readLogins().some((row) => row.username === "lock-race-user"))
+  resolveOffer = undefined
+  await submitLogin("discard-on-navigation", "spa", "navigation-race-user")
+  await wait(() => !!resolveOffer)
+  await one.view.webContents.loadURL(url)
+  resolveOffer!({ response: 1, checkboxChecked: false })
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert(!readLogins().some((row) => row.username === "navigation-race-user"))
+  vaultAccess.lock()
+  await submitLogin("locked-secret", "spa", "locked-user")
+  await new Promise((resolve) => setTimeout(resolve, 1900))
+  await vaultAccess.unlock(win)
+  assert(!readLogins().some((row) => row.username === "locked-user"))
+  await command({ op: "preferences", values: { offerSaveLogins: false } })
+  dialog.showMessageBox = automaticDialog
+  vaultAccess.lock()
   vaultAuthentication.verify = realAuthentication
   stage("history and selected clearing")
   const now = Date.now()

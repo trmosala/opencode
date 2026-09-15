@@ -14,6 +14,7 @@ import { vaultAccess } from "./vault-session"
 import { historyRows, clearSince, validateClear } from "./browsing-data"
 import { clearClosedTabs } from "./tab-recovery"
 import { transferRules } from "./transfer-permissions"
+import { loginOfferExclusions } from "./login-offers"
 import { bookmarks } from "./bookmarks"
 
 const store = () => getStore("cm-browser")
@@ -38,6 +39,7 @@ function loginSummary() {
 export function browserProfile(): BrowserProfile {
   return {
     transferRules: transferRules(),
+    loginOfferExclusions: loginOfferExclusions(),
     history: historyRows(),
     bookmarks: bookmarks(),
     rememberHistory: store().get("rememberHistory", true) === true,

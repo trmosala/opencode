@@ -1,10 +1,6 @@
 import type { BrowserLogin } from "./import-data"
 
-// Fixed code runs only in an isolated world. The ticket lives on that world's document
-// wrapper, so a new document (even at the same URL) cannot receive a pending credential.
-const fields = `
-  if (location.origin !== origin || !isSecureContext || top !== self) throw new Error("Unsafe login document")
-  const visible = (el) => {
+export const loginVisibility = `  const visible = (el) => {
     if (!el.isConnected || el.disabled || el.readOnly || el.closest('[inert]')) return false
     const rect = el.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) return false
@@ -15,7 +11,13 @@ const fields = `
     const x = Math.max(0, rect.left) + (Math.min(innerWidth, rect.right) - Math.max(0, rect.left)) / 2
     const y = Math.max(0, rect.top) + (Math.min(innerHeight, rect.bottom) - Math.max(0, rect.top)) / 2
     return document.elementFromPoint(x, y) === el
-  }
+  }`
+
+// Fixed code runs only in an isolated world. The ticket lives on that world's document
+// wrapper, so a new document (even at the same URL) cannot receive a pending credential.
+const fields = `
+  if (location.origin !== origin || !isSecureContext || top !== self) throw new Error("Unsafe login document")
+  ${loginVisibility}
   const passwords = [...document.querySelectorAll('input[type="password"]')].filter(visible)
   if (field !== "username" && (passwords.length !== 1 || passwords[0].autocomplete.split(/\\s+/).includes("new-password"))) throw new Error("No unambiguous login form")
   const password = field === "username" ? undefined : passwords[0]

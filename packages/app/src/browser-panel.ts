@@ -17,6 +17,7 @@ export type BrowserTab = {
 export type BrowserTransferRule = { origin: string; uploads: "ask" | "block"; downloads: BrowserPermission }
 
 export type BrowserProfile = {
+  loginOfferExclusions?: string[]
   transferRules?: BrowserTransferRule[]
   bookmarks?: BrowserBookmark[]
   history: { id?: string; url: string; title: string; time: number }[]
@@ -32,6 +33,7 @@ export type BrowserProfile = {
 
 export type BrowserPermission = "ask" | "allow" | "block"
 export type BrowserPreferences = {
+  offerSaveLogins: boolean
   agentHistory: "never" | "ask" | "allow"
   webLinks: "browser" | "external"
   localLinks: "browser" | "external"
@@ -88,6 +90,7 @@ export function browserShortcut(input: {
   if (key === "p") return "print"
 }
 export type BrowserCommand =
+  | { op: "allow-login-offers"; origin: string }
   | { op: "transfer-rule"; rule: BrowserTransferRule; remove?: boolean }
   | { op: "open-link"; url: string; destination: "browser" | "external" }
   | { op: "bookmark-save"; url: string; title: string; pinned: boolean; id?: string }

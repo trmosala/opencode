@@ -105,6 +105,37 @@ export function BrowserSettings(props: {
             {language.t("browser.settings.passwords.manage")}
           </Button>
         </section>
+        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
+          <label class="flex items-center justify-between gap-4">
+            <span>
+              <strong>{language.t("browser.passwords.offers")}</strong>
+              <p class="text-text-weak mt-1">{language.t("browser.passwords.offers.help")}</p>
+            </span>
+            <input
+              type="checkbox"
+              disabled={props.profile.preferences?.offerSaveLogins === undefined}
+              checked={props.profile.preferences?.offerSaveLogins ?? false}
+              onChange={(event) => toggle("offerSaveLogins", event.currentTarget.checked)}
+            />
+          </label>
+          <Show when={props.profile.loginOfferExclusions?.length}>
+            <h4>{language.t("browser.passwords.offers.never")}</h4>
+            <For each={props.profile.loginOfferExclusions}>
+              {(origin) => (
+                <div class="flex items-center justify-between gap-3">
+                  <span class="break-all">{origin}</span>
+                  <Button
+                    size="small"
+                    variant="ghost"
+                    onClick={() => void props.command({ op: "allow-login-offers", origin })}
+                  >
+                    {language.t("browser.passwords.offers.allow")}
+                  </Button>
+                </div>
+              )}
+            </For>
+          </Show>
+        </section>
         <h3 class="text-14-medium">{language.t("browser.menu.downloads")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
           <div class="flex flex-wrap justify-between gap-3">
