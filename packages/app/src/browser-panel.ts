@@ -14,7 +14,10 @@ export type BrowserTab = {
   find?: { active: number; matches: number }
 }
 
+export type BrowserTransferRule = { origin: string; uploads: "ask" | "block"; downloads: BrowserPermission }
+
 export type BrowserProfile = {
+  transferRules?: BrowserTransferRule[]
   bookmarks?: BrowserBookmark[]
   history: { id?: string; url: string; title: string; time: number }[]
   credentials: { id: string; origin: string; username: string }[]
@@ -84,6 +87,7 @@ export function browserShortcut(input: {
   if (key === "p") return "print"
 }
 export type BrowserCommand =
+  | { op: "transfer-rule"; rule: BrowserTransferRule; remove?: boolean }
   | { op: "open-link"; url: string; destination: "browser" | "external" }
   | { op: "bookmark-save"; url: string; title: string; pinned: boolean; id?: string }
   | { op: "bookmark-delete"; id: string }

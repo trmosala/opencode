@@ -48,7 +48,15 @@ Settings reuse Electron session permission handlers and DownloadItem APIs. Camer
 
 Show full URL controls the unfocused address display; editing always exposes the complete URL. Include screenshots with selections adds a screenshot to the same captured chat draft as Add Selection. The global agent switch immediately revokes every tab grant; enabling it again does not restore old grants. Agent site access edits the actual main-enforced host allowlist; host rules include subdomains, and the existing tool approval remains separate.
 
-The settings page links to the existing password manager, imports, browsing history, and data clearing. It deliberately does not advertise contact/payment autofill, agent history/upload permissions, WebMCP discovery, or unrestricted agent CDP access, which are not implemented. Controls requiring a newer main process are disabled during renderer hot reload until the next launch.
+The settings page links to the existing password manager, imports, browsing history, and data clearing. It deliberately does not advertise contact/payment autofill, agent history permissions, automatic path-based uploads, WebMCP discovery, or unrestricted agent CDP access, which are not implemented. Controls requiring a newer main process are disabled during renderer hot reload until the next launch.
+
+## Agent uploads and downloads
+
+Browser settings now include default transfer rules and exact-origin exceptions (scheme, host and port). Downloads support Ask (default), Allow and Block. Uploads support Choose files each time (default) and Block. Settings are validated and persisted in Electron main; malformed saved rules fail closed. These controls apply to tabs that have had agent access and connected opener/pop-up tabs for the rest of their lifetime, including delayed actions after access is revoked and manual transfers in those tabs. New unrelated private tabs keep normal browsing behaviour.
+
+Downloads are checked at Electron's `will-download` boundary, including click, navigation and page-triggered downloads. Ask shows a native, default-cancel confirmation with the initiating page, filename and download URL before the ordinary save-location flow. Rules are keyed to the initiating page's origin, not the CDN/download URL. Allow still follows the user's Save dialog and destination preferences. Block or Cancel prevents saving; already active transfers use the existing Cancel control.
+
+Uploads reuse Chromium's [file chooser interception](https://chromedevtools.github.io/devtools-protocol/1-3/Page/#method-setInterceptFileChooserDialog) and file-input delivery. Clicking a file input with the existing agent tool opens a native picker naming the receiving origin. The user alone chooses files; the agent cannot pass local paths. A page can read the chosen files immediately and may submit them through its own script. Navigation, revoked access, rule changes or window destruction while choosing files discard the result. Concurrent pickers are suppressed. Directory inputs and iframe file choosers are blocked in guarded tabs; native chooser filters are not copied from the page. Losing interception closes the guarded tab instead of silently restoring unrestricted selection. This is file-selection consent, not a network upload firewall: it does not prevent a page from transmitting data it already holds.
 
 ## Agent access
 
@@ -74,3 +82,7 @@ From `packages/desktop`: `bun test src/main/browser/`, `bun typecheck`, and `bun
 The native smoke script launches a separate Electron process with temporary user/session data and a loopback fixture server. It does not start the app or sidecar. It checks retained pages, session switching, navigation, pop-ups/opener behavior, cookie isolation, agent opt-in, real foreground/background input, stale references, failed-load recovery, context capture, overlay visibility, cancelled/confirmed tab closure, and download success/cancellation/interruption. Download tests assert Save dialog configuration, then choose a temporary destination programmatically; the native chooser itself still needs interactive verification.
 
 From `packages/app`: `bun typecheck` and `bun test --conditions=solid --preload ./happydom.ts ./src/components/browser-panel`.
+
+### Optional public-site smoke checks
+
+From `packages/desktop`, set `CM_BROWSER_LIVE_SMOKE=1` and run `bun scripts/browser-smoke.ts`. It uses a fresh temporary Electron profile, visits Example Domain, httpbin's form and Teams' unauthenticated entry, opens a public popup and downloads a synthetic httpbin attachment. It does not use real account sessions, submit credentials, restart the app, or alter the running profile. Public network/service availability can fail this optional check. Authenticated Teams flows, real OS picker interaction and macOS require separate interactive verification.

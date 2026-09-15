@@ -207,6 +207,7 @@ async function run() {
   // Deterministic native-dialog responses, only inside this isolated test process.
   const showMessage = dialog.showMessageBox
   const showSync = dialog.showMessageBoxSync
+  dialog.showMessageBoxSync = () => 1
   dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
   await command({ op: "access", tabID: first, enabled: true })
   await command({ op: "access", tabID: second, enabled: true })
@@ -352,6 +353,117 @@ async function run() {
   assert.equal((await route({ op: "read_state", tabID: second })).ok, false)
   await command({ op: "select", tabID: first })
   stage("browser menu and vault")
+  stage("agent transfer permissions")
+  const uploadPicker = dialog.showOpenDialog
+  const uploadFile = join(profile!, "selected-upload.txt")
+  writeFileSync(uploadFile, "only the selected file")
+  await one.view.webContents.executeJavaScript(`document.body.innerHTML = '<input type="file" id="upload">'`)
+  let chosen = 0
+  dialog.showOpenDialog = (async (_window, options) => {
+    assert(options?.title?.includes(new URL(url).origin))
+    chosen++
+    return { canceled: false, filePaths: [uploadFile] }
+  }) as typeof dialog.showOpenDialog
+  const uploadSnapshot = await route({ op: "read_state", tabID: first })
+  assert(uploadSnapshot.ok)
+  const uploadClick = await route({ op: "click", tabID: first, ref: uploadSnapshot.result.elements[0].ref })
+  assert(uploadClick.ok)
+  await wait(() => one.view.webContents.executeJavaScript('document.querySelector("#upload").files.length === 1'))
+  assert.equal(chosen, 1)
+  assert.equal(
+    await one.view.webContents.executeJavaScript('document.querySelector("#upload").files[0].text()'),
+    "only the selected file",
+  )
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "block", downloads: "block" } })
+  await one.view.webContents.executeJavaScript(
+    'document.querySelector("#upload").value=""; document.querySelector("#upload").click()',
+    true,
+  )
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(chosen, 1)
+  assert.equal(await one.view.webContents.executeJavaScript('document.querySelector("#upload").files.length'), 0)
+  const deniedDownload = new Promise<boolean>((resolve) =>
+    one.view.webContents.session.once("will-download", (event) => resolve(event.defaultPrevented)),
+  )
+  one.view.webContents.downloadURL(`${url}download`)
+  assert(await deniedDownload)
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "ask", downloads: "ask" } })
+  dialog.showMessageBoxSync = () => 0
+  const declinedDownload = new Promise<boolean>((resolve) =>
+    one.view.webContents.session.once("will-download", (event) => resolve(event.defaultPrevented)),
+  )
+  one.view.webContents.downloadURL(`${url}download`)
+  assert(await declinedDownload)
+  dialog.showMessageBoxSync = () => 1
+  let finishPicker: ((value: { canceled: boolean; filePaths: string[] }) => void) | undefined
+  dialog.showOpenDialog = (() =>
+    new Promise((resolve) => {
+      finishPicker = resolve
+    })) as typeof dialog.showOpenDialog
+  await one.view.webContents.executeJavaScript('document.querySelector("#upload").click()', true)
+  await wait(() => !!finishPicker)
+  await command({ op: "access", tabID: first, enabled: false })
+  finishPicker!({ canceled: false, filePaths: [uploadFile] })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(await one.view.webContents.executeJavaScript('document.querySelector("#upload").files.length'), 0)
+  finishPicker = undefined
+  await one.view.webContents.executeJavaScript('document.querySelector("#upload").click()', true)
+  await wait(() => !!finishPicker)
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "block", downloads: "ask" } })
+  finishPicker!({ canceled: false, filePaths: [uploadFile] })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(await one.view.webContents.executeJavaScript('document.querySelector("#upload").files.length'), 0)
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "ask", downloads: "ask" } })
+  finishPicker = undefined
+  await one.view.webContents.executeJavaScript('document.querySelector("#upload").click()', true)
+  await wait(() => !!finishPicker)
+  await command({ op: "navigate", tabID: first, url: `${url}?new-document` })
+  await one.view.webContents.executeJavaScript(`document.body.innerHTML = '<input type="file" id="upload">'`)
+  finishPicker!({ canceled: false, filePaths: [uploadFile] })
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(await one.view.webContents.executeJavaScript('document.querySelector("#upload").files.length'), 0)
+  stage("cross-process iframe upload blocking")
+  let childSession: string | undefined
+  one.view.webContents.debugger.on("message", (_event, method, params) => {
+    if (method === "Target.attachedToTarget" && params.targetInfo.type === "iframe") childSession = params.sessionId
+  })
+  let forbiddenPicker = false
+  dialog.showOpenDialog = (async () => {
+    forbiddenPicker = true
+    return { canceled: true, filePaths: [] }
+  }) as typeof dialog.showOpenDialog
+  await one.view.webContents.executeJavaScript(
+    `const frame = document.createElement('iframe'); frame.src = ${JSON.stringify(url.replace("127.0.0.1", "localhost"))}; document.body.append(frame)`,
+  )
+  await wait(() => !!childSession)
+  await one.view.webContents.debugger.sendCommand(
+    "Runtime.evaluate",
+    {
+      expression: `document.body.innerHTML = '<input type="file" id="upload">'; document.querySelector('#upload').oncancel = () => { window.uploadCancelled = true }; document.querySelector('#upload').click(); true`,
+      userGesture: true,
+    },
+    childSession,
+  )
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(forbiddenPicker, false)
+  const iframeFiles = await one.view.webContents.debugger.sendCommand(
+    "Runtime.evaluate",
+    {
+      expression: "document.querySelector('#upload').files.length",
+      returnByValue: true,
+    },
+    childSession,
+  )
+  assert.equal(iframeFiles.result.value, 0)
+  const iframeCancelled = await one.view.webContents.debugger.sendCommand("Runtime.evaluate", {
+    expression: "window.uploadCancelled", returnByValue: true,
+  }, childSession)
+  assert.equal(iframeCancelled.result.value, true, "Chromium cancels iframe selection without a native picker")
+  assert(one.transferGuarded, "Revocation retains delayed-transfer protection")
+  assert(popup.transferGuarded, "Pop-ups inherit transfer protection without agent access")
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "ask", downloads: "ask" }, remove: true })
+  dialog.showOpenDialog = uploadPicker
+  await command({ op: "navigate", tabID: first, url })
   stage("agent access settings")
   await command({ op: "preferences", values: { agentEnabled: false } })
   assert.equal((await route({ op: "read_state", tabID: first })).ok, false)
@@ -874,6 +986,64 @@ async function run() {
     await assert.rejects(openBrowserLink(recoveredWindow, "javascript:alert(1)"))
   } finally {
     shell.openExternal = external
+  }
+  if (process.env.CM_BROWSER_LIVE_SMOKE === "1") {
+    stage("public HTTPS pages")
+    const liveID = (await browserCommand(recoveredOwner, "live", { op: "new" })).activeID!
+    const live = recoveredOwner.groups.get("live")!.tabs.find((tab) => tab.id === liveID)!
+    for (const destination of [
+      "https://example.com",
+      "https://httpbin.org/forms/post",
+      "https://teams.microsoft.com/v2/",
+    ]) {
+      await browserCommand(recoveredOwner, "live", { op: "navigate", tabID: liveID, url: destination })
+      await wait(() => !live.view.webContents.isLoading())
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const visible: unknown = await live.view.webContents
+          .executeJavaScript("document.body.innerText")
+          .catch(() => "")
+        if (typeof visible === "string" && visible.trim().length > 20) break
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      const text: unknown = await live.view.webContents.executeJavaScript("document.body.innerText")
+      assert(typeof text === "string")
+      assert(text.trim().length > 20, `Empty public page: ${destination}`)
+      assert(!text.includes("Classic Teams is no longer available"), "Teams reached retired-client error")
+      assert(!live.loadFailed)
+      console.log(
+        "PUBLIC PAGE",
+        destination,
+        "=>",
+        new URL(live.contents.getURL()).origin,
+        JSON.stringify(text.slice(0, 180)),
+      )
+    }
+    stage("public popup")
+    await live.view.webContents.executeJavaScript("void window.open('https://example.com', '_blank')", true)
+    await wait(() => recoveredOwner.groups.get("live")!.tabs.length === 2)
+    const livePopup = recoveredOwner.groups.get("live")!.tabs.find((tab) => tab.id !== liveID)!
+    await wait(
+      () => livePopup.contents.getURL().startsWith("https://example.com") && !livePopup.view.webContents.isLoading(),
+    )
+    assert.equal(livePopup.agentAccess, false)
+    console.log("PUBLIC POPUP PASS")
+    stage("public download")
+    await browserCommand(recoveredOwner, "live", { op: "access", tabID: liveID, enabled: true })
+    dialog.showMessageBoxSync = () => 1
+    const downloaded = new Promise<void>((resolve, reject) => {
+      live.view.webContents.session.once("will-download", (_event, item) => {
+        item.setSavePath(join(profile!, "public-download.json"))
+        item.once("done", (_event, state) =>
+          state === "completed" ? resolve() : reject(new Error(`Public download ${state}`)),
+        )
+      })
+    })
+    live.view.webContents.downloadURL(
+      "https://httpbin.org/response-headers?Content-Disposition=attachment%3Bfilename%3Dsmoke.json",
+    )
+    await downloaded
+    assert(readFileSync(join(profile!, "public-download.json"), "utf8").includes("Content-Disposition"))
+    console.log("PUBLIC DOWNLOAD PASS")
   }
   recoveredWindow.destroy()
   dialog.showMessageBox = showMessage

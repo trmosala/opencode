@@ -1,6 +1,14 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const browser = {
+  "browser.transfer.title": "Agent uploads and downloads",
+  "browser.transfer.help":
+    "Rules apply to tabs that have had agent access and connected pop-ups or opener tabs, until those tabs close. They also cover manual transfers in these tabs. Uploads always require you to choose the files; directory and iframe uploads are unavailable in these tabs.",
+  "browser.transfer.default": "Default",
+  "browser.transfer.uploads": "Uploads",
+  "browser.transfer.downloads": "Downloads",
+  "browser.transfer.choose": "Choose files each time",
+  "browser.transfer.remove": "Remove exception",
   "browser.settings.webLinks": "Web link destination",
   "browser.settings.localLinks": "Local development link destination",
   "browser.settings.linksHelp":

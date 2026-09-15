@@ -51,7 +51,10 @@ import {
   saveLogins,
 } from "./profile"
 
+import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
+
 type Tab = BrowserRegistration & {
+  uploadGuard?: Promise<unknown>
   saved: SavedTab
   view: WebContentsView
   openerID?: string
@@ -414,6 +417,11 @@ function createTab(
         event.preventDefault()
         return
       }
+      const tab = target.group.tabs.find((tab) => tab.contents === source)!
+      if (!allowDownload(target.owner.win, tab, item.getFilename(), item.getURL())) {
+        event.preventDefault()
+        return
+      }
       const download: BrowserDownload = {
         id: randomUUID(),
         filename: basename(item.getFilename().replaceAll("\\", "/")),
@@ -501,9 +509,16 @@ function createTab(
     contents,
     view,
     agentAccess: false,
+    transferGuarded: group.tabs.some((tab) => tab.id === popup?.openerID && tab.transferGuarded),
     revision: 0,
     openerID: popup?.openerID,
     loadFailed: false,
+  }
+  if (tab.transferGuarded) {
+    tab.uploadGuard = guardUploads(owner.win, tab, contents)
+    void tab.uploadGuard.catch(() => {
+      if (!contents.isDestroyed()) contents.close()
+    })
   }
   group.tabs.push(tab)
   group.activeID = tab.id
@@ -731,6 +746,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "reveal-download",
       "site-permission",
       "agent-host",
+      "transfer-rule",
       "bookmark-save",
       "bookmark-delete",
       "bookmark-import",
@@ -740,6 +756,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     owner.suspended++
     layout(owner)
     try {
+      if (command.op === "transfer-rule") saveTransferRule(command.rule, command.remove)
       if (command.op === "bookmark-save") saveBookmark(command)
       if (command.op === "bookmark-delete") deleteBookmark(command.id)
       if (command.op === "bookmark-import" || command.op === "bookmark-export")
@@ -1018,8 +1035,28 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
           defaultId: 0,
           cancelId: 0,
         })
-        if (answer.response === 1 && !contents.isDestroyed() && tab.accessRevision === accessRevision)
-          tab.agentAccess = true
+        if (answer.response === 1 && !contents.isDestroyed() && tab.accessRevision === accessRevision) {
+          const related = new Set([tab.id])
+          // An existing child can affect its opener and siblings through ordinary page script.
+          for (let pass = 0; pass < group.tabs.length; pass++) {
+            group.tabs.forEach((entry) => {
+              if (!entry.openerID) return
+              if (related.has(entry.id)) related.add(entry.openerID)
+              if (related.has(entry.openerID)) related.add(entry.id)
+            })
+          }
+          await Promise.all(
+            group.tabs
+              .filter((entry) => related.has(entry.id))
+              .map((entry) => {
+                entry.transferGuarded = true
+                entry.uploadGuard ??= guardUploads(owner.win, entry, entry.view.webContents)
+                return entry.uploadGuard
+              }),
+          )
+          if (!contents.isDestroyed() && tab.accessRevision === accessRevision && browserAgentEnabled())
+            tab.agentAccess = true
+        }
       } finally {
         owner.suspended--
         layout(owner)

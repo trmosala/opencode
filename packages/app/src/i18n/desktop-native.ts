@@ -222,6 +222,9 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.transfer.download": "Allow this download from an agent-accessible tab?",
+  "desktop.browser.transfer.downloadDetail": "Page: {{origin}}\nFile: {{filename}}\nDownload: {{url}}",
+  "desktop.browser.transfer.upload": "Choose files to share with {{origin}}",
   "desktop.browser.openInternal": "Open in CookieMonster",
   "desktop.browser.openExternal": "Open in default browser",
   "desktop.browser.importBookmarks": "Import bookmarks",

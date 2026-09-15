@@ -81,7 +81,8 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       },
     }),
     browser_click: tool({
-      description: "Click a snapshot ref in an opted-in tab. Cross-tab and stale refs are rejected.",
+      description:
+        "Click a snapshot ref in an opted-in tab. Cross-tab and stale refs are rejected. File inputs open a user-only file picker, subject to site upload rules. Wait for the user to choose files, then read state again; you cannot supply local file paths. Downloads may require separate native approval.",
       args: { tabID, ref: tool.schema.string().max(256).describe("Opaque element ref from this tab's snapshot") },
       async execute(args, context) {
         const request = { op: "click", tabID: args.tabID, ref: args.ref } as const

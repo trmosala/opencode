@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { BrowserCommand, BrowserPermission, BrowserPreferences, BrowserProfile } from "@/browser-panel"
 import type { BrowserToolPanel } from "./browser-tools"
+import { BrowserTransfers } from "./browser-transfers"
 
 export function BrowserSettings(props: {
   profile: BrowserProfile
@@ -145,6 +146,7 @@ export function BrowserSettings(props: {
             {language.t("browser.settings.downloads.manage")}
           </Button>
         </section>
+        <BrowserTransfers rules={props.profile.transferRules} command={(value) => props.command(value)} />
         <h3 class="text-14-medium">{language.t("browser.settings.sites")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
           <p class="text-text-weak">{language.t("browser.settings.sites.help")}</p>

@@ -13,6 +13,7 @@ import { prepareLoginScript, completeLoginScript } from "./login-form"
 import { vaultAccess } from "./vault-session"
 import { historyRows, clearSince, validateClear } from "./browsing-data"
 import { clearClosedTabs } from "./tab-recovery"
+import { transferRules } from "./transfer-permissions"
 import { bookmarks } from "./bookmarks"
 
 const store = () => getStore("cm-browser")
@@ -36,6 +37,7 @@ function loginSummary() {
 
 export function browserProfile(): BrowserProfile {
   return {
+    transferRules: transferRules(),
     history: historyRows(),
     bookmarks: bookmarks(),
     rememberHistory: store().get("rememberHistory", true) === true,

@@ -5,6 +5,7 @@ export type BrowserRegistration = {
   ownerID: number
   sessionID: string
   contents: DriverContents
+  transferGuarded?: boolean
   agentAccess: boolean
   revision: number
   accessRevision?: number
