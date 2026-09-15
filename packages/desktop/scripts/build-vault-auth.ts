@@ -31,41 +31,44 @@ if (process.platform === "win32") {
   if (!version || !sdkVersion) throw new Error("Windows SDK with C++/WinRT required")
   const output = resolve(import.meta.dir, "../resources/vault-auth")
   mkdirSync(output, { recursive: true })
-  const build = spawnSync(
-    join(tools, version, "bin", "Hostx64", arch, "cl.exe"),
-    [
-      "/nologo",
-      "/std:c++17",
-      "/EHsc",
-      "/O2",
-      "/MT",
-      "/guard:cf",
-      "/DUNICODE",
-      "/D_UNICODE",
-      resolve(import.meta.dir, "../native-vault/windows.cpp"),
-      `/Fo${join(output, `windows-${arch}.obj`)}`,
-      `/Fe${join(output, `windows-${arch}.exe`)}`,
-      "/link",
-      "/DYNAMICBASE",
-      "/NXCOMPAT",
-      "windowsapp.lib",
-      "user32.lib",
-    ],
-    {
-      stdio: "inherit",
-      windowsHide: true,
-      env: {
-        ...process.env,
-        INCLUDE: [
-          join(tools, version, "include"),
-          ...["ucrt", "shared", "um", "winrt", "cppwinrt"].map((name) => join(sdk, "Include", sdkVersion, name)),
-        ].join(";"),
-        LIB: [
-          join(tools, version, "lib", arch),
-          ...["ucrt", "um"].map((name) => join(sdk, "Lib", sdkVersion, name, arch)),
-        ].join(";"),
+  for (const name of ["windows", "windows-entry"]) {
+    const build = spawnSync(
+      join(tools, version, "bin", "Hostx64", arch, "cl.exe"),
+      [
+        "/nologo",
+        "/std:c++17",
+        "/EHsc",
+        "/O2",
+        "/MT",
+        "/guard:cf",
+        "/DUNICODE",
+        "/D_UNICODE",
+        resolve(import.meta.dir, `../native-vault/${name}.cpp`),
+        `/Fo${join(output, `${name}-${arch}.obj`)}`,
+        `/Fe${join(output, `${name}-${arch}.exe`)}`,
+        "/link",
+        "/DYNAMICBASE",
+        "/NXCOMPAT",
+        "windowsapp.lib",
+        "user32.lib",
+        "credui.lib",
+      ],
+      {
+        stdio: "inherit",
+        windowsHide: true,
+        env: {
+          ...process.env,
+          INCLUDE: [
+            join(tools, version, "include"),
+            ...["ucrt", "shared", "um", "winrt", "cppwinrt"].map((name) => join(sdk, "Include", sdkVersion, name)),
+          ].join(";"),
+          LIB: [
+            join(tools, version, "lib", arch),
+            ...["ucrt", "um"].map((name) => join(sdk, "Lib", sdkVersion, name, arch)),
+          ].join(";"),
+        },
       },
-    },
-  )
-  if (build.status !== 0) throw new Error("Windows vault authenticator build failed")
+    )
+    if (build.status !== 0) throw new Error("Windows vault helper build failed")
+  }
 }

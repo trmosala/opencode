@@ -51,6 +51,7 @@ import {
   browserSettings,
   clearBrowserData,
   forgetLogin,
+  editLogin,
   importBrowserData,
   pageLogin,
   rememberPage,
@@ -779,6 +780,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "forget-download",
       "settings",
       "forget-login",
+      "edit-login",
       "allow-login-offers",
       "preferences",
       "download-directory",
@@ -865,6 +867,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
           ),
         )
       }
+      if (command.op === "edit-login") await editLogin(owner.win, command)
       if (command.op === "forget-login") forgetLogin(command.id)
       if (command.op === "clear") {
         if (!["history", "cache", "cookies", "passwords", "downloads"].includes(command.kind))

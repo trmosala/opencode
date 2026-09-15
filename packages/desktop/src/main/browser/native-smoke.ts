@@ -22,6 +22,7 @@ import { snapshotScript } from "./snapshot"
 import { browserPreferencesState, downloadDirectory, downloadHistory, mediaOrigin } from "./preferences"
 import { getStore } from "../store"
 import { readLogins } from "./vault"
+import { loginEntry, decodeLoginEntry } from "./login-entry"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
 import { vaultAuthentication } from "./vault-auth"
 import { vaultAccess } from "./vault-session"
@@ -75,6 +76,78 @@ const wait = async (check: () => boolean | Promise<boolean>) => {
 
 const stage = (value: string) => writeFileSync(join(profile!, "stage.txt"), value)
 
+async function accountSmoke(
+  win: BrowserWindow,
+  command: (value: Parameters<typeof browserCommand>[2]) => ReturnType<typeof browserCommand>,
+  url: string,
+  username: string,
+) {
+  stage("account management")
+  const entryPrompt = loginEntry.prompt
+  const accountConsent = dialog.showMessageBox
+  const entry = { origin: new URL(url).origin, username: "entry-user", password: "entry-secret" }
+  try {
+    loginEntry.prompt = async () => undefined
+    await command({ op: "edit-login", origin: url })
+    assert.equal(readLogins().length, 1)
+    loginEntry.prompt = async () => entry
+    dialog.showMessageBox = (async (_win, options) => {
+      assert.equal(options?.defaultId, 0)
+      assert.equal(options?.cancelId, 0)
+      assert(!JSON.stringify(options).includes(entry.password))
+      return { response: 0, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
+    await command({ op: "edit-login", origin: url })
+    assert.equal(readLogins().length, 1)
+    dialog.showMessageBox = accountConsent
+    const created = await command({ op: "edit-login", origin: url })
+    assert(!JSON.stringify(created).includes(entry.password))
+    const account = created.profile!.credentials.find((row) => row.username === entry.username)!
+    assert(account)
+    await assert.rejects(command({ op: "edit-login", origin: url }))
+    assert.equal(readLogins().length, 2)
+    await assert.rejects(command({ op: "edit-login", origin: "http://unsafe.example" }))
+    await assert.rejects(command({ op: "edit-login", origin: "https://other.example", id: account.id }))
+    loginEntry.prompt = async () => ({ ...entry, username: "edited-user", password: "edited-secret" })
+    await command({ op: "edit-login", origin: url, id: account.id })
+    assert.equal(readLogins().find((row) => row.id === account.id)?.password, "edited-secret")
+    assert.equal(readLogins().find((row) => row.id === account.id)?.username, "edited-user")
+    loginEntry.prompt = async () => ({ ...entry, username })
+    await assert.rejects(command({ op: "edit-login", origin: url, id: account.id }))
+    loginEntry.prompt = async () => ({ ...entry, password: "" })
+    await assert.rejects(command({ op: "edit-login", origin: url, id: account.id }))
+    loginEntry.prompt = async () => {
+      await assert.rejects(command({ op: "edit-login", origin: url }))
+      saveLogins([{ ...entry, username: "edited-user", password: "concurrent-secret" }])
+      return entry
+    }
+    await assert.rejects(command({ op: "edit-login", origin: url, id: account.id }))
+    assert.equal(readLogins().find((row) => row.username === "edited-user")?.password, "concurrent-secret")
+    loginEntry.prompt = async () => {
+      vaultAccess.lock()
+      await vaultAccess.unlock(win)
+      return entry
+    }
+    await assert.rejects(command({ op: "edit-login", origin: url }))
+    loginEntry.prompt = async () => entry
+    dialog.showMessageBox = (async () => {
+      vaultAccess.lock()
+      await vaultAccess.unlock(win)
+      return { response: 1, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
+    await assert.rejects(command({ op: "edit-login", origin: url }))
+    assert.equal(readLogins().length, 2)
+    dialog.showMessageBox = accountConsent
+    await command({ op: "forget-login", id: readLogins().find((row) => row.username === "edited-user")!.id })
+    vaultAccess.lock()
+    await assert.rejects(command({ op: "edit-login", origin: url }))
+    await vaultAccess.unlock(win)
+  } finally {
+    loginEntry.prompt = entryPrompt
+    dialog.showMessageBox = accountConsent
+  }
+}
+
 async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
@@ -95,6 +168,123 @@ async function run() {
   stage("creating first tab")
   win.showInactive()
   const command = (value: Parameters<typeof browserCommand>[2]) => browserCommand(owner, "smoke", value)
+  if (process.argv.includes("--accounts")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    try {
+      assert.throws(() => readLogins())
+      vaultAuthentication.verify = async () => {
+        throw new Error("fixture cancellation")
+      }
+      await assert.rejects(command({ op: "unlock-vault" }))
+      assert.equal(vaultAccess.status(), "locked")
+      vaultAuthentication.verify = async () => {}
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await command({ op: "unlock-vault" })
+      saveLogins([{ origin: url, username: "fixture-user", password: "fixture-secret" }])
+      await accountSmoke(win, command, url, "fixture-user")
+      stage("native account response decoding")
+      const unicode = {
+        origin: new URL(url).origin,
+        username: "fixture-\u00e9\u4e2d",
+        password: "secret-\ud83d\udd12\n ",
+      }
+      const userBytes = Buffer.from(unicode.username, "utf16le")
+      const passwordBytes = Buffer.from(unicode.password, "utf16le")
+      const header = Buffer.alloc(8)
+      header.writeUInt32LE(userBytes.length, 0)
+      header.writeUInt32LE(passwordBytes.length, 4)
+      const frame = Buffer.concat([header, userBytes, passwordBytes])
+      assert.deepEqual(decodeLoginEntry(unicode.origin, frame), unicode)
+      for (const invalid of [
+        Buffer.alloc(0),
+        frame.subarray(0, 7),
+        frame.subarray(0, -1),
+        Buffer.concat([frame, Buffer.alloc(2)]),
+        Buffer.alloc(8),
+      ]) {
+        assert.throws(
+          () => decodeLoginEntry(unicode.origin, invalid),
+          (error: unknown) => {
+            assert(error instanceof Error)
+            assert(!error.message.includes(unicode.password))
+            return true
+          },
+        )
+      }
+      const oddLength = Buffer.from(frame)
+      oddLength.writeUInt32LE(1, 0)
+      assert.throws(() => decodeLoginEntry(unicode.origin, oddLength))
+      const oversized = Buffer.from(frame)
+      oversized.writeUInt32LE(1028, 0)
+      assert.throws(() => decodeLoginEntry(unicode.origin, oversized))
+      frame.fill(0)
+      passwordBytes.fill(0)
+      stage("vault failure preservation")
+      const storage = getStore("cm-browser")
+      const original = storage.store
+      const vault = storage.get("vault") as Record<string, unknown>
+      for (const corrupt of [
+        { ...vault, key: Buffer.from("lost-key").toString("base64") },
+        { ...vault, data: Buffer.from("corrupt").toString("base64") },
+        { ...vault, version: 99 },
+      ]) {
+        storage.set("vault", corrupt)
+        assert.throws(() => readLogins())
+        assert.throws(() => saveLogins([{ origin: url, username: "wrong", password: "wrong" }]))
+        assert.deepEqual(storage.get("vault"), corrupt)
+      }
+      storage.store = original
+      Object.defineProperty(storage, "store", {
+        configurable: true,
+        get: () => original,
+        set: () => {
+          throw new Error("fixture interrupted write")
+        },
+      })
+      try {
+        assert.throws(() => saveLogins([{ origin: url, username: "wrong", password: "wrong" }]))
+      } finally {
+        Reflect.deleteProperty(storage, "store")
+      }
+      assert.deepEqual(storage.store, original)
+      assert.equal(readLogins()[0].password, "fixture-secret")
+      storage.store = {
+        credentials: [
+          {
+            origin: new URL(url).origin,
+            username: "legacy",
+            encrypted: safeStorage.encryptString("legacy-secret").toString("base64"),
+          },
+        ],
+      }
+      const legacy = storage.store
+      Object.defineProperty(storage, "store", {
+        configurable: true,
+        get: () => legacy,
+        set: () => {
+          throw new Error("fixture interrupted migration")
+        },
+      })
+      try {
+        assert.throws(() => readLogins())
+      } finally {
+        Reflect.deleteProperty(storage, "store")
+      }
+      assert.deepEqual(storage.store, legacy)
+      assert.equal(readLogins()[0].password, "legacy-secret")
+      assert.equal(storage.has("credentials"), false)
+      assert(!readFileSync(join(profile!, "profile", "cm-browser"), "utf8").includes("legacy-secret"))
+      assert(!JSON.stringify(browserProfile()).includes("legacy-secret"))
+      stage("PASS focused accounts and vault")
+    } finally {
+      vaultAccess.lock()
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
   const route = (request: Request) =>
     routeBrowserRequest(
       {
@@ -612,6 +802,7 @@ async function run() {
   )
   await command({ op: "save-login", tabID: first })
   const credential = browserProfile().credentials[0]
+  await accountSmoke(win, command, url, credential.username)
   await command({ op: "lock-vault" })
   assert.deepEqual(browserProfile().credentials, [])
   assert.throws(() => readLogins())
@@ -868,6 +1059,7 @@ async function run() {
     return { response: offerAnswer, checkboxChecked: false }
   }) as typeof dialog.showMessageBox
   const submitLogin = async (secret: string, outcome = "spa", user = "automatic-user") => {
+    stage(`automatic offers: ${outcome}, ${user || "password step"}, prior offers ${offers}`)
     await one.view.webContents.executeJavaScript(
       `document.body.innerHTML = '<form method="post" action="/login-success"><input autocomplete="username"><input type="password"><button type="submit">Sign in</button></form>'; document.querySelector('input').value = ${JSON.stringify(user)}; document.querySelector('input[type=password]').value = ${JSON.stringify(secret)}; ${outcome === "spa" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); event.target.remove(); document.body.append('Welcome') }" : outcome === "failed" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>') }" : ""}; true`,
     )

@@ -24,6 +24,7 @@ export type BrowserProfile = {
   credentials: { id: string; origin: string; username: string }[]
   rememberHistory: boolean
   vaultAvailable: boolean
+  loginEntryAvailable?: boolean
   vaultStatus?: "locked" | "unlocking" | "unlocked"
   preferences?: BrowserPreferences
   downloadDirectory?: string
@@ -107,6 +108,7 @@ export type BrowserCommand =
   | { op: "print" | "save-login"; tabID: string }
   | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password" }
   | { op: "forget-login"; id: string }
+  | { op: "edit-login"; origin: string; id?: string }
   | { op: "unlock-vault" | "lock-vault" }
   | { op: "import"; kind: "passwords" | "cookies" }
   | { op: "settings"; rememberHistory: boolean }

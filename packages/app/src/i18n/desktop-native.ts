@@ -222,6 +222,12 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.account.title": "Saved account",
+  "desktop.browser.account.entry":
+    "Enter the website account for {{origin}}, not your Windows password. Existing passwords are never displayed. Nothing is saved until you confirm in CookieMonster.",
+  "desktop.browser.account.confirm": "Save these account changes?",
+  "desktop.browser.account.detail":
+    "Website: {{origin}}\nAccount: {{username}}\nThis changes only the encrypted vault, not the password on the website.",
   "desktop.browser.offer.failed": "The login could not be saved. Unlock the vault and try saving it manually.",
   "desktop.browser.offer.save": "Save this submitted login?",
   "desktop.browser.offer.update": "Update this saved login?",

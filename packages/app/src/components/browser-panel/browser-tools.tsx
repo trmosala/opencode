@@ -93,6 +93,7 @@ export function BrowserTools(props: {
   const language = useLanguage()
   const [state, setState] = createStore({
     query: "",
+    accountOrigin: "",
     busy: false,
     range: "all" as BrowserClearRange,
     kinds: ["history"] as BrowserClearKind[],
@@ -277,11 +278,49 @@ export function BrowserTools(props: {
         >
           {language.t("browser.passwords.save")}
         </Button>
+        <Show when={props.tabs.profile?.vaultStatus === "unlocked"}>
+          <p class="my-2 text-text-weak">{language.t("browser.passwords.entryHelp")}</p>
+          <Show when={props.tabs.profile?.loginEntryAvailable}>
+            <form
+              class="flex gap-2 my-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void run({ op: "edit-login", origin: state.accountOrigin })
+              }}
+            >
+              <input
+                type="url"
+                required
+                maxLength={2048}
+                value={state.accountOrigin}
+                aria-label={language.t("browser.settings.origin")}
+                placeholder="https://example.com"
+                class="min-w-0 flex-1 border border-border-weak-base rounded px-2 py-1"
+                onInput={(event) => setState("accountOrigin", event.currentTarget.value)}
+              />
+              <Button type="submit" size="small" disabled={state.busy}>
+                {language.t("browser.passwords.create")}
+              </Button>
+            </form>
+          </Show>
+          <input
+            type="search"
+            value={state.query}
+            aria-label={language.t("browser.passwords.search")}
+            placeholder={language.t("browser.passwords.search")}
+            class="w-full border border-border-weak-base rounded px-2 py-1 my-2"
+            onInput={(event) => setState("query", event.currentTarget.value)}
+          />
+        </Show>
         <For
-          each={props.tabs.profile?.vaultStatus === "unlocked" ? props.tabs.profile.credentials : []}
+          each={
+            props.tabs.profile?.vaultStatus === "unlocked"
+              ? props.tabs.profile.credentials.filter((login) => matches(`${login.origin} ${login.username}`))
+              : []
+          }
           fallback={
             <Show when={props.tabs.profile?.vaultStatus === "unlocked" && props.tabs.profile.vaultAvailable}>
-              <p class="mt-2">{language.t("browser.passwords.empty")}</p>
+              <p class="mt-2">{language.t(state.query ? "browser.records.noMatches" : "browser.passwords.empty")}</p>
             </Show>
           }
         >
@@ -328,6 +367,16 @@ export function BrowserTools(props: {
                   </Button>
                 )}
               </For>
+              <Show when={props.tabs.profile?.loginEntryAvailable}>
+                <Button
+                  size="small"
+                  variant="ghost"
+                  disabled={state.busy}
+                  onClick={() => void run({ op: "edit-login", origin: login.origin, id: login.id })}
+                >
+                  {language.t("browser.passwords.edit")}
+                </Button>
+              </Show>
               <Button
                 size="small"
                 variant="ghost"

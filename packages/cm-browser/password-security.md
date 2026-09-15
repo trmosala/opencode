@@ -54,6 +54,18 @@ Before production password-manager assurance: agree the supported local-process 
 
 Primary reference: [Electron safeStorage security semantics](https://www.electronjs.org/docs/latest/api/safe-storage).
 
+## Account management work (#5, #34)
+
+Windows-first account creation and replacement use a separate `windows-entry` helper with native CredUI controls. No existing password is sent to this helper. The entered value returns only through the child process pipe to main; child errors are replaced with secret-free errors and returned buffers are cleared. CredUI is configured not to persist credentials. OS vault unlock still precedes entry, and default-cancel native consent precedes persistence. Editing preserves the selected ID, rejects duplicate origin/username pairs and detects concurrent changes. The UI receives metadata only.
+
+Native entry is currently Windows-only. CredUI accepts at most 513 username and 256 password UTF-16 units. Longer imported usernames start with an empty entry field so the user can explicitly replace them rather than silently truncate them; imported values remain intact on cancellation. macOS entry is not implemented; no renderer fallback is provided.
+
+`bun scripts/browser-smoke.ts --accounts` is the focused synthetic fixture: actual encrypted storage, stubbed entry/OS ceremony/native consent, create/edit, duplicate and conflict rejection, cancellation, lock/re-unlock races, corrupt ciphertext/key/version refusal, and migration. Setter-failure injection verifies failure propagation and unchanged data **before persistence**, not crash-during-write durability or partial filesystem replacement. Those storage-level tests remain outstanding.
+
+Remaining evidence: actual CredUI success/cancellation and Unicode round-trip, child termination on lock, packaged helper integrity and upgrades, macOS implementation/validation, storage-level interruption/reopen tests, agreed same-user-process threat model, and external security review. Full browser smoke currently has failures in save-offer timing and download cancellation; the focused pass is not a full-suite pass. Neither #5 nor #34 is complete.
+
+Native reference: [Microsoft CredUIPromptForCredentialsW](https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-creduipromptforcredentialsw).
+
 ## Multi-step filling
 
 Explicit username-only and password-only actions retain the same exact-origin, vault-grant, visible-field and document-ticket checks. Native consent names the selected field and account. Only the requested field is serialized into the delivery script; username-only filling never sends the saved password. Cross-origin steps and iframe filling remain unsupported. The native fixture verifies both steps, missing-field rejection, and cross-origin form action rejection with synthetic credentials.

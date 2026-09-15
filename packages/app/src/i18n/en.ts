@@ -87,6 +87,11 @@ export const browser = {
   "browser.clear.week": "Last 7 days",
   "browser.clear.month": "Last 30 days",
   "browser.clear.all": "All time",
+  "browser.passwords.search": "Search websites and usernames",
+  "browser.passwords.create": "Add account",
+  "browser.passwords.edit": "Edit account",
+  "browser.passwords.entryHelp":
+    "Account entry uses native Windows controls. Enter a replacement password; saved passwords are never displayed. Other platforms are not supported yet.",
   "browser.passwords.fillUsername": "Fill username only",
   "browser.passwords.fillPassword": "Fill password only",
   "browser.passwords.steps":

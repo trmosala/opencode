@@ -16,6 +16,9 @@ import { clearClosedTabs } from "./tab-recovery"
 import { transferRules } from "./transfer-permissions"
 import { loginOfferExclusions } from "./login-offers"
 import { bookmarks } from "./bookmarks"
+import { loginEntry, loginEntryAvailable } from "./login-entry"
+
+let editingLogin = false
 
 const store = () => getStore("cm-browser")
 
@@ -47,6 +50,7 @@ export function browserProfile(): BrowserProfile {
     downloadDirectory: downloadDirectory(),
     sites: sitePermissions(),
     agentHosts: loadAllowlist(),
+    loginEntryAvailable: loginEntryAvailable(),
     ...loginSummary(),
   }
 }
@@ -73,6 +77,59 @@ export function saveLogins(logins: BrowserLogin[]) {
   batch.forEach((row) => next.set(JSON.stringify([row.origin, row.username]), row))
   if (next.size > 2000) throw new Error("Vault limit reached")
   writeLogins([...next.values()])
+}
+
+export async function editLogin(win: BrowserWindow, input: { origin: string; id?: string }) {
+  if (editingLogin) throw new Error("Account entry already pending")
+  const ticket = vaultAccess.require()
+  if (
+    typeof input.origin !== "string" ||
+    input.origin.length > 2048 ||
+    (input.id !== undefined && typeof input.id !== "string")
+  )
+    throw new Error("Invalid account")
+  const origin = loginOrigin(input.origin)
+  const previous = input.id === undefined ? undefined : readLogins().find((row) => row.id === input.id)
+  if (input.id !== undefined && (!previous || previous.origin !== origin)) throw new Error("Account changed")
+  const check = () => {
+    vaultAccess.require(ticket)
+    if (win.isDestroyed() || !win.isVisible() || win.isMinimized()) throw new Error("Account window changed")
+  }
+  check()
+  editingLogin = true
+  try {
+    const entered = await loginEntry.prompt(win, origin, previous?.username ?? "")
+    check()
+    if (!entered) return
+    const login = requireLogin(entered)
+    if (login.origin !== origin) throw new Error("Account origin changed")
+    const answer = await dialog.showMessageBox(win, {
+      type: "question",
+      message: nativeT("desktop.browser.account.confirm"),
+      detail: nativeT("desktop.browser.account.detail", { origin, username: login.username }),
+      buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.save")],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    check()
+    if (answer.response !== 1) return
+    const current = readLogins()
+    const selected = current.find((row) => row.id === previous?.id)
+    if (
+      previous &&
+      (!selected ||
+        selected.origin !== previous.origin ||
+        selected.username !== previous.username ||
+        selected.password !== previous.password)
+    )
+      throw new Error("Account changed; retry the edit")
+    if (current.some((row) => row.id !== previous?.id && row.origin === origin && row.username === login.username))
+      throw new Error("Account already exists")
+    check()
+    writeLogins([{ id: previous?.id ?? randomUUID(), ...login }, ...current.filter((row) => row.id !== previous?.id)])
+  } finally {
+    editingLogin = false
+  }
 }
 
 export function forgetLogin(id: string) {
