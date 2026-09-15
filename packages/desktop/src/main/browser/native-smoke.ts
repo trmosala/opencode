@@ -41,6 +41,8 @@ app.setPath("userData", join(profile, "profile"))
 app.setPath("sessionData", join(profile, "session"))
 app.on("window-all-closed", () => {})
 app.commandLine.appendSwitch("use-fake-device-for-media-stream")
+// Keep trusted fixture input working when another window covers this inactive test window.
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion")
 const userAgents = new Map<string, string>()
 const server = createServer((request, response) => {
   userAgents.set(request.url ?? "/", request.headers["user-agent"] ?? "")
@@ -303,6 +305,50 @@ async function run() {
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
+
+  if (process.argv.includes("--offers")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    try {
+      stage("focused automatic login offer")
+      vaultAuthentication.verify = async () => {}
+      await command({ op: "unlock-vault" })
+      await command({ op: "preferences", values: { offerSaveLogins: true } })
+      let offers = 0
+      dialog.showMessageBox = (async (_win, options) => {
+        assert.equal(options?.defaultId, 0)
+        assert.equal(options?.cancelId, 0)
+        assert(!JSON.stringify(options).includes("synthetic-offer-secret"))
+        offers++
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await one.view.webContents.executeJavaScript(
+        `document.body.innerHTML = '<form method="post"><input autocomplete="username" value="synthetic-offer-user"><input type="password" value="synthetic-offer-secret"><button>Sign in</button></form>'; document.querySelector('form').onsubmit = event => { event.preventDefault(); event.target.remove(); document.body.append('Welcome') }; true`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      const point = await one.view.webContents.executeJavaScript(
+        "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()",
+      )
+      one.view.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+      one.view.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+      stage("focused offer: waiting for form submission")
+      await wait(() => one.view.webContents.executeJavaScript("!document.querySelector('form')"))
+      stage("focused offer: waiting for vault save")
+      await wait(() =>
+        readLogins().some(
+          (row) => row.username === "synthetic-offer-user" && row.password === "synthetic-offer-secret",
+        ),
+      )
+      assert.equal(offers, 1)
+      stage("PASS focused offers")
+    } finally {
+      vaultAccess.lock()
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
 
   if (process.argv.includes("--contacts")) {
     const verify = vaultAuthentication.verify
@@ -682,7 +728,7 @@ async function run() {
     assert.equal(await finished, name === "download-fail" ? "cancelled" : expected)
     assert.equal((await command({ op: "state" })).downloads?.[0].state, expected)
     if (name === "download") assert.equal(readFileSync(destination, "utf8"), "browser download")
-    if (name === "download-cancel") assert.equal(existsSync(destination), false)
+    if (name === "download-cancel") await wait(() => !existsSync(destination))
   }
 
   stage("popup")
