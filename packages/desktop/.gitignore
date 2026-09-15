@@ -29,3 +29,4 @@ resources/.cm-ae-*/
 resources/opencode-cli*
 resources/icons
 resources/*.metainfo.xml
+resources/vault-auth/

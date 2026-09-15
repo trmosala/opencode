@@ -5,6 +5,7 @@ import { browserTools } from "../src/tools"
 import { failure, success, type BrowserState, type Request, type Response } from "../src/protocol"
 
 const state: BrowserState = {
+  tabID: "one",
   url: "https://teams.microsoft.com/",
   title: "Teams",
   visibleText: "Message Send",
@@ -46,9 +47,9 @@ describe("browser tools", () => {
   test("read state renders visible text and opaque refs", async () => {
     const browser = fakePort()
     const call = fakeContext("ses_read")
-    const result = await browserTools(browser.port).browser_read_state.execute({}, call.context)
+    const result = await browserTools(browser.port).browser_read_state.execute({ tabID: "one" }, call.context)
     const output = typeof result === "string" ? result : result.output
-    expect(browser.sent).toEqual([{ sessionID: "ses_read", request: { op: "read_state" } }])
+    expect(browser.sent).toEqual([{ sessionID: "ses_read", request: { tabID: "one", op: "read_state" } }])
     expect(call.asked[0]).toEqual({ permission: "browser_read_state", patterns: ["*"] })
     expect(output).toContain("Message Send")
     expect(output).toContain("[s4:e0] <button> Send")
@@ -58,25 +59,31 @@ describe("browser tools", () => {
     const browser = fakePort()
     const tools = browserTools(browser.port)
     const click = fakeContext("ses_click")
-    await tools.browser_click.execute({ ref: "s4:e0" }, click.context)
+    await tools.browser_click.execute({ tabID: "one", ref: "s4:e0" }, click.context)
     expect(click.asked.at(-1)).toEqual({ permission: "browser_click", patterns: ["teams.microsoft.com"] })
 
     const key = fakeContext("ses_key")
-    await tools.browser_press_key.execute({ key: "Enter", ctrl: true }, key.context)
-    expect(browser.sent.at(-1)?.request).toEqual({ op: "press_key", key: "Enter", modifiers: ["Ctrl"] })
+    await tools.browser_press_key.execute({ tabID: "one", key: "Enter", ctrl: true }, key.context)
+    expect(browser.sent.at(-1)?.request).toEqual({ tabID: "one", op: "press_key", key: "Enter", modifiers: ["Ctrl"] })
     expect(key.asked.at(-1)).toEqual({ permission: "browser_press_key", patterns: ["teams.microsoft.com"] })
   })
 
   test("fill forwards its opaque ref and text", async () => {
     const browser = fakePort()
-    await browserTools(browser.port).browser_fill.execute({ ref: "s4:e1", text: "hi" }, fakeContext("ses_fill").context)
-    expect(browser.sent.at(-1)?.request).toEqual({ op: "fill", ref: "s4:e1", text: "hi" })
+    await browserTools(browser.port).browser_fill.execute(
+      { tabID: "one", ref: "s4:e1", text: "hi" },
+      fakeContext("ses_fill").context,
+    )
+    expect(browser.sent.at(-1)?.request).toEqual({ tabID: "one", op: "fill", ref: "s4:e1", text: "hi" })
   })
 
   test("failures surface their typed code", async () => {
     const browser = fakePort(failure("stale_ref", "read again"))
     await expect(
-      browserTools(browser.port).browser_click.execute({ ref: "s1:e0" }, fakeContext("ses_stale").context),
+      browserTools(browser.port).browser_click.execute(
+        { tabID: "one", ref: "s1:e0" },
+        fakeContext("ses_stale").context,
+      ),
     ).rejects.toThrow(/stale_ref/)
   })
 })

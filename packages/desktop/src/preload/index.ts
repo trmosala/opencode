@@ -132,8 +132,29 @@ const api: ElectronAPI = {
   exportDebugLogs: () => ipcRenderer.invoke("export-debug-logs"),
   setForceFocus: (enabled) => ipcRenderer.invoke("set-force-focus", enabled),
   recordFatalRendererError: (error) => ipcRenderer.invoke("record-fatal-renderer-error", error),
-  registerBrowserWebview: (input) => ipcRenderer.invoke("browser-register", input),
-  unregisterBrowserWebview: (input) => ipcRenderer.invoke("browser-unregister", input),
+  browserPanel: {
+    linkContext: (sessionID, lease) => ipcRenderer.invoke("browser-link-context", sessionID, lease),
+    onOpened: (callback) => {
+      const handler = (_: unknown, sessionID: string) => callback(sessionID)
+      ipcRenderer.on("browser-opened", handler)
+      return () => ipcRenderer.removeListener("browser-opened", handler)
+    },
+    onShortcut: (callback) => {
+      const handler = (_: unknown, input: Parameters<typeof callback>[0]) => callback(input)
+      ipcRenderer.on("browser-shortcut", handler)
+      return () => ipcRenderer.removeListener("browser-shortcut", handler)
+    },
+    command: (sessionID, command) => ipcRenderer.invoke("browser-command", sessionID, command),
+    viewport: (input) => ipcRenderer.invoke("browser-viewport", input),
+    selection: (sessionID, tabID) => ipcRenderer.invoke("browser-context", sessionID, tabID, "selection"),
+    pick: (sessionID, tabID) => ipcRenderer.invoke("browser-context", sessionID, tabID, "pick"),
+    screenshot: (sessionID, tabID) => ipcRenderer.invoke("browser-context", sessionID, tabID, "screenshot"),
+    subscribe: (callback) => {
+      const handler = (_: unknown, state: Parameters<typeof callback>[0]) => callback(state)
+      ipcRenderer.on("browser-tabs", handler)
+      return () => ipcRenderer.removeListener("browser-tabs", handler)
+    },
+  },
   setNativeTranslations: (bundle) => ipcRenderer.invoke("set-native-translations", bundle),
 }
 

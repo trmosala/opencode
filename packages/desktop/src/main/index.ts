@@ -10,6 +10,7 @@ import { app, BrowserWindow } from "electron"
 
 import { Deferred, Effect, Fiber } from "effect"
 import contextMenu from "electron-context-menu"
+import { browserLinkMenu } from "./browser/tabs"
 
 import type { ServerReadyData } from "../preload/types"
 import { checkAppExists, resolveAppPath } from "./apps"
@@ -124,7 +125,16 @@ function ensureLoopbackNoProxy() {
 }
 
 const main = Effect.gen(function* () {
-  contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
+  contextMenu({
+    showSaveImageAs: true,
+    showLookUpSelection: false,
+    showSearchWithGoogle: false,
+    prepend: (_actions, params, target) => {
+      const contents =
+        "webContents" in target ? target.webContents : "getURL" in target && "session" in target ? target : undefined
+      return contents ? browserLinkMenu(contents, params.linkURL) : []
+    },
+  })
 
   // on macOS apps run in `/` which can cause issues with ripgrep
   try {
@@ -204,7 +214,8 @@ const main = Effect.gen(function* () {
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
   const features = app.commandLine.getSwitchValue("enable-features")
   app.commandLine.appendSwitch("enable-features", features ? `${jsCallStackFeature},${features}` : jsCallStackFeature)
-  if (!app.isPackaged) app.commandLine.appendSwitch("remote-debugging-port", "9222")
+  if (!app.isPackaged && process.env.CM_REMOTE_DEBUGGING === "1")
+    app.commandLine.appendSwitch("remote-debugging-port", "9222")
 
   if (!app.requestSingleInstanceLock()) {
     app.quit()

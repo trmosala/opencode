@@ -54,7 +54,7 @@ export const snapshotScript = () => `(() => {
     const tag = el.tagName.toLowerCase()
     const role = compact(el.getAttribute("role") || "")
     const label = compact(el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || el.getAttribute("name") || "")
-    const text = compact(el.innerText || el.textContent || el.value || "")
+    const text = el instanceof HTMLInputElement && el.type === "password" ? "" : compact(el.innerText || el.textContent || el.value || "")
     elements.push({
       tag,
       role,

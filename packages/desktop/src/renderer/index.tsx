@@ -168,10 +168,7 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
   return {
     platform: "desktop",
     os,
-    browserPanel: {
-      register: (input) => window.api.registerBrowserWebview(input),
-      unregister: (input) => window.api.unregisterBrowserWebview(input),
-    },
+    browserPanel: window.api.browserPanel,
     version: pkg.version,
     windowID: windowState.id,
 

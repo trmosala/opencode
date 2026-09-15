@@ -11,10 +11,10 @@ import { runDesktopMenuAction } from "./desktop-menu-actions"
 import { setForceFocus } from "./debug"
 import { assertAttachmentBudget, createPickedFileAuthorizations } from "./attachment-picker"
 import { getStore, removeStoreFileIfEmpty } from "./store"
+import { requireRendererStoreName } from "./store-keys"
 import {
   getPinchZoomEnabled,
   getWindowID,
-  openExternalURL,
   openLocalFileURL,
   setPinchZoomEnabled,
   setTitlebar,
@@ -22,7 +22,14 @@ import {
 } from "./windows"
 import type { UpdaterController } from "./updater-controller"
 import { createUpdaterSubscriptions } from "./updater-subscriptions"
-import { registerBrowserWebview, unregisterBrowserWebview } from "./browser/registry"
+import {
+  browserOwner,
+  browserCommand,
+  browserViewport,
+  browserPageContext,
+  browserLinkContext,
+  openBrowserLink,
+} from "./browser/tabs"
 import { createDesktopDraftStore } from "./draft-store"
 import { nativeT } from "./native-translations"
 
@@ -103,13 +110,15 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("record-fatal-renderer-error", (_event: IpcMainInvokeEvent, error: FatalRendererError) =>
     deps.recordFatalRendererError(error),
   )
-  ipcMain.handle("browser-register", (event: IpcMainInvokeEvent, input: { sessionID: string; webContentsID: number }) =>
-    registerBrowserWebview(event.sender, input.sessionID, input.webContentsID),
+  ipcMain.handle("browser-command", (event, sessionID, command) =>
+    browserCommand(browserOwner(event), sessionID, command),
   )
-  ipcMain.handle(
-    "browser-unregister",
-    (event: IpcMainInvokeEvent, input: { sessionID: string; webContentsID: number }) =>
-      unregisterBrowserWebview(event.sender, input.sessionID, input.webContentsID),
+  ipcMain.handle("browser-viewport", (event, input) => browserViewport(browserOwner(event), input))
+  ipcMain.handle("browser-link-context", (event, sessionID, lease) =>
+    browserLinkContext(browserOwner(event), sessionID, lease),
+  )
+  ipcMain.handle("browser-context", (event, sessionID, tabID, command) =>
+    browserPageContext(browserOwner(event), sessionID, tabID, command),
   )
   ipcMain.handle("set-native-translations", (event: IpcMainInvokeEvent, value: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -121,6 +130,7 @@ export function registerIpcHandlers(deps: Deps) {
     deps.setNativeTranslations(bundle)
   })
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
+    requireRendererStoreName(name)
     try {
       const store = getStore(name)
       const value = store.get(key)
@@ -131,21 +141,26 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
   ipcMain.handle("store-set", (_event: IpcMainInvokeEvent, name: string, key: string, value: string) => {
+    requireRendererStoreName(name)
     getStore(name).set(key, value)
   })
   ipcMain.handle("store-delete", (_event: IpcMainInvokeEvent, name: string, key: string) => {
+    requireRendererStoreName(name)
     getStore(name).delete(key)
     void removeStoreFileIfEmpty(name)
   })
   ipcMain.handle("store-clear", (_event: IpcMainInvokeEvent, name: string) => {
+    requireRendererStoreName(name)
     getStore(name).clear()
     void removeStoreFileIfEmpty(name)
   })
   ipcMain.handle("store-keys", (_event: IpcMainInvokeEvent, name: string) => {
+    requireRendererStoreName(name)
     const store = getStore(name)
     return Object.keys(store.store)
   })
   ipcMain.handle("store-length", (_event: IpcMainInvokeEvent, name: string) => {
+    requireRendererStoreName(name)
     const store = getStore(name)
     return Object.keys(store.store).length
   })
@@ -217,8 +232,10 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
-  ipcMain.on("open-external", (_event: IpcMainEvent, url: string) => {
-    openExternalURL(url)
+  ipcMain.on("open-external", (event: IpcMainEvent, url: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || event.senderFrame !== event.sender.mainFrame) return
+    void openBrowserLink(win, url).catch(() => undefined)
   })
 
   ipcMain.on("open-local-file", (_event: IpcMainEvent, url: string) => {

@@ -17,16 +17,34 @@ export function normalizeBrowserUrl(input: string) {
   if (!trimmed) return
 
   const scheme = trimmed.match(/^([a-zA-Z][a-zA-Z\d+.-]*):/)
-  const hostPort = /^[\w.-]+:\d+(\/.*)?$/.test(trimmed)
+  const hostPort = /^[\w.-]+:\d+(?:[/?#].*)?$/.test(trimmed)
   const withProtocol = !scheme || hostPort ? `http://${trimmed}` : trimmed
 
   try {
     const url = new URL(withProtocol)
-    if (url.protocol !== "http:" && url.protocol !== "https:") return
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return
     return url.toString()
   } catch {
     return
   }
+}
+
+export function resolveBrowserAddress(input: string) {
+  const value = input.trim()
+  if (!value) return
+  if (value === "about:blank") return value
+  const hostPort = /^[\w.-]+:\d+(?:[/?#].*)?$/.test(value)
+  if (/^[a-z][a-z\d+.-]*:/i.test(value) && !hostPort && !/^(site|filetype|intitle|inurl):/i.test(value))
+    return normalizeBrowserUrl(value)
+  const url = normalizeBrowserUrl(value)
+  if (url && !/\s/.test(value)) {
+    const parsed = new URL(url)
+    if (parsed.hostname.includes(".") || parsed.hostname === "localhost" || parsed.hostname.startsWith("[") || hostPort)
+      return url
+  }
+  const search = new URL("https://duck.com/")
+  search.searchParams.set("q", value)
+  return search.toString()
 }
 
 export function formatBrowserUrlContext(page: BrowserPageContext) {

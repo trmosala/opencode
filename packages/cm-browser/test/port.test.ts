@@ -11,9 +11,9 @@ test("correlates out-of-order utility-process results", async () => {
       receive = listener
     },
   })
-  const first = port.send("ses_1", { op: "read_state" })
-  const second = port.send("ses_2", { op: "read_state" })
-  const state = (url: string): BrowserState => ({ url, title: "", visibleText: "", elements: [] })
+  const first = port.send("ses_1", { op: "read_state", tabID: "one" })
+  const second = port.send("ses_2", { op: "read_state", tabID: "one" })
+  const state = (url: string): BrowserState => ({ tabID: "one", url, title: "", visibleText: "", elements: [] })
   receive?.({ data: { type: "browser_result", id: sent[1].id, response: success(state("https://two.test")) } })
   receive?.({ data: { type: "browser_result", id: sent[0].id, response: success(state("https://one.test")) } })
   const firstResult = await first

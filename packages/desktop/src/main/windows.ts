@@ -13,6 +13,7 @@ import { getStore, removeStoreFile } from "./store"
 import { PINCH_ZOOM_ENABLED_KEY, WINDOW_IDS_KEY } from "./store-keys"
 import { createUnresponsiveSampler } from "./unresponsive"
 import { nativeT } from "./native-translations"
+import { registerBrowserOwner, openBrowserLink } from "./browser/tabs"
 import { createWindowRegistry } from "./window-registry"
 import { safeWindowURL } from "./window-state"
 import { resolveExternalURL, resolveLocalFilePath } from "./external-url"
@@ -201,10 +202,11 @@ export function createMainWindow(id: string = randomUUID()) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      webviewTag: true,
+      webviewTag: false,
     },
   })
 
+  registerBrowserOwner(win)
   allowRendererPermissions(win)
   wireWindowRecovery(win, id)
   wireNavigationPolicy(win)
@@ -256,7 +258,7 @@ export function openLocalFileURL(value: string) {
 
 function wireNavigationPolicy(win: BrowserWindow) {
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isRendererUrl(url)) openExternalURL(url)
+    if (!isRendererUrl(url)) void openBrowserLink(win, url).catch(() => undefined)
     return { action: "deny" }
   })
   // Renderer reloads (window.location.reload) navigate to the app's own URL
@@ -264,7 +266,7 @@ function wireNavigationPolicy(win: BrowserWindow) {
   win.webContents.on("will-navigate", (event, url) => {
     if (isRendererUrl(url)) return
     event.preventDefault()
-    openExternalURL(url)
+    void openBrowserLink(win, url).catch(() => undefined)
   })
 }
 

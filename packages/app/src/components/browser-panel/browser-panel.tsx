@@ -1,286 +1,561 @@
 import { Button } from "@opencode-ai/ui/button"
-import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createEffect, createMemo, createUniqueId, For, onCleanup, onMount, Show } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
-import { Persist, persisted } from "@/utils/persist"
+import { browserShortcut, type BrowserCommand, type BrowserShortcut, type BrowserTabs } from "@/browser-panel"
 import { showToast } from "@/utils/toast"
 import {
   formatBrowserElementContext,
   formatBrowserSelectionContext,
   formatBrowserUrlContext,
-  normalizeBrowserUrl,
+  resolveBrowserAddress,
 } from "./browser-context"
-import {
-  type WebviewElement,
-  addImage,
-  appendText,
-  captureScreenshot,
-  navigate,
-  pickElement,
-  readSelectionText,
-} from "./browser-actions"
-
-type BrowserStore = {
-  url: string
-}
-
-declare module "solid-js" {
-  namespace JSX {
-    interface IntrinsicElements {
-      webview: JSX.HTMLAttributes<HTMLElement> & {
-        src?: string
-        allowpopups?: boolean
-        webpreferences?: string
-        useragent?: string
-      }
-    }
-  }
-}
+import { addImage, appendText, imagePart } from "./browser-actions"
+import { browserViewportBounds } from "./browser-viewport"
+import { BrowserMenu, BrowserTools, type BrowserToolPanel } from "./browser-tools"
+import { browserSuggestions } from "./browser-suggestions"
 
 export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
   const language = useLanguage()
   const prompt = usePrompt()
-  const platform = usePlatform()
-  const [store, setStore] = persisted(
-    Persist.global(`browser-panel:${props.sessionKey}`),
-    createStore<BrowserStore>({ url: "http://localhost:5173/" }),
-  )
-  const initialUrl = store.url
-  const [input, setInput] = createSignal(store.url)
+  const browser = usePlatform().browserPanel!
   const [state, setState] = createStore({
-    title: "",
-    url: store.url,
-    loading: false,
-    canGoBack: false,
-    canGoForward: false,
+    tabs: { sessionID: props.sessionID, tabs: [] } as BrowserTabs,
+    input: "",
     selecting: false,
+    opening: false,
+    addressFocused: false,
+    suggestionIndex: -1,
+    suggestionsClosed: false,
+    tool: undefined as BrowserToolPanel | undefined,
   })
-
-  let webview: WebviewElement | undefined
-
-  const page = createMemo(() => ({
-    title: state.title,
-    url: state.url,
-  }))
+  const active = createMemo(() => state.tabs.tabs.find((tab) => tab.id === state.tabs.activeID))
+  const landing = createMemo(() => !active() || active()?.url === "about:blank")
+  const suggestions = createMemo(() => browserSuggestions(state.input, state.tabs))
+  const suggestionsID = createUniqueId()
+  const showSuggestions = () => state.addressFocused && !state.suggestionsClosed && !!suggestions().length
+  let viewport!: HTMLDivElement
+  let address: HTMLInputElement | undefined
+  let disposed = false
+  const fail = () => showToast({ variant: "error", title: language.t("browser.toast.failed") })
+  const accept = (next: BrowserTabs) => {
+    if (!disposed && next.sessionID === props.sessionID) setState("tabs", reconcile(next))
+  }
+  const command = (value: BrowserCommand) =>
+    browser
+      .command(props.sessionID, value)
+      .then((next) => {
+        accept(next)
+        return true
+      })
+      .catch(() => {
+        fail()
+        return false
+      })
+  const shortcut = (value: BrowserShortcut) => {
+    if (value === "address") {
+      address?.focus()
+      address?.select()
+      return
+    }
+    if (value === "new" || value === "reopen") {
+      void command({ op: value })
+      return
+    }
+    if (value === "find") {
+      setState("tool", "find")
+      return
+    }
+    const tab = active()
+    if (!tab) return
+    if (value === "close" || value === "reload" || value === "print") {
+      void command({ op: value, tabID: tab.id })
+      return
+    }
+    const index = state.tabs.tabs.findIndex((entry) => entry.id === tab.id)
+    const next = (index + (value === "next" ? 1 : -1) + state.tabs.tabs.length) % state.tabs.tabs.length
+    void command({ op: "select", tabID: state.tabs.tabs[next].id })
+  }
 
   createEffect(() => {
-    setInput(store.url)
-    setState("url", store.url)
+    const id = active()?.id
+    if (!landing()) return
+    queueMicrotask(() => {
+      if (!disposed && active()?.id === id && viewport?.checkVisibility()) address?.focus()
+    })
   })
 
-  const toastInvalidUrl = () => {
-    showToast({
-      variant: "error",
-      title: language.t("browser.toast.invalidUrl.title"),
-      description: language.t("browser.toast.invalidUrl.description"),
-    })
-  }
+  createEffect(() => {
+    const tab = active()
+    setState("input", tab?.url === "about:blank" ? "" : tab?.url || "")
+  })
+  createEffect(() => {
+    const sessionID = props.sessionID
+    setState("tabs", { sessionID, tabs: [] })
+    void browser.command(sessionID, { op: "state" }).then(accept).catch(fail)
+  })
 
-  const syncState = () => {
-    if (!webview) return
-    const nextUrl = webview.getURL?.() || webview.src || state.url
-    const nextTitle = webview.getTitle?.() || ""
-    setState({
-      url: nextUrl,
-      title: nextTitle,
-      canGoBack: webview.canGoBack?.() ?? false,
-      canGoForward: webview.canGoForward?.() ?? false,
+  onMount(() => {
+    const unsubscribe = browser.subscribe(accept)
+    // Optional during renderer hot reload when the running preload predates shortcuts.
+    const unsubscribeShortcuts = browser.onShortcut?.((input) => {
+      if (input.sessionID === props.sessionID) shortcut(input.shortcut)
     })
-    setInput(nextUrl)
-    setStore("url", nextUrl)
-  }
+    let last = ""
+    let frame = 0
+    let previousSession = props.sessionID
+    const lease = crypto.randomUUID()
+    const update = () => {
+      const sessionID = props.sessionID
+      if (previousSession !== sessionID) {
+        void browser.viewport({ sessionID: previousSession, lease, bounds: null }).catch(() => undefined)
+        previousSession = sessionID
+      }
+      const bounds = landing() || state.tool === "settings" ? null : browserViewportBounds(viewport)
+      const key = JSON.stringify({ sessionID, bounds })
+      if (key !== last) {
+        last = key
+        void browser.viewport({ sessionID, lease, bounds }).catch(() => {
+          last = ""
+        })
+      }
+      frame = requestAnimationFrame(update)
+    }
+    frame = requestAnimationFrame(update)
+    const resize = () => {
+      last = ""
+    }
+    window.addEventListener("resize", resize)
+    onCleanup(() => {
+      disposed = true
+      cancelAnimationFrame(frame)
+      window.removeEventListener("resize", resize)
+      unsubscribe()
+      unsubscribeShortcuts?.()
+      void browser.viewport({ sessionID: previousSession, lease, bounds: null }).catch(() => undefined)
+    })
+  })
 
-  const go = () => {
-    const url = normalizeBrowserUrl(input())
+  const go = async (input = state.input) => {
+    if (state.opening) return
+    const url = resolveBrowserAddress(input)
     if (!url) {
-      toastInvalidUrl()
-      return
-    }
-    setStore("url", url)
-    setState("url", url)
-    if (webview) webview.src = url
-  }
-
-  const addUrl = () => {
-    appendText(prompt, formatBrowserUrlContext(page()))
-  }
-
-  const addSelection = async () => {
-    if (!webview?.executeJavaScript || state.selecting) return
-
-    const selection = await readSelectionText(webview)
-    const text = formatBrowserSelectionContext(page(), selection)
-    if (text) {
-      appendText(prompt, text)
-      return
-    }
-
-    setState("selecting", true)
-    showToast({
-      title: language.t("browser.toast.selectionMode.title"),
-      description: language.t("browser.toast.selectionMode.description"),
-    })
-    const picked = await pickElement(webview)
-    setState("selecting", false)
-    const elementText = formatBrowserElementContext(page(), picked)
-    if (!elementText) {
-      showToast({
-        title: language.t("browser.toast.emptySelection.title"),
-        description: language.t("browser.toast.emptySelection.description"),
-      })
-      return
-    }
-    appendText(prompt, elementText)
-  }
-
-  const addScreenshot = async () => {
-    const part = await captureScreenshot(webview)
-    if (!part) {
       showToast({
         variant: "error",
-        title: language.t("browser.toast.screenshotFailed.title"),
+        title: language.t("browser.toast.invalidUrl.title"),
+        description: language.t("browser.toast.invalidUrl.description"),
       })
       return
     }
-    addImage(prompt, part)
+    const sessionID = props.sessionID
+    setState("suggestionsClosed", true)
+    setState("opening", true)
+    try {
+      const tabs = active() ? state.tabs : await browser.command(sessionID, { op: "new" })
+      if (disposed || sessionID !== props.sessionID) return
+      accept(tabs)
+      if (!tabs.activeID) throw new Error("Browser tab not found")
+      accept(await browser.command(sessionID, { op: "navigate", tabID: tabs.activeID, url }))
+    } catch {
+      if (!disposed && sessionID === props.sessionID) fail()
+    } finally {
+      if (!disposed) setState("opening", false)
+    }
   }
 
-  const wire = (el: HTMLElement) => {
-    const view = el as WebviewElement
-    webview = view
-    let registeredID: number | undefined
-    const register = () => {
-      const webContentsID = view.getWebContentsId?.()
-      if (!webContentsID) return
-      registeredID = webContentsID
-      void platform.browserPanel
-        ?.register({ sessionID: props.sessionID, webContentsID })
-        .catch((error) => console.error("failed to register browser panel", error))
+  const chooseSuggestion = (index: number) => {
+    const row = suggestions()[index]
+    if (!row) return
+    setState("suggestionsClosed", true)
+    if (row.tabID) {
+      void command({ op: "select", tabID: row.tabID })
+      return
     }
-    const start = () => setState("loading", true)
-    const guard = (event: Event) => {
-      const url = (event as Event & { url?: string }).url
-      if (!url) return
-      if (normalizeBrowserUrl(url)) return
-      event.preventDefault()
-      toastInvalidUrl()
+    setState("input", row.url)
+    void go(row.url)
+  }
+
+  const selection = async () => {
+    const tab = active()
+    if (!tab || state.selecting) return
+    const page = { url: tab.url, title: tab.title }
+    const sessionID = props.sessionID
+    const target = prompt.capture()
+    const captured = { capture: () => target }
+    const attachScreenshot = async () => {
+      if (!state.tabs.profile?.preferences?.selectionScreenshots) return
+      const part = imagePart(await browser.screenshot(sessionID, tab.id))
+      if (part) addImage(captured, part)
     }
-    const stop = () => {
-      setState("loading", false)
-      syncState()
+    setState("selecting", true)
+    try {
+      const text = formatBrowserSelectionContext(page, await browser.selection(sessionID, tab.id))
+      if (text) {
+        appendText(captured, text)
+        await attachScreenshot()
+        return
+      }
+      showToast({
+        title: language.t("browser.toast.selectionMode.title"),
+        description: language.t("browser.toast.selectionMode.description"),
+      })
+      const picked = await browser.pick(sessionID, tab.id)
+      const context = formatBrowserElementContext(page, picked)
+      if (context) {
+        appendText(captured, context)
+        await attachScreenshot()
+      }
+    } catch {
+      if (!disposed) fail()
+    } finally {
+      if (!disposed) setState("selecting", false)
     }
-    view.addEventListener("did-start-loading", start)
-    view.addEventListener("dom-ready", register)
-    view.addEventListener("will-navigate", guard)
-    view.addEventListener("did-stop-loading", stop)
-    view.addEventListener("did-navigate", syncState)
-    view.addEventListener("did-navigate-in-page", syncState)
-    view.addEventListener("page-title-updated", syncState)
-    onCleanup(() => {
-      if (registeredID)
-        void platform.browserPanel
-          ?.unregister({ sessionID: props.sessionID, webContentsID: registeredID })
-          .catch(() => undefined)
-      view.removeEventListener("did-start-loading", start)
-      view.removeEventListener("dom-ready", register)
-      view.removeEventListener("will-navigate", guard)
-      view.removeEventListener("did-stop-loading", stop)
-      view.removeEventListener("did-navigate", syncState)
-      view.removeEventListener("did-navigate-in-page", syncState)
-      view.removeEventListener("page-title-updated", syncState)
-      webview = undefined
-    })
+  }
+
+  const screenshot = async () => {
+    const tab = active()
+    if (!tab) return
+    const target = prompt.capture()
+    try {
+      const part = imagePart(await browser.screenshot(props.sessionID, tab.id))
+      if (!part) throw new Error("Invalid screenshot")
+      addImage({ capture: () => target }, part)
+    } catch {
+      showToast({ variant: "error", title: language.t("browser.toast.screenshotFailed.title") })
+    }
   }
 
   return (
-    <div class="size-full flex flex-col overflow-hidden bg-background-base">
+    <div
+      class="size-full flex flex-col overflow-hidden bg-background-base"
+      onKeyDown={(event) => {
+        const action = browserShortcut(event)
+        if (!action) return
+        event.preventDefault()
+        event.stopPropagation()
+        shortcut(action)
+      }}
+    >
+      <div class="shrink-0 flex items-center border-b border-border-weaker-base bg-background-stronger px-1">
+        <div class="flex flex-1 min-w-0 overflow-x-auto" role="tablist" aria-label={language.t("browser.tabs.label")}>
+          <For each={state.tabs.tabs}>
+            {(tab) => (
+              <div
+                class="flex items-center min-w-0 shrink-0 max-w-48 border-r border-border-weaker-base"
+                classList={{ "bg-background-base": tab.id === state.tabs.activeID }}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab.id === state.tabs.activeID}
+                  class="truncate px-3 py-2 text-12-regular text-text-base"
+                  title={tab.url}
+                  onClick={() => void command({ op: "select", tabID: tab.id })}
+                >
+                  {tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)}
+                </button>
+                <IconButton
+                  icon="close"
+                  variant="ghost"
+                  class="shrink-0 h-6 w-6"
+                  aria-label={language.t("browser.tabs.close")}
+                  title={language.t("browser.tabs.close")}
+                  onClick={() => void command({ op: "close", tabID: tab.id })}
+                />
+              </div>
+            )}
+          </For>
+        </div>
+        <IconButton
+          icon="plus"
+          variant="ghost"
+          class="shrink-0 h-7 w-7"
+          aria-label={language.t("browser.tabs.new")}
+          title={language.t("browser.tabs.new")}
+          onClick={() => void command({ op: "new" })}
+        />
+        <BrowserMenu
+          tab={active()}
+          open={(tool) => setState("tool", tool)}
+          command={command}
+          screenshot={() => void screenshot()}
+        />
+      </div>
       <form
-        class="shrink-0 flex items-center gap-1 border-b border-border-weaker-base bg-background-stronger px-2 py-2"
+        class="shrink-0 flex flex-wrap items-center gap-1 border-b border-border-weaker-base px-2 py-2"
         onSubmit={(event) => {
           event.preventDefault()
-          go()
+          void go()
         }}
       >
-        <Tooltip value={language.t("browser.action.back")}>
-          <IconButton
-            type="button"
-            icon="arrow-left"
-            variant="ghost"
-            class="h-7 w-7"
-            disabled={!state.canGoBack}
-            onClick={() => navigate(webview, "back")}
-            aria-label={language.t("browser.action.back")}
-          />
-        </Tooltip>
-        <Tooltip value={language.t("browser.action.forward")}>
-          <IconButton
-            type="button"
-            icon="arrow-right"
-            variant="ghost"
-            class="h-7 w-7"
-            disabled={!state.canGoForward}
-            onClick={() => navigate(webview, "forward")}
-            aria-label={language.t("browser.action.forward")}
-          />
-        </Tooltip>
-        <Tooltip value={state.loading ? language.t("browser.action.stop") : language.t("browser.action.reload")}>
-          <IconButton
-            type="button"
-            icon={state.loading ? "stop" : "reset"}
-            variant="ghost"
-            class="h-7 w-7"
-            onClick={() => navigate(webview, state.loading ? "stop" : "reload")}
-            aria-label={state.loading ? language.t("browser.action.stop") : language.t("browser.action.reload")}
-          />
-        </Tooltip>
+        <IconButton
+          type="button"
+          icon="arrow-left"
+          variant="ghost"
+          disabled={!active()?.canGoBack}
+          aria-label={language.t("browser.action.back")}
+          title={language.t("browser.action.back")}
+          onClick={() => {
+            const tab = active()
+            if (tab) void command({ op: "back", tabID: tab.id })
+          }}
+        />
+        <IconButton
+          type="button"
+          icon="arrow-right"
+          variant="ghost"
+          disabled={!active()?.canGoForward}
+          aria-label={language.t("browser.action.forward")}
+          title={language.t("browser.action.forward")}
+          onClick={() => {
+            const tab = active()
+            if (tab) void command({ op: "forward", tabID: tab.id })
+          }}
+        />
+        <IconButton
+          type="button"
+          icon={active()?.loading ? "stop" : "reset"}
+          disabled={!active()}
+          variant="ghost"
+          aria-label={language.t(active()?.loading ? "browser.action.stop" : "browser.action.reload")}
+          onClick={() => {
+            const tab = active()
+            if (tab) void command({ op: tab.loading ? "stop" : "reload", tabID: tab.id })
+          }}
+        />
         <input
-          class="min-w-0 flex-1 h-7 rounded-md border border-border-weak-base bg-background-base px-2 text-12-regular text-text-base outline-none focus:border-border-strong"
-          value={input()}
-          onInput={(event) => setInput(event.currentTarget.value)}
+          ref={address}
+          role="combobox"
+          autocomplete="off"
+          aria-autocomplete="list"
+          aria-expanded={showSuggestions()}
+          aria-controls={suggestionsID}
+          aria-activedescendant={
+            showSuggestions() && state.suggestionIndex >= 0 ? `${suggestionsID}-${state.suggestionIndex}` : undefined
+          }
+          onKeyDown={(event) => {
+            if (event.isComposing) return
+            if (event.key === "Escape") {
+              event.preventDefault()
+              event.stopPropagation()
+              setState("suggestionsClosed", true)
+              return
+            }
+            if (!showSuggestions()) return
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault()
+              setState("suggestionIndex", (index) =>
+                index < 0
+                  ? event.key === "ArrowDown"
+                    ? 0
+                    : suggestions().length - 1
+                  : (index + (event.key === "ArrowDown" ? 1 : -1) + suggestions().length) % suggestions().length,
+              )
+            }
+            if (event.key === "Enter" && state.suggestionIndex >= 0) {
+              event.preventDefault()
+              chooseSuggestion(state.suggestionIndex)
+            }
+          }}
+          class="min-w-20 flex-1 h-7 rounded-md border border-border-weak-base bg-background-base px-2 text-12-regular text-text-base"
+          value={
+            !state.addressFocused &&
+            state.tabs.profile?.preferences?.showFullURL === false &&
+            state.input === active()?.url &&
+            /^https?:/.test(state.input)
+              ? new URL(state.input).origin
+              : state.input
+          }
+          onFocus={() => setState({ addressFocused: true, suggestionsClosed: false, suggestionIndex: -1 })}
+          onBlur={() => setState("addressFocused", false)}
+          onInput={(event) =>
+            setState({ input: event.currentTarget.value, suggestionsClosed: false, suggestionIndex: -1 })
+          }
+          placeholder={language.t("browser.address.searchPlaceholder")}
           aria-label={language.t("browser.address.label")}
         />
-        <Button type="submit" size="small" variant="secondary">
-          {language.t("common.open")}
-        </Button>
-      </form>
-
-      <div class="shrink-0 flex items-center gap-1 border-b border-border-weaker-base bg-background-base px-2 py-1.5">
-        <Button type="button" size="small" variant="ghost" onClick={addUrl}>
-          <Icon name="link" size="small" />
-          {language.t("browser.action.addUrl")}
+        <Button
+          type="button"
+          size="small"
+          variant="ghost"
+          disabled={landing() || !active()?.connection}
+          onClick={() => setState("tool", state.tool === "site" ? undefined : "site")}
+        >
+          {language.t("browser.menu.site")}
         </Button>
         <Button
           type="button"
           size="small"
-          variant={state.selecting ? "secondary" : "ghost"}
-          onClick={() => void addSelection()}
+          variant="ghost"
+          disabled={landing() || !state.tabs.profile?.bookmarks}
+          onClick={() => {
+            const tab = active()
+            if (!tab) return
+            if (state.tabs.profile?.bookmarks?.some((row) => row.url === tab.url)) {
+              setState("tool", "bookmarks")
+              return
+            }
+            void command({ op: "bookmark-save", url: tab.url, title: tab.title, pinned: false })
+          }}
         >
-          <Icon name="comment" size="small" />
-          {language.t("browser.action.addSelection")}
+          {language.t(
+            state.tabs.profile?.bookmarks?.some((row) => row.url === active()?.url)
+              ? "browser.bookmarks.saved"
+              : "browser.bookmarks.add",
+          )}
         </Button>
-        <Button type="button" size="small" variant="ghost" onClick={() => void addScreenshot()}>
-          <Icon name="photo" size="small" />
-          {language.t("browser.action.addScreenshot")}
+        <Button type="submit" size="small" variant="secondary" disabled={state.opening || !state.input.trim()}>
+          {language.t("common.open")}
         </Button>
-        <Show when={state.title}>
-          <div class="ml-auto min-w-0 truncate text-12-regular text-text-weak">{state.title}</div>
+      </form>
+      <Show when={showSuggestions()}>
+        <div
+          id={suggestionsID}
+          role="listbox"
+          aria-label={language.t("browser.address.suggestions")}
+          class="shrink-0 max-h-56 overflow-y-auto border-b border-border-weaker-base p-2"
+        >
+          <For each={suggestions()}>
+            {(row, index) => (
+              <button
+                type="button"
+                role="option"
+                id={`${suggestionsID}-${index()}`}
+                aria-selected={state.suggestionIndex === index()}
+                tabIndex={-1}
+                class="block w-full text-left rounded px-2 py-1 text-12-regular"
+                classList={{ "bg-background-stronger": state.suggestionIndex === index() }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => chooseSuggestion(index())}
+              >
+                <span class="block truncate">{row.title || row.url}</span>
+                <span class="block truncate text-text-weak">
+                  {language.t(`browser.address.${row.kind}`, { url: row.url })}
+                </span>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={!landing() && active()}>
+        {(tab) => (
+          <div class="contents">
+            <div class="shrink-0 flex flex-wrap items-center gap-1 border-b border-border-weaker-base px-2 py-1">
+              <Button size="small" variant="ghost" onClick={() => appendText(prompt, formatBrowserUrlContext(tab()))}>
+                {language.t("browser.action.addUrl")}
+              </Button>
+              <Button
+                size="small"
+                variant={state.selecting ? "secondary" : "ghost"}
+                disabled={state.selecting}
+                onClick={() => void selection()}
+              >
+                {language.t("browser.action.addSelection")}
+              </Button>
+              <Button size="small" variant="ghost" onClick={() => void screenshot()}>
+                {language.t("browser.action.addScreenshot")}
+              </Button>
+              <label class="flex items-center gap-1 text-12-regular text-text-base">
+                <input
+                  type="checkbox"
+                  checked={tab().agentAccess}
+                  disabled={state.tabs.profile?.preferences?.agentEnabled === false}
+                  onChange={(event) => {
+                    const enabled = event.currentTarget.checked
+                    event.currentTarget.checked = tab().agentAccess
+                    void command({ op: "access", tabID: tab().id, enabled })
+                  }}
+                />
+                {language.t("browser.tabs.access")}
+              </label>
+            </div>
+          </div>
+        )}
+      </Show>
+      <Show when={active()?.loadFailed}>
+        <div role="alert" class="shrink-0 p-2 text-12-regular text-text-base">
+          {language.t("browser.toast.loadFailed")}
+        </div>
+      </Show>
+      <Show when={state.tool}>
+        {(tool) => (
+          <BrowserTools
+            panel={tool()}
+            tab={active()}
+            tabs={state.tabs}
+            command={command}
+            close={() => setState("tool", undefined)}
+            open={(tool) => setState("tool", tool)}
+          />
+        )}
+      </Show>
+      <Show when={active()?.device}>
+        <div class="shrink-0 px-2 py-1 text-12-regular text-text-weak">{language.t("browser.device.size")}</div>
+      </Show>
+      <div
+        ref={viewport}
+        class="min-h-0 flex-1"
+        classList={{ hidden: state.tool === "settings", "overflow-y-auto": landing() }}
+      >
+        <Show when={landing()}>
+          <div class="min-h-full flex flex-col items-center justify-center gap-3 px-6 py-8 text-center">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+              class="text-text-weak mb-1"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <ellipse cx="12" cy="12" rx="4" ry="9" />
+              <path d="M3 12h18" />
+            </svg>
+            <h2 class="text-16-medium text-text-strong">{language.t("browser.landing.title")}</h2>
+            <p class="text-12-regular text-text-weak">{language.t("browser.landing.description")}</p>
+            <div class="flex flex-wrap justify-center gap-2 max-w-2xl">
+              <For each={state.tabs.profile?.bookmarks?.filter((row) => row.pinned)}>
+                {(row) => (
+                  <Button
+                    size="small"
+                    variant="secondary"
+                    title={row.url}
+                    onClick={() => {
+                      setState("input", row.url)
+                      void go(row.url)
+                    }}
+                  >
+                    {row.title}
+                  </Button>
+                )}
+              </For>
+            </div>
+            <Button size="small" variant="ghost" onClick={() => setState("tool", "bookmarks")}>
+              {language.t("browser.menu.bookmarks")}
+            </Button>
+          </div>
         </Show>
       </div>
-
-      {/* ponytail: pinned Chrome UA so sites that block Electron (e.g. Teams) load; bump the version if a site complains again */}
-      <webview
-        ref={wire}
-        src={initialUrl}
-        class="min-h-0 flex-1 bg-white"
-        allowpopups={false}
-        webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
-        useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-      />
+      <div class="shrink-0 px-2 py-1 text-12-regular text-text-weak">{language.t("browser.tabs.profile")}</div>
+      <Show when={state.tabs.downloads?.length}>
+        <div
+          role="status"
+          class="shrink-0 max-h-24 overflow-y-auto border-t border-border-weaker-base px-2 py-1 text-12-regular text-text-base"
+        >
+          <For each={state.tabs.downloads}>
+            {(download) => (
+              <div class="truncate" title={download.filename}>
+                {language.t(`browser.download.${download.state}`, { filename: download.filename })}
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   )
 }

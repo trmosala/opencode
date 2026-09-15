@@ -3,6 +3,7 @@ import { $ } from "bun"
 
 import { downloadCliToResources, resolveChannel } from "./utils"
 import "./stage-cm-ae"
+import "./build-vault-auth"
 
 const channel = resolveChannel()
 const assetChannel = process.env.CM_BRAND === "1" ? "dev" : channel

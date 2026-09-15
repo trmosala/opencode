@@ -66,6 +66,7 @@ const getBase = (appId: string): Configuration => ({
   },
   files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", "!resources/cm-ae{,/**/*}"],
   extraResources: [
+    ...(process.platform === "win32" ? [{ from: "resources/vault-auth", to: "vault-auth", filter: ["*.exe"] }] : []),
     {
       from: "resources/icons",
       to: "icons",

@@ -6,6 +6,7 @@ import { ServerConnection } from "./server"
 import type { WslServersPlatform } from "../wsl/types"
 import type { UpdaterPlatform } from "../updater"
 import type { DraftStore } from "@/utils/draft-store"
+import type { BrowserPanelPlatform } from "../browser-panel"
 
 type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
@@ -114,10 +115,7 @@ type PlatformBase = {
   readClipboardImage?(): Promise<File | null>
 
   /** Supports the embedded browser context panel (desktop only) */
-  browserPanel?: {
-    register(input: { sessionID: string; webContentsID: number }): Promise<void>
-    unregister(input: { sessionID: string; webContentsID: number }): Promise<void>
-  }
+  browserPanel?: BrowserPanelPlatform
 
   /** Export collected diagnostic logs (desktop only) */
   exportDebugLogs?(): Promise<string>

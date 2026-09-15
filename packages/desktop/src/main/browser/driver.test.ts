@@ -40,7 +40,7 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
     },
   }
   return {
-    target: { contents } satisfies Target,
+    target: { tabID: "one", contents } satisfies Target,
     calls,
     attached: () => attached,
     setElements: (next: typeof elements) => {
@@ -50,7 +50,7 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
 }
 
 async function firstRef(view: ReturnType<typeof fake>) {
-  const response = await execute(view.target, { op: "read_state" })
+  const response = await execute(view.target, { tabID: "one", op: "read_state" })
   if (!response.ok) throw new Error(response.error)
   return response.result.elements[0].ref
 }
@@ -58,41 +58,46 @@ async function firstRef(view: ReturnType<typeof fake>) {
 describe("browser driver", () => {
   test("read_state attaches and returns bounded visible state with opaque refs", async () => {
     const view = fake()
-    const response = await execute(view.target, { op: "read_state" })
+    const response = await execute(view.target, { tabID: "one", op: "read_state" })
     expect(response.ok).toBe(true)
     expect(view.attached()).toBe(true)
     if (!response.ok) return
     expect(response.result).toMatchObject({ url: "http://localhost:5173/", title: "Dev", visibleText: "Send" })
-    expect(response.result.elements[0].ref).toMatch(/^s[0-9a-z]+:e[0-9a-z]+$/)
+    expect(response.result.elements[0].ref).toMatch(/^one\.[0-9a-f-]+:e[0-9a-z]+$/)
   })
 
   test("click validates the ref, dispatches trusted mouse events, and refreshes state", async () => {
     const view = fake()
-    const response = await execute(view.target, { op: "click", ref: await firstRef(view) })
+    const response = await execute(view.target, { tabID: "one", op: "click", ref: await firstRef(view) })
     expect(response.ok).toBe(true)
     const mouse = view.calls.filter((call) => call.method === "Input.dispatchMouseEvent")
     expect(mouse.map((call) => call.params?.type)).toEqual(["mouseMoved", "mousePressed", "mouseReleased"])
     expect(mouse[0]?.params).toMatchObject({ x: 30, y: 25 })
-    expect(view.calls.filter((call) => call.method === "Runtime.evaluate")).toHaveLength(3)
+    expect(view.calls.filter((call) => call.method === "Runtime.evaluate" && call.params?.returnByValue)).toHaveLength(
+      3,
+    )
   })
 
   test("stale refs never dispatch input", async () => {
     const view = fake()
     const ref = await firstRef(view)
     view.setElements([element("changed")])
-    expect(await execute(view.target, { op: "click", ref })).toMatchObject({ ok: false, code: "stale_ref" })
+    expect(await execute(view.target, { tabID: "one", op: "click", ref })).toMatchObject({
+      ok: false,
+      code: "stale_ref",
+    })
     expect(view.calls.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false)
   })
 
   test("fill selects, clears, and types every character with trusted key events", async () => {
     const view = fake()
-    await execute(view.target, { op: "fill", ref: await firstRef(view), text: "hi" })
+    await execute(view.target, { tabID: "one", op: "fill", ref: await firstRef(view), text: "hi" })
     expect(view.calls.some((call) => call.method === "Input.insertText")).toBe(false)
     const down = view.calls
       .filter((call) => call.method === "Input.dispatchKeyEvent" && call.params?.type === "keyDown")
       .map((call) => call.params)
     expect(down).toMatchObject([
-      { key: "a", modifiers: 2 },
+      { key: "a", modifiers: process.platform === "darwin" ? 4 : 2 },
       { key: "Backspace", modifiers: 0 },
       { key: "h", text: "h" },
       { key: "i", text: "i" },
@@ -101,7 +106,7 @@ describe("browser driver", () => {
 
   test("press_key supports modifiers including Ctrl+Enter", async () => {
     const view = fake()
-    const response = await execute(view.target, { op: "press_key", key: "Enter", modifiers: ["Ctrl"] })
+    const response = await execute(view.target, { tabID: "one", op: "press_key", key: "Enter", modifiers: ["Ctrl"] })
     expect(response.ok).toBe(true)
     const keys = view.calls.filter((call) => call.method === "Input.dispatchKeyEvent")
     expect(keys.map((call) => call.params?.type)).toEqual(["keyDown", "keyUp"])
@@ -110,15 +115,21 @@ describe("browser driver", () => {
 
   test("navigate loads the destination and returns its state", async () => {
     const view = fake()
-    const response = await execute(view.target, { op: "navigate", url: "https://teams.microsoft.com/" })
+    const response = await execute(view.target, { tabID: "one", op: "navigate", url: "https://teams.microsoft.com/" })
     expect(response.ok && response.result.url).toBe("https://teams.microsoft.com/")
   })
 
   test("destroyed and malformed pages fail safely", async () => {
     const destroyed = fake({ destroyed: true })
-    expect(await execute(destroyed.target, { op: "read_state" })).toMatchObject({ ok: false, code: "detached" })
+    expect(await execute(destroyed.target, { tabID: "one", op: "read_state" })).toMatchObject({
+      ok: false,
+      code: "detached",
+    })
     const malformed = fake({ snapshot: {} })
-    expect(await execute(malformed.target, { op: "read_state" })).toMatchObject({ ok: false, code: "unavailable" })
+    expect(await execute(malformed.target, { tabID: "one", op: "read_state" })).toMatchObject({
+      ok: false,
+      code: "unavailable",
+    })
   })
 })
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import {
   MAX_SNAPSHOT_BYTES,
   failure,
@@ -10,6 +11,7 @@ import {
 import { parseSnapshot, snapshotScript, type PageSnapshot, type SnapshotElement } from "./snapshot"
 
 export type DriverContents = {
+  backgroundThrottling?: boolean
   isDestroyed(): boolean
   getURL(): string
   loadURL(url: string): Promise<void>
@@ -20,7 +22,18 @@ export type DriverContents = {
   }
 }
 
-export type Target = { readonly contents: DriverContents }
+export type Target = { readonly tabID: string; readonly contents: DriverContents; readonly check?: () => void }
+
+export function invalidateSnapshots(contents: DriverContents) {
+  histories.delete(contents)
+}
+
+async function send(target: Target, method: string, params?: Record<string, unknown>) {
+  target.check?.()
+  const result = await target.contents.debugger.sendCommand(method, params)
+  target.check?.()
+  return result
+}
 
 type StoredSnapshot = { readonly id: string; readonly page: PageSnapshot }
 const histories = new WeakMap<object, { sequence: number; snapshots: Map<string, StoredSnapshot> }>()
@@ -48,25 +61,27 @@ function attach(contents: DriverContents) {
   if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
 }
 
-const evaluate = (contents: DriverContents) =>
-  contents.debugger.sendCommand("Runtime.evaluate", {
-    expression: snapshotScript(),
-    returnByValue: true,
-    awaitPromise: true,
-  })
-
 async function capture(target: Target) {
-  return parseSnapshot(await evaluate(target.contents))
+  const page = parseSnapshot(
+    await send(target, "Runtime.evaluate", {
+      expression: snapshotScript(),
+      returnByValue: true,
+      awaitPromise: true,
+    }),
+  )
+  if (!page || page.url !== target.contents.getURL()) return
+  return page
 }
 
 function publicState(target: Target, page: PageSnapshot): BrowserState {
   const history = histories.get(target.contents) ?? { sequence: 0, snapshots: new Map() }
-  const id = `s${(++history.sequence).toString(36)}`
+  const id = `${target.tabID}.${randomUUID()}`
   history.snapshots.set(id, { id, page })
   while (history.snapshots.size > 10) history.snapshots.delete(history.snapshots.keys().next().value!)
   histories.set(target.contents, history)
 
   const state: BrowserState = {
+    tabID: target.tabID,
     url: page.url,
     title: page.title,
     visibleText: page.visibleText,
@@ -92,9 +107,9 @@ async function dispatchClick(target: Target, element: SnapshotElement) {
   const x = element.rect.x + element.rect.width / 2
   const y = element.rect.y + element.rect.height / 2
   const base = { x, y, button: "left" as const, buttons: 1, clickCount: 1 }
-  await target.contents.debugger.sendCommand("Input.dispatchMouseEvent", { ...base, type: "mouseMoved", buttons: 0 })
-  await target.contents.debugger.sendCommand("Input.dispatchMouseEvent", { ...base, type: "mousePressed" })
-  await target.contents.debugger.sendCommand("Input.dispatchMouseEvent", { ...base, type: "mouseReleased", buttons: 0 })
+  await send(target, "Input.dispatchMouseEvent", { ...base, type: "mouseMoved", buttons: 0 })
+  await send(target, "Input.dispatchMouseEvent", { ...base, type: "mousePressed" })
+  await send(target, "Input.dispatchMouseEvent", { ...base, type: "mouseReleased", buttons: 0 })
 }
 
 async function dispatchKey(target: Target, key: string, modifiers: readonly Modifier[] = []) {
@@ -110,18 +125,18 @@ async function dispatchKey(target: Target, key: string, modifiers: readonly Modi
     windowsVirtualKeyCode: mapped.keyCode,
     modifiers: modifierMask(modifiers),
   }
-  await target.contents.debugger.sendCommand("Input.dispatchKeyEvent", {
+  await send(target, "Input.dispatchKeyEvent", {
     ...params,
     type: "keyDown",
     text: mapped.text,
   })
-  await target.contents.debugger.sendCommand("Input.dispatchKeyEvent", { ...params, type: "keyUp" })
+  await send(target, "Input.dispatchKeyEvent", { ...params, type: "keyUp" })
   return true
 }
 
 async function resolveRef(target: Target, ref: string) {
   const match = /^([^:]+):e([0-9a-z]+)$/.exec(ref)
-  if (!match) return
+  if (!match || !match[1].startsWith(`${target.tabID}.`)) return
   const stored = histories.get(target.contents)?.snapshots.get(match[1])
   const index = Number.parseInt(match[2], 36)
   const expected = stored?.page.elements[index]
@@ -134,9 +149,22 @@ async function resolveRef(target: Target, ref: string) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 100))
 
-export async function execute(target: Target, request: Request): Promise<Response<BrowserState>> {
+export async function execute(
+  target: Target,
+  request: Exclude<Request, { op: "list_tabs" }>,
+): Promise<Response<BrowserState>> {
+  if (request.tabID !== target.tabID) return failure("no_target", "Browser tab mismatch.")
+  target.check?.()
   if (target.contents.isDestroyed()) return failure("detached", "The browser panel view is no longer available.")
   attach(target.contents)
+
+  if (request.op !== "read_state" && request.op !== "navigate") {
+    await send(target, "Runtime.evaluate", {
+      expression:
+        "new Promise(resolve => { const timer = setTimeout(resolve, 1000); requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve() })) })",
+      awaitPromise: true,
+    })
+  }
 
   if (request.op === "read_state") return refreshed(target)
   if (request.op === "navigate") {
@@ -155,7 +183,7 @@ export async function execute(target: Target, request: Request): Promise<Respons
   await dispatchClick(target, element)
 
   if (request.op === "fill") {
-    await dispatchKey(target, "a", ["Ctrl"])
+    await dispatchKey(target, "a", [process.platform === "darwin" ? "Meta" : "Ctrl"])
     await dispatchKey(target, "Backspace")
     for (const character of request.text) await dispatchKey(target, character)
   }

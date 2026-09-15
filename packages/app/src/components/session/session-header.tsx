@@ -33,6 +33,7 @@ import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { reviewTooltipKeybind } from "../command-tooltip-keybind"
 import { useTitlebarRightMount } from "../titlebar"
+import { useBrowserLinks } from "../browser-panel/browser-links"
 
 const OPEN_APPS = [
   "vscode",
@@ -218,6 +219,12 @@ export function SessionHeader() {
   }
 
   const browserOpen = createMemo(() => tabs().active() === "browser" || tabs().all().includes("browser"))
+  useBrowserLinks({
+    sessionID: () => params.id,
+    open: () => {
+      void tabs().open("browser")
+    },
+  })
   const toggleBrowser = () => {
     if (tabs().active() === "browser") {
       tabs().close("browser")

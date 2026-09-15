@@ -4,6 +4,7 @@ import { dirname, join } from "node:path"
 import { existsSync } from "node:fs"
 import { downloadCliToResources } from "./utils"
 import "./stage-cm-ae"
+import "./build-vault-auth"
 
 // Bun skips lifecycle scripts by default, so electron's postinstall (which
 // downloads the actual binary into dist/ and writes path.txt) may not have run

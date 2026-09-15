@@ -4,6 +4,7 @@ import {
   formatBrowserSelectionContext,
   formatBrowserUrlContext,
   normalizeBrowserUrl,
+  resolveBrowserAddress,
 } from "./browser-context"
 
 describe("normalizeBrowserUrl", () => {
@@ -22,6 +23,33 @@ describe("normalizeBrowserUrl", () => {
     expect(normalizeBrowserUrl("data:text/html,hello")).toBeUndefined()
     expect(normalizeBrowserUrl("http://")).toBeUndefined()
     expect(normalizeBrowserUrl("")).toBeUndefined()
+  })
+})
+
+describe("resolveBrowserAddress", () => {
+  test("searches words and phrases through duck.com with query encoding", () => {
+    expect(resolveBrowserAddress("cookies")).toBe("https://duck.com/?q=cookies")
+    expect(resolveBrowserAddress("  cookies & cream #1  ")).toBe("https://duck.com/?q=cookies+%26+cream+%231")
+    expect(new URL(resolveBrowserAddress("site:example.com cookies")!).searchParams.get("q")).toBe(
+      "site:example.com cookies",
+    )
+  })
+
+  test("preserves direct URLs, bare domains, and local development addresses", () => {
+    expect(resolveBrowserAddress("https://example.com/a?q=b")).toBe("https://example.com/a?q=b")
+    expect(resolveBrowserAddress("example.com/path")).toBe("http://example.com/path")
+    expect(resolveBrowserAddress("localhost:5173?test=1")).toBe("http://localhost:5173/?test=1")
+    expect(resolveBrowserAddress("127.0.0.1:8787/status")).toBe("http://127.0.0.1:8787/status")
+    expect(resolveBrowserAddress("[::1]:5173")).toBe("http://[::1]:5173/")
+    expect(resolveBrowserAddress("about:blank")).toBe("about:blank")
+  })
+
+  test("keeps blank, malformed explicit URLs and non-web schemes out of navigation", () => {
+    expect(resolveBrowserAddress("   ")).toBeUndefined()
+    expect(resolveBrowserAddress("http://")).toBeUndefined()
+    expect(resolveBrowserAddress("javascript:alert(1)")).toBeUndefined()
+    expect(resolveBrowserAddress("file:///tmp/a.html")).toBeUndefined()
+    expect(resolveBrowserAddress("https://user:password@example.com")).toBeUndefined()
   })
 })
 

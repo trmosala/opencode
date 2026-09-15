@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 
 export const ALLOWLIST_FILENAME = "cm-browser-allowlist.json"
 export const STATE_DIRECTORY_NAME = "CookieMonster"
@@ -21,6 +21,8 @@ export type ElementRef = {
 }
 
 export type BrowserState = {
+  readonly tabID: string
+  readonly tabs?: readonly { tabID: string; url: string; title: string }[]
   readonly url: string
   readonly title: string
   readonly visibleText: string
@@ -28,14 +30,18 @@ export type BrowserState = {
 }
 
 export type Request =
-  | { readonly op: "read_state" }
-  | { readonly op: "navigate"; readonly url: string }
-  | { readonly op: "click"; readonly ref: string }
-  | { readonly op: "fill"; readonly ref: string; readonly text: string }
-  | { readonly op: "press_key"; readonly key: string; readonly modifiers: readonly Modifier[] }
+  | { readonly op: "list_tabs" }
+  | ({ readonly tabID: string } & (
+      | { readonly op: "read_state" }
+      | { readonly op: "navigate"; readonly url: string }
+      | { readonly op: "click"; readonly ref: string }
+      | { readonly op: "fill"; readonly ref: string; readonly text: string }
+      | { readonly op: "press_key"; readonly key: string; readonly modifiers: readonly Modifier[] }
+    ))
 
 export type ErrorCode =
   | "no_target"
+  | "access_denied"
   | "blocked_host"
   | "stale_ref"
   | "detached"
@@ -64,6 +70,7 @@ export const failure = (code: ErrorCode, error: string): Failure => ({ ok: false
 export const success = <T>(result: T): Success<T> => ({ ok: true, result })
 
 export function stateDirectory(env: Record<string, string | undefined> = process.env, platform = process.platform) {
+  if (env.CM_BROWSER_STATE_DIR && isAbsolute(env.CM_BROWSER_STATE_DIR)) return env.CM_BROWSER_STATE_DIR
   if (platform === "win32") {
     const roaming = env.APPDATA ?? join(env.USERPROFILE ?? ".", "AppData", "Roaming")
     return join(roaming, STATE_DIRECTORY_NAME)
@@ -86,27 +93,27 @@ export function parseAllowlist(value: unknown): readonly string[] | undefined {
 export function parseRequest(value: unknown): Request | undefined {
   if (!value || typeof value !== "object") return
   const input = value as Record<string, unknown>
-  if (input.op === "read_state") return { op: "read_state" }
+  if (input.op === "list_tabs") return { op: "list_tabs" }
+  if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
+  const tabID = input.tabID
+  if (input.op === "read_state") return { op: "read_state", tabID }
   if (input.op === "navigate")
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH
-      ? { op: "navigate", url: input.url }
+      ? { op: "navigate", tabID, url: input.url }
       : undefined
-  if (input.op === "click")
-    return typeof input.ref === "string" && input.ref ? { op: "click", ref: input.ref } : undefined
-  if (input.op === "fill")
-    return typeof input.ref === "string" &&
-      input.ref &&
-      typeof input.text === "string" &&
-      input.text.length <= MAX_TYPED_TEXT
-      ? { op: "fill", ref: input.ref, text: input.text }
-      : undefined
-  if (input.op !== "press_key" || typeof input.key !== "string" || !input.key) return
-  if (!Array.isArray(input.modifiers)) return
+  if (input.op === "click" || input.op === "fill") {
+    if (typeof input.ref !== "string" || !input.ref || input.ref.length > 256) return
+    if (input.op === "click") return { op: "click", tabID, ref: input.ref }
+    if (typeof input.text !== "string" || input.text.length > MAX_TYPED_TEXT) return
+    return { op: "fill", tabID, ref: input.ref, text: input.text }
+  }
+  if (input.op !== "press_key" || typeof input.key !== "string" || !input.key || input.key.length > 32) return
+  if (!Array.isArray(input.modifiers) || input.modifiers.length > 4) return
   const modifiers = input.modifiers.filter(
     (modifier): modifier is Modifier => typeof modifier === "string" && MODIFIERS.includes(modifier as Modifier),
   )
   if (modifiers.length !== input.modifiers.length) return
-  return { op: "press_key", key: input.key, modifiers }
+  return { op: "press_key", tabID, key: input.key, modifiers }
 }
 
 export function parseBrowserIpcRequest(value: unknown): BrowserIpcRequest | undefined {

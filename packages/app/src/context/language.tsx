@@ -231,6 +231,9 @@ export const { use: useLanguage, provider: LanguageProvider } = createSimpleCont
       label,
       t,
       plural,
+      formatDate(value: number) {
+        return new Intl.DateTimeFormat(intl(), { dateStyle: "medium", timeStyle: "short" }).format(value)
+      },
       setLocale(next: Locale) {
         setStore("locale", normalizeLocale(next))
       },
