@@ -14,7 +14,7 @@ import type {
 } from "@opencode-ai/app/browser-panel"
 import { browserShortcut } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
-import { browserPreferences, browserURL, BROWSER_PARTITION } from "./policy"
+import { browserPreferences, browserURL, browserPageURL, BROWSER_PARTITION } from "./policy"
 import {
   registerBrowserTab,
   setBrowserAgentEnabled,
@@ -36,6 +36,7 @@ import {
   saveSitePermission,
 } from "./preferences"
 import { updateAgentHost, allowed } from "./allowlist"
+import { transferRule } from "./transfer-policy"
 import { invalidateSnapshots } from "./driver"
 import { browserContext, cancelPicker } from "./context"
 import { initializeVaultLocking, vaultAccess } from "./vault-session"
@@ -290,21 +291,33 @@ async function clearData(kind: BrowserClearKind, range: BrowserClearRange = "all
 }
 
 function state(group: Group): BrowserTabs {
+  const profile = browserProfile()
   return {
     sessionID: group.sessionID,
     activeID: group.activeID,
     recentlyClosed: group.closed,
     downloads: [...(group.downloads ?? []).filter((entry) => entry.state === "saving"), ...downloadHistory()],
-    profile: browserProfile(),
+    profile,
     tabs: group.tabs
       .filter((tab) => !tab.view.webContents.isDestroyed())
       .map((tab) => {
         const contents = tab.view.webContents
+        const url = contents.getURL()
+        const rule = transferRule(profile.transferRules ?? [], url)
         return {
           id: tab.id,
           revision: tab.revision,
           openerID: tab.openerID,
           agentAccess: tab.agentAccess,
+          // ponytail: report main's policy for the live URL, never the saved/display fallback.
+          access: {
+            loading: contents.isLoadingMainFrame(),
+            hostAllowed: browserPageURL(url) && allowed(url),
+            blank: url === "about:blank",
+            transferGuarded: tab.transferGuarded === true,
+            transferRule: rule,
+            transferSource: !/^https?:/.test(url) ? "unavailable" : rule.origin === "*" ? "default" : "exception",
+          },
           loadFailed: tab.loadFailed,
           connection: tab.loadFailed
             ? "error"
@@ -584,6 +597,7 @@ function createTab(
   tab.readyLoginOffers = offers.ready
   const changed = () => publish(owner, group)
   const invalidate = () => {
+    tab.accessConsent?.abort()
     tab.revision++
     invalidateSnapshots(contents)
     cancelPicker(contents)
@@ -618,7 +632,10 @@ function createTab(
     persistGroup(owner, group)
     changed()
   }
-  contents.on("did-navigate", navigated)
+  contents.on("did-navigate", () => {
+    invalidate()
+    navigated()
+  })
   contents.on("did-navigate-in-page", (_event, _url, main) => {
     if (main) navigated()
   })
@@ -838,6 +855,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
           entry.groups.forEach((group) =>
             group.tabs.forEach((tab) => {
               if (allowed(tab.contents.getURL())) return
+              tab.accessConsent?.abort()
               tab.agentAccess = false
               tab.accessRevision = (tab.accessRevision ?? 0) + 1
               tab.revision++
@@ -1388,24 +1406,72 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     if (command.enabled && !browserAgentEnabled()) throw new Error("Browser agent access is disabled")
     if (typeof command.enabled !== "boolean") throw new Error("Invalid browser access")
     if (!command.enabled) {
+      tab.accessConsent?.abort()
       tab.agentAccess = false
       tab.accessRevision = (tab.accessRevision ?? 0) + 1
       tab.revision++
       invalidateSnapshots(contents)
     } else if (!tab.agentAccess) {
+      if (owner.suspended || tab.accessConsent) throw new Error("Browser consent already pending")
+      const consent = new AbortController()
       const accessRevision = tab.accessRevision
+      const revision = tab.revision
+      const url = contents.getURL()
+      const valid = () =>
+        !consent.signal.aborted &&
+        !contents.isDestroyed() &&
+        !contents.isLoadingMainFrame() &&
+        !owner.win.isDestroyed() &&
+        !owner.win.webContents.isDestroyed() &&
+        !owner.shutting &&
+        owner.win.isVisible() &&
+        !owner.win.isMinimized() &&
+        owner.groups.get(sessionID) === group &&
+        group.tabs.includes(tab) &&
+        tab.ownerID === owner.win.webContents.id &&
+        tab.accessConsent === consent &&
+        tab.accessRevision === accessRevision &&
+        tab.revision === revision &&
+        contents.getURL() === url &&
+        !tab.loginBusy &&
+        browserAgentEnabled()
+      tab.accessConsent = consent
+      const revoke = () => consent.abort()
+      // ponytail: one native grant per owner; do not make its settings window modal.
+      // macOS needs a separate sheet owner because unparented message boxes block its event loop.
+      const sheet =
+        process.platform === "darwin"
+          ? new BrowserWindow({
+              width: 400,
+              height: 160,
+              show: false,
+              title: nativeT("desktop.browser.access"),
+              webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+            })
+          : undefined
+      sheet?.on("close", revoke)
+      owner.win.on("close", revoke)
+      owner.win.on("hide", revoke)
+      owner.win.on("minimize", revoke)
+      owner.win.webContents.on("destroyed", revoke)
+      owner.win.webContents.on("render-process-gone", revoke)
+      owner.win.webContents.on("did-start-navigation", revoke)
       owner.suspended++
       layout(owner)
       try {
-        const answer = await dialog.showMessageBox(owner.win, {
-          type: "warning",
+        if (!valid()) return state(group)
+        sheet?.showInactive()
+        const options = {
+          type: "warning" as const,
           message: nativeT("desktop.browser.access"),
           detail: nativeT("desktop.browser.accessDetail"),
           buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
           defaultId: 0,
           cancelId: 0,
-        })
-        if (answer.response === 1 && !contents.isDestroyed() && tab.accessRevision === accessRevision) {
+          signal: consent.signal,
+        }
+        const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
+        if (answer.response === 1 && valid()) {
           const related = new Set([tab.id])
           // An existing child can affect its opener and siblings through ordinary page script.
           for (let pass = 0; pass < group.tabs.length; pass++) {
@@ -1424,10 +1490,17 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
                 return entry.uploadGuard
               }),
           )
-          if (!contents.isDestroyed() && tab.accessRevision === accessRevision && browserAgentEnabled())
-            tab.agentAccess = true
+          if (valid()) tab.agentAccess = true
         }
       } finally {
+        owner.win.removeListener("close", revoke)
+        owner.win.removeListener("hide", revoke)
+        owner.win.removeListener("minimize", revoke)
+        owner.win.webContents.removeListener("destroyed", revoke)
+        owner.win.webContents.removeListener("render-process-gone", revoke)
+        owner.win.webContents.removeListener("did-start-navigation", revoke)
+        if (sheet && !sheet.isDestroyed()) sheet.destroy()
+        if (tab.accessConsent === consent) tab.accessConsent = undefined
         owner.suspended--
         layout(owner)
       }

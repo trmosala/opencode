@@ -72,7 +72,7 @@ export function BrowserTransfers(props: {
             })
           }}
         >
-          <label class="flex-1">
+          <label class="min-w-0 flex-1">
             {language.t("browser.settings.origin")}
             <input
               type="url"

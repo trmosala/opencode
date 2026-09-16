@@ -193,6 +193,12 @@ export function BrowserTools(props: {
   const matches = (value: string) => value.toLowerCase().includes(state.query.trim().toLowerCase())
   let search: HTMLInputElement | undefined
   const run = async (command: BrowserCommand) => {
+    // Revocation must not wait behind the consent it is cancelling.
+    if (
+      (command.op === "access" && !command.enabled) ||
+      (command.op === "preferences" && command.values.agentEnabled === false)
+    )
+      return props.command(command)
     if (state.busy) return
     setState("busy", true)
     try {
@@ -723,7 +729,15 @@ export function BrowserTools(props: {
         {(profile) => <BrowserContacts profile={profile()} tab={props.tab} busy={state.busy} command={run} />}
       </Show>
       <Show when={props.panel === "settings" && props.tabs.profile}>
-        {(profile) => <BrowserSettings profile={profile()} busy={state.busy} command={run} open={props.open} />}
+        {(profile) => (
+          <BrowserSettings
+            profile={profile()}
+            tabs={props.tabs.tabs}
+            busy={state.busy}
+            command={run}
+            open={props.open}
+          />
+        )}
       </Show>
       <Show when={props.panel === "bookmarks" && props.tabs.profile?.bookmarks}>
         {(bookmarks) => <BrowserLibrary bookmarks={bookmarks()} busy={state.busy} command={run} />}

@@ -1,6 +1,13 @@
 import { tool, type ToolContext, type ToolDefinition } from "@opencode-ai/plugin"
 import type { BrowserPort } from "./port"
-import { hostOf, type BrowserState, type Modifier, type Request } from "./protocol"
+import {
+  hostOf,
+  parseAccessContext,
+  type BrowserState,
+  type Modifier,
+  type Request,
+  type WriteRequest,
+} from "./protocol"
 
 async function run(port: BrowserPort, context: ToolContext, request: Request) {
   const response = await port.send(context.sessionID, request)
@@ -38,18 +45,16 @@ async function askRead(context: ToolContext) {
   await context.ask({ permission: "browser_read_state", patterns: ["*"], always: ["*"], metadata: {} })
 }
 
-async function askWrite(
-  port: BrowserPort,
-  context: ToolContext,
-  permission: string,
-  request: Exclude<Extract<Request, { tabID: string }>, { op: "read_state" }>,
-) {
+async function askWrite(port: BrowserPort, context: ToolContext, permission: string, request: WriteRequest) {
   if (request.op !== "navigate") await askRead(context)
-  const url =
-    request.op === "navigate" ? request.url : (await run(port, context, { op: "read_state", tabID: request.tabID })).url
+  const prepared = await run(port, context, { op: "prepare_write", request })
+  const binding = parseAccessContext(prepared.context)
+  if (!binding || binding.tabID !== request.tabID) throw new Error("Browser approval context is unavailable.")
+  const url = request.op === "navigate" ? request.url : binding.origin
   const host = hostOf(url)
   if (!host) throw new Error(`Browser URL is not HTTP(S): ${url}`)
   await context.ask({ permission, patterns: [host], always: [host], metadata: request })
+  return { ...request, context: binding }
 }
 
 const modifiers = (args: { ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean }) =>
@@ -103,8 +108,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       args: { tabID, url: tool.schema.string().url().max(2048).describe("HTTP(S) destination") },
       async execute(args, context) {
         const request = { op: "navigate", tabID: args.tabID, url: args.url } as const
-        await askWrite(port, context, "browser_navigate", request)
-        return result(await run(port, context, request))
+        return result(await run(port, context, await askWrite(port, context, "browser_navigate", request)))
       },
     }),
     browser_click: tool({
@@ -113,8 +117,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       args: { tabID, ref: tool.schema.string().max(256).describe("Opaque element ref from this tab's snapshot") },
       async execute(args, context) {
         const request = { op: "click", tabID: args.tabID, ref: args.ref } as const
-        await askWrite(port, context, "browser_click", request)
-        return result(await run(port, context, request))
+        return result(await run(port, context, await askWrite(port, context, "browser_click", request)))
       },
     }),
     browser_fill: tool({
@@ -122,8 +125,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       args: { tabID, ref: tool.schema.string().max(256), text: tool.schema.string().max(10000) },
       async execute(args, context) {
         const request = { op: "fill", tabID: args.tabID, ref: args.ref, text: args.text } as const
-        await askWrite(port, context, "browser_fill", request)
-        return result(await run(port, context, request))
+        return result(await run(port, context, await askWrite(port, context, "browser_fill", request)))
       },
     }),
     browser_press_key: tool({
@@ -138,8 +140,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       },
       async execute(args, context) {
         const request = { op: "press_key", tabID: args.tabID, key: args.key, modifiers: modifiers(args) } as const
-        await askWrite(port, context, "browser_press_key", request)
-        return result(await run(port, context, request))
+        return result(await run(port, context, await askWrite(port, context, "browser_press_key", request)))
       },
     }),
   }

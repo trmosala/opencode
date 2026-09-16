@@ -6,6 +6,8 @@ test("overlapping capture and input restore throttling after the last operation"
   const contents: DriverContents = {
     backgroundThrottling: true,
     isDestroyed: () => false,
+    isLoadingMainFrame: () => false,
+    stop: () => {},
     getURL: () => "about:blank",
     loadURL: async () => {},
     debugger: { isAttached: () => true, attach: () => {}, sendCommand: async () => undefined },

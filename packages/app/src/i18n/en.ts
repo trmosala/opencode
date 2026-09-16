@@ -1,6 +1,33 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const browser = {
+  "browser.access.title": "Agent access",
+  "browser.access.tabs": "This task's tabs",
+  "browser.access.help":
+    "New tabs are private by default. Page tools require the global switch, a per-tab native grant and an allowed host. Opening settings grants nothing. OpenCode tool approvals are separate: this page does not show their current policy or approval state.",
+  "browser.access.unknown": "Effective access unavailable. Refresh settings or use a matching desktop build.",
+  "browser.access.refresh": "Refresh access status",
+  "browser.access.off": "Page tools blocked: global agent access is off.",
+  "browser.access.private": "Page tools blocked: tab grant is off.",
+  "browser.access.blocked": "Page tools blocked: the loaded host is not allowed.",
+  "browser.access.blank": "Blank tab: only navigation to an allowed host is eligible.",
+  "browser.access.loading":
+    "Page reads and input paused: the main page is loading. Navigation to an allowed host remains available.",
+  "browser.access.eligible": "Page tools eligible in main; OpenCode tool approval still applies.",
+  "browser.access.grant": "Request tab access",
+  "browser.access.revoke": "Revoke tab access / cancel pending grant",
+  "browser.access.guarded": "Transfer rules remain enforced until this tab closes, even with its grant off.",
+  "browser.access.unguarded": "Transfer rules are not active on this private tab; normal browsing transfers apply.",
+  "browser.access.unavailable": "Transfers blocked: no supported loaded page origin.",
+  "browser.access.default": "Resolved transfer policy: default",
+  "browser.access.exception": "Resolved transfer policy: exception for {{origin}}",
+  "browser.access.uploads": "Uploads: {{policy}}",
+  "browser.access.downloads": "Downloads: {{policy}}",
+  "browser.access.hostsEmpty": "No allowed hosts. Agent page access is blocked for every website.",
+  "browser.access.historyOff": "Agent history tools are blocked by the global switch.",
+  "browser.access.historyEffective": "Main history-search policy: {{policy}}. OpenCode approval is separate.",
+  "browser.access.transferLimits":
+    "Exceptions match the initiating page's exact origin (scheme, host and port). Guarding persists after revocation and through connected opener tabs. Cancel active downloads explicitly in Downloads. File selection is not a network upload firewall: websites can transmit data they already hold.",
   "browser.passwords.offers": "Offer to save submitted logins",
   "browser.passwords.offers.help":
     "Unlock the vault before signing in. Offers run on the active tab with agent access off, after a submitted login form disappears. Confirm sign-in succeeded before saving. Some sites, iframe forms and cross-site sign-ins require manual saving.",
@@ -8,7 +35,7 @@ export const browser = {
   "browser.passwords.offers.allow": "Allow offers again",
   "browser.history.agent": "Agent access to browsing history",
   "browser.history.agent.help":
-    "Controls agent searches across this browser profile's saved visits, independently of page access. Opening a result always asks for confirmation and leaves page access off. Deleting history does not remove results already shared in chat.",
+    "Controls agent searches across saved visits, independently of host rules and tab grants, but subject to the global switch. Recording history is a separate General setting. Opening a result always requires native confirmation and opens a private tab. Deleting history does not remove results already shared in chat.",
   "browser.history.agent.never": "Never",
   "browser.history.agent.ask": "Ask each time",
   "browser.history.agent.allow": "Allow",
@@ -129,7 +156,7 @@ export const browser = {
     "For multi-step sign-ins, fill the username, continue on the site, then fill the password. Each step must stay on the saved origin and requires confirmation. No form is submitted automatically.",
   "browser.settings.agentHosts": "Agent site access",
   "browser.settings.agentHosts.help":
-    "Agents can access only the hosts listed here and their subdomains, after you grant access to the tab. Enter hostnames without paths, ports, or wildcards. Removing a host revokes access to tabs it no longer permits. Tool approval still applies. Agents have no history, upload, or unrestricted DevTools API.",
+    "The main-enforced host list includes subdomains and ignores scheme and port. Enter hostnames without paths, ports, or wildcards. An empty list denies every website; malformed or unreadable configuration currently falls back to built-in defaults. Removing a host revokes tabs it no longer permits. History and file-selection consent have separate policies below. Unrestricted agent DevTools access is not available.",
   "browser.settings.agentHosts.host": "Allowed hostname",
   "browser.settings.agentHosts.add": "Add host",
   "browser.settings.agentHosts.remove": "Remove",

@@ -6,6 +6,8 @@ test("registry resolves exact session and tab, never a fallback", () => {
   let destroyed = false
   const contents: DriverContents = {
     isDestroyed: () => destroyed,
+    isLoadingMainFrame: () => false,
+    stop: () => {},
     getURL: () => "http://localhost/",
     loadURL: async () => {},
     debugger: { isAttached: () => true, attach: () => {}, sendCommand: async () => ({}) },

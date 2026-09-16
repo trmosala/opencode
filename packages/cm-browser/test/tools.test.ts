@@ -4,7 +4,14 @@ import type { BrowserPort } from "../src/port"
 import { browserTools } from "../src/tools"
 import { failure, success, type BrowserState, type Request, type Response } from "../src/protocol"
 
-const state: BrowserState = {
+const state = {
+  context: {
+    tabID: "one",
+    origin: "https://teams.microsoft.com",
+    urlHash: "a".repeat(64),
+    revision: 3,
+    accessRevision: 2,
+  },
   tabID: "one",
   url: "https://teams.microsoft.com/",
   title: "Teams",
@@ -13,7 +20,7 @@ const state: BrowserState = {
     { ref: "s4:e0", tag: "button", role: "", label: "Send", text: "Send" },
     { ref: "s4:e1", tag: "textarea", role: "textbox", label: "Message", text: "" },
   ],
-}
+} satisfies BrowserState
 
 function fakePort(reply: Response<BrowserState> = success(state)) {
   const sent: { sessionID: string; request: Request }[] = []
@@ -64,7 +71,13 @@ describe("browser tools", () => {
 
     const key = fakeContext("ses_key")
     await tools.browser_press_key.execute({ tabID: "one", key: "Enter", ctrl: true }, key.context)
-    expect(browser.sent.at(-1)?.request).toEqual({ tabID: "one", op: "press_key", key: "Enter", modifiers: ["Ctrl"] })
+    expect(browser.sent.at(-1)?.request).toEqual({
+      tabID: "one",
+      op: "press_key",
+      key: "Enter",
+      modifiers: ["Ctrl"],
+      context: state.context,
+    })
     expect(key.asked.at(-1)).toEqual({ permission: "browser_press_key", patterns: ["teams.microsoft.com"] })
   })
 
@@ -74,7 +87,60 @@ describe("browser tools", () => {
       { tabID: "one", ref: "s4:e1", text: "hi" },
       fakeContext("ses_fill").context,
     )
-    expect(browser.sent.at(-1)?.request).toEqual({ tabID: "one", op: "fill", ref: "s4:e1", text: "hi" })
+    expect(browser.sent.at(-1)?.request).toEqual({
+      tabID: "one",
+      op: "fill",
+      ref: "s4:e1",
+      text: "hi",
+      context: state.context,
+    })
+  })
+
+  test.each([
+    ["browser_press_key", { key: "Enter" }],
+    ["browser_click", { ref: "s4:e0" }],
+    ["browser_fill", { ref: "s4:e1", text: "hi" }],
+    ["browser_navigate", { url: "http://localhost/destination" }],
+  ] as const)("%s retains the context captured before deferred approval", async (name, args) => {
+    const browser = fakePort()
+    const call = fakeContext()
+    const waiting = Promise.withResolvers<void>()
+    const approval = Promise.withResolvers<void>()
+    call.context.ask = async (input) => {
+      call.asked.push({ permission: input.permission, patterns: input.patterns })
+      if (input.permission !== name) return
+      waiting.resolve()
+      await approval.promise
+    }
+    const pending = browserTools(browser.port)[name].execute({ tabID: "one", ...args }, call.context)
+    try {
+      await waiting.promise
+      expect(browser.sent).toHaveLength(1)
+      expect(browser.sent[0].request.op).toBe("prepare_write")
+      expect(call.asked.at(-1)).toEqual({
+        permission: name,
+        patterns: [name === "browser_navigate" ? "localhost" : "teams.microsoft.com"],
+      })
+      approval.resolve()
+      await pending
+      expect(browser.sent).toHaveLength(2)
+      expect(browser.sent[1].request).toMatchObject({ tabID: "one", context: state.context })
+    } finally {
+      approval.resolve()
+      await pending
+    }
+  })
+
+  test("missing or malformed main context fails before write approval", async () => {
+    for (const context of [undefined, { ...state.context, revision: -1 }, { ...state.context, tabID: "other" }]) {
+      const browser = fakePort(success({ ...state, context } as BrowserState))
+      const call = fakeContext()
+      await expect(
+        browserTools(browser.port).browser_press_key.execute({ tabID: "one", key: "Enter" }, call.context),
+      ).rejects.toThrow(/approval context/)
+      expect(browser.sent).toHaveLength(1)
+      expect(call.asked.map((input) => input.permission)).toEqual(["browser_read_state"])
+    }
   })
 
   test("history tools expose bounded result refs and never imply page access", async () => {

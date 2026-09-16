@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
 import {
   MAX_SNAPSHOT_BYTES,
+  OPERATION_TIMEOUT_MS,
   failure,
   success,
   type BrowserState,
   type Modifier,
-  type Request,
+  type PageRequest,
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
 import { parseSnapshot, snapshotScript, type PageSnapshot, type SnapshotElement } from "./snapshot"
@@ -13,8 +14,10 @@ import { parseSnapshot, snapshotScript, type PageSnapshot, type SnapshotElement 
 export type DriverContents = {
   backgroundThrottling?: boolean
   isDestroyed(): boolean
+  isLoadingMainFrame(): boolean
   getURL(): string
   loadURL(url: string): Promise<void>
+  stop(): void
   debugger: {
     isAttached(): boolean
     attach(version?: string): void
@@ -22,7 +25,11 @@ export type DriverContents = {
   }
 }
 
-export type Target = { readonly tabID: string; readonly contents: DriverContents; readonly check?: () => void }
+export type Target = {
+  readonly tabID: string
+  readonly contents: DriverContents
+  readonly check?: (source?: boolean) => void
+}
 
 export function invalidateSnapshots(contents: DriverContents) {
   histories.delete(contents)
@@ -30,8 +37,10 @@ export function invalidateSnapshots(contents: DriverContents) {
 
 async function send(target: Target, method: string, params?: Record<string, unknown>) {
   target.check?.()
+  if (target.contents.isLoadingMainFrame()) throw new Error("Browser page is loading")
   const result = await target.contents.debugger.sendCommand(method, params)
   target.check?.()
+  if (target.contents.isLoadingMainFrame()) throw new Error("Browser page is loading")
   return result
 }
 
@@ -149,10 +158,7 @@ async function resolveRef(target: Target, ref: string) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 100))
 
-export async function execute(
-  target: Target,
-  request: Extract<Request, { tabID: string }>,
-): Promise<Response<BrowserState>> {
+export async function execute(target: Target, request: PageRequest): Promise<Response<BrowserState>> {
   if (request.tabID !== target.tabID) return failure("no_target", "Browser tab mismatch.")
   target.check?.()
   if (target.contents.isDestroyed()) return failure("detached", "The browser panel view is no longer available.")
@@ -168,7 +174,24 @@ export async function execute(
 
   if (request.op === "read_state") return refreshed(target)
   if (request.op === "navigate") {
+    const deadline = Date.now() + OPERATION_TIMEOUT_MS
+    // Cancel the old load before Electron installs the destination's load listeners.
+    if (target.contents.isLoadingMainFrame()) {
+      target.contents.stop()
+      do {
+        target.check?.(true)
+        if (target.contents.isDestroyed() || Date.now() >= deadline) throw new Error("Browser navigation interrupted")
+        await settle()
+      } while (target.contents.isLoadingMainFrame())
+    }
+    target.check?.(true)
     await target.contents.loadURL(request.url)
+    // loadURL resolves before Chromium clears main-frame loading.
+    while (target.contents.isLoadingMainFrame()) {
+      target.check?.()
+      if (target.contents.isDestroyed() || Date.now() >= deadline) throw new Error("Browser navigation interrupted")
+      await settle()
+    }
     return refreshed(target)
   }
   if (request.op === "press_key") {

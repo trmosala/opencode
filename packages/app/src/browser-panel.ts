@@ -1,4 +1,12 @@
 export type BrowserTab = {
+  access?: {
+    loading: boolean
+    hostAllowed: boolean
+    blank: boolean
+    transferGuarded: boolean
+    transferRule: BrowserTransferRule
+    transferSource: "default" | "exception" | "unavailable"
+  }
   revision?: number
   connection?: "https" | "http" | "unknown" | "error"
   id: string

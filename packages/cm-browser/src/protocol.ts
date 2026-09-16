@@ -21,6 +21,7 @@ export type ElementRef = {
 }
 
 export type BrowserState = {
+  readonly context?: AccessContext
   readonly history?: readonly { ref: string; url: string; title: string; time: number }[]
   readonly opened?: boolean
   readonly tabID: string
@@ -41,16 +42,29 @@ export type HistoryRequest =
     }
   | { readonly op: "open_history"; readonly ref: string }
 
+export type AccessContext = {
+  readonly tabID: string
+  readonly origin: string
+  readonly urlHash: string
+  readonly revision: number
+  readonly accessRevision: number
+}
+
+export type WriteRequest = { readonly tabID: string } & (
+  | { readonly op: "navigate"; readonly url: string }
+  | { readonly op: "click"; readonly ref: string }
+  | { readonly op: "fill"; readonly ref: string; readonly text: string }
+  | { readonly op: "press_key"; readonly key: string; readonly modifiers: readonly Modifier[] }
+)
+
+export type PageRequest = { readonly op: "read_state"; readonly tabID: string } | WriteRequest
+
 export type Request =
   | HistoryRequest
   | { readonly op: "list_tabs" }
-  | ({ readonly tabID: string } & (
-      | { readonly op: "read_state" }
-      | { readonly op: "navigate"; readonly url: string }
-      | { readonly op: "click"; readonly ref: string }
-      | { readonly op: "fill"; readonly ref: string; readonly text: string }
-      | { readonly op: "press_key"; readonly key: string; readonly modifiers: readonly Modifier[] }
-    ))
+  | { readonly op: "prepare_write"; readonly request: WriteRequest }
+  | { readonly op: "read_state"; readonly tabID: string }
+  | (WriteRequest & { readonly context: AccessContext })
 
 export type ErrorCode =
   | "no_target"
@@ -80,7 +94,13 @@ export type BrowserIpcResult = {
 }
 
 export const failure = (code: ErrorCode, error: string): Failure => ({ ok: false, code, error })
-export const success = <T>(result: T): Success<T> => ({ ok: true, result })
+export function success<T>(result: T): Response<T> {
+  const response: Success<T> = { ok: true, result }
+  // ponytail: reject oversized responses rather than truncate URLs used as identities.
+  return Buffer.byteLength(JSON.stringify(response)) <= MAX_SNAPSHOT_BYTES
+    ? response
+    : failure("unavailable", "Browser response exceeds the size limit.")
+}
 
 export function stateDirectory(env: Record<string, string | undefined> = process.env, platform = process.platform) {
   if (env.CM_BROWSER_STATE_DIR && isAbsolute(env.CM_BROWSER_STATE_DIR)) return env.CM_BROWSER_STATE_DIR
@@ -138,9 +158,49 @@ export function parseRequest(value: unknown): Request | undefined {
       ? { op: "open_history", ref: input.ref }
       : undefined
   if (input.op === "list_tabs") return { op: "list_tabs" }
+  if (input.op === "prepare_write") {
+    const request = parseWriteRequest(input.request)
+    return request ? { op: "prepare_write", request } : undefined
+  }
+  if (input.op === "read_state")
+    return typeof input.tabID === "string" && input.tabID.length > 0 && input.tabID.length <= 128
+      ? { op: "read_state", tabID: input.tabID }
+      : undefined
+  const request = parseWriteRequest(input)
+  const context = parseAccessContext(input.context)
+  return request && context ? { ...request, context } : undefined
+}
+
+export function parseAccessContext(value: unknown): AccessContext | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
+  if (typeof input.origin !== "string" || !input.origin || input.origin.length > MAX_URL_LENGTH) return
+  if (input.origin !== "about:blank") {
+    if (!hostOf(input.origin) || new URL(input.origin).origin !== input.origin) return
+  }
+  if (typeof input.urlHash !== "string" || !/^[a-f0-9]{64}$/.test(input.urlHash)) return
+  if (typeof input.revision !== "number" || !Number.isSafeInteger(input.revision) || input.revision < 0) return
+  if (
+    typeof input.accessRevision !== "number" ||
+    !Number.isSafeInteger(input.accessRevision) ||
+    input.accessRevision < 0
+  )
+    return
+  return {
+    tabID: input.tabID,
+    origin: input.origin,
+    urlHash: input.urlHash,
+    revision: input.revision,
+    accessRevision: input.accessRevision,
+  }
+}
+
+function parseWriteRequest(value: unknown): WriteRequest | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
-  if (input.op === "read_state") return { op: "read_state", tabID }
   if (input.op === "navigate")
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH
       ? { op: "navigate", tabID, url: input.url }

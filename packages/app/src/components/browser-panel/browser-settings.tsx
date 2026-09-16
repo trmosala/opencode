@@ -2,12 +2,13 @@ import { Button } from "@opencode-ai/ui/button"
 import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
-import type { BrowserCommand, BrowserPermission, BrowserPreferences, BrowserProfile } from "@/browser-panel"
+import type { BrowserCommand, BrowserPermission, BrowserPreferences, BrowserProfile, BrowserTab } from "@/browser-panel"
 import type { BrowserToolPanel } from "./browser-tools"
 import { BrowserTransfers } from "./browser-transfers"
 
 export function BrowserSettings(props: {
   profile: BrowserProfile
+  tabs: BrowserTab[]
   busy: boolean
   command(value: BrowserCommand): Promise<unknown>
   open(panel: BrowserToolPanel): void
@@ -28,7 +29,19 @@ export function BrowserSettings(props: {
       <Show when={!props.profile.preferences}>
         <p role="status">{language.t("browser.tools.nextLaunch")}</p>
       </Show>
-      <fieldset disabled={!props.profile.preferences || props.busy} class="min-w-0 space-y-5">
+      <section aria-label={language.t("browser.access.title")} class="min-w-0 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h3 class="text-14-medium">{language.t("browser.access.title")}</h3>
+          <Button
+            size="small"
+            variant="secondary"
+            disabled={props.busy}
+            onClick={() => void props.command({ op: "state" })}
+          >
+            {language.t("browser.access.refresh")}
+          </Button>
+        </div>
+        <p class="text-text-weak">{language.t("browser.access.help")}</p>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
           <label class="flex items-center justify-between gap-4">
             <span>
@@ -37,12 +50,189 @@ export function BrowserSettings(props: {
             </span>
             <input
               type="checkbox"
-              checked={props.profile.preferences?.agentEnabled ?? true}
-              disabled={props.busy}
+              checked={props.profile.preferences?.agentEnabled === true}
+              disabled={
+                props.profile.preferences?.agentEnabled === undefined ||
+                (props.busy && !props.profile.preferences.agentEnabled)
+              }
               onChange={(event) => toggle("agentEnabled", event.currentTarget.checked)}
             />
           </label>
+          <Show when={props.profile.preferences?.agentEnabled === undefined}>
+            <p role="status">{language.t("browser.access.unknown")}</p>
+          </Show>
         </section>
+        <section
+          class="rounded-lg border border-border-weak-base p-4 space-y-4"
+          aria-label={language.t("browser.access.tabs")}
+        >
+          <h4 class="text-14-medium">{language.t("browser.access.tabs")}</h4>
+          <For each={props.tabs} fallback={<p>{language.t("browser.tabs.empty")}</p>}>
+            {(tab) => (
+              <div class="min-w-0 border-t border-border-weaker-base pt-3 space-y-2" data-access-tab={tab.id}>
+                <strong class="block break-all">{tab.title || tab.url}</strong>
+                <p class="break-all text-text-weak">{tab.url}</p>
+                <p role="status">
+                  {language.t(
+                    !tab.access || props.profile.preferences?.agentEnabled === undefined
+                      ? "browser.access.unknown"
+                      : !props.profile.preferences.agentEnabled
+                        ? "browser.access.off"
+                        : !tab.agentAccess
+                          ? "browser.access.private"
+                          : tab.access.blank
+                            ? "browser.access.blank"
+                            : !tab.access.hostAllowed
+                              ? "browser.access.blocked"
+                              : tab.access.loading === undefined
+                                ? "browser.access.unknown"
+                                : tab.access.loading
+                                  ? "browser.access.loading"
+                                  : "browser.access.eligible",
+                  )}
+                </p>
+                <Show when={tab.access}>
+                  {(access) => (
+                    <div class="text-text-weak space-y-1">
+                      <p>
+                        {language.t(access().transferGuarded ? "browser.access.guarded" : "browser.access.unguarded")}
+                      </p>
+                      <Show when={access().transferGuarded}>
+                        <p class="break-all">
+                          {language.t(`browser.access.${access().transferSource}`, {
+                            origin: access().transferRule.origin,
+                          })}
+                        </p>
+                        <p>
+                          {language.t("browser.access.uploads", {
+                            policy: language.t(
+                              access().transferRule.uploads === "ask"
+                                ? "browser.transfer.choose"
+                                : "browser.permission.block",
+                            ),
+                          })}
+                        </p>
+                        <p>
+                          {language.t("browser.access.downloads", {
+                            policy: language.t(`browser.permission.${access().transferRule.downloads}`),
+                          })}
+                        </p>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
+                <div class="flex flex-wrap gap-2">
+                  <Show when={!tab.agentAccess}>
+                    <Button
+                      size="small"
+                      disabled={
+                        props.busy ||
+                        !tab.access ||
+                        tab.access.loading !== false ||
+                        props.profile.preferences?.agentEnabled !== true ||
+                        (!tab.access.hostAllowed && !tab.access.blank)
+                      }
+                      onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: true })}
+                    >
+                      {language.t("browser.access.grant")}
+                    </Button>
+                  </Show>
+                  <Button
+                    size="small"
+                    variant="secondary"
+                    style={{ "max-width": "100%", "white-space": "normal", height: "auto", "min-height": "24px" }}
+                    onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: false })}
+                  >
+                    {language.t("browser.access.revoke")}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </For>
+        </section>
+        <fieldset disabled={props.busy} class="min-w-0 space-y-4">
+          <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
+            <h4 class="text-14-medium">{language.t("browser.settings.agentHosts")}</h4>
+            <p class="text-text-weak">{language.t("browser.settings.agentHosts.help")}</p>
+            <Show
+              when={props.profile.agentHosts}
+              fallback={<p role="status">{language.t("browser.access.unknown")}</p>}
+            >
+              <form
+                class="flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void props.command({ op: "agent-host", host: state.host })
+                }}
+              >
+                <input
+                  class="min-w-0 flex-1 border border-border-weak-base rounded p-2"
+                  value={state.host}
+                  onInput={(event) => setState("host", event.currentTarget.value)}
+                  aria-label={language.t("browser.settings.agentHosts.host")}
+                  placeholder="example.com"
+                  required
+                />
+                <Button size="small" type="submit">
+                  {language.t("browser.settings.agentHosts.add")}
+                </Button>
+              </form>
+              <For each={props.profile.agentHosts} fallback={<p>{language.t("browser.access.hostsEmpty")}</p>}>
+                {(host) => (
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="min-w-0 break-all">{host}</span>
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      onClick={() => void props.command({ op: "agent-host", host, remove: true })}
+                    >
+                      {language.t("browser.settings.agentHosts.remove")}
+                    </Button>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </section>
+          <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
+            <label class="flex flex-wrap items-center justify-between gap-4">
+              <span class="min-w-0 flex-1">
+                <strong>{language.t("browser.history.agent")}</strong>
+                <p class="text-text-weak mt-1">{language.t("browser.history.agent.help")}</p>
+              </span>
+              <select
+                class="max-w-full"
+                disabled={props.profile.preferences?.agentHistory === undefined}
+                value={props.profile.preferences?.agentHistory ?? ""}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  if (value !== "never" && value !== "ask" && value !== "allow") return
+                  void props.command({ op: "preferences", values: { agentHistory: value } })
+                }}
+              >
+                <Show when={props.profile.preferences?.agentHistory === undefined}>
+                  <option value="">{language.t("browser.access.unknown")}</option>
+                </Show>
+                <For each={["never", "ask", "allow"] as const}>
+                  {(value) => <option value={value}>{language.t(`browser.history.agent.${value}`)}</option>}
+                </For>
+              </select>
+            </label>
+            <p role="status">
+              {props.profile.preferences?.agentEnabled === false
+                ? language.t("browser.access.historyOff")
+                : props.profile.preferences?.agentEnabled === true &&
+                    props.profile.preferences.agentHistory !== undefined
+                  ? language.t("browser.access.historyEffective", {
+                      policy: language.t(`browser.history.agent.${props.profile.preferences.agentHistory}`),
+                    })
+                  : language.t("browser.access.unknown")}
+            </p>
+          </section>
+          <BrowserTransfers rules={props.profile.transferRules} command={(value) => props.command(value)} />
+          <p class="text-text-weak">{language.t("browser.access.transferLimits")}</p>
+        </fieldset>
+      </section>
+      <fieldset disabled={!props.profile.preferences || props.busy} class="min-w-0 space-y-5">
         <h3 class="text-14-medium">{language.t("browser.settings.general")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
           <p>{language.t("browser.settings.search")}</p>
@@ -177,31 +367,6 @@ export function BrowserSettings(props: {
             {language.t("browser.settings.downloads.manage")}
           </Button>
         </section>
-        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <label class="flex items-center justify-between gap-4">
-            <span>
-              <strong>{language.t("browser.history.agent")}</strong>
-              <p class="text-text-weak mt-1">{language.t("browser.history.agent.help")}</p>
-            </span>
-            <select
-              disabled={props.profile.preferences?.agentHistory === undefined}
-              value={props.profile.preferences?.agentHistory ?? "ask"}
-              onChange={(event) => {
-                const value = event.currentTarget.value
-                if (value !== "never" && value !== "ask" && value !== "allow") return
-                void props.command({
-                  op: "preferences",
-                  values: { agentHistory: value },
-                })
-              }}
-            >
-              <For each={["never", "ask", "allow"] as const}>
-                {(value) => <option value={value}>{language.t(`browser.history.agent.${value}`)}</option>}
-              </For>
-            </select>
-          </label>
-        </section>
-        <BrowserTransfers rules={props.profile.transferRules} command={(value) => props.command(value)} />
         <h3 class="text-14-medium">{language.t("browser.settings.sites")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
           <p class="text-text-weak">{language.t("browser.settings.sites.help")}</p>
@@ -275,44 +440,6 @@ export function BrowserSettings(props: {
                     </label>
                   )}
                 </For>
-              </div>
-            )}
-          </For>
-        </section>
-        <h3 class="text-14-medium">{language.t("browser.settings.agentHosts")}</h3>
-        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <p class="text-text-weak">{language.t("browser.settings.agentHosts.help")}</p>
-          <form
-            class="flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void props.command({ op: "agent-host", host: state.host })
-            }}
-          >
-            <input
-              class="min-w-0 flex-1 border border-border-weak-base rounded p-2"
-              value={state.host}
-              onInput={(event) => setState("host", event.currentTarget.value)}
-              aria-label={language.t("browser.settings.agentHosts.host")}
-              placeholder="example.com"
-              required
-            />
-            <Button size="small" type="submit" disabled={props.busy}>
-              {language.t("browser.settings.agentHosts.add")}
-            </Button>
-          </form>
-          <For each={props.profile.agentHosts}>
-            {(host) => (
-              <div class="flex items-center justify-between gap-2">
-                <span>{host}</span>
-                <Button
-                  size="small"
-                  variant="ghost"
-                  disabled={props.busy}
-                  onClick={() => void props.command({ op: "agent-host", host, remove: true })}
-                >
-                  {language.t("browser.settings.agentHosts.remove")}
-                </Button>
               </div>
             )}
           </For>

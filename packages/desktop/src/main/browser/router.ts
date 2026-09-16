@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import {
   OPERATION_TIMEOUT_MS,
   failure,
@@ -10,7 +11,7 @@ import {
 import { allowed } from "./allowlist"
 import { execute } from "./driver"
 import { browserTabs, browserRegistration, browserAgentEnabled, routeBrowserHistory } from "./registry"
-import { browserURL } from "./policy"
+import { browserURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 
 const busy = new Set<string>()
@@ -19,8 +20,9 @@ export async function routeBrowserRequest(
   message: BrowserIpcRequest,
   isAllowed: (url: string) => boolean = allowed,
 ): Promise<Response<BrowserState>> {
-  const request = parseRequest(message.request)
-  if (!request) return failure("bad_request", "Invalid browser request.")
+  const parsed = parseRequest(message.request)
+  if (!parsed) return failure("bad_request", "Invalid browser request.")
+  const request = parsed.op === "prepare_write" ? parsed.request : parsed
   if (!browserAgentEnabled()) return failure("access_denied", "Browser agent access is disabled in browser settings.")
   if (request.op === "search_history" || request.op === "open_history")
     return routeBrowserHistory(message.sessionID, request)
@@ -33,7 +35,10 @@ export async function routeBrowserRequest(
       elements: [],
       tabs: browserTabs(message.sessionID)
         .filter(
-          (tab) => tab.agentAccess && (tab.contents.getURL() === "about:blank" || isAllowed(tab.contents.getURL())),
+          (tab) =>
+            tab.agentAccess &&
+            (tab.contents.getURL() === "about:blank" ||
+              (browserPageURL(tab.contents.getURL()) && isAllowed(tab.contents.getURL()))),
         )
         .map((tab) => ({ tabID: tab.id, url: tab.contents.getURL(), title: "" })),
     })
@@ -41,26 +46,56 @@ export async function routeBrowserRequest(
   const tab = browserRegistration(message.sessionID, request.tabID)
   if (!tab) return failure("no_target", "Browser tab not found in this session.")
   if (!tab.agentAccess) return failure("access_denied", "Enable agent access for this tab in the browser panel.")
-  const destination = request.op === "navigate" ? request.url : tab.contents.getURL()
-  if (!browserURL(destination) || !isAllowed(destination))
+  const url = tab.contents.getURL()
+  if (request.op === "navigate" && (!browserURL(request.url) || !isAllowed(request.url)))
+    return failure("blocked_host", "Browser host is not allowlisted.")
+  if (!(request.op === "navigate" && url === "about:blank") && (!browserPageURL(url) || !isAllowed(url)))
     return failure("blocked_host", "Browser host is not allowlisted.")
   if (busy.has(tab.id)) return failure("unavailable", "Another operation is running on this tab.")
+  if (request.op !== "navigate" && tab.contents.isLoadingMainFrame())
+    return failure("unavailable", "Browser page is loading. Wait for loading to finish.")
 
   const revision = tab.revision
-  const accessRevision = tab.accessRevision
+  const accessRevision = tab.accessRevision ?? 0
+  // ponytail: hash the exact source, not a truncated URL; main's epochs also detect A-B-A.
+  const origin = url === "about:blank" ? url : new URL(url).origin
+  const urlHash = createHash("sha256").update(url).digest("hex")
+  if (parsed.op === "prepare_write")
+    return success({
+      tabID: tab.id,
+      url: origin,
+      title: "",
+      visibleText: "",
+      elements: [],
+      context: { tabID: tab.id, origin, urlHash, revision, accessRevision },
+    })
+  if (
+    request.op !== "read_state" &&
+    (!("context" in parsed) ||
+      parsed.context.tabID !== tab.id ||
+      parsed.context.origin !== origin ||
+      parsed.context.urlHash !== urlHash ||
+      parsed.context.revision !== revision ||
+      parsed.context.accessRevision !== accessRevision)
+  )
+    return failure("access_denied", "Browser approval context changed. Request approval again.")
   const deadline = Date.now() + OPERATION_TIMEOUT_MS
-  const check = () => {
+  const check = (source = false) => {
     if (Date.now() >= deadline) throw new Error("Browser operation timed out")
     if (
       !browserAgentEnabled() ||
       !tab.agentAccess ||
-      tab.accessRevision !== accessRevision ||
+      (tab.accessRevision ?? 0) !== accessRevision ||
       tab.contents.isDestroyed() ||
-      (request.op !== "navigate" && tab.revision !== revision)
+      ((source || request.op !== "navigate") && (tab.revision !== revision || tab.contents.getURL() !== url)) ||
+      (request.op !== "navigate" && tab.contents.isLoadingMainFrame())
     )
       throw new Error("Browser access changed")
-    const url = tab.contents.getURL()
-    if (!(request.op === "navigate" && url === "about:blank") && !isAllowed(url))
+    const current = tab.contents.getURL()
+    if (!(request.op === "navigate" && current === "about:blank") && (!browserPageURL(current) || !isAllowed(current)))
+      throw new Error("Browser host is not allowlisted")
+    // The driver's final source check is synchronous with loadURL, after old-load cancellation.
+    if (source && request.op === "navigate" && (!browserURL(request.url) || !isAllowed(request.url)))
       throw new Error("Browser host is not allowlisted")
   }
   tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)

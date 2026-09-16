@@ -1,4 +1,4 @@
-import type { DriverContents, Target } from "./driver"
+import { invalidateSnapshots, type DriverContents, type Target } from "./driver"
 import { failure, type HistoryRequest, type Response, type BrowserState } from "@cookiemonster/cm-browser/protocol"
 
 let historyHandler: ((sessionID: string, request: HistoryRequest) => Promise<Response<BrowserState>>) | undefined
@@ -21,6 +21,7 @@ export type BrowserRegistration = {
   agentAccess: boolean
   revision: number
   accessRevision?: number
+  accessConsent?: AbortController
   navigationAllowed?: (url: string) => boolean
 }
 const tabs = new Map<string, BrowserRegistration>()
@@ -30,16 +31,21 @@ export function setBrowserAgentEnabled(enabled: boolean) {
   agentEnabled = enabled
   if (enabled) return
   tabs.forEach((tab) => {
+    tab.accessConsent?.abort()
     tab.agentAccess = false
     tab.accessRevision = (tab.accessRevision ?? 0) + 1
     tab.revision++
+    invalidateSnapshots(tab.contents)
   })
 }
 
 export function registerBrowserTab(tab: BrowserRegistration) {
   if (tabs.has(tab.id)) throw new Error("Duplicate browser tab")
   tabs.set(tab.id, tab)
-  return () => tabs.delete(tab.id)
+  return () => {
+    tab.accessConsent?.abort()
+    return tabs.delete(tab.id)
+  }
 }
 
 export function browserTabs(sessionID: string) {

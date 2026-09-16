@@ -16,8 +16,11 @@ import {
 } from "./tabs"
 import { browserRegistration } from "./registry"
 import { routeBrowserRequest } from "./router"
+import { allowed, updateAgentHost } from "./allowlist"
+import { browserTools } from "../../../../cm-browser/src/tools"
+import type { ToolContext } from "@opencode-ai/plugin"
 import { browserPreferences, browserURL, BROWSER_PARTITION } from "./policy"
-import type { Request } from "@cookiemonster/cm-browser/protocol"
+import { MAX_SNAPSHOT_BYTES, type Request, type WriteRequest } from "@cookiemonster/cm-browser/protocol"
 import { browserViewportBounds } from "../../../../app/src/components/browser-panel/browser-viewport"
 import { browserProfile, clearBrowserData, saveLogins } from "./profile"
 import { snapshotScript } from "./snapshot"
@@ -46,12 +49,19 @@ app.on("window-all-closed", () => {})
 app.commandLine.appendSwitch("use-fake-device-for-media-stream")
 // Keep trusted fixture input working when another window covers this inactive test window.
 app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion")
+let holdStream = false
+let streamed: import("node:http").ServerResponse | undefined
 const userAgents = new Map<string, string>()
 const server = createServer((request, response) => {
   userAgents.set(request.url ?? "/", request.headers["user-agent"] ?? "")
   if (request.url === "/account-fill.js" && process.argv.includes("--account-fill")) {
     response.writeHead(200, { "Content-Type": "text/javascript" })
     response.end(readFileSync(join(profile!, "account-fill.js")))
+    return
+  }
+  if (request.url === "/access-stream" && holdStream) {
+    streamed = response
+    response.writeHead(200, { "Content-Type": "text/html" })
     return
   }
   if (request.url?.startsWith("/download")) {
@@ -466,7 +476,7 @@ async function run() {
     }
     return
   }
-  const route = (request: Request) =>
+  const dispatch = (request: Request) =>
     routeBrowserRequest(
       {
         type: "browser_request",
@@ -474,11 +484,336 @@ async function run() {
         sessionID: "smoke",
         request,
       },
-      (candidate) => candidate.startsWith(url),
+      (candidate) => candidate.startsWith(url) || candidate.startsWith(url.replace("127.0.0.1", "localhost")),
     )
+  const route = async (request: Request | WriteRequest) => {
+    if (request.op !== "navigate" && request.op !== "click" && request.op !== "fill" && request.op !== "press_key")
+      return dispatch(request)
+    if ("context" in request) return dispatch(request)
+    const prepared = await dispatch({ op: "prepare_write", request })
+    if (!prepared.ok) return prepared
+    assert(prepared.result.context)
+    return dispatch({ ...request, context: prepared.result.context })
+  }
+  async function accessReview() {
+    stage("access review regressions")
+    const consent = dialog.showMessageBox
+    const checks: Record<string, boolean> = {}
+    try {
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      stage("access review: granting")
+      await wait(() => !one.contents.isLoadingMainFrame())
+      const granted = await command({ op: "access", tabID: first, enabled: true })
+      assert(
+        one.agentAccess,
+        JSON.stringify({
+          tab: granted.tabs.find((tab) => tab.id === first),
+          visible: win.isVisible(),
+          minimized: win.isMinimized(),
+          suspended: owner.suspended,
+        }),
+      )
+      stage("access review: initial stream page")
+      await command({ op: "navigate", tabID: first, url: `${url}access-stream` })
+      await wait(() => !one.contents.isLoadingMainFrame())
+      const key: WriteRequest = { op: "press_key", tabID: first, key: "Enter", modifiers: [] }
+      const before = await dispatch({ op: "prepare_write", request: key })
+      assert(before.ok && before.result.context, JSON.stringify(before))
+      holdStream = true
+      stage("access review: starting reload")
+      one.view.webContents.reload()
+      await wait(() => !!streamed)
+      const prepared = await dispatch({ op: "prepare_write", request: key })
+      const recovery: WriteRequest = { op: "navigate", tabID: first, url }
+      const during = await dispatch({ op: "prepare_write", request: recovery })
+      assert(during.ok && during.result.context, "Navigation recovery remains available during loading")
+      const revision = one.revision
+      let ready = false
+      const domReady = () => {
+        ready = true
+      }
+      one.view.webContents.once("dom-ready", domReady)
+      const committed = new Promise((resolve) => one.view.webContents.once("did-navigate", resolve))
+      streamed!.write(
+        '<!doctype html><title>Stream</title><body><input autofocus><script>window.keys=0; document.addEventListener("keydown",()=>window.keys++)</script>' +
+          " ".repeat(4096),
+      )
+      await committed
+      assert.equal(ready, false, "Regression must hold dom-ready after commit")
+      assert.equal(one.contents.getURL(), `${url}access-stream`)
+      const send = one.view.webContents.debugger.sendCommand.bind(one.view.webContents.debugger)
+      let inputs = 0
+      one.view.webContents.debugger.sendCommand = async (method, ...args) => {
+        if (method.startsWith("Input.")) inputs++
+        return send(method, ...args)
+      }
+      try {
+        const response = await dispatch({ ...key, context: before.result.context })
+        const staleNavigation = await dispatch({ ...recovery, context: during.result.context })
+        assert(!staleNavigation.ok && staleNavigation.code === "access_denied")
+        const keys = await send("Runtime.evaluate", { expression: "window.keys", returnByValue: true })
+        const state = (await command({ op: "state" })).tabs.find((tab) => tab.id === first)!
+        assert.equal(state.access?.loading, true)
+        assert.equal(state.access?.hostAllowed, true)
+        checks.loading = !prepared.ok && !response.ok && inputs === 0 && keys.result.value === 0
+        console.log(
+          "Stream witness:",
+          JSON.stringify({
+            prepared: prepared.ok,
+            dispatched: response.ok,
+            inputs,
+            keys: keys.result.value,
+            ready,
+            commitAdvancedRevision: one.revision > revision,
+          }),
+        )
+        const fresh = await route(recovery)
+        assert(fresh.ok, "Fresh navigation recovers without waiting for streamed dom-ready: " + JSON.stringify(fresh))
+        assert.equal(one.contents.getURL(), url)
+      } finally {
+        one.view.webContents.debugger.sendCommand = send
+        one.view.webContents.removeListener("dom-ready", domReady)
+        streamed!.end("</body>")
+        holdStream = false
+        streamed = undefined
+      }
+
+      stage("access review: destination removal during cancellation")
+      const destination = url.replace("127.0.0.1", "localhost") + "access-destination"
+      const request: WriteRequest = { op: "navigate", tabID: first, url: destination }
+      const policyRoute = (request: Request) =>
+        routeBrowserRequest({ type: "browser_request", id: "destination-race", sessionID: "smoke", request })
+      const binding = await policyRoute({ op: "prepare_write", request })
+      assert(binding.ok && binding.result.context)
+      const sourceRevision = one.revision
+      const accessRevision = one.accessRevision
+      const loading = one.contents.isLoadingMainFrame.bind(one.contents)
+      const stop = one.contents.stop.bind(one.contents)
+      const load = one.contents.loadURL.bind(one.contents)
+      let held = true
+      let loads = 0
+      let timer: ReturnType<typeof setTimeout> | undefined
+      // Hold the cancellation seam, not Chromium's network; dispatch and policy remain real.
+      one.contents.isLoadingMainFrame = () => held || loading()
+      one.contents.stop = () => {
+        stop()
+        timer = setTimeout(() => {
+          updateAgentHost("localhost", true)
+          held = false
+        }, 10)
+      }
+      one.contents.loadURL = async (candidate) => {
+        loads++
+        await load(candidate)
+      }
+      try {
+        const response = await policyRoute({ ...request, context: binding.result.context })
+        assert.equal(held, false, "Destination removal must happen across the cancellation await")
+        assert.equal(allowed(url), true)
+        assert.equal(allowed(destination), false)
+        assert.equal(one.contents.getURL(), url)
+        assert.equal(one.revision, sourceRevision)
+        assert.equal(one.accessRevision, accessRevision)
+        assert.equal(loads, 0)
+        assert.equal(userAgents.has("/access-destination"), false)
+        assert(!response.ok && response.code === "unavailable")
+        console.log("Destination witness:", JSON.stringify({ loads, requested: false, sourceUnchanged: true }))
+      } finally {
+        clearTimeout(timer)
+        held = false
+        one.contents.isLoadingMainFrame = loading
+        one.contents.stop = stop
+        one.contents.loadURL = load
+        updateAgentHost("localhost")
+      }
+
+      await one.view.webContents.executeJavaScript(
+        `history.replaceState(null, "", "?history=" + "x".repeat(${MAX_SNAPSHOT_BYTES}))`,
+      )
+      const bytes: number[] = []
+      for (const request of [{ op: "read_state", tabID: first }, { op: "list_tabs" }] as const) {
+        const response = await dispatch(request)
+        bytes.push(Buffer.byteLength(JSON.stringify(response)))
+        assert(!response.ok && response.code === "unavailable")
+        assert(bytes[bytes.length - 1] <= MAX_SNAPSHOT_BYTES)
+      }
+      console.log(
+        "Response budget witness:",
+        JSON.stringify({ sourceBytes: Buffer.byteLength(one.contents.getURL()), bytes }),
+      )
+      const navigation: WriteRequest = { op: "navigate", tabID: first, url }
+      const long = await dispatch({ op: "prepare_write", request: navigation })
+      checks.longSource = long.ok
+      if (long.ok && long.result.context) {
+        assert(JSON.stringify(long.result).length < 1024, "Preparation transport must remain bounded")
+        const source = one.contents.getURL()
+        await one.view.webContents.executeJavaScript(`history.replaceState(null, "", location.href + "b")`)
+        const stale = await dispatch({ ...navigation, context: long.result.context })
+        assert(!stale.ok && stale.code === "access_denied")
+        await one.view.webContents.executeJavaScript(`history.replaceState(null, "", ${JSON.stringify(source)})`)
+        const aba = await dispatch({ ...navigation, context: long.result.context })
+        assert(!aba.ok && aba.code === "access_denied")
+        const asked: string[][] = []
+        await browserTools({ send: (_sessionID, request) => dispatch(request) }).browser_navigate.execute(
+          { tabID: first, url },
+          {
+            sessionID: "smoke",
+            messageID: "long-source",
+            agent: "build",
+            directory: ".",
+            worktree: ".",
+            abort: new AbortController().signal,
+            metadata: () => {},
+            ask: async (input) => {
+              asked.push(input.patterns)
+            },
+          },
+        )
+        assert.deepEqual(asked, [["127.0.0.1"]])
+        assert.equal(one.contents.getURL(), url)
+      }
+      await command({ op: "navigate", tabID: first, url })
+      await command({ op: "access", tabID: first, enabled: false })
+      dialog.showMessageBox = (async (
+        windowOrOptions: Electron.BaseWindow | Electron.MessageBoxOptions,
+        options?: Electron.MessageBoxOptions,
+      ) => {
+        const settings = options ?? (windowOrOptions as Electron.MessageBoxOptions)
+        checks.dialog =
+          windowOrOptions !== win && !!settings.signal && settings.defaultId === 0 && settings.cancelId === 0
+        return { response: 0, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await wait(() => !one.contents.isLoadingMainFrame())
+      await command({ op: "access", tabID: first, enabled: true })
+      console.log("Access review:", JSON.stringify(checks))
+      assert.deepEqual(checks, { loading: true, longSource: true, dialog: true })
+
+      stage("access review: consent lifecycle")
+      for (const change of ["tab", "global", "navigation", "hide", "owner navigation", "tab close", "owner close"]) {
+        const target = change.endsWith("close") ? (await command({ op: "new" })).activeID! : first
+        const tab = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === target)!
+        if (target !== first) await command({ op: "navigate", tabID: target, url })
+        const answer = Promise.withResolvers<Electron.MessageBoxReturnValue>()
+        let signal: AbortSignal | undefined
+        let prompts = 0
+        dialog.showMessageBox = ((
+          windowOrOptions: Electron.BaseWindow | Electron.MessageBoxOptions,
+          options?: Electron.MessageBoxOptions,
+        ) => {
+          const settings = options ?? (windowOrOptions as Electron.MessageBoxOptions)
+          signal = settings.signal
+          prompts++
+          return answer.promise
+        }) as typeof dialog.showMessageBox
+        await wait(() => !tab.contents.isLoadingMainFrame())
+        const pending = command({ op: "access", tabID: target, enabled: true })
+        try {
+          assert(signal && !signal.aborted)
+          await assert.rejects(command({ op: "access", tabID: target, enabled: true }), /pending/)
+          assert.equal(prompts, 1)
+          if (change === "tab") await command({ op: "access", tabID: target, enabled: false })
+          if (change === "global") {
+            await command({ op: "preferences", values: { agentEnabled: false } })
+            await command({ op: "preferences", values: { agentEnabled: true } })
+          }
+          if (change === "navigation") await command({ op: "navigate", tabID: target, url: `${url}?cancel` })
+          if (change === "hide") {
+            win.hide()
+            win.showInactive()
+          }
+          if (change === "owner navigation") await win.loadURL(`${url}?owner`)
+          if (change === "tab close") {
+            await command({ op: "close", tabID: target })
+            await wait(() => tab.contents.isDestroyed())
+          }
+          if (change === "owner close") win.emit("close", { preventDefault() {} })
+          assert.equal(signal.aborted, true, change)
+        } finally {
+          answer.resolve({ response: 1, checkboxChecked: false })
+          await pending
+          owner.shutting = false
+        }
+        assert.equal(tab.agentAccess, false, "Late approval cannot resurrect " + change)
+        assert.equal(tab.accessConsent, undefined)
+        assert.equal(owner.suspended, 0)
+        if (target !== first && !tab.contents.isDestroyed()) await command({ op: "close", tabID: target })
+      }
+      await command({ op: "select", tabID: first })
+      await command({ op: "navigate", tabID: first, url })
+      await win.loadURL(url)
+      console.log("PASS native consent API shape, serialization, cancellation and late-approval lifecycle")
+
+      if (process.platform === "win32") {
+        stage("access review: real native consent")
+        dialog.showMessageBox = consent
+        await win.webContents.executeJavaScript(
+          `document.body.innerHTML = '<button style="position:fixed;left:20px;top:20px;width:220px;height:60px">Cancel pending tab grant</button>'; document.querySelector("button").onclick = () => console.log("fixture-revoke"); true`,
+        )
+        const cancelled = Promise.withResolvers<void>()
+        const click = (details: Electron.Event<Electron.WebContentsConsoleMessageEventParams>) => {
+          if (details.message === "fixture-revoke")
+            void command({ op: "access", tabID: first, enabled: false }).then(
+              () => cancelled.resolve(),
+              cancelled.reject,
+            )
+        }
+        win.webContents.on("console-message", click)
+        await wait(() => !one.contents.isLoadingMainFrame())
+        const pending = command({ op: "access", tabID: first, enabled: true })
+        let settled = false
+        void pending.then(
+          () => {
+            settled = true
+          },
+          () => {
+            settled = true
+          },
+        )
+        const timeout = setTimeout(() => one.accessConsent?.abort(), 3000)
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          assert.equal(settled, false, "Real dialog remains pending before cancellation")
+          assert.equal(win.isEnabled(), true, "Real dialog must not disable the settings owner")
+          win.focus()
+          win.webContents.focus()
+          win.webContents.sendInputEvent({ type: "mouseDown", x: 70, y: 45, button: "left", clickCount: 1 })
+          win.webContents.sendInputEvent({ type: "mouseUp", x: 70, y: 45, button: "left", clickCount: 1 })
+          await Promise.race([
+            cancelled.promise,
+            pending.then(() => assert.fail("Dialog ended before renderer revocation")),
+          ])
+          await pending
+          assert.equal(one.agentAccess, false)
+          assert.equal(one.accessConsent, undefined)
+          console.log("PASS real Windows native grant: owner enabled, trusted renderer Cancel command aborts consent")
+        } finally {
+          clearTimeout(timeout)
+          one.accessConsent?.abort()
+          await pending
+          win.webContents.removeListener("console-message", click)
+          await win.loadURL(url)
+        }
+      }
+    } finally {
+      holdStream = false
+      streamed?.end()
+      streamed = undefined
+      dialog.showMessageBox = consent
+      await command({ op: "access", tabID: first, enabled: false })
+      await command({ op: "navigate", tabID: first, url })
+    }
+  }
   const first = (await command({ op: "new" })).activeID!
   await command({ op: "navigate", tabID: first, url })
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
+  if (process.argv.includes("--access-review")) {
+    try {
+      await accessReview()
+    } finally {
+      win.destroy()
+    }
+    return
+  }
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
 
@@ -2916,6 +3251,7 @@ async function run() {
     return
   }
 
+  await accessReview()
   stage("session switching")
   const other = await browserCommand(owner, "other-session", { op: "new" })
   browserViewport(owner, {
@@ -3275,6 +3611,10 @@ async function run() {
   dialog.showOpenDialog = uploadPicker
   await command({ op: "navigate", tabID: first, url })
   stage("agent access settings")
+  await wait(() => !one.contents.isLoadingMainFrame())
+  await command({ op: "access", tabID: first, enabled: true })
+  const beforeRevoke = await route({ op: "read_state", tabID: first })
+  assert(beforeRevoke.ok)
   await command({ op: "preferences", values: { agentEnabled: false } })
   assert.equal((await route({ op: "read_state", tabID: first })).ok, false)
   assert.equal(one.agentAccess, false)
@@ -3284,6 +3624,89 @@ async function run() {
   assert.equal(browserPreferencesState().showFullURL, false)
   assert.equal(browserPreferencesState().selectionScreenshots, true)
   await assert.rejects(command({ op: "preferences", values: { showFullURL: "no" } }))
+  await command({ op: "access", tabID: first, enabled: true })
+  const oldRef = await route({ op: "click", tabID: first, ref: beforeRevoke.result.elements[0].ref })
+  assert(!oldRef.ok && oldRef.code === "stale_ref", "Off/on/reconsent must not revive old refs")
+  const accessState = (await command({ op: "state" })).tabs.find((tab) => tab.id === first)!
+  assert.equal(accessState.access?.hostAllowed, true)
+  assert.equal(accessState.access?.transferGuarded, true)
+  assert.equal(accessState.access?.transferSource, "default")
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "block", downloads: "allow" } })
+  const exceptionState = (await command({ op: "state" })).tabs.find((tab) => tab.id === first)!
+  assert.equal(exceptionState.access?.transferSource, "exception")
+  assert.deepEqual(exceptionState.access?.transferRule, {
+    origin: new URL(url).origin,
+    uploads: "block",
+    downloads: "allow",
+  })
+  await command({ op: "transfer-rule", rule: { origin: url, uploads: "block", downloads: "allow" }, remove: true })
+
+  stage("approval bound across native navigation")
+  const approval = Promise.withResolvers<void>()
+  const waiting = Promise.withResolvers<void>()
+  const pendingWrite = browserTools({ send: (_sessionID, request) => dispatch(request) }).browser_press_key.execute(
+    { tabID: first, key: "Enter" },
+    {
+      sessionID: "smoke",
+      messageID: "pending-write",
+      agent: "build",
+      directory: ".",
+      worktree: ".",
+      abort: new AbortController().signal,
+      metadata: () => {},
+      ask: async (input) => {
+        if (input.permission !== "browser_press_key") return
+        assert.deepEqual(input.patterns, ["127.0.0.1"])
+        waiting.resolve()
+        await approval.promise
+      },
+    } satisfies ToolContext,
+  )
+  const rejectedWrite = assert.rejects(pendingWrite, /approval context changed/)
+  await waiting.promise
+  await command({ op: "navigate", tabID: first, url: url.replace("127.0.0.1", "localhost") })
+  await one.view.webContents.executeJavaScript(
+    "window.keys = 0; document.addEventListener('keydown', () => window.keys++)",
+  )
+  await wait(() => !one.contents.isLoadingMainFrame())
+  approval.resolve()
+  await rejectedWrite
+  assert.equal(await one.view.webContents.executeJavaScript("window.keys"), 0)
+  assert((await route({ op: "press_key", tabID: first, key: "Enter", modifiers: [] })).ok)
+  assert.equal(await one.view.webContents.executeJavaScript("window.keys"), 1)
+  await command({ op: "navigate", tabID: first, url })
+
+  stage("pending native grant revocation")
+  await wait(() => !one.contents.isLoadingMainFrame())
+  for (const revoke of ["tab", "global"]) {
+    await command({ op: "access", tabID: first, enabled: false })
+    const consent = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>()
+    dialog.showMessageBox = (() => consent.promise) as typeof dialog.showMessageBox
+    const pendingGrant = command({ op: "access", tabID: first, enabled: true })
+    if (revoke === "tab") await command({ op: "access", tabID: first, enabled: false })
+    if (revoke === "global") {
+      await command({ op: "preferences", values: { agentEnabled: false } })
+      await command({ op: "preferences", values: { agentEnabled: true } })
+    }
+    consent.resolve({ response: 1, checkboxChecked: false })
+    await pendingGrant
+    assert.equal(one.agentAccess, false, "Pending grant must stay revoked after approval")
+    const revoked = (await command({ op: "state" })).tabs.find((tab) => tab.id === first)!
+    assert.equal(revoked.access?.transferGuarded, true)
+  }
+  dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+  const allowlistFile = join(profile!, "cm-browser-allowlist.json")
+  const originalHosts = readFileSync(allowlistFile, "utf8")
+  try {
+    writeFileSync(allowlistFile, '["localhost"]')
+    assert.equal((await command({ op: "state" })).tabs.find((tab) => tab.id === first)?.access?.hostAllowed, false)
+    writeFileSync(allowlistFile, "[]")
+    const denied = await command({ op: "state" })
+    assert.deepEqual(denied.profile?.agentHosts, [])
+    assert.equal(denied.tabs.find((tab) => tab.id === first)?.access?.hostAllowed, false)
+  } finally {
+    writeFileSync(allowlistFile, originalHosts)
+  }
   stage("automatic downloads")
   const directoryPicker = dialog.showOpenDialog
   const downloadFolder = join(profile!, "saved-downloads")

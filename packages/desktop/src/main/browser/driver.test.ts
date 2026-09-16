@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { MAX_SNAPSHOT_BYTES } from "@cookiemonster/cm-browser/protocol"
 import { execute, type DriverContents, type Target } from "./driver"
 import { parseSnapshot, snapshotScript } from "./snapshot"
 
@@ -19,6 +20,8 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
   let elements = [element()]
   const contents: DriverContents = {
     isDestroyed: () => options.destroyed === true,
+    isLoadingMainFrame: () => false,
+    stop: () => {},
     getURL: () => url,
     loadURL: async (next) => {
       url = next
@@ -117,6 +120,50 @@ describe("browser driver", () => {
     const view = fake()
     const response = await execute(view.target, { tabID: "one", op: "navigate", url: "https://teams.microsoft.com/" })
     expect(response.ok && response.result.url).toBe("https://teams.microsoft.com/")
+  })
+
+  test("loading guards dispatch and awaits while navigation waits for its destination", async () => {
+    const view = fake()
+    let loading = true
+    view.target.contents.isLoadingMainFrame = () => loading
+    await expect(execute(view.target, { tabID: "one", op: "press_key", key: "Enter", modifiers: [] })).rejects.toThrow(
+      "loading",
+    )
+    expect(view.calls).toEqual([])
+    loading = false
+    const send = view.target.contents.debugger.sendCommand
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      const result = await send(method, params)
+      loading = true
+      return result
+    }
+    await expect(execute(view.target, { tabID: "one", op: "press_key", key: "Enter", modifiers: [] })).rejects.toThrow(
+      "loading",
+    )
+    expect(view.calls.some((call) => call.method.startsWith("Input."))).toBe(false)
+    view.target.contents.debugger.sendCommand = send
+    const timer = setTimeout(() => {
+      loading = false
+    }, 20)
+    try {
+      const result = await execute(view.target, { tabID: "one", op: "navigate", url: "http://localhost/short" })
+      expect(result.ok && result.result.url).toBe("http://localhost/short")
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+
+  test("oversized source returns a bounded failure without preventing short recovery navigation", async () => {
+    const source = "http://localhost/?history=" + "x".repeat(MAX_SNAPSHOT_BYTES)
+    const view = fake({ url: source })
+    view.setElements([])
+    const response = await execute(view.target, { tabID: "one", op: "read_state" })
+    expect(Buffer.byteLength(JSON.stringify(response))).toBeLessThanOrEqual(MAX_SNAPSHOT_BYTES)
+    expect(response).toMatchObject({ ok: false, code: "unavailable" })
+    expect(view.target.contents.getURL()).toBe(source)
+    const recovered = await execute(view.target, { tabID: "one", op: "navigate", url: "http://localhost/short" })
+    expect(recovered.ok && recovered.result.url).toBe("http://localhost/short")
+    expect(Buffer.byteLength(JSON.stringify(recovered))).toBeLessThanOrEqual(MAX_SNAPSHOT_BYTES)
   })
 
   test("destroyed and malformed pages fail safely", async () => {
