@@ -60,29 +60,81 @@ try {
   await Bun.write(entry, build.outputs[0])
   const env = { ...process.env, CM_BROWSER_STATE_DIR: directory, CM_BROWSER_SMOKE_PROFILE: directory }
   delete env.ELECTRON_RUN_AS_NODE
-  const child = Bun.spawn([electron, entry, ...process.argv.slice(2)], { env, stdout: "inherit", stderr: "inherit" })
-  const timeout = setTimeout(
-    () => child.kill(),
-    process.argv.includes("--registration") ||
-      process.argv.includes("--offer-patterns") ||
-      process.env.CM_BROWSER_LIVE_SMOKE === "1"
-      ? 120_000
-      : 60_000,
-  )
-  const code = await child.exited
-  clearTimeout(timeout)
-  console.log(
-    "Last stage:",
-    await Bun.file(join(directory, "stage.txt"))
+  if (process.argv.includes("--persistence-reopen")) {
+    for (const phase of [
+      "seed",
+      "faults",
+      "interrupt-before",
+      "reopen-old",
+      "interrupt-after",
+      "reopen-new",
+      "seed-legacy",
+      "migration-fail",
+      "reopen-legacy",
+      "migrate",
+      "reopen-migrated",
+    ]) {
+      const checkpoint = join(directory, "checkpoint.json")
+      await rm(checkpoint, { force: true })
+      await rm(join(directory, "result.txt"), { force: true })
+      const child = Bun.spawn([electron, entry, "--persistence-reopen"], {
+        env: { ...env, CM_BROWSER_PERSISTENCE_PHASE: phase },
+        stdout: "inherit",
+        stderr: "inherit",
+      })
+      const timeout = setTimeout(() => child.kill("SIGKILL"), 20_000)
+      try {
+        if (phase.startsWith("interrupt-")) {
+          const deadline = Date.now() + 15_000
+          while (!(await Bun.file(checkpoint).exists())) {
+            if (child.exitCode !== null || Date.now() > deadline) throw new Error(`${phase}: checkpoint not reached`)
+            await Bun.sleep(20)
+          }
+          const witness = await Bun.file(checkpoint).json()
+          if (witness.pid !== child.pid || witness.phase !== phase) throw new Error("Unexpected child checkpoint")
+          child.kill("SIGKILL")
+          await child.exited
+          if (await Bun.file(join(directory, "result.txt")).exists()) throw new Error("Interrupted child cleaned up")
+          console.log(`PASS ${phase}: killed owned child PID ${child.pid} at rename checkpoint`)
+        } else {
+          const code = await child.exited
+          const result = await Bun.file(join(directory, "result.txt"))
+            .text()
+            .catch(() => "")
+          if (code !== 0 || result !== "PASS") throw new Error(`${phase} exited ${code}: ${result}`)
+        }
+      } finally {
+        clearTimeout(timeout)
+        if (child.exitCode === null) child.kill("SIGKILL")
+        await child.exited
+      }
+    }
+    console.log("PASS native persistence interruption/reopen/migration")
+  } else {
+    const child = Bun.spawn([electron, entry, ...process.argv.slice(2)], { env, stdout: "inherit", stderr: "inherit" })
+    const timeout = setTimeout(
+      () => child.kill(),
+      process.argv.includes("--registration") ||
+        process.argv.includes("--offer-patterns") ||
+        process.env.CM_BROWSER_LIVE_SMOKE === "1"
+        ? 120_000
+        : 60_000,
+    )
+    const code = await child.exited
+    clearTimeout(timeout)
+    console.log(
+      "Last stage:",
+      await Bun.file(join(directory, "stage.txt"))
+        .text()
+        .catch(() => "entry not reached"),
+    )
+    const result = await Bun.file(join(directory, "result.txt"))
       .text()
-      .catch(() => "entry not reached"),
-  )
-  const result = await Bun.file(join(directory, "result.txt"))
-    .text()
-    .catch(() => "")
-  if (code !== 0 || result !== "PASS")
-    throw new Error(`Native smoke exited ${code}: ${result || "no completion result"}`)
-  console.log("PASS native browser smoke")
+      .catch(() => "")
+    if (code !== 0 || result !== "PASS")
+      throw new Error(`Native smoke exited ${code}: ${result || "no completion result"}`)
+    console.log("PASS native browser smoke")
+  }
 } finally {
   if (dirname(resolve(directory)) !== resolve(tmpdir()) || !basename(directory).startsWith("cm-browser-smoke-"))
     throw new Error("Unexpected browser smoke directory")

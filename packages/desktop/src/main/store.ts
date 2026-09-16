@@ -5,8 +5,9 @@ import { join } from "node:path"
 
 import { SETTINGS_STORE, requireStoreName } from "./store-keys"
 import { deleteStoreFileIfEmpty } from "./store-cleanup"
+import { BrowserStore } from "./browser/store"
 
-const cache = new Map<string, Store>()
+const cache = new Map<string, Store | BrowserStore>()
 
 // We cannot instantiate the electron-store at module load time because
 // module import hoisting causes this to run before app.setPath("userData", ...)
@@ -16,12 +17,15 @@ export function getStore(name = SETTINGS_STORE) {
   requireStoreName(name)
   const cached = cache.get(name)
   if (cached) return cached
-  const next = new Store({
-    name,
-    cwd: electron.app.getPath("userData"),
-    fileExtension: "",
-    accessPropertiesByDotNotation: false,
-  })
+  const next =
+    name === "cm-browser"
+      ? new BrowserStore(join(electron.app.getPath("userData"), name))
+      : new Store({
+          name,
+          cwd: electron.app.getPath("userData"),
+          fileExtension: "",
+          accessPropertiesByDotNotation: false,
+        })
   cache.set(name, next)
   return next
 }

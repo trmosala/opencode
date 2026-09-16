@@ -1,7 +1,9 @@
+import { persistenceRenameFault } from "./persistence-fault.fixture"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import { join } from "node:path"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import fs, { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { syncBuiltinESMExports } from "node:module"
 import { app, BrowserWindow, dialog, session, safeStorage, powerMonitor, shell } from "electron"
 import {
   browserCommand,
@@ -168,6 +170,169 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--persistence-reopen")) {
+    const { persistenceReopen } = await import("./persistence-reopen.fixture")
+    await persistenceReopen(profile!)
+    stage(`PASS persistence ${process.env.CM_BROWSER_PERSISTENCE_PHASE}`)
+    return
+  }
+  if (process.argv.includes("--persistence-exdev")) {
+    stage("EXDEV/SNAP complete-store preservation")
+    const storage = getStore("cm-browser")
+    const file = join(profile!, "profile", "cm-browser")
+    assert.equal(storage.path, file)
+    // Inert synthetic vault bytes: this check exercises persistence, not vault authentication.
+    const original = {
+      preferences: { offerSaveLogins: true },
+      bookmarks: [{ id: "fixture", url: "https://example.test", title: "Keep me" }],
+      vault: { version: 1, key: "fixture-key", iv: "fixture-iv", tag: "fixture-tag", data: "fixture-old" },
+    }
+    const next = { ...original, vault: { ...original.vault, data: "fixture-new" } }
+    const results = []
+    try {
+      for (const mode of ["EXDEV", "SNAP"]) {
+        storage.store = original
+        const before = readFileSync(file)
+        const write = fs.writeFileSync
+        const snap = process.env.SNAP
+        let directWrites = 0
+        let rejected = false
+        try {
+          if (mode === "SNAP") process.env.SNAP = profile
+          else delete process.env.SNAP
+          persistenceRenameFault.path = file
+          persistenceRenameFault.attempts = 0
+          // Observe real direct writes; do not block or simulate the fallback.
+          fs.writeFileSync = (target, data, options) => {
+            if (String(target) === file) directWrites++
+            return write(target, data, options)
+          }
+          syncBuiltinESMExports()
+          try {
+            storage.store = next
+          } catch (error) {
+            assert(error instanceof Error)
+            rejected = true
+          }
+        } finally {
+          persistenceRenameFault.path = ""
+          fs.writeFileSync = write
+          syncBuiltinESMExports()
+          if (snap === undefined) delete process.env.SNAP
+          else process.env.SNAP = snap
+        }
+        const result = {
+          mode,
+          renameFaultReached: persistenceRenameFault.attempts > 0,
+          directWrites,
+          rejected,
+          oldCompleteStoreSurvives: before.equals(readFileSync(file)),
+        }
+        console.log("Persistence regression:", JSON.stringify(result))
+        results.push(result)
+      }
+    } finally {
+      persistenceRenameFault.restore()
+    }
+    assert.deepEqual(
+      results,
+      ["EXDEV", "SNAP"].map((mode) => ({
+        mode,
+        renameFaultReached: true,
+        directWrites: 0,
+        rejected: true,
+        oldCompleteStoreSurvives: true,
+      })),
+      "Rename failure must reject without a direct overwrite and preserve the complete old cm-browser store",
+    )
+    const snap = process.env.SNAP
+    try {
+      process.env.SNAP = profile
+      storage.store = next
+      assert.equal(storage.get("vault") && (storage.get("vault") as { data: string }).data, "fixture-new")
+      assert.equal(readFileSync(file, "utf8"), JSON.stringify(next, undefined, "\t"))
+    } finally {
+      if (snap === undefined) delete process.env.SNAP
+      else process.env.SNAP = snap
+    }
+    for (const mode of ["WRITE", "FSYNC"]) {
+      storage.store = original
+      const before = readFileSync(file)
+      const open = fs.openSync
+      const write = fs.writeFileSync
+      const flush = fs.fsyncSync
+      const fault = Object.assign(new Error(`fixture ${mode} failure`), { code: mode === "WRITE" ? "ENOSPC" : "EIO" })
+      let descriptor: number | undefined
+      let reached = false
+      try {
+        fs.openSync = (target, flags, permissions) => {
+          const fd = open(target, flags, permissions)
+          if (String(target).startsWith(`${file}.`) && flags === "wx") descriptor = fd
+          return fd
+        }
+        fs.writeFileSync = (target, data, options) => {
+          if (mode === "WRITE" && target === descriptor) {
+            reached = true
+            write(target, "{", "utf8")
+            throw fault
+          }
+          return write(target, data, options)
+        }
+        fs.fsyncSync = (fd) => {
+          if (mode === "FSYNC" && fd === descriptor) {
+            reached = true
+            throw fault
+          }
+          return flush(fd)
+        }
+        syncBuiltinESMExports()
+        assert.throws(
+          () => {
+            storage.store = next
+          },
+          (error) => error === fault,
+        )
+      } finally {
+        fs.openSync = open
+        fs.writeFileSync = write
+        fs.fsyncSync = flush
+        syncBuiltinESMExports()
+      }
+      assert(reached, `${mode} fault must reach the owned temp`)
+      assert(before.equals(readFileSync(file)), `${mode} preserves complete file bytes`)
+      assert.deepEqual({ ...storage.store }, original, `${mode} must not publish cached success`)
+      assert.deepEqual(
+        fs.readdirSync(join(profile!, "profile")).filter((name) => name.startsWith("cm-browser.")),
+        [],
+      )
+      console.log(`PASS ${mode} failure preservation and temp cleanup`)
+    }
+    storage.set("literal.key", { keep: null, omit: undefined })
+    assert.deepEqual(storage.get("literal.key"), { keep: null })
+    assert.throws(() => storage.set("literal.key", undefined))
+    storage.delete("literal.key")
+    assert.equal(storage.has("literal.key"), false)
+    assert.deepEqual({ ...storage.store }, original)
+    const before = readFileSync(file)
+    try {
+      for (const invalid of ["{", "null", "[]"]) {
+        writeFileSync(file, invalid)
+        assert.throws(() => storage.get("vault"))
+        assert.throws(() => storage.set("other", true))
+        assert.throws(() => storage.delete("vault"))
+        assert.throws(() => storage.clear())
+        assert.throws(() => {
+          storage.store = next
+        })
+        assert.equal(readFileSync(file, "utf8"), invalid)
+      }
+    } finally {
+      writeFileSync(file, before)
+    }
+    console.log("PASS literal keys, JSON values, and malformed-store refusal")
+    stage("PASS focused EXDEV/SNAP preservation")
+    return
+  }
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const address = server.address()
   assert(address && typeof address !== "string")
@@ -3881,7 +4046,9 @@ run().then(
   () => {
     writeFileSync(join(profile, "result.txt"), "PASS")
     server.close()
-    app.exit(0)
+    // Reopen fixtures need Chromium's profile metadata flushed during initial setup.
+    if (process.argv.includes("--persistence-reopen")) app.quit()
+    else app.exit(0)
   },
   (error) => {
     writeFileSync(join(profile, "result.txt"), String(error?.stack || error))
