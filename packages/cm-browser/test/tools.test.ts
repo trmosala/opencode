@@ -151,6 +151,20 @@ describe("browser tools", () => {
     expect(output).toContain("[s4:e0] <button> Send")
   })
 
+  test("renders normalized states and truncation without losing false values", async () => {
+    const browser = fakePort(
+      success({
+        ...state,
+        truncated: true,
+        elements: [{ ...state.elements[0], checked: "mixed", selected: false, expanded: true, disabled: true }],
+      }),
+    )
+    const reply = await browserTools(browser.port).browser_read_state.execute({ tabID: "one" }, fakeContext().context)
+    const output = typeof reply === "string" ? reply : reply.output
+    for (const value of ["checked=mixed", "selected=false", "expanded=true", "disabled=true", "truncated"])
+      expect(output).toContain(value)
+  })
+
   test("writes use their tool IDs and hostname as the permission pattern", async () => {
     const browser = fakePort()
     const tools = browserTools(browser.port)

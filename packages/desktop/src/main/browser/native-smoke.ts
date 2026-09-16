@@ -47,6 +47,8 @@ app.setPath("userData", join(profile, "profile"))
 app.setPath("sessionData", join(profile, "session"))
 app.on("window-all-closed", () => {})
 app.commandLine.appendSwitch("use-fake-device-for-media-stream")
+if (process.argv.includes("--snapshots") || process.argv.length === 2)
+  app.commandLine.appendSwitch("host-resolver-rules", "MAP snapshots-http.test 127.0.0.1")
 // Keep trusted fixture input working when another window covers this inactive test window.
 app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion")
 let holdStream = false
@@ -180,6 +182,12 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--snapshots") || process.argv.length === 2) {
+    const { snapshotsSmoke } = await import("./snapshots.fixture")
+    await snapshotsSmoke()
+    stage("PASS snapshots")
+    if (process.argv.includes("--snapshots")) return
+  }
   if (process.argv.includes("--scroll-wait")) {
     const { scrollWaitSmoke } = await import("./scroll-wait.fixture")
     await scrollWaitSmoke()
@@ -3919,7 +3927,12 @@ async function run() {
     await one.view.webContents.executeJavaScript("document.querySelector('input[type=password]').value"),
     "fixture-secret",
   )
-  assert(!JSON.stringify(await one.view.webContents.executeJavaScript(snapshotScript())).includes("fixture-secret"))
+  // Read-only fixture capture owns a separate isolated world; these tokens are never actionable driver refs.
+  const privateSnapshot = await one.view.webContents.executeJavaScriptInIsolatedWorld(998, [
+    { code: snapshotScript("private-fixture") },
+  ])
+  assert(!JSON.stringify(privateSnapshot).includes("fixture-secret"))
+  assert(!JSON.stringify(privateSnapshot).includes("fixture-user"))
   stage("multi-step autofill")
   await one.view.webContents.executeJavaScript(
     `document.body.innerHTML='<form method="post"><input autocomplete="username"></form>'`,

@@ -34,10 +34,10 @@ const result = (state: BrowserState) => ({
             "visible text:",
             state.visibleText || "(none)",
             "",
-            "interactive elements:",
+            `interactive elements:${state.truncated ? " (snapshot truncated)" : ""}`,
             ...state.elements.map(
               (element) =>
-                `[${element.ref}] <${element.tag}>${element.role ? ` role=${element.role}` : ""} ${element.label || element.text || "(no label)"}`,
+                `[${element.ref}] <${element.tag}>${element.role ? ` role=${element.role}` : ""} ${element.label || element.text || "(no label)"}${(["checked", "selected", "expanded", "disabled"] as const).map((key) => (element[key] === undefined ? "" : ` ${key}=${element[key]}`)).join("")}`,
             ),
           ].join("\n"),
   metadata: { tabID: state.tabID, url: state.url },

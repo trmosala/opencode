@@ -6,12 +6,13 @@ import { DESKTOP_NATIVE_ENGLISH, createDesktopNativeBundle } from "@opencode-ai/
 import { setNativeTranslations } from "../native-translations"
 
 type Call = { method: string; params?: Record<string, unknown> }
-const element = (fingerprint = "send") => ({
+const element = (token = "send") => ({
   tag: "button",
-  role: "",
+  role: "button",
   label: "Send",
   text: "Send",
-  fingerprint,
+  token,
+  disabled: false,
   rect: { x: 10, y: 20, width: 40, height: 10 },
 })
 
@@ -35,10 +36,20 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
       },
       sendCommand: async (method, params) => {
         calls.push({ method, params })
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
+        if (method === "Page.createIsolatedWorld")
+          return { executionContextId: params?.worldName === "cm-browser-wait" ? 7 : 8 }
         if (method !== "Runtime.evaluate") return {}
+        if (params?.contextId !== 8) return { result: { value: undefined } }
+        expect(params.timeout).toBeGreaterThan(0)
+        const reference = /reference = (\{[^\n]+\}|null);/.exec(String(params.expression))
+        const expected = reference?.[1] !== "null" && reference?.[1] ? JSON.parse(reference[1]) : undefined
+        const current = expected ? elements.filter((element) => element.token === expected.token) : elements
         return (
           options.snapshot ?? {
-            result: { value: { url, title: "Dev", visibleText: "Send", elements } },
+            result: {
+              value: { generation: "document-one", url, title: "Dev", visibleText: "Send", elements: current },
+            },
           }
         )
       },
@@ -155,7 +166,8 @@ describe("browser driver", () => {
     const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
     view.target.contents.debugger.sendCommand = async (method, params) => {
       if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
-      if (method === "Page.createIsolatedWorld") return { executionContextId: 7 }
+      if (method === "Page.createIsolatedWorld")
+        return { executionContextId: params?.worldName === "cm-browser-wait" ? 7 : 8 }
       if (params?.contextId === 7) return { result: { value: match } }
       return send(method, params)
     }
@@ -288,7 +300,7 @@ describe("browser driver", () => {
     expect(view.attached()).toBe(true)
     if (!response.ok) return
     expect(response.result).toMatchObject({ url: "http://localhost:5173/", title: "Dev", visibleText: "Send" })
-    expect(response.result.elements[0].ref).toMatch(/^one\.[0-9a-f-]+:e[0-9a-z]+$/)
+    expect(response.result.elements[0].ref).toMatch(/^one\.[0-9a-f-]+:send$/)
   })
 
   test("click validates the ref, dispatches trusted mouse events, and refreshes state", async () => {
@@ -301,6 +313,29 @@ describe("browser driver", () => {
     expect(view.calls.filter((call) => call.method === "Runtime.evaluate" && call.params?.returnByValue)).toHaveLength(
       3,
     )
+  })
+
+  test("each isolated capture await retains cancellation guards", async () => {
+    for (const boundary of ["Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate"]) {
+      const view = fake()
+      const ref = await firstRef(view)
+      const controller = new AbortController()
+      const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+      let reached = false
+      view.target.contents.debugger.sendCommand = async (method, params) => {
+        const value = await send(method, params)
+        if (method === boundary && (method !== "Runtime.evaluate" || params?.contextId === 8)) {
+          reached = true
+          controller.abort()
+        }
+        return value
+      }
+      await expect(
+        execute({ ...view.target, signal: controller.signal }, { op: "click", tabID: "one", ref }),
+      ).rejects.toThrow()
+      expect(reached).toBe(true)
+      expect(view.calls.some((call) => call.method.startsWith("Input."))).toBe(false)
+    }
   })
 
   test("stale refs never dispatch input", async () => {
@@ -318,6 +353,9 @@ describe("browser driver", () => {
     const view = fake()
     await execute(view.target, { tabID: "one", op: "fill", ref: await firstRef(view), text: "hi" })
     expect(view.calls.some((call) => call.method === "Input.insertText")).toBe(false)
+    expect(
+      view.calls.some((call) => call.params?.contextId === 8 && String(call.params.expression).includes('"fill":true')),
+    ).toBe(true)
     const down = view.calls
       .filter((call) => call.method === "Input.dispatchKeyEvent" && call.params?.type === "keyDown")
       .map((call) => call.params)
@@ -403,11 +441,44 @@ describe("browser driver", () => {
 })
 
 describe("snapshot", () => {
-  test("collects visible text and interactive elements without arbitrary agent script input", () => {
-    const script = snapshotScript()
-    expect(script).toContain("button:not([disabled])")
-    expect(script).toContain("document.body?.innerText")
-    expect(script).toContain("fingerprint")
+  test("parser reenforces bounds and normalizes only applicable states", () => {
+    const page = parseSnapshot({
+      result: {
+        value: {
+          generation: "document-one",
+          url: "http://localhost/" + "x".repeat(70000),
+          title: "t".repeat(1000),
+          visibleText: "x".repeat(20000),
+          elements: Array.from({ length: 250 }, () => ({
+            ...element(),
+            token: "node-one",
+            role: "checkbox",
+            label: "x".repeat(1000),
+            checked: "mixed",
+            selected: "true",
+            expanded: false,
+            disabled: true,
+          })),
+        },
+      },
+    })
+    expect(page?.elements).toHaveLength(200)
+    expect(page?.elements[0]).toMatchObject({ checked: "mixed", expanded: false, disabled: true })
+    expect(page?.elements[0]).not.toHaveProperty("selected", "true")
+    expect(page?.elements[0].label).toHaveLength(160)
+    expect(page?.visibleText).toHaveLength(12000)
+    expect(page?.title).toHaveLength(256)
+    expect(page?.url).toHaveLength(70017)
+    expect(page).toMatchObject({ truncated: true })
+  })
+
+  test("missing generation and evaluation exceptions cannot create actionable snapshots", () => {
+    for (const response of [
+      { result: { value: { elements: [element()] } } },
+      { exceptionDetails: {}, result: { value: { generation: "one", elements: [element()] } } },
+    ])
+      expect(parseSnapshot(response)).toBeUndefined()
+    expect(snapshotScript('"; throw Error("injected")')).toContain(JSON.stringify('"; throw Error("injected")'))
   })
 
   test("drops malformed elements", () => {
@@ -417,6 +488,7 @@ describe("snapshot", () => {
           url: "http://localhost/",
           title: "t",
           visibleText: "hello",
+          generation: "document-one",
           elements: [element(), null],
         },
       },

@@ -39,9 +39,12 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
         attach: () => {},
         sendCommand: async (method) => {
           calls.push(method)
+          if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
+          if (method === "Page.createIsolatedWorld") return { executionContextId: 8 }
           return {
             result: {
               value: {
+                generation: "document-one",
                 url,
                 title: "",
                 visibleText: "hello",
@@ -51,7 +54,8 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
                     role: "",
                     label: "Send",
                     text: "Send",
-                    fingerprint: "send",
+                    token: "send",
+                    disabled: false,
                     rect: { x: 0, y: 0, width: 10, height: 10 },
                   },
                 ],
@@ -105,7 +109,8 @@ test.each(["scroll", "wait_for_element"] as const)(
       tab.contents.backgroundThrottling = true
       tab.contents.debugger.sendCommand = async (method, params) => {
         if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
-        if (method === "Page.createIsolatedWorld") return { executionContextId: 7 }
+        if (method === "Page.createIsolatedWorld")
+          return { executionContextId: params?.worldName === "cm-browser-wait" ? 7 : 8 }
         if (params?.type === "mouseWheel" || params?.contextId === 7) {
           entered.resolve()
           await held.promise
@@ -183,7 +188,8 @@ test.each(["scroll", "wait_for_element", "wait_for_navigation"] as const)(
     let ready = op !== "scroll"
     tab.contents.debugger.sendCommand = async (method, params) => {
       if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
-      if (method === "Page.createIsolatedWorld") return { executionContextId: 7 }
+      if (method === "Page.createIsolatedWorld")
+        return { executionContextId: params?.worldName === "cm-browser-wait" ? 7 : 8 }
       if (params?.contextId === 7) return { result: { value: true } }
       if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { clientWidth: 600, clientHeight: 400 } }
       if (params?.type === "mouseWheel") ready = true

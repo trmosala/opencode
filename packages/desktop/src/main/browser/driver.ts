@@ -67,7 +67,7 @@ async function send(target: Target, method: string, params?: Record<string, unkn
 }
 
 type StoredSnapshot = { readonly id: string; readonly page: PageSnapshot }
-const histories = new WeakMap<object, { sequence: number; snapshots: Map<string, StoredSnapshot> }>()
+const histories = new WeakMap<object, { snapshots: Map<string, StoredSnapshot> }>()
 
 const KEYS: Record<string, { key: string; code: string; keyCode: number; text?: string }> = {
   enter: { key: "Enter", code: "Enter", keyCode: 13, text: "\r" },
@@ -92,21 +92,30 @@ function attach(contents: DriverContents) {
   if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
 }
 
-async function capture(target: Target) {
+async function capture(target: Target, id: string, reference?: Parameters<typeof snapshotScript>[1]) {
+  const tree = await send(target, "Page.getFrameTree")
+  const frame = tree as { frameTree?: { frame?: { id?: unknown } } } | undefined
+  if (typeof frame?.frameTree?.frame?.id !== "string") return
+  const world = await send(target, "Page.createIsolatedWorld", {
+    frameId: frame.frameTree.frame.id,
+    worldName: "cm-browser-snapshot",
+  })
+  const context = world as { executionContextId?: unknown } | undefined
+  if (typeof context?.executionContextId !== "number" || !Number.isInteger(context.executionContextId)) return
   const page = parseSnapshot(
     await send(target, "Runtime.evaluate", {
-      expression: snapshotScript(),
+      expression: snapshotScript(id, reference),
+      contextId: context.executionContextId,
       returnByValue: true,
-      awaitPromise: true,
+      timeout: Math.max(1, target.deadline! - Date.now()),
     }),
   )
   if (!page || page.url !== target.contents.getURL()) return
   return page
 }
 
-function publicState(target: Target, page: PageSnapshot): BrowserState {
-  const history = histories.get(target.contents) ?? { sequence: 0, snapshots: new Map() }
-  const id = `${target.tabID}.${randomUUID()}`
+function publicState(target: Target, page: PageSnapshot, id: string): BrowserState {
+  const history = histories.get(target.contents) ?? { snapshots: new Map() }
   history.snapshots.set(id, { id, page })
   while (history.snapshots.size > 10) history.snapshots.delete(history.snapshots.keys().next().value!)
   histories.set(target.contents, history)
@@ -116,25 +125,37 @@ function publicState(target: Target, page: PageSnapshot): BrowserState {
     url: page.url,
     title: page.title,
     visibleText: page.visibleText,
-    elements: page.elements.map((element, index) => ({
-      ref: `${id}:e${index.toString(36)}`,
+    truncated: page.truncated,
+    elements: page.elements.map((element) => ({
+      ref: `${id}:${element.token}`,
       tag: element.tag,
       role: element.role,
       label: element.label,
       text: element.text,
+      checked: element.checked,
+      selected: element.selected,
+      expanded: element.expanded,
+      disabled: element.disabled,
     })),
   }
   if (Buffer.byteLength(JSON.stringify(state)) <= MAX_SNAPSHOT_BYTES) return state
-  return { ...state, elements: state.elements.slice(0, 100), visibleText: state.visibleText.slice(0, 8_000) }
+  return {
+    ...state,
+    truncated: true,
+    elements: state.elements.slice(0, 100),
+    visibleText: state.visibleText.slice(0, 8_000),
+  }
 }
 
 async function refreshed(target: Target): Promise<Response<BrowserState>> {
-  const page = await capture(target)
+  const id = `${target.tabID}.${randomUUID()}`
+  const page = await capture(target, id)
   if (!page) return failure("unavailable", "The page did not return a usable snapshot.")
-  return success(publicState(target, page))
+  return success(publicState(target, page, id))
 }
 
 async function dispatchClick(target: Target, element: SnapshotElement) {
+  // Native dispatch is not atomic with isolated-world identity/visibility/hit testing.
   const x = element.rect.x + element.rect.width / 2
   const y = element.rect.y + element.rect.height / 2
   const base = { x, y, button: "left" as const, buttons: 1, clickCount: 1 }
@@ -165,16 +186,15 @@ async function dispatchKey(target: Target, key: string, modifiers: readonly Modi
   return true
 }
 
-async function resolveRef(target: Target, ref: string) {
-  const match = /^([^:]+):e([0-9a-z]+)$/.exec(ref)
+async function resolveRef(target: Target, ref: string, fill = false) {
+  const match = /^([^:]+):([a-zA-Z0-9-]{1,64})$/.exec(ref)
   if (!match || !match[1].startsWith(`${target.tabID}.`)) return
   const stored = histories.get(target.contents)?.snapshots.get(match[1])
-  const index = Number.parseInt(match[2], 36)
-  const expected = stored?.page.elements[index]
+  const expected = stored?.page.elements.find((element) => element.token === match[2])
   if (!stored || !expected || target.contents.getURL() !== stored.page.url) return
-  const current = await capture(target)
-  const actual = current?.url === stored.page.url ? current.elements[index] : undefined
-  if (!actual || actual.fingerprint !== expected.fingerprint) return
+  const current = await capture(target, stored.id, { generation: stored.page.generation, token: expected.token, fill })
+  const actual = current?.generation === stored.page.generation ? current.elements[0] : undefined
+  if (!actual || actual.token !== expected.token || actual.disabled !== false) return
   return actual
 }
 
@@ -282,7 +302,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
     return refreshed(target)
   }
 
-  const element = await resolveRef(target, request.ref)
+  const element = await resolveRef(target, request.ref, request.op === "fill")
   if (!element) return failure("stale_ref", `Element ref ${request.ref} is stale. Read browser state again.`)
   await dispatchClick(target, element)
 

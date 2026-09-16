@@ -18,6 +18,10 @@ export type ElementRef = {
   readonly role: string
   readonly label: string
   readonly text: string
+  readonly checked?: boolean | "mixed"
+  readonly selected?: boolean
+  readonly expanded?: boolean
+  readonly disabled?: boolean
 }
 
 export type BrowserState = {
@@ -29,6 +33,7 @@ export type BrowserState = {
   readonly url: string
   readonly title: string
   readonly visibleText: string
+  readonly truncated?: boolean
   readonly elements: readonly ElementRef[]
 }
 
