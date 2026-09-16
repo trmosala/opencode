@@ -22,6 +22,8 @@ export type ElementRef = {
   readonly selected?: boolean
   readonly expanded?: boolean
   readonly disabled?: boolean
+  readonly options?: readonly { ref: string; label: string; selected: boolean; disabled: boolean }[]
+  readonly optionsTruncated?: boolean
 }
 
 export type BrowserState = {
@@ -57,7 +59,10 @@ export type AccessContext = {
 
 export type WriteRequest = { readonly tabID: string } & (
   | { readonly op: "navigate"; readonly url: string }
-  | { readonly op: "click"; readonly ref: string }
+  | { readonly op: "click"; readonly ref: string; readonly mode?: "left" | "double" | "right" }
+  | { readonly op: "hover"; readonly ref: string }
+  | { readonly op: "drag"; readonly sourceRef: string; readonly targetRef: string }
+  | { readonly op: "select_option"; readonly ref: string; readonly optionRef: string }
   | { readonly op: "fill"; readonly ref: string; readonly text: string }
   | { readonly op: "press_key"; readonly key: string; readonly modifiers: readonly Modifier[] }
   | {
@@ -281,9 +286,37 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
       ...(validTimeout(input.timeoutMs) ? { timeoutMs: input.timeoutMs } : {}),
     }
   }
-  if (input.op === "click" || input.op === "fill") {
+  if (input.op === "drag") {
+    if (
+      typeof input.sourceRef !== "string" ||
+      !input.sourceRef ||
+      input.sourceRef.length > 256 ||
+      typeof input.targetRef !== "string" ||
+      !input.targetRef ||
+      input.targetRef.length > 256
+    )
+      return
+    return { op: "drag", tabID, sourceRef: input.sourceRef, targetRef: input.targetRef }
+  }
+  if (input.op === "select_option") {
+    if (
+      typeof input.ref !== "string" ||
+      !input.ref ||
+      input.ref.length > 256 ||
+      typeof input.optionRef !== "string" ||
+      !input.optionRef ||
+      input.optionRef.length > 256
+    )
+      return
+    return { op: "select_option", tabID, ref: input.ref, optionRef: input.optionRef }
+  }
+  if (input.op === "click" || input.op === "hover" || input.op === "fill") {
     if (typeof input.ref !== "string" || !input.ref || input.ref.length > 256) return
-    if (input.op === "click") return { op: "click", tabID, ref: input.ref }
+    if (input.op === "hover") return { op: "hover", tabID, ref: input.ref }
+    if (input.op === "click") {
+      if (input.mode !== undefined && input.mode !== "left" && input.mode !== "double" && input.mode !== "right") return
+      return { op: "click", tabID, ref: input.ref, ...(input.mode === undefined ? {} : { mode: input.mode }) }
+    }
     if (typeof input.text !== "string" || input.text.length > MAX_TYPED_TEXT) return
     return { op: "fill", tabID, ref: input.ref, text: input.text }
   }

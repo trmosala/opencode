@@ -35,10 +35,18 @@ const result = (state: BrowserState) => ({
             state.visibleText || "(none)",
             "",
             `interactive elements:${state.truncated ? " (snapshot truncated)" : ""}`,
-            ...state.elements.map(
-              (element) =>
-                `[${element.ref}] <${element.tag}>${element.role ? ` role=${element.role}` : ""} ${element.label || element.text || "(no label)"}${(["checked", "selected", "expanded", "disabled"] as const).map((key) => (element[key] === undefined ? "" : ` ${key}=${element[key]}`)).join("")}`,
-            ),
+            ...state.elements.flatMap((element) => [
+              `[${element.ref}] <${element.tag}>${element.role ? ` role=${element.role}` : ""} ${element.label || element.text || "(no label)"}${(["checked", "selected", "expanded", "disabled"] as const).map((key) => (element[key] === undefined ? "" : ` ${key}=${element[key]}`)).join("")}`,
+              ...(element.options
+                ? [
+                    `options for [${element.ref}]${element.optionsTruncated ? " (truncated)" : ""}:`,
+                    ...element.options.map(
+                      (option) =>
+                        `[${option.ref}] ${option.label || "(no label)"} selected=${option.selected} disabled=${option.disabled}`,
+                    ),
+                  ]
+                : []),
+            ]),
           ].join("\n"),
   metadata: { tabID: state.tabID, url: state.url },
 })
@@ -161,13 +169,57 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         return result(await run(port, context, await askWrite(port, context, "browser_navigate", request)))
       },
     }),
+    browser_drag: tool({
+      description:
+        "Complete one bounded Chromium pointer gesture between distinct interactive refs from the same tab and snapshot. Both endpoints must remain valid through initial hover; four fixed pressed moves require the original destination to stay visible, enabled, unobscured and at the same center. Success means the gesture completed, not that a drop was accepted. Only existing snapshot-addressable controls: plain noninteractive drop divs are not discovered. No coordinates, duration/steps, universal HTML5 DnD, OS-file or native dragging. Failure while pressed sends no cleanup release or retry; without acknowledged release the tab is quarantined until closed and replaced. Site effects already dispatched cannot be recalled.",
+      args: {
+        tabID,
+        sourceRef: tool.schema.string().min(1).max(256),
+        targetRef: tool.schema.string().min(1).max(256),
+      },
+      async execute(args, context) {
+        const request = { op: "drag", tabID: args.tabID, sourceRef: args.sourceRef, targetRef: args.targetRef } as const
+        return result(await run(port, context, await askWrite(port, context, "browser_drag", request)))
+      },
+    }),
+    browser_hover: tool({
+      description:
+        "Move the pointer over a current snapshot ref in an opted-in tab without pressing buttons, then return a fresh snapshot. Hover handlers can act, so write approval is required. Cross-tab and stale refs are rejected.",
+      args: { tabID, ref: tool.schema.string().min(1).max(256) },
+      async execute(args, context) {
+        const request = { op: "hover", tabID: args.tabID, ref: args.ref } as const
+        return result(await run(port, context, await askWrite(port, context, "browser_hover", request)))
+      },
+    }),
     browser_click: tool({
       description:
-        "Click a snapshot ref in an opted-in tab. Cross-tab and stale refs are rejected. File inputs open a user-only file picker, subject to site upload rules. Wait for the user to choose files, then read state again; you cannot supply local file paths. Downloads may require separate native approval.",
-      args: { tabID, ref: tool.schema.string().max(256).describe("Opaque element ref from this tab's snapshot") },
+        "Click a snapshot ref in an opted-in tab: left (default), double or right. Double revalidates the original node after the first click; failure does not undo that click. Right runs DOM contextmenu handlers but suppresses all app-native menus on that tab until native settlement, including simultaneous manual menus; cancellation may reply before suppression ends; native menus are not snapshot-readable and must not be driven with blind keys. Cross-tab and stale refs are rejected. File inputs open a user-only file picker, subject to site upload rules. Wait for the user to choose files, then read state again; you cannot supply local file paths. Downloads may require separate native approval.",
+      args: {
+        tabID,
+        ref: tool.schema.string().min(1).max(256).describe("Opaque element ref from this tab's snapshot"),
+        mode: tool.schema.enum(["left", "double", "right"]).optional(),
+      },
       async execute(args, context) {
-        const request = { op: "click", tabID: args.tabID, ref: args.ref } as const
+        const request = {
+          op: "click",
+          tabID: args.tabID,
+          ref: args.ref,
+          ...(args.mode ? { mode: args.mode } : {}),
+        } as const
         return result(await run(port, context, await askWrite(port, context, "browser_click", request)))
+      },
+    }),
+    browser_select_option: tool({
+      description:
+        "Choose an opaque optionRef owned by a native single-select ref in the same tab snapshot. Disabled selects/options/groups and multiple selects are refused. Uses the native selected setter, not keyboard input; bubbling input/change events have isTrusted=false and fire only on selection change. Site handlers may submit, navigate or mutate; dispatched effects cannot be recalled, and failures never automatically retry selection. Returns a fresh snapshot without option values.",
+      args: {
+        tabID,
+        ref: tool.schema.string().min(1).max(256),
+        optionRef: tool.schema.string().min(1).max(256),
+      },
+      async execute(args, context) {
+        const request = { op: "select_option", tabID: args.tabID, ref: args.ref, optionRef: args.optionRef } as const
+        return result(await run(port, context, await askWrite(port, context, "browser_select_option", request)))
       },
     }),
     browser_fill: tool({

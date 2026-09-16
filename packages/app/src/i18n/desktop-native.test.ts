@@ -106,6 +106,15 @@ describe("desktop native translations", () => {
     ).toBeUndefined()
   })
 
+  test("preserves exact stale-ref English and interpolates the ref literally", () => {
+    const message = DESKTOP_NATIVE_ENGLISH["desktop.browser.driver.staleRef"]
+    expect(message).toBe("Element ref {{ref}} is stale. Read browser state again.")
+    for (const ref of ["one.snapshot:send", "$&{{unknown}}"])
+      expect(formatDesktopNativeMessage(message, { ref })).toBe(
+        `Element ref ${ref} is stale. Read browser state again.`,
+      )
+  })
+
   test("interpolates native templates without changing unknown placeholders", () => {
     expect(formatDesktopNativeMessage("{{known}} {{unknown}}", { known: "yes" })).toBe("yes {{unknown}}")
   })

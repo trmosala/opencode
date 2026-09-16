@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { MAX_SNAPSHOT_BYTES } from "@cookiemonster/cm-browser/protocol"
-import { execute, type DriverContents, type Target } from "./driver"
+import { execute, shouldShowBrowserContextMenu, type DriverContents, type Target } from "./driver"
 import { parseSnapshot, snapshotScript } from "./snapshot"
 import { DESKTOP_NATIVE_ENGLISH, createDesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 import { setNativeTranslations } from "../native-translations"
@@ -42,9 +42,12 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
         if (method !== "Runtime.evaluate") return {}
         if (params?.contextId !== 8) return { result: { value: undefined } }
         expect(params.timeout).toBeGreaterThan(0)
-        const reference = /reference = (\{[^\n]+\}|null);/.exec(String(params.expression))
-        const expected = reference?.[1] !== "null" && reference?.[1] ? JSON.parse(reference[1]) : undefined
-        const current = expected ? elements.filter((element) => element.token === expected.token) : elements
+        const references = [...String(params.expression).matchAll(/reference = (\{[^\n]+\}|null);/g)].flatMap(
+          (match) => (match[1] === "null" ? [] : [JSON.parse(match[1]) as { token: string }]),
+        )
+        const current = references.length
+          ? references.flatMap((ref) => elements.filter((element) => element.token === ref.token))
+          : elements
         return (
           options.snapshot ?? {
             result: {
@@ -72,6 +75,318 @@ async function firstRef(view: ReturnType<typeof fake>) {
 }
 
 describe("browser driver", () => {
+  test("drag jointly validates endpoints, sends four fixed moves and releases once", async () => {
+    const view = fake()
+    view.setElements([element(), { ...element("drop"), rect: { x: 210, y: 20, width: 40, height: 10 } }])
+    const sourceRef = await firstRef(view)
+    const targetRef = sourceRef.replace(":send", ":drop")
+    view.calls.length = 0
+    expect(await execute(view.target, { op: "drag", tabID: "one", sourceRef, targetRef })).toMatchObject({ ok: true })
+    const input = view.calls.filter((call) => call.method.startsWith("Input."))
+    expect(input.map((call) => call.params?.type)).toEqual([
+      "mouseMoved",
+      "mousePressed",
+      "mouseMoved",
+      "mouseMoved",
+      "mouseMoved",
+      "mouseMoved",
+      "mouseReleased",
+    ])
+    expect(input.map((call) => [call.params?.x, call.params?.y, call.params?.buttons])).toEqual([
+      [30, 25, 0],
+      [30, 25, 1],
+      [80, 25, 1],
+      [130, 25, 1],
+      [180, 25, 1],
+      [230, 25, 1],
+      [230, 25, 0],
+    ])
+    const hover = view.calls.indexOf(input[0]),
+      down = view.calls.indexOf(input[1])
+    for (const calls of [view.calls.slice(0, hover), view.calls.slice(hover + 1, down)]) {
+      const evaluations = calls.filter((call) => call.params?.contextId === 8)
+      expect(evaluations).toHaveLength(1)
+      expect(String(evaluations[0].params?.expression)).toContain('"token":"send"')
+      expect(String(evaluations[0].params?.expression)).toContain('"token":"drop"')
+      expect(evaluations[0].params?.awaitPromise).not.toBe(true)
+    }
+  })
+
+  test("drag rejects same endpoint, cross-tab, cross-snapshot and stale pairs without input", async () => {
+    for (const kind of ["same", "tab", "snapshot", "source", "target"] as const) {
+      const view = fake()
+      view.setElements([element(), element("drop")])
+      const sourceRef = await firstRef(view)
+      let targetRef = sourceRef.replace(":send", ":drop")
+      if (kind === "same") targetRef = sourceRef
+      if (kind === "tab") targetRef = "other." + targetRef
+      if (kind === "snapshot") targetRef = (await firstRef(view)).replace(":send", ":drop")
+      if (kind === "source") view.setElements([element("replacement"), element("drop")])
+      if (kind === "target") view.setElements([element(), element("replacement")])
+      expect(await execute(view.target, { op: "drag", tabID: "one", sourceRef, targetRef })).toMatchObject({
+        code: "stale_ref",
+      })
+      expect(view.calls.some((call) => call.method.startsWith("Input."))).toBe(false)
+    }
+  })
+
+  test("drag never chases post-hover endpoints or releases a stale held destination", async () => {
+    for (const boundary of [0, 1, 2, 3, 4]) {
+      for (const mutation of ["replace", "move", "disabled"] as const) {
+        const view = fake()
+        const destination = { ...element("drop"), rect: { x: 210, y: 20, width: 40, height: 10 } }
+        view.setElements([element(), destination])
+        const sourceRef = await firstRef(view),
+          targetRef = sourceRef.replace(":send", ":drop")
+        const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+        let moves = -1
+        view.target.contents.debugger.sendCommand = async (method, params) => {
+          const value = await send(method, params)
+          if (params?.type === "mouseMoved" && ++moves === boundary)
+            view.setElements([
+              element(),
+              mutation === "replace"
+                ? element("replacement")
+                : mutation === "move"
+                  ? { ...destination, rect: { ...destination.rect, x: 211 } }
+                  : { ...destination, disabled: true },
+            ])
+          return value
+        }
+        expect(await execute(view.target, { op: "drag", tabID: "one", sourceRef, targetRef })).toMatchObject({
+          code: "stale_ref",
+        })
+        const input = view.calls.filter((call) => call.method.startsWith("Input."))
+        expect(input.some((call) => call.params?.type === "mouseReleased")).toBe(false)
+        expect(input.filter((call) => call.params?.type === "mousePressed")).toHaveLength(boundary ? 1 : 0)
+        expect((await execute(view.target, { op: "read_state", tabID: "one" })).ok).toBe(boundary === 0)
+      }
+    }
+  })
+
+  test("drag allows source movement after press but rejects it before press", async () => {
+    for (const afterDown of [false, true]) {
+      const view = fake()
+      const destination = { ...element("drop"), rect: { x: 210, y: 20, width: 40, height: 10 } }
+      view.setElements([element(), destination])
+      const sourceRef = await firstRef(view),
+        targetRef = sourceRef.replace(":send", ":drop")
+      const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+      view.target.contents.debugger.sendCommand = async (method, params) => {
+        const value = await send(method, params)
+        if (params?.type === (afterDown ? "mousePressed" : "mouseMoved"))
+          view.setElements([{ ...element(), rect: { ...element().rect, x: 11 } }, destination])
+        return value
+      }
+      expect((await execute(view.target, { op: "drag", tabID: "one", sourceRef, targetRef })).ok).toBe(afterDown)
+      expect(view.calls.filter((call) => call.params?.type === "mousePressed")).toHaveLength(afterDown ? 1 : 0)
+    }
+  })
+
+  test("select uses one isolated mutation, respects final capture deadline and never retries failures", async () => {
+    for (const failure of ["none", "ack", "snapshot", "deadline"] as const) {
+      const view = fake()
+      const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+      let mutations = 0
+      const target = { ...view.target, deadline: Date.now() + 2000 }
+      view.target.contents.debugger.sendCommand = async (method, params) => {
+        const response = await send(method, params)
+        if (String(params?.expression).includes("const validated =")) {
+          mutations++
+          if (failure === "ack") throw new Error("Missing acknowledgement")
+          return { result: { value: true } }
+        }
+        if (params?.contextId !== 8) return response
+        if (mutations && failure === "deadline") {
+          target.deadline = Date.now() - 1
+          return {}
+        }
+        if (mutations && failure === "snapshot") return {}
+        return {
+          result: {
+            value: {
+              generation: "one",
+              url: view.target.contents.getURL(),
+              title: "",
+              elements: [
+                {
+                  ...element("select"),
+                  tag: "select",
+                  options: [{ token: "option", label: "Same", selected: false, disabled: false }],
+                },
+              ],
+            },
+          },
+        }
+      }
+      const state = await execute(view.target, { op: "read_state", tabID: "one" })
+      if (!state.ok) throw new Error("No select snapshot")
+      const select = state.result.elements[0]
+      const pending = execute(
+        {
+          ...target,
+          check: () => {
+            if (Date.now() >= target.deadline) throw new Error("deadline")
+          },
+        },
+        { op: "select_option", tabID: "one", ref: select.ref, optionRef: select.options![0].ref },
+      )
+      if (failure === "ack" || failure === "deadline") await expect(pending).rejects.toThrow()
+      else expect((await pending).ok).toBe(failure === "none")
+      expect(mutations).toBe(1)
+      expect(view.calls.some((call) => call.method.startsWith("Input."))).toBe(false)
+    }
+  })
+
+  test.each(["read_state", "select_option"] as const)("%s preserves isolated setup failures and guards", async (op) => {
+    for (const boundary of ["Page.getFrameTree", "Page.createIsolatedWorld"]) {
+      for (const outcome of ["invalid", "reject", "cancel"] as const) {
+        const view = fake({
+          snapshot: {
+            result: {
+              value: {
+                generation: "one",
+                url: "http://localhost:5173/",
+                elements: [
+                  {
+                    ...element("select"),
+                    tag: "select",
+                    options: [{ token: "option", label: "Same", selected: false, disabled: false }],
+                  },
+                ],
+              },
+            },
+          },
+        })
+        const ref = await firstRef(view)
+        view.calls.length = 0
+        const controller = new AbortController()
+        const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+        view.target.contents.debugger.sendCommand = async (method, params) => {
+          const value = await send(method, params)
+          if (method !== boundary) return value
+          if (outcome === "reject") throw new Error("setup failure")
+          if (outcome === "cancel") controller.abort()
+          return { executionContextId: 1.5 }
+        }
+        const pending = execute(
+          { ...view.target, signal: controller.signal },
+          op === "read_state"
+            ? { op, tabID: "one" }
+            : { op, tabID: "one", ref, optionRef: ref.replace(":select", ":option") },
+        )
+        if (outcome !== "invalid") await expect(pending).rejects.toThrow()
+        else
+          expect(await pending).toEqual({
+            ok: false,
+            code: "unavailable",
+            error:
+              op === "read_state"
+                ? "The page did not return a usable snapshot."
+                : boundary === "Page.getFrameTree"
+                  ? "Browser frame unavailable."
+                  : "Browser context unavailable.",
+          })
+        expect(view.calls.at(-1)?.method).toBe(boundary)
+        if (boundary === "Page.createIsolatedWorld")
+          expect(view.calls.at(-1)?.params).toEqual({ frameId: "main", worldName: "cm-browser-snapshot" })
+      }
+    }
+  })
+
+  test.each(["left", "double", "right", "fill"] as const)(
+    "%s revalidates after move without chasing a changed target",
+    async (mode) => {
+      for (const mutation of ["replace", "move"] as const) {
+        const view = fake()
+        const ref = await firstRef(view)
+        const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+        view.target.contents.debugger.sendCommand = async (method, params) => {
+          const value = await send(method, params)
+          if (params?.type === "mouseMoved")
+            view.setElements([
+              mutation === "replace" ? element("replacement") : { ...element(), rect: { ...element().rect, x: 11 } },
+            ])
+          return value
+        }
+        const response = await execute(
+          view.target,
+          mode === "fill"
+            ? { op: "fill", tabID: "one", ref, text: "never typed" }
+            : { op: "click", tabID: "one", ref, mode },
+        )
+        expect(response).toMatchObject({
+          code: "stale_ref",
+          error: `Element ref ${ref} is stale. Read browser state again.`,
+        })
+        expect(view.calls.filter((call) => call.method.startsWith("Input.")).map((call) => call.params?.type)).toEqual([
+          "mouseMoved",
+        ])
+      }
+    },
+  )
+
+  test("hover sends only one button-free move and refreshes", async () => {
+    const view = fake()
+    const ref = await firstRef(view)
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      expect(shouldShowBrowserContextMenu(view.target.contents)).toBe(true)
+      return send(method, params)
+    }
+    const response = await execute(view.target, { op: "hover", tabID: "one", ref })
+    expect(response.ok).toBe(true)
+    expect(response.ok && response.result.elements[0].ref).not.toBe(ref)
+    expect(view.calls.filter((call) => call.method.startsWith("Input."))).toEqual([
+      { method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 30, y: 25, button: "none", buttons: 0 } },
+    ])
+  })
+
+  test.each(["left", "double", "right"] as const)("%s sends exact native pairs", async (mode) => {
+    const view = fake()
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      if (method.startsWith("Input.")) expect(shouldShowBrowserContextMenu(view.target.contents)).toBe(mode !== "right")
+      return send(method, params)
+    }
+    expect(await execute(view.target, { op: "click", tabID: "one", ref: await firstRef(view), mode })).toMatchObject({
+      ok: true,
+    })
+    const input = view.calls.filter((call) => call.method.startsWith("Input.")).map((call) => call.params)
+    expect(input.map((params) => params?.type)).toEqual(
+      mode === "double"
+        ? ["mouseMoved", "mousePressed", "mouseReleased", "mousePressed", "mouseReleased"]
+        : ["mouseMoved", "mousePressed", "mouseReleased"],
+    )
+    expect(input.filter((params) => params?.type === "mousePressed")).toMatchObject(
+      mode === "double"
+        ? [
+            { button: "left", buttons: 1, clickCount: 1 },
+            { button: "left", buttons: 1, clickCount: 2 },
+          ]
+        : [{ button: mode, buttons: mode === "right" ? 2 : 1, clickCount: 1 }],
+    )
+    expect(input.filter((params) => params?.type === "mouseReleased").every((params) => params?.buttons === 0)).toBe(
+      true,
+    )
+  })
+
+  test("double click revalidates the original ref before any second-pair input", async () => {
+    const view = fake()
+    const ref = await firstRef(view)
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      const value = await send(method, params)
+      if (params?.type === "mouseReleased") view.setElements([element("replacement")])
+      return value
+    }
+    expect(await execute(view.target, { op: "click", tabID: "one", ref, mode: "double" })).toMatchObject({
+      code: "stale_ref",
+      error: `Element ref ${ref} is stale. Read browser state again.`,
+    })
+    expect(view.calls.filter((call) => call.method.startsWith("Input."))).toHaveLength(3)
+  })
+
   test("scroll sends one wheel over a current ref without down/up and refreshes", async () => {
     const view = fake()
     const ref = await firstRef(view)
@@ -134,10 +449,29 @@ describe("browser driver", () => {
 
   test("new driver failures use the typed native bundle, including quarantine", async () => {
     const messages = createDesktopNativeBundle("en", (key) =>
-      key.startsWith("desktop.browser.driver.") ? `fixture:${key}` : DESKTOP_NATIVE_ENGLISH[key],
+      key === "desktop.browser.driver.staleRef"
+        ? "fixture:stale {{ref}}"
+        : key.startsWith("desktop.browser.driver.")
+          ? `fixture:${key}`
+          : DESKTOP_NATIVE_ENGLISH[key],
     )
     setNativeTranslations(messages)
     try {
+      for (const boundary of ["initial", "mouseMoved", "mouseReleased"]) {
+        const view = fake()
+        const ref = await firstRef(view)
+        const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+        if (boundary === "initial") view.setElements([element("changed")])
+        view.target.contents.debugger.sendCommand = async (method, params) => {
+          const value = await send(method, params)
+          if (params?.type === boundary) view.setElements([element("changed")])
+          return value
+        }
+        expect(await execute(view.target, { op: "click", tabID: "one", ref, mode: "double" })).toMatchObject({
+          code: "stale_ref",
+          error: `fixture:stale ${ref}`,
+        })
+      }
       const view = fake()
       const ref = await firstRef(view)
       view.setElements([element("changed")])
@@ -285,6 +619,7 @@ describe("browser driver", () => {
       })
       for (const request of [
         { op: "scroll", tabID: "one", deltaX: 0, deltaY: 1 },
+        { op: "select_option", tabID: "one", ref, optionRef: ref },
         { op: "wait_for_element", tabID: "one", selector: "#ready", timeoutMs: 1000 },
         { op: "wait_for_navigation", tabID: "one", url: view.target.contents.getURL(), timeoutMs: 1000 },
       ] as const)
@@ -311,7 +646,7 @@ describe("browser driver", () => {
     expect(mouse.map((call) => call.params?.type)).toEqual(["mouseMoved", "mousePressed", "mouseReleased"])
     expect(mouse[0]?.params).toMatchObject({ x: 30, y: 25 })
     expect(view.calls.filter((call) => call.method === "Runtime.evaluate" && call.params?.returnByValue)).toHaveLength(
-      3,
+      4,
     )
   })
 
@@ -345,6 +680,7 @@ describe("browser driver", () => {
     expect(await execute(view.target, { tabID: "one", op: "click", ref })).toMatchObject({
       ok: false,
       code: "stale_ref",
+      error: `Element ref ${ref} is stale. Read browser state again.`,
     })
     expect(view.calls.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false)
   })
@@ -441,6 +777,37 @@ describe("browser driver", () => {
 })
 
 describe("snapshot", () => {
+  test("select metadata is field-bounded, select-owned and capped per select and snapshot", () => {
+    const page = parseSnapshot({
+      result: {
+        value: {
+          generation: "one",
+          elements: Array.from({ length: 6 }, (_, i) => ({
+            ...element("select-" + i),
+            tag: "select",
+            options: Array.from({ length: 80 }, (_, j) => ({
+              token: "option-" + i + "-" + j,
+              label: "x".repeat(200),
+              selected: false,
+              disabled: false,
+              value: "secret",
+            })),
+          })),
+        },
+      },
+    })
+    expect(page?.elements[0].options).toHaveLength(50)
+    expect(page?.elements.flatMap((el) => el.options ?? [])).toHaveLength(200)
+    expect(page?.elements[0].options?.[0]).toEqual({
+      token: "option-0-0",
+      label: "x".repeat(160),
+      selected: false,
+      disabled: false,
+    })
+    expect(page?.elements[0].optionsTruncated).toBe(true)
+    expect(page?.truncated).toBe(true)
+  })
+
   test("parser reenforces bounds and normalizes only applicable states", () => {
     const page = parseSnapshot({
       result: {

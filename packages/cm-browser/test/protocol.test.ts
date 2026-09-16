@@ -12,6 +12,63 @@ import {
   stateDirectory,
 } from "../src/protocol"
 
+test("drag accepts only bounded endpoint refs and retains write binding", () => {
+  const request = {
+    op: "drag",
+    tabID: "one",
+    sourceRef: "one.snapshot:source",
+    targetRef: "one.snapshot:target",
+  } as const
+  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
+  expect(parseRequest(request)).toBeUndefined()
+  expect(parseRequest({ ...request, context, x: 1, y: 2, steps: 100, duration: 100 })).toEqual({ ...request, context })
+  for (const key of ["sourceRef", "targetRef", "tabID"])
+    for (const value of [undefined, "", 1, "x".repeat(key === "tabID" ? 129 : 257)])
+      expect(parseRequest({ op: "prepare_write", request: { ...request, [key]: value } })).toBeUndefined()
+})
+
+test("select_option requires bounded select and option refs with write binding", () => {
+  const request = {
+    op: "select_option",
+    tabID: "one",
+    ref: "one.snapshot:select",
+    optionRef: "one.snapshot:option",
+  } as const
+  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
+  expect(parseRequest(request)).toBeUndefined()
+  expect(parseRequest({ ...request, context, value: "never forwarded" })).toEqual({ ...request, context })
+  for (const key of ["ref", "optionRef", "tabID"])
+    for (const value of [undefined, "", 1, "x".repeat(key === "tabID" ? 129 : 257)])
+      expect(parseRequest({ op: "prepare_write", request: { ...request, [key]: value } })).toBeUndefined()
+})
+
+test("hover and click modes retain write binding and reject malformed input", () => {
+  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const prepare = (request: unknown) => parseRequest({ op: "prepare_write", request })
+  for (const request of [
+    { op: "hover", tabID: "one", ref: "one.snapshot:e0" } as const,
+    ...([undefined, "left", "double", "right"] as const).map(
+      (mode) =>
+        ({
+          op: "click",
+          tabID: "one",
+          ref: "one.snapshot:e0",
+          ...(mode ? { mode } : {}),
+        }) as const,
+    ),
+  ]) {
+    expect(prepare(request)).toEqual({ op: "prepare_write", request })
+    expect(parseRequest(request)).toBeUndefined()
+    expect(parseRequest({ ...request, context })).toEqual({ ...request, context })
+    for (const ref of [undefined, "", 1, "x".repeat(257)]) expect(prepare({ ...request, ref })).toBeUndefined()
+    for (const tabID of [undefined, "", 1, "x".repeat(129)]) expect(prepare({ ...request, tabID })).toBeUndefined()
+  }
+  for (const mode of [null, "", "middle", "DOUBLE", 2, {}, []])
+    expect(prepare({ op: "click", tabID: "one", ref: "ref", mode })).toBeUndefined()
+})
+
 test("scroll and waits require explicit targets and bounded inputs", () => {
   const scroll = { op: "scroll", tabID: "one", deltaX: -2000, deltaY: 2000 } as const
   const prepare = (request: unknown) => parseRequest({ op: "prepare_write", request })

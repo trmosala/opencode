@@ -52,6 +52,11 @@ function fakeContext(sessionID = "ses_1") {
 
 describe("browser tools", () => {
   test.each([
+    ["browser_drag", { sourceRef: "s4:e0", targetRef: "s4:e1" }],
+    ["browser_select_option", { ref: "s4:e0", optionRef: "s4:o1" }],
+    ["browser_hover", { ref: "s4:e0" }],
+    ["browser_click", { ref: "s4:e0", mode: "double" }],
+    ["browser_click", { ref: "s4:e0", mode: "right" }],
     ["browser_scroll", { deltaX: 0, deltaY: 200, timeoutMs: 1000 }],
     ["browser_wait_for_element", { selector: "#ready", timeoutMs: 1000 }],
     ["browser_wait_for_navigation", { url: state.url, timeoutMs: 1000 }],
@@ -75,7 +80,13 @@ describe("browser tools", () => {
       sessionID: call.context.sessionID,
       request: { op: name.slice(8), tabID: "one", ...args },
     })
-    if (name === "browser_scroll") {
+    if (
+      name === "browser_drag" ||
+      name === "browser_scroll" ||
+      name === "browser_hover" ||
+      name === "browser_click" ||
+      name === "browser_select_option"
+    ) {
       expect(call.asked.at(-1)).toEqual({ permission: name, patterns: ["teams.microsoft.com"] })
       expect(browser.sent.at(-1)?.request).toMatchObject({ context: state.context })
     } else expect(call.asked).toHaveLength(1)
@@ -116,7 +127,7 @@ describe("browser tools", () => {
     },
   )
 
-  test.each(["browser_scroll", "browser_wait_for_element", "browser_wait_for_navigation"])(
+  test.each(["browser_select_option", "browser_scroll", "browser_wait_for_element", "browser_wait_for_navigation"])(
     "%s cannot bypass read denial or abort during read approval",
     async (name) => {
       for (const reason of ["deny", "abort"]) {
@@ -139,6 +150,28 @@ describe("browser tools", () => {
       }
     },
   )
+
+  test("select options render only owned metadata and describe untrusted events", async () => {
+    const browser = fakePort(
+      success({
+        ...state,
+        elements: [
+          {
+            ...state.elements[0],
+            tag: "select",
+            optionsTruncated: true,
+            options: [{ ref: "s4:o1", label: "Same", selected: false, disabled: true }],
+          },
+        ],
+      }),
+    )
+    const tools = browserTools(browser.port)
+    const reply = await tools.browser_read_state.execute({ tabID: "one" }, fakeContext().context)
+    const output = typeof reply === "string" ? reply : reply.output
+    expect(output).toContain("options for [s4:e0] (truncated)")
+    expect(output).toContain("[s4:o1] Same selected=false disabled=true")
+    expect(tools.browser_select_option.description).toContain("isTrusted=false")
+  })
 
   test("read state renders visible text and opaque refs", async () => {
     const browser = fakePort()
@@ -202,6 +235,11 @@ describe("browser tools", () => {
   test.each([
     ["browser_press_key", { key: "Enter" }],
     ["browser_click", { ref: "s4:e0" }],
+    ["browser_click", { ref: "s4:e0", mode: "double" }],
+    ["browser_click", { ref: "s4:e0", mode: "right" }],
+    ["browser_drag", { sourceRef: "s4:e0", targetRef: "s4:e1" }],
+    ["browser_select_option", { ref: "s4:e0", optionRef: "s4:o1" }],
+    ["browser_hover", { ref: "s4:e0" }],
     ["browser_fill", { ref: "s4:e1", text: "hi" }],
     ["browser_navigate", { url: "http://localhost/destination" }],
     ["browser_scroll", { deltaX: 0, deltaY: 200 }],
@@ -238,6 +276,11 @@ describe("browser tools", () => {
   test.each([
     ["browser_press_key", { key: "Enter" }],
     ["browser_click", { ref: "s4:e0" }],
+    ["browser_click", { ref: "s4:e0", mode: "double" }],
+    ["browser_click", { ref: "s4:e0", mode: "right" }],
+    ["browser_drag", { sourceRef: "s4:e0", targetRef: "s4:e1" }],
+    ["browser_select_option", { ref: "s4:e0", optionRef: "s4:o1" }],
+    ["browser_hover", { ref: "s4:e0" }],
     ["browser_fill", { ref: "s4:e1", text: "hi" }],
     ["browser_navigate", { url: "http://localhost/destination" }],
     ["browser_scroll", { deltaX: 0, deltaY: 200 }],

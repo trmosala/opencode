@@ -162,7 +162,7 @@ async function route(
       !tab.agentAccess ||
       (tab.accessRevision ?? 0) !== accessRevision ||
       contents.isDestroyed() ||
-      ((observing || request.op === "scroll") && browserInputFailure(contents)) ||
+      ((observing || request.op === "scroll" || request.op === "select_option") && browserInputFailure(contents)) ||
       ((!navigating || (source && request.op === "navigate")) &&
         (tab.revision !== revision || contents.getURL() !== url)) ||
       (!navigating && contents.isLoadingMainFrame()) ||

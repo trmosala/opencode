@@ -188,6 +188,12 @@ async function run() {
     stage("PASS snapshots")
     if (process.argv.includes("--snapshots")) return
   }
+  if (process.argv.includes("--interactions")) {
+    const { interactionsSmoke } = await import("./interactions.fixture")
+    await interactionsSmoke()
+    stage("PASS interactions")
+    return
+  }
   if (process.argv.includes("--scroll-wait")) {
     const { scrollWaitSmoke } = await import("./scroll-wait.fixture")
     await scrollWaitSmoke()
@@ -510,6 +516,9 @@ async function run() {
     if (
       request.op !== "navigate" &&
       request.op !== "click" &&
+      request.op !== "hover" &&
+      request.op !== "drag" &&
+      request.op !== "select_option" &&
       request.op !== "fill" &&
       request.op !== "press_key" &&
       request.op !== "scroll"

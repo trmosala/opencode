@@ -10,7 +10,14 @@ import {
   type PageRequest,
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
-import { parseSnapshot, snapshotScript, type PageSnapshot, type SnapshotElement } from "./snapshot"
+import {
+  parseSnapshot,
+  snapshotScript,
+  dragSnapshotScript,
+  selectOptionScript,
+  type PageSnapshot,
+  type SnapshotElement,
+} from "./snapshot"
 import { nativeT } from "../native-translations"
 
 export type DriverContents = {
@@ -92,20 +99,19 @@ function attach(contents: DriverContents) {
   if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
 }
 
-async function capture(target: Target, id: string, reference?: Parameters<typeof snapshotScript>[1]) {
-  const tree = await send(target, "Page.getFrameTree")
-  const frame = tree as { frameTree?: { frame?: { id?: unknown } } } | undefined
-  if (typeof frame?.frameTree?.frame?.id !== "string") return
-  const world = await send(target, "Page.createIsolatedWorld", {
-    frameId: frame.frameTree.frame.id,
-    worldName: "cm-browser-snapshot",
-  })
-  const context = world as { executionContextId?: unknown } | undefined
-  if (typeof context?.executionContextId !== "number" || !Number.isInteger(context.executionContextId)) return
+async function capture(
+  target: Target,
+  id: string,
+  reference?: Parameters<typeof snapshotScript>[1],
+  targetToken?: string,
+) {
+  const contextId = await snapshotContext(target)
+  if (typeof contextId !== "number") return
   const page = parseSnapshot(
     await send(target, "Runtime.evaluate", {
-      expression: snapshotScript(id, reference),
-      contextId: context.executionContextId,
+      expression:
+        reference && targetToken ? dragSnapshotScript(id, reference, targetToken) : snapshotScript(id, reference),
+      contextId,
       returnByValue: true,
       timeout: Math.max(1, target.deadline! - Date.now()),
     }),
@@ -136,6 +142,17 @@ function publicState(target: Target, page: PageSnapshot, id: string): BrowserSta
       selected: element.selected,
       expanded: element.expanded,
       disabled: element.disabled,
+      ...(element.options
+        ? {
+            options: element.options.map((option) => ({
+              ref: `${id}:${option.token}`,
+              label: option.label,
+              selected: option.selected,
+              disabled: option.disabled,
+            })),
+            optionsTruncated: element.optionsTruncated,
+          }
+        : {}),
     })),
   }
   if (Buffer.byteLength(JSON.stringify(state)) <= MAX_SNAPSHOT_BYTES) return state
@@ -154,12 +171,18 @@ async function refreshed(target: Target): Promise<Response<BrowserState>> {
   return success(publicState(target, page, id))
 }
 
-async function dispatchClick(target: Target, element: SnapshotElement) {
+// Suppress this tab's native menus, including simultaneous manual ones, until right-click settlement.
+const rightClicks = new WeakSet<DriverContents>()
+
+export function shouldShowBrowserContextMenu(contents: DriverContents) {
+  return !rightClicks.has(contents)
+}
+
+async function dispatchClick(target: Target, element: SnapshotElement, button = "left", clickCount = 1) {
   // Native dispatch is not atomic with isolated-world identity/visibility/hit testing.
   const x = element.rect.x + element.rect.width / 2
   const y = element.rect.y + element.rect.height / 2
-  const base = { x, y, button: "left" as const, buttons: 1, clickCount: 1 }
-  await send(target, "Input.dispatchMouseEvent", { ...base, type: "mouseMoved", buttons: 0 })
+  const base = { x, y, button, buttons: button === "right" ? 2 : 1, clickCount }
   await send(target, "Input.dispatchMouseEvent", { ...base, type: "mousePressed" })
   await send(target, "Input.dispatchMouseEvent", { ...base, type: "mouseReleased", buttons: 0 })
 }
@@ -302,16 +325,164 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
     return refreshed(target)
   }
 
-  const element = await resolveRef(target, request.ref, request.op === "fill")
-  if (!element) return failure("stale_ref", `Element ref ${request.ref} is stale. Read browser state again.`)
-  await dispatchClick(target, element)
+  if (request.op === "drag") return dispatchDrag(target, request)
 
-  if (request.op === "fill") {
-    await dispatchKey(target, "a", [process.platform === "darwin" ? "Meta" : "Ctrl"])
-    await dispatchKey(target, "Backspace")
-    for (const character of request.text) await dispatchKey(target, character)
+  if (request.op === "select_option") {
+    const match = /^([^:]+):([a-zA-Z0-9-]{1,64})$/.exec(request.ref)
+    const option = /^([^:]+):([a-zA-Z0-9-]{1,64})$/.exec(request.optionRef)
+    const stored =
+      match && match[1].startsWith(`${target.tabID}.`)
+        ? histories.get(target.contents)?.snapshots.get(match[1])
+        : undefined
+    const select = stored?.page.elements.find((element) => element.token === match?.[2] && element.tag === "select")
+    if (
+      !stored ||
+      !select ||
+      !option ||
+      option[1] !== stored.id ||
+      !select.options?.some((entry) => entry.token === option[2]) ||
+      target.contents.getURL() !== stored.page.url
+    )
+      return failure("stale_ref", nativeT("desktop.browser.driver.staleScrollRef"))
+    const contextId = await snapshotContext(target)
+    if (typeof contextId !== "number") return failure("unavailable", nativeT(contextId))
+    const response = (await send(target, "Runtime.evaluate", {
+      expression: selectOptionScript(
+        stored.id,
+        { generation: stored.page.generation, token: select.token },
+        option[2],
+        target.deadline!,
+      ),
+      contextId,
+      returnByValue: true,
+      timeout: Math.max(1, target.deadline! - Date.now()),
+    })) as { exceptionDetails?: unknown; result?: { value?: unknown } } | undefined
+    if (!response || "exceptionDetails" in response || response.result?.value !== true)
+      return failure("stale_ref", nativeT("desktop.browser.driver.staleScrollRef"))
+    await settle(target)
+    return refreshed(target)
   }
 
+  const element = await resolveRef(target, request.ref, request.op === "fill")
+  if (!element) return failure("stale_ref", nativeT("desktop.browser.driver.staleRef", { ref: request.ref }))
+  const x = element.rect.x + element.rect.width / 2
+  const y = element.rect.y + element.rect.height / 2
+  if (request.op === "click" && request.mode === "right") rightClicks.add(target.contents)
+  try {
+    await send(target, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 })
+    if (request.op !== "hover") {
+      // Hover handlers can replace nodes or change fill kind. Do not chase a moving center.
+      const current = await resolveRef(target, request.ref, request.op === "fill")
+      if (!current || current.rect.x + current.rect.width / 2 !== x || current.rect.y + current.rect.height / 2 !== y)
+        return failure("stale_ref", nativeT("desktop.browser.driver.staleRef", { ref: request.ref }))
+      await dispatchClick(target, current, request.op === "click" && request.mode === "right" ? "right" : "left")
+      if (request.op === "click" && request.mode === "double") {
+        const second = await resolveRef(target, request.ref)
+        if (!second || second.rect.x + second.rect.width / 2 !== x || second.rect.y + second.rect.height / 2 !== y)
+          return failure("stale_ref", nativeT("desktop.browser.driver.staleRef", { ref: request.ref }))
+        await dispatchClick(target, second, "left", 2)
+      }
+    }
+
+    if (request.op === "fill") {
+      await dispatchKey(target, "a", [process.platform === "darwin" ? "Meta" : "Ctrl"])
+      await dispatchKey(target, "Backspace")
+      for (const character of request.text) await dispatchKey(target, character)
+    }
+
+    await settle(target)
+    return await refreshed(target)
+  } finally {
+    rightClicks.delete(target.contents)
+  }
+}
+
+async function snapshotContext(target: Target) {
+  const tree = (await send(target, "Page.getFrameTree")) as { frameTree?: { frame?: { id?: unknown } } } | undefined
+  if (typeof tree?.frameTree?.frame?.id !== "string") return "desktop.browser.driver.frameUnavailable" as const
+  const world = (await send(target, "Page.createIsolatedWorld", {
+    frameId: tree.frameTree.frame.id,
+    worldName: "cm-browser-snapshot",
+  })) as { executionContextId?: unknown } | undefined
+  if (typeof world?.executionContextId !== "number" || !Number.isInteger(world.executionContextId))
+    return "desktop.browser.driver.contextUnavailable" as const
+  return world.executionContextId
+}
+
+async function dispatchDrag(target: Target, request: Extract<PageRequest, { op: "drag" }>) {
+  const source = /^([^:]+):([a-zA-Z0-9-]{1,64})$/.exec(request.sourceRef)
+  const destination = /^([^:]+):([a-zA-Z0-9-]{1,64})$/.exec(request.targetRef)
+  const stored =
+    source && source[1].startsWith(`${target.tabID}.`)
+      ? histories.get(target.contents)?.snapshots.get(source[1])
+      : undefined
+  const stale = () => failure("stale_ref", nativeT("desktop.browser.driver.staleScrollRef"))
+  if (
+    !stored ||
+    !source ||
+    !destination ||
+    source[1] !== destination[1] ||
+    source[2] === destination[2] ||
+    target.contents.getURL() !== stored.page.url ||
+    ![source[2], destination[2]].every((token) => stored.page.elements.some((element) => element.token === token))
+  )
+    return stale()
+
+  const pair = async () => {
+    const page = await capture(
+      target,
+      stored.id,
+      { generation: stored.page.generation, token: source[2] },
+      destination[2],
+    )
+    if (
+      page?.generation !== stored.page.generation ||
+      page.elements.length !== 2 ||
+      page.elements[0].token !== source[2] ||
+      page.elements[1].token !== destination[2] ||
+      page.elements.some((element) => element.disabled !== false)
+    )
+      return
+    return page.elements
+  }
+  const initial = await pair()
+  if (!initial) return stale()
+  const start = { x: initial[0].rect.x + initial[0].rect.width / 2, y: initial[0].rect.y + initial[0].rect.height / 2 }
+  const end = { x: initial[1].rect.x + initial[1].rect.width / 2, y: initial[1].rect.y + initial[1].rect.height / 2 }
+  const matches = (element: SnapshotElement | undefined, point: { x: number; y: number }) =>
+    element &&
+    element.rect.x + element.rect.width / 2 === point.x &&
+    element.rect.y + element.rect.height / 2 === point.y
+
+  await send(target, "Input.dispatchMouseEvent", { type: "mouseMoved", ...start, button: "none", buttons: 0 })
+  const hovered = await pair()
+  if (!hovered || !matches(hovered[0], start) || !matches(hovered[1], end)) return stale()
+  await send(target, "Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    ...start,
+    button: "left",
+    buttons: 1,
+    clickCount: 1,
+  })
+  // ponytail: four fixed moves, not universal HTML5/native dragging. Never chase targets or clean up with a release.
+  for (const fraction of [0.25, 0.5, 0.75, 1]) {
+    if (!matches(await resolveRef(target, request.targetRef), end)) return stale()
+    await send(target, "Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: start.x + (end.x - start.x) * fraction,
+      y: start.y + (end.y - start.y) * fraction,
+      button: "left",
+      buttons: 1,
+    })
+  }
+  if (!matches(await resolveRef(target, request.targetRef), end)) return stale()
+  await send(target, "Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    ...end,
+    button: "left",
+    buttons: 0,
+    clickCount: 1,
+  })
   await settle(target)
   return refreshed(target)
 }

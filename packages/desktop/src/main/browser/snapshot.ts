@@ -4,7 +4,11 @@ const MAX_ELEMENTS = 200
 const MAX_ELEMENT_TEXT = 160
 const MAX_VISIBLE_TEXT = 12_000
 
-export type SnapshotElement = Omit<ElementRef, "ref"> & {
+const MAX_SELECT_OPTIONS = 50
+const MAX_SNAPSHOT_OPTIONS = 200
+
+export type SnapshotElement = Omit<ElementRef, "ref" | "options"> & {
+  readonly options?: readonly { token: string; label: string; selected: boolean; disabled: boolean }[]
   readonly token: string
   readonly rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
 }
@@ -95,8 +99,9 @@ export const snapshotScript = (
     if (el.matches("input:not([type=hidden]),textarea") || el.isContentEditable) return "textbox";
     return "";
   };
-  const interactive = el => el.matches("a[href],button,input:not([type=hidden]),select,textarea,summary,option,[contenteditable],[tabindex]") ||
-    ["button","link","tab","menuitem","menuitemcheckbox","menuitemradio","checkbox","radio","switch","option","textbox","combobox","listbox","slider","spinbutton","treeitem"].includes(roleOf(el));
+  const interactive = el => !(el instanceof HTMLOptionElement) && (
+    el.matches("a[href],button,input:not([type=hidden]),select,textarea,summary,[contenteditable],[tabindex]") ||
+    ["button","link","tab","menuitem","menuitemcheckbox","menuitemradio","checkbox","radio","switch","option","textbox","combobox","listbox","slider","spinbutton","treeitem"].includes(roleOf(el)));
   const ignored = el => el.matches("script,style,noscript,template,iframe,object,embed");
   const content = (root, limit) => {
     if (sensitive(root)) return "";
@@ -223,7 +228,7 @@ export const snapshotScript = (
     return page([describe(el, reference.token)]);
   }
   const elements = [], entries = new Map(), seen = new Set();
-  let visibleText = "";
+  let visibleText = "", optionCount = 0;
   const walk = (node, depth) => {
     if (visits >= 4000) { truncated = true; return; }
     visits++;
@@ -241,7 +246,28 @@ export const snapshotScript = (
             if (!token) { token = newToken(); state.tokens.set(node, token); }
             entries.set(token, { node: new WeakRef(node), fillKind: fillKind(node),
               chain: ancestry.map(node => node ? new WeakRef(node) : null) });
-            elements.push(describe(node, token));
+            const element = describe(node, token);
+            if (node instanceof HTMLSelectElement && !node.multiple && !sensitive(node)) {
+              element.options = [];
+              // ponytail: bounded collection iteration; identity is the node, never its ordinal or value.
+              for (const option of node.options) {
+                if (element.options.length >= ${MAX_SELECT_OPTIONS} || optionCount >= ${MAX_SNAPSHOT_OPTIONS} || visits >= 4000) {
+                  element.optionsTruncated = true; truncated = true; break;
+                }
+                visits++;
+                if (sensitive(option)) continue;
+                const ancestry = chain(option);
+                if (!ancestry || option.closest("select") !== node) { truncated = true; continue; }
+                let optionToken = state.tokens.get(option);
+                if (!optionToken) { optionToken = newToken(); state.tokens.set(option, optionToken); }
+                entries.set(optionToken, { node: new WeakRef(option), owner: new WeakRef(node),
+                  chain: ancestry.map(node => node ? new WeakRef(node) : null) });
+                element.options.push({ token: optionToken, label: attr(option, "label") || content(option, ${MAX_ELEMENT_TEXT}),
+                  selected: option.selected, disabled: disabled(node) || disabled(option) });
+                optionCount++;
+              }
+            }
+            elements.push(element);
           } else truncated = true;
         }
       }
@@ -270,6 +296,60 @@ export const snapshotScript = (
   return { ...page(elements), visibleText, truncated };
 })()`
 
+// Both identity/hit checks run synchronously in one isolated-world evaluation, without yielding.
+export const dragSnapshotScript = (
+  id: string,
+  reference: { generation: string; token: string },
+  targetToken: string,
+) => `(() => {
+  const source = ${snapshotScript(id, reference)};
+  const destination = ${snapshotScript(id, { generation: reference.generation, token: targetToken })};
+  if (!source || !destination) return null;
+  return { ...source, elements: [...source.elements, ...destination.elements] };
+})()`
+
+// One synchronous isolated-world boundary: validation and mutation cannot yield to page tasks.
+export const selectOptionScript = (
+  id: string,
+  reference: { generation: string; token: string },
+  optionToken: string,
+  deadline: number,
+) => `(() => {
+  const validated = ${snapshotScript(id, reference)};
+  if (!validated) return false;
+  const state = globalThis.__cmSnapshot, entries = state.snapshots.get(${JSON.stringify(id)});
+  const select = entries?.get(${JSON.stringify(reference.token)})?.node.deref();
+  const stored = entries?.get(${JSON.stringify(optionToken)}), option = stored?.node.deref();
+  if (!(select instanceof HTMLSelectElement) || select.multiple ||
+      !(option instanceof HTMLOptionElement) || !option.isConnected ||
+      option.ownerDocument !== document || stored.owner?.deref() !== select) return false;
+  const group = option.parentElement;
+  if (group !== select && !(group instanceof HTMLOptGroupElement && group.parentElement === select)) return false;
+  const parent = node => node.assignedSlot || node.parentNode || (node instanceof ShadowRoot ? node.host : null);
+  const ancestry = [];
+  for (let node = option; node; node = parent(node)) {
+    if (ancestry.length >= 192) return false;
+    ancestry.push(node, node.parentNode, node.getRootNode());
+    if (node === document) break;
+  }
+  if (ancestry.length !== stored.chain.length ||
+      ancestry.some((node, index) => node !== (stored.chain[index]?.deref() ?? null))) return false;
+  for (let node = option, depth = 0; node; node = parent(node)) {
+    if (++depth > 64) return false;
+    if (!(node instanceof Element)) continue;
+    const editable = node.getAttribute("contenteditable");
+    if (node.matches(":disabled,input,textarea") || node.isContentEditable ||
+        (editable !== null && editable !== "false") || node.hasAttribute("inert") ||
+        node.getAttribute("aria-disabled") === "true") return false;
+  }
+  if (Date.now() >= ${deadline}) return false;
+  if (option.selected) return true;
+  Object.getOwnPropertyDescriptor(HTMLOptionElement.prototype, "selected").set.call(option, true);
+  select.dispatchEvent(new Event("input", { bubbles: true }));
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`
+
 const object = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 const text = (value: unknown) => (typeof value === "string" ? value : "")
@@ -288,13 +368,19 @@ export function parseSnapshot(value: unknown): PageSnapshot | undefined {
   }
   const source = Array.isArray(input.elements) ? input.elements : []
   if (source.length > MAX_ELEMENTS) truncated = true
-  const elements = source.slice(0, MAX_ELEMENTS).flatMap((entry) => parseElement(entry, bounded))
+  const optionBudget = { remaining: MAX_SNAPSHOT_OPTIONS, truncated: false }
+  const elements = source.slice(0, MAX_ELEMENTS).flatMap((entry) => parseElement(entry, bounded, optionBudget))
+  truncated ||= optionBudget.truncated
   const title = bounded(input.title, 256),
     visibleText = bounded(input.visibleText, MAX_VISIBLE_TEXT)
   return { generation: token(input.generation), url: text(input.url), title, visibleText, truncated, elements }
 }
 
-function parseElement(value: unknown, bounded: (value: unknown, limit: number) => string): SnapshotElement[] {
+function parseElement(
+  value: unknown,
+  bounded: (value: unknown, limit: number) => string,
+  budget: { remaining: number; truncated: boolean },
+): SnapshotElement[] {
   const el = object(value),
     rect = object(el?.rect)
   if (
@@ -313,6 +399,23 @@ function parseElement(value: unknown, bounded: (value: unknown, limit: number) =
       : boolean(el.checked)
     : undefined
   const selected = ["tab", "option", "row", "gridcell", "treeitem"].includes(role) ? boolean(el.selected) : undefined
+  const options: NonNullable<SnapshotElement["options"]>[number][] = []
+  const source = el.tag === "select" && Array.isArray(el.options) ? el.options : undefined
+  const limit = Math.min(MAX_SELECT_OPTIONS, budget.remaining)
+  const optionsTruncated = el.optionsTruncated === true || Boolean(source && source.length > limit)
+  budget.truncated ||= optionsTruncated
+  for (let i = 0; source && i < Math.min(source.length, limit); i++) {
+    const option = object(source[i])
+    if (!option || !token(option.token) || typeof option.selected !== "boolean" || typeof option.disabled !== "boolean")
+      continue
+    options.push({
+      token: token(option.token),
+      label: bounded(option.label, MAX_ELEMENT_TEXT),
+      selected: option.selected,
+      disabled: option.disabled,
+    })
+    budget.remaining--
+  }
   return [
     {
       token: token(el.token),
@@ -322,6 +425,7 @@ function parseElement(value: unknown, bounded: (value: unknown, limit: number) =
       text: bounded(el.text, MAX_ELEMENT_TEXT),
       ...(checked !== undefined ? { checked } : {}),
       ...(selected !== undefined ? { selected } : {}),
+      ...(source ? { options, optionsTruncated } : {}),
       ...(boolean(el.expanded) !== undefined ? { expanded: boolean(el.expanded) } : {}),
       ...(boolean(el.disabled) !== undefined ? { disabled: boolean(el.disabled) } : {}),
       rect: { x: Number(rect.x), y: Number(rect.y), width: Number(rect.width), height: Number(rect.height) },

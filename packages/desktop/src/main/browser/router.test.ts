@@ -14,6 +14,8 @@ import {
 import { browserTools } from "@cookiemonster/cm-browser/tools"
 import { registerBrowserTab, setBrowserAgentEnabled, type BrowserRegistration } from "./registry"
 import { routeBrowserRequest } from "./router"
+import { browserInputFailure, shouldShowBrowserContextMenu } from "./driver"
+import { parseSnapshot } from "./snapshot"
 
 function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
   const calls: string[] = []
@@ -80,6 +82,253 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
   }
   return { tab, calls, remove, route, write }
 }
+
+test.each(["success", "cancel", "revoke", "timeout", "owner", "source", "registration", "policy", "reject"] as const)(
+  "drag held movement retains ownership and quarantine through %s settlement",
+  async (reason) => {
+    const { tab, route, remove } = fixture()
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<void>(),
+      held = Promise.withResolvers<void>(),
+      settled = Promise.withResolvers<void>()
+    const input: Record<string, unknown>[] = []
+    let permitted = true
+    const send = tab.contents.debugger.sendCommand.bind(tab.contents.debugger)
+    tab.contents.backgroundThrottling = true
+    tab.contents.debugger.sendCommand = async (method, params) => {
+      const response = await send(method, params)
+      if (method.startsWith("Input.") && params) {
+        input.push(params)
+        if (params.type === "mouseMoved" && params.buttons === 1 && input.length === 3) {
+          entered.resolve()
+          await held.promise
+          if (reason === "reject") throw new Error("Native movement failed")
+        }
+      }
+      if (params?.contextId !== 8) return response
+      const page = parseSnapshot(response)
+      if (!page) throw new Error("No fake snapshot")
+      const elements = [
+        page.elements[0],
+        { ...page.elements[0], token: "drop", rect: { x: 200, y: 0, width: 10, height: 10 } },
+      ]
+      const refs = [...String(params.expression).matchAll(/reference = (\{[^\n]+\}|null);/g)].flatMap((match) =>
+        match[1] === "null" ? [] : [JSON.parse(match[1]) as { token: string }],
+      )
+      return {
+        result: {
+          value: {
+            ...page,
+            elements: refs.length ? refs.flatMap((ref) => elements.filter((el) => el.token === ref.token)) : elements,
+          },
+        },
+      }
+    }
+    try {
+      const state = await route({ op: "read_state", tabID: tab.id })
+      if (!state.ok) throw new Error("No drag snapshot")
+      const request = {
+        op: "drag",
+        tabID: tab.id,
+        sourceRef: state.result.elements[0].ref,
+        targetRef: state.result.elements[1].ref,
+      } as const
+      const prepared = await route({ op: "prepare_write", request })
+      if (!prepared.ok || !prepared.result.context) throw new Error("No drag context")
+      const pending = routeBrowserRequest(
+        {
+          type: "browser_request",
+          id: "held-drag",
+          sessionID: tab.sessionID,
+          request: { ...request, context: prepared.result.context },
+        },
+        () => permitted,
+        {
+          signal: controller.signal,
+          deadline: Date.now() + (reason === "timeout" ? 100 : 5000),
+          onSettled: (operation) => {
+            void operation.finally(() => settled.resolve())
+          },
+        },
+      )
+      await entered.promise
+      expect(browserInputFailure(tab.contents)).toBeDefined()
+      if (reason === "cancel") controller.abort()
+      if (reason === "revoke") {
+        tab.agentAccess = false
+        tab.accessRevision = (tab.accessRevision ?? 0) + 1
+        tab.agentAccess = true
+      }
+      if (reason === "owner") tab.ownerID++
+      if (reason === "source") tab.revision++
+      if (reason === "registration") {
+        remove()
+        registerBrowserTab({ ...tab })
+      }
+      if (reason === "policy") permitted = false
+      if (reason === "cancel" || reason === "timeout")
+        expect(await pending).toMatchObject({ code: reason === "cancel" ? "cancelled" : "timeout" })
+      expect(tab.contents.backgroundThrottling).toBe(false)
+      expect(tab.navigationAllowed).toBeDefined()
+      expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({
+        error: expect.stringContaining("Another operation"),
+      })
+      held.resolve()
+      expect(await pending).toMatchObject(
+        reason === "success"
+          ? { ok: true }
+          : { code: reason === "cancel" ? "cancelled" : reason === "timeout" ? "timeout" : "unavailable" },
+      )
+      await settled.promise
+      expect(input).toHaveLength(reason === "success" ? 7 : 3)
+      expect(input.filter((event) => event.type === "mouseReleased")).toHaveLength(reason === "success" ? 1 : 0)
+      expect(Boolean(browserInputFailure(tab.contents))).toBe(reason !== "success")
+      expect(tab.contents.backgroundThrottling).toBe(true)
+      expect(tab.navigationAllowed).toBeUndefined()
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
+    } finally {
+      held.resolve()
+      controller.abort()
+      remove()
+    }
+  },
+)
+
+test.each(["success", "cancel", "reject"] as const)(
+  "right-click menu suppression lasts through %s native settlement",
+  async (reason) => {
+    const { tab, route, remove } = fixture()
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<void>()
+    const held = Promise.withResolvers<void>()
+    const settled = Promise.withResolvers<void>()
+    const state = await route({ op: "read_state", tabID: tab.id })
+    if (!state.ok) throw new Error("No snapshot")
+    const request = { op: "click", tabID: tab.id, ref: state.result.elements[0].ref, mode: "right" } as const
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+    const send = tab.contents.debugger.sendCommand.bind(tab.contents.debugger)
+    tab.contents.debugger.sendCommand = async (method, params) => {
+      const value = await send(method, params)
+      if (params?.type === "mouseReleased") {
+        entered.resolve()
+        await held.promise
+        if (reason === "reject") throw new Error("Native failure")
+      }
+      return value
+    }
+    const pending = routeBrowserRequest(
+      {
+        type: "browser_request",
+        id: "menus",
+        sessionID: tab.sessionID,
+        request: { ...request, context: prepared.result.context },
+      },
+      () => true,
+      {
+        signal: controller.signal,
+        onSettled: (operation) => {
+          void operation.finally(() => settled.resolve())
+        },
+      },
+    )
+    try {
+      await entered.promise
+      // Repeated queries must not consume the guard; another WebContents stays independent.
+      for (let i = 0; i < 3; i++) expect(shouldShowBrowserContextMenu(tab.contents)).toBe(false)
+      expect(shouldShowBrowserContextMenu({ ...tab.contents })).toBe(true)
+      if (reason === "cancel") {
+        controller.abort()
+        expect(await pending).toMatchObject({ code: "cancelled" })
+        expect(shouldShowBrowserContextMenu(tab.contents)).toBe(false)
+      }
+      held.resolve()
+      expect(await pending).toMatchObject(
+        reason === "success" ? { ok: true } : { code: reason === "cancel" ? "cancelled" : "unavailable" },
+      )
+      await settled.promise
+      expect(shouldShowBrowserContextMenu(tab.contents)).toBe(true)
+    } finally {
+      held.resolve()
+      controller.abort()
+      await settled.promise
+      remove()
+    }
+  },
+)
+
+test.each(["hover", "double", "right"] as const)(
+  "%s cancellation retains native ownership without follow-on input",
+  async (mode) => {
+    const { tab, route, remove } = fixture()
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<void>()
+    const held = Promise.withResolvers<void>()
+    const settled = Promise.withResolvers<void>()
+    const input: Record<string, unknown>[] = []
+    const state = await route({ op: "read_state", tabID: tab.id })
+    if (!state.ok) throw new Error("No snapshot")
+    const request: WriteRequest =
+      mode === "hover"
+        ? { op: "hover", tabID: tab.id, ref: state.result.elements[0].ref }
+        : { op: "click", tabID: tab.id, ref: state.result.elements[0].ref, mode }
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No approval context")
+    const send = tab.contents.debugger.sendCommand.bind(tab.contents.debugger)
+    tab.contents.backgroundThrottling = true
+    tab.contents.debugger.sendCommand = async (method, params) => {
+      const value = await send(method, params)
+      if (method.startsWith("Input.") && params) input.push(params)
+      if (
+        params?.type === (mode === "hover" ? "mouseMoved" : "mousePressed") &&
+        (mode !== "double" || params?.clickCount === 2)
+      ) {
+        entered.resolve()
+        await held.promise
+      }
+      return value
+    }
+    const pending = routeBrowserRequest(
+      {
+        type: "browser_request",
+        id: "interactions",
+        sessionID: tab.sessionID,
+        request: { ...request, context: prepared.result.context },
+      },
+      () => true,
+      {
+        signal: controller.signal,
+        onSettled: (operation) => {
+          void operation.finally(() => settled.resolve())
+        },
+      },
+    )
+    try {
+      await entered.promise
+      controller.abort()
+      expect(await pending).toMatchObject({ code: "cancelled" })
+      expect(tab.contents.backgroundThrottling).toBe(false)
+      expect(tab.navigationAllowed).toBeDefined()
+      expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({
+        error: expect.stringContaining("Another operation"),
+      })
+      const count = input.length
+      held.resolve()
+      await settled.promise
+      expect(input).toHaveLength(count)
+      expect(tab.contents.backgroundThrottling).toBe(true)
+      expect(tab.navigationAllowed).toBeUndefined()
+      tab.contents.debugger.sendCommand = send
+      expect((await route({ op: "read_state", tabID: tab.id })).ok).toBe(mode === "hover")
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
+    } finally {
+      held.resolve()
+      controller.abort()
+      await settled.promise
+      remove()
+    }
+  },
+)
 
 test.each(["scroll", "wait_for_element"] as const)(
   "%s retains held native ownership and rejects interrupted epochs",
@@ -754,6 +1003,7 @@ test("main rejects unbound and altered write contexts before driver dispatch", a
     const requests: WriteRequest[] = [
       { op: "press_key", tabID: tab.id, key: "Enter", modifiers: [] },
       { op: "click", tabID: tab.id, ref: "old:e0" },
+      { op: "drag", tabID: tab.id, sourceRef: "old:e0", targetRef: "old:e1" },
       { op: "fill", tabID: tab.id, ref: "old:e0", text: "private" },
       { op: "navigate", tabID: tab.id, url: "http://127.0.0.1/" },
     ]

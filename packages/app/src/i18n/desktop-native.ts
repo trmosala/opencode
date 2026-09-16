@@ -230,6 +230,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.driver.invalidSelector": "Invalid CSS selector.",
   "desktop.browser.driver.viewportUnavailable": "Browser viewport unavailable.",
   "desktop.browser.driver.staleScrollRef": "Element ref is stale. Read browser state again.",
+  "desktop.browser.driver.staleRef": "Element ref {{ref}} is stale. Read browser state again.",
   "desktop.browser.contacts.preview": "Fill these contact details?",
   "desktop.browser.contacts.detail":
     "Website: {{origin}}\nContact: {{label}}\n\n{{fields}}\n\nOnly the listed fields will be filled. The website can read these values. Nothing is submitted.",

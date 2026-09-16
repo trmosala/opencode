@@ -37,7 +37,7 @@ import {
 } from "./preferences"
 import { updateAgentHost, allowed } from "./allowlist"
 import { transferRule } from "./transfer-policy"
-import { invalidateSnapshots } from "./driver"
+import { invalidateSnapshots, shouldShowBrowserContextMenu } from "./driver"
 import { browserContext, cancelPicker } from "./context"
 import { initializeVaultLocking, vaultAccess } from "./vault-session"
 import { vaultAvailable } from "./vault"
@@ -560,6 +560,7 @@ function createTab(
   const contents = view.webContents
   const disposeMenu = contextMenu({
     window: contents,
+    shouldShowMenu: () => shouldShowBrowserContextMenu(contents),
     showSearchWithGoogle: false,
     showLookUpSelection: false,
     showSaveImageAs: true,
