@@ -19,7 +19,11 @@ try {
   const child = Bun.spawn([electron, entry, ...process.argv.slice(2)], { env, stdout: "inherit", stderr: "inherit" })
   const timeout = setTimeout(
     () => child.kill(),
-    process.argv.includes("--registration") || process.env.CM_BROWSER_LIVE_SMOKE === "1" ? 120_000 : 60_000,
+    process.argv.includes("--registration") ||
+      process.argv.includes("--offer-patterns") ||
+      process.env.CM_BROWSER_LIVE_SMOKE === "1"
+      ? 120_000
+      : 60_000,
   )
   const code = await child.exited
   clearTimeout(timeout)

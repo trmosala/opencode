@@ -24,6 +24,7 @@ import { getStore } from "../store"
 import { readLogins, writeLogins } from "./vault"
 import { loginEntry, decodeLoginEntry } from "./login-entry"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
+import { loginOfferSucceeded } from "./login-offer-script"
 import { vaultAuthentication } from "./vault-auth"
 import { vaultAccess } from "./vault-session"
 import { savedTabs } from "./tab-recovery"
@@ -1445,6 +1446,556 @@ async function run() {
       console.log(
         "PASS registration: consent, selected account, mismatch, ambiguity, failure, stale resubmission, cancellation, lock, navigation, tab selection, concurrent edit, bounds, private-tab guard",
       )
+    } finally {
+      vaultAccess.lock()
+      contents.debugger.removeListener("message", observe)
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
+
+  if (process.argv.includes("--offer-patterns")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    const contents = one.view.webContents
+    let offers = 0
+    let captures = 0
+    let delivered = 0
+    const errors: unknown[] = []
+    let answer: (options: Electron.MessageBoxOptions) => Promise<number> = async () => 1
+    const fields =
+      '<input autocomplete="username" value="pattern-user"><input type="password" autocomplete="current-password" value="fixture-pattern-secret">'
+    let offerContext: number | undefined
+    const observe = (
+      _event: unknown,
+      method: string,
+      params: { name?: string; payload?: string; executionContextId?: number },
+    ) => {
+      if (method !== "Runtime.bindingCalled" || !params.name?.startsWith("cmLoginOffer")) return
+      offerContext = params.executionContextId
+      captures++
+      if (params.payload !== "null") delivered++
+    }
+    contents.debugger.on("message", observe)
+    const reset = async (
+      html = `<form method="post">${fields}<button>Sign in</button></form>`,
+      outcome = "document.querySelector('input[type=password]').value = ''",
+    ) => {
+      await command({ op: "navigate", tabID: first, url })
+      await contents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(html)};
+        window.submissions = 0;
+        document.addEventListener('submit', event => {
+          event.preventDefault(); window.submissions++; ${outcome}
+        }); true`)
+      await one.readyLoginOffers!(() => {})
+    }
+    const click = async (selector = "button") => {
+      const point = await contents.executeJavaScript(
+        `(() => { const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)} })()`,
+      )
+      contents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+      contents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+    }
+    const quiet = async (before = offers) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      assert.equal(offers, before, "Rejected pattern must not prompt")
+    }
+    try {
+      vaultAuthentication.verify = async () => {}
+      await command({ op: "unlock-vault" })
+      await command({ op: "preferences", values: { offerSaveLogins: true } })
+      dialog.showMessageBox = (async (_win, options) => {
+        try {
+          assert(options)
+          assert.equal(options.defaultId, 0)
+          assert.equal(options.cancelId, 0)
+          assert(options.signal)
+          assert(options.detail?.includes("Only save if this sign-in succeeded."))
+          assert(!JSON.stringify(options).includes("fixture-pattern-secret"))
+          offers++
+          return { response: await answer(options), checkboxChecked: false }
+        } catch (error) {
+          errors.push(error)
+          return { response: 0, checkboxChecked: false }
+        }
+      }) as typeof dialog.showMessageBox
+
+      stage("patterns: persistent visible form requires consent")
+      let finish: ((response: number) => void) | undefined
+      answer = async () =>
+        new Promise<number>((resolve) => {
+          finish = resolve
+        })
+      await reset()
+      const before = captures
+      await click()
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      assert.equal(await contents.executeJavaScript("window.submissions"), 1, "Trusted click submits the fixture")
+      assert(captures > before, "The isolated binding observes the submission")
+      await new Promise((resolve) => setTimeout(resolve, 2200))
+      assert.equal(Boolean(finish), true, "A submitted persistent form with script-cleared password should offer")
+      assert.equal(readLogins().length, 0, "Nothing saved before consent")
+      finish!(1)
+      await wait(() =>
+        readLogins().some((row) => row.username === "pattern-user" && row.password === "fixture-pattern-secret"),
+      )
+      assert.equal(await contents.executeJavaScript("!!document.querySelector('form')"), true)
+      assert.equal(await contents.executeJavaScript("typeof globalThis.__cmOffers"), "undefined")
+
+      stage("patterns: delayed old cleanup cannot erase an immediate trusted-input resubmission")
+      await reset(
+        `<form method="post">${fields.replace("pattern-user", "edit-race-user")}<button>Sign in</button></form>`,
+        "if (window.submissions > 1) document.querySelector('input[type=password]').value = ''",
+      )
+      const firstCapture = captures
+      await click()
+      await wait(() => captures > firstCapture)
+      await contents.executeJavaScript(`const password = document.querySelector('input[type=password]');
+        password.focus(); password.setSelectionRange(password.value.length, password.value.length);
+        password.oninput = event => {
+          if (!event.isTrusted) return;
+          window.trustedEdit = true; password.form.requestSubmit();
+        }; true`)
+      const send = contents.debugger.sendCommand.bind(contents.debugger)
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let held = false
+      let cleaned = false
+      contents.debugger.sendCommand = (async (method, params, ...rest) => {
+        if (
+          method === "Runtime.evaluate" &&
+          params?.expression?.includes("globalThis.__cmOffers.input = null") &&
+          !held
+        ) {
+          held = true
+          await gate
+          const result = await send(method, params, ...rest)
+          cleaned = true
+          return result
+        }
+        return send(method, params, ...rest)
+      }) as typeof contents.debugger.sendCommand
+      finish = undefined
+      try {
+        const edited = captures
+        contents.sendInputEvent({ type: "keyDown", keyCode: "X" })
+        contents.sendInputEvent({ type: "char", keyCode: "x" })
+        contents.sendInputEvent({ type: "keyUp", keyCode: "X" })
+        await wait(() => held && captures >= edited + 2)
+        assert.equal(await contents.executeJavaScript("window.trustedEdit && window.submissions === 2"), true)
+        release()
+        await wait(() => cleaned)
+        await new Promise((resolve) => setTimeout(resolve, 2200))
+        assert.equal(Boolean(finish), true, "Delayed old cleanup must preserve the immediate resubmission snapshot")
+        assert(!readLogins().some((row) => row.username === "edit-race-user"))
+        finish!(1)
+        await wait(() =>
+          readLogins().some((row) => row.username === "edit-race-user" && row.password === "fixture-pattern-secretx"),
+        )
+      } finally {
+        release()
+        ;(finish as ((response: number) => void) | undefined)?.(0)
+        contents.debugger.sendCommand = send
+      }
+
+      stage("patterns: delayed success-check acknowledgements respect attempt and document ownership")
+      answer = async () => 0
+      const acknowledgementFailures: string[] = []
+      for (const scenario of ["hash", "history", "positive", "newer", "document"]) {
+        await reset(
+          `<form method="post" action="${url}login">${fields.replace("pattern-user", `ack-${scenario}`)}<button>Sign in</button></form>`,
+          scenario === "positive"
+            ? "document.querySelector('input[type=password]').value = ''"
+            : "if (window.submissions === 1) document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>'); else document.querySelector('input[type=password]').value = ''",
+        )
+        const send = contents.debugger.sendCommand.bind(contents.debugger)
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        let held = false
+        let acknowledged = false
+        let observed: unknown
+        contents.debugger.sendCommand = (async (method, params, ...rest) => {
+          const result = await send(method, params, ...rest)
+          if (method === "Runtime.evaluate" && params?.expression === loginOfferSucceeded && !held) {
+            observed = result.exceptionDetails ? "exception" : result.result?.value
+            held = true
+            await gate
+            acknowledged = true
+          }
+          return result
+        }) as typeof contents.debugger.sendCommand
+        const offered = offers
+        try {
+          await click()
+          await wait(() => held)
+          assert.equal(observed, scenario === "positive" ? true : null)
+          if (scenario === "document") {
+            await contents.loadURL(`${url}ack-document`)
+            assert.equal(await contents.executeJavaScript("typeof window.submissions"), "undefined")
+          } else {
+            await contents.executeJavaScript(`document.querySelector('[role=alert]')?.remove();
+              ${scenario === "hash" ? "location.hash = 'ack-route'" : "history.pushState({}, '', '?ack-route')"};
+              document.querySelector('input[type=password]').value = ${JSON.stringify(scenario === "positive" ? "still-pending" : scenario === "newer" ? "fixture-pattern-secret-newer" : "")};
+              true`)
+            if (scenario === "newer") {
+              const prior = delivered
+              await click()
+              await wait(() => delivered > prior)
+            }
+            assert.equal(await contents.executeJavaScript("window.submissions"), scenario === "newer" ? 2 : 1)
+          }
+          release()
+          await wait(() => acknowledged)
+          await new Promise((resolve) => setTimeout(resolve, 2200))
+          const expected = offered + (["newer", "document"].includes(scenario) ? 1 : 0)
+          if (offers !== expected)
+            acknowledgementFailures.push(`${scenario}: expected ${expected - offered} offers, got ${offers - offered}`)
+          if (scenario === "positive") {
+            await contents.executeJavaScript("document.querySelector('input[type=password]').value = ''; true")
+            await wait(() => offers === offered + 1)
+          }
+        } finally {
+          release()
+          contents.debugger.sendCommand = send
+        }
+      }
+      assert.deepEqual(acknowledgementFailures, [])
+
+      stage("patterns: submitted persistent forms survive hash and history navigation")
+      answer = async () => 1
+      const navigationFailures: string[] = []
+      for (const [name, navigate] of [
+        ["hash", "location.hash = 'signed-in'"],
+        ["history", "history.pushState({}, '', '?signed-in')"],
+      ]) {
+        await reset(
+          `<form method="post" action="${url}login">${fields.replace("pattern-user", `route-${name}`)}<button>Sign in</button></form>`,
+          `document.querySelector('input[type=password]').value = ''; ${navigate}`,
+        )
+        const prior = captures
+        await click()
+        await wait(() => captures > prior)
+        await wait(() => contents.getURL() !== url)
+        assert.equal(
+          await contents.executeJavaScript(
+            "window.submissions === 1 && document.querySelector('input[type=password]').value === ''",
+          ),
+          true,
+        )
+        const snapshot = await contents.debugger.sendCommand("Runtime.evaluate", {
+          contextId: offerContext,
+          expression: `(() => {
+            const state = globalThis.__cmOffers;
+            const login = state?.login;
+            return { retained: !!login, actionUnchanged: login?.form.action === login?.action,
+              destinationsUnchanged: !!login?.elements.every((el, i) =>
+                (el.hasAttribute('formaction') ? el.formAction : login.form.action) === login.destinations[i][0] &&
+                (el.hasAttribute('formmethod') ? el.formMethod : login.form.method) === login.destinations[i][1]) };
+          })()`,
+          returnByValue: true,
+        })
+        assert.deepEqual(snapshot.result?.value, { retained: true, actionUnchanged: true, destinationsUnchanged: true })
+        await new Promise((resolve) => setTimeout(resolve, 2200))
+        if (!readLogins().some((row) => row.username === `route-${name}` && row.password === "fixture-pattern-secret"))
+          navigationFailures.push(`${name} navigation lost the submitted persistent-form snapshot`)
+      }
+      assert.deepEqual(navigationFailures, [])
+
+      stage("patterns: formless Enter associates the same fields with a native POST")
+      answer = async () => 1
+      await reset(
+        fields.replace("pattern-user", "formless-user"),
+        "event.target.remove(); document.querySelectorAll('input').forEach(el => el.remove())",
+      )
+      await contents.executeJavaScript(`document.querySelector('input[type=password]').onkeydown = event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const form = document.createElement('form');
+        form.id = 'login'; form.method = 'post'; document.body.append(form);
+        document.querySelectorAll('input').forEach(el => el.setAttribute('form', form.id));
+        form.requestSubmit();
+      }; document.querySelector('input[type=password]').focus(); true`)
+      const prior = captures
+      contents.sendInputEvent({ type: "keyDown", keyCode: "Return" })
+      contents.sendInputEvent({ type: "keyUp", keyCode: "Return" })
+      await wait(() => captures > prior)
+      assert.equal(await contents.executeJavaScript("window.submissions"), 1)
+      await new Promise((resolve) => setTimeout(resolve, 2200))
+      assert(
+        readLogins().some((row) => row.username === "formless-user" && row.password === "fixture-pattern-secret"),
+        "Formless native-backed submission should save only after consent",
+      )
+      stage("patterns: routes revalidate effective destinations")
+      answer = async () => 0
+      for (const mutation of [
+        "document.querySelector('button').formAction = '/changed'",
+        "document.querySelector('button').formMethod = 'get'",
+        "document.querySelector('form').removeAttribute('action')",
+      ]) {
+        await reset(
+          `<form method="post" action="${url}login">${fields}<button>Sign in</button></form>`,
+          `document.querySelector('input[type=password]').value = ''; ${mutation}; history.pushState({}, '', '?changed')`,
+        )
+        const prior = captures
+        const offered = offers
+        await click()
+        await wait(() => captures > prior)
+        await quiet(offered)
+      }
+
+      stage("patterns: real document navigation retains only eligible candidates")
+      for (const destination of ["welcome", "registration-failed"]) {
+        answer = async () => 1
+        await reset(
+          `<form method="post" action="${url}login">${fields.replace("pattern-user", `document-${destination}`)}<button>Sign in</button></form>`,
+          `document.querySelector('input[type=password]').value = ''; location.href = '/${destination}'`,
+        )
+        const prior = captures
+        const offered = offers
+        await click()
+        await wait(() => captures > prior)
+        await wait(() => contents.getURL() === `${url}${destination}` && !contents.isLoading())
+        assert.equal(await contents.executeJavaScript("typeof window.submissions"), "undefined")
+        if (destination === "welcome") {
+          await wait(() =>
+            readLogins().some(
+              (row) => row.username === `document-${destination}` && row.password === "fixture-pattern-secret",
+            ),
+          )
+        } else {
+          await quiet(offered)
+          assert(!readLogins().some((row) => row.username === `document-${destination}`))
+        }
+      }
+
+      stage("patterns: same-document navigation aborts open consent")
+      let routeConsent: AbortSignal | undefined
+      finish = undefined
+      answer = async (options) => {
+        routeConsent = options.signal
+        return new Promise<number>((resolve) => {
+          finish = resolve
+        })
+      }
+      await reset(
+        `<form method="post" action="${url}login">${fields.replace("pattern-user", "route-consent")}<button>Sign in</button></form>`,
+      )
+      await click()
+      await wait(() => !!finish)
+      try {
+        await contents.executeJavaScript("history.pushState({}, '', '?during-consent'); true")
+        await wait(() => !!routeConsent?.aborted)
+        finish!(1)
+        await wait(() => !one.loginBusy)
+        assert(!readLogins().some((row) => row.username === "route-consent"))
+      } finally {
+        ;(finish as ((response: number) => void) | undefined)?.(0)
+      }
+
+      stage("patterns: rejection signals clear attempts even after the signal disappears")
+      answer = async () => 0
+      for (const outcome of [
+        "document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>')",
+        "document.querySelector('input[type=password]').setAttribute('aria-invalid', 'true')",
+        "document.querySelector('form').style.display = 'none'",
+      ]) {
+        await reset(undefined, outcome)
+        const prior = captures
+        const offered = offers
+        await click()
+        await wait(() => captures > prior)
+        await quiet(offered)
+        await contents.executeJavaScript(
+          "document.querySelector('[role=alert]')?.remove(); document.querySelector('input[type=password]').removeAttribute('aria-invalid'); document.querySelector('form').remove(); history.pushState({}, '', '?rejected'); true",
+        )
+        await quiet(offered)
+      }
+
+      stage("patterns: route, text and HTTP 200 without submission do not offer")
+      await reset()
+      const unsubmitted = delivered
+      const offered = offers
+      await contents.executeJavaScript(
+        "fetch('/').then(() => { document.querySelector('form').remove(); history.pushState({}, '', '?welcome'); location.hash = 'unsubmitted'; document.body.append('Signed in') }); true",
+      )
+      await quiet(offered)
+      assert.equal(delivered, unsubmitted)
+
+      stage("patterns: invalid resubmission and trusted edits revoke a pending attempt")
+      for (const invalid of [true, false]) {
+        await reset(undefined, "")
+        const prior = captures
+        const offered = offers
+        await click()
+        await wait(() => captures > prior)
+        if (invalid) {
+          await contents.executeJavaScript(
+            "document.querySelector('input[type=password]').setCustomValidity('Rejected'); true",
+          )
+          const captured = captures
+          await click()
+          await wait(() => captures > captured)
+        } else {
+          await contents.executeJavaScript(
+            "document.querySelector('input[type=password]').focus(); document.querySelector('input[type=password]').select(); true",
+          )
+          const captured = captures
+          contents.sendInputEvent({ type: "keyDown", keyCode: "Backspace" })
+          contents.sendInputEvent({ type: "keyUp", keyCode: "Backspace" })
+          await wait(() => captures > captured)
+        }
+        await contents.executeJavaScript("document.querySelector('form').remove(); location.hash = 'revoked'; true")
+        await quiet(offered)
+      }
+
+      stage("patterns: repeated submissions retain only the latest password, cancellation does not save")
+      await reset(undefined, "if (window.submissions > 1) document.querySelector('input[type=password]').value = ''")
+      const repeated = captures
+      await click()
+      await wait(() => captures > repeated)
+      await contents.executeJavaScript(
+        "document.querySelector('input[type=password]').value = 'fixture-pattern-secret-latest'; true",
+      )
+      const secondAttempt = captures
+      const cancelled = offers
+      await click()
+      await wait(() => captures > secondAttempt)
+      await wait(() => offers > cancelled)
+      await wait(() => !one.loginBusy)
+      assert(readLogins().find((row) => row.username === "pattern-user")?.password === "fixture-pattern-secret")
+      answer = async () => 1
+      await contents.executeJavaScript(
+        "document.querySelector('input[type=password]').value = 'fixture-pattern-secret-latest'; true",
+      )
+      const thirdAttempt = captures
+      await click()
+      await wait(() => captures > thirdAttempt)
+      await wait(
+        () => readLogins().find((row) => row.username === "pattern-user")?.password === "fixture-pattern-secret-latest",
+      )
+
+      stage("patterns: formless scope and unsafe native destinations")
+      const associate = `const form = document.createElement('form');
+        form.id = 'login'; form.method = 'post'; document.body.append(form);
+        document.querySelectorAll('input').forEach(el => el.setAttribute('form', form.id));`
+      const enter = async (selector = "input[type=password]") => {
+        await contents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).focus(); true`)
+        contents.sendInputEvent({ type: "keyDown", keyCode: "Return" })
+        contents.sendInputEvent({ type: "keyUp", keyCode: "Return" })
+      }
+      for (const [html, script, selector] of [
+        [fields, `${associate} form.action = 'https://other.example'; form.requestSubmit()`, "input[type=password]"],
+        [fields, `${associate} form.method = 'get'; form.requestSubmit()`, "input[type=password]"],
+        [
+          fields,
+          `${associate} document.querySelector('input[autocomplete=username]').style.display = 'none'; form.requestSubmit()`,
+          "input[type=password]",
+        ],
+        [
+          fields,
+          `${associate} const image = document.createElement('input'); image.type = 'image'; image.setAttribute('form', form.id); image.formAction = 'https://other.example'; document.body.append(image); form.requestSubmit()`,
+          "input[type=password]",
+        ],
+        [
+          fields.replace('type="password"', 'type="text"'),
+          `${associate} form.requestSubmit()`,
+          "input[autocomplete=current-password]",
+        ],
+        [
+          fields.replace('autocomplete="current-password"', 'autocomplete="new-password"'),
+          `${associate} form.requestSubmit()`,
+          "input[type=password]",
+        ],
+        [
+          fields + '<input autocomplete="username" value="ambiguous">',
+          `${associate} form.requestSubmit()`,
+          "input[type=password]",
+        ],
+        [
+          fields.replace('autocomplete="username"', 'style="display:none" autocomplete="username"'),
+          `${associate} form.requestSubmit()`,
+          "input[type=password]",
+        ],
+        [fields + '<button type="button">Unrelated</button>', `${associate} form.requestSubmit()`, "button"],
+        [
+          fields,
+          "fetch('/').then(() => document.querySelectorAll('input').forEach(el => el.remove()))",
+          "input[type=password]",
+        ],
+        [fields, `setTimeout(() => { ${associate} form.requestSubmit() }, 50)`, "input[type=password]"],
+        [
+          fields,
+          `${associate} document.querySelector('input[type=password]').outerHTML = '<input form=login type=password autocomplete=current-password value=fixture-pattern-secret>'; form.requestSubmit()`,
+          "input[type=password]",
+        ],
+      ]) {
+        await reset(html, "document.querySelectorAll('form,input').forEach(el => el.remove())")
+        const prior = delivered
+        const offered = offers
+        await contents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).onkeydown = event => {
+          if (event.key !== 'Enter') return; event.preventDefault(); ${script}
+        }; true`)
+        await enter(selector)
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        assert.equal(delivered, prior, "Unsupported formless patterns must not deliver credentials")
+        assert.equal(offers, offered)
+      }
+
+      stage("patterns: formless same-origin username/password steps")
+      await reset(
+        '<input autocomplete="username" value="step-user">',
+        "document.querySelectorAll('form,input').forEach(el => el.remove())",
+      )
+      await contents.executeJavaScript(`document.querySelector('input').onkeydown = event => {
+        if (event.key !== 'Enter') return; event.preventDefault(); ${associate} form.requestSubmit();
+      }; true`)
+      const step = delivered
+      await enter("input")
+      await wait(() => delivered > step)
+      await contents.executeJavaScript(`document.body.innerHTML = '<input type=password autocomplete=current-password value=fixture-pattern-secret-step>';
+        document.querySelector('input').onkeydown = event => {
+          if (event.key !== 'Enter') return; event.preventDefault(); ${associate} form.requestSubmit();
+        }; true`)
+      await enter()
+      await wait(() =>
+        readLogins().some((row) => row.username === "step-user" && row.password === "fixture-pattern-secret-step"),
+      )
+
+      stage("patterns: lock/reunlock and agent access revoke before offer")
+      for (const reason of ["lock", "agent"]) {
+        await reset(undefined, "")
+        const prior = captures
+        const offered = offers
+        await click()
+        await wait(() => captures > prior)
+        if (reason === "lock") {
+          vaultAccess.lock()
+          await command({ op: "unlock-vault" })
+        } else {
+          const offerConsent = dialog.showMessageBox
+          dialog.showMessageBox = (async () => ({
+            response: 1,
+            checkboxChecked: false,
+          })) as typeof dialog.showMessageBox
+          try {
+            await command({ op: "access", tabID: first, enabled: true })
+            assert(one.agentAccess)
+            await command({ op: "access", tabID: first, enabled: false })
+          } finally {
+            dialog.showMessageBox = offerConsent
+          }
+        }
+        await contents.executeJavaScript("document.querySelector('form').remove(); location.hash = 'revoked'; true")
+        await quiet(offered)
+      }
+      assert.deepEqual(errors, [])
+      stage("PASS focused offer patterns")
     } finally {
       vaultAccess.lock()
       contents.debugger.removeListener("message", observe)

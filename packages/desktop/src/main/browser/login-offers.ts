@@ -32,6 +32,7 @@ export function watchLoginOffers(
   let revision = 0
   let captureRevision = 0
   let context: number | undefined
+  let inputAttempt = 0
   let installing = false
   let checking = false
   let candidate: { login: BrowserLogin; newPassword: boolean; ticket: number; time: number } | undefined
@@ -42,7 +43,8 @@ export function watchLoginOffers(
       void contents.debugger
         .sendCommand("Runtime.evaluate", {
           contextId: context,
-          expression: "if (globalThis.__cmOffers) globalThis.__cmOffers.input = null",
+          // A later submission may have installed its snapshot before this command executes.
+          expression: `if (globalThis.__cmOffers?.attempt === ${inputAttempt}) { globalThis.__cmOffers.input = null; globalThis.__cmOffers.login = null }`,
         })
         .catch(() => undefined)
   }
@@ -111,6 +113,7 @@ export function watchLoginOffers(
         })
         check()
         captureContext = context = created.executionContextId
+        inputAttempt = 0
         await contents.debugger.sendCommand("Runtime.addBinding", { name: binding, executionContextId: context })
         check()
         await contents.debugger.sendCommand("Runtime.enable")
@@ -148,8 +151,13 @@ export function watchLoginOffers(
         expression: loginOfferSucceeded,
         returnByValue: true,
       })
-      if (!ready.result.value || !permitted() || !available() || candidate !== attempt || revision !== observedRevision)
+      if (candidate !== attempt || context !== captureContext) return
+      // An observed rejection survives same-document routing; a stale positive does not.
+      if (ready.exceptionDetails || ready.result?.value === null) {
+        clear()
         return
+      }
+      if (!permitted() || !available() || revision !== observedRevision || ready.result?.value !== true) return
       const accounts = readLogins().filter((row) => row.origin === origin)
       clear()
       const matches = accounts.filter((row) => row.username === attempt.login.username)
@@ -269,13 +277,18 @@ export function watchLoginOffers(
     )
       return
     try {
-      if (prompt || typeof params.payload !== "string" || params.payload.length > 24000) {
+      if (typeof params.payload !== "string" || params.payload.length > 24000) {
         clear()
         return
       }
       const value = JSON.parse(params.payload)
+      if (value && (!Number.isSafeInteger(value.attempt) || value.attempt < 1)) {
+        clear()
+        return
+      }
+      if (value) inputAttempt = value.attempt
       const origin = loginOrigin(contents.getURL())
-      if (!value || value.origin !== origin || loginOfferExclusions().includes(origin)) {
+      if (prompt || !value || value.origin !== origin || loginOfferExclusions().includes(origin)) {
         clear()
         return
       }
@@ -311,12 +324,15 @@ export function watchLoginOffers(
       clear()
     }
   })
-  contents.on("did-start-navigation", (_event, url, _inPlace, main) => {
+  contents.on("did-start-navigation", (_event, url, inPlace, main) => {
     if (!main) return
     captureRevision++
     revision++
-    releaseInput()
-    context = undefined
+    // Same-document routes keep the snapshot, but invalidate in-flight positive results.
+    if (!inPlace) {
+      releaseInput()
+      context = undefined
+    }
     prompt?.abort()
     if (!URL.canParse(url) || new URL(url).origin !== candidate?.login.origin) candidate = undefined
     if (!URL.canParse(url) || new URL(url).origin !== username?.origin) username = undefined
