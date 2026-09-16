@@ -15,7 +15,7 @@ import {
 } from "./browser-context"
 import { addImage, appendText, imagePart } from "./browser-actions"
 import { browserViewportBounds } from "./browser-viewport"
-import { BrowserMenu, BrowserTools, type BrowserToolPanel } from "./browser-tools"
+import { BrowserAccounts, BrowserMenu, BrowserTools, type BrowserToolPanel } from "./browser-tools"
 import { browserSuggestions } from "./browser-suggestions"
 
 export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
@@ -55,6 +55,46 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
         fail()
         return false
       })
+  let accountRevision = 0
+  createEffect(() => {
+    props.sessionID
+    active()?.id
+    active()?.url
+    active()?.revision
+    active()?.loading
+    active()?.agentAccess
+    state.tabs.profile?.vaultStatus
+    state.tabs.profile?.vaultAvailable
+    accountRevision++
+  })
+  let attachPage: () => Promise<void> = async () => {
+    throw new Error("Browser viewport unavailable")
+  }
+  const fillAccount = async (value: BrowserCommand) => {
+    if (value.op !== "fill-login") return
+    const sessionID = props.sessionID
+    const revision = accountRevision
+    try {
+      // Finish menu disposal, then require an acknowledged visible viewport, not a frame delay.
+      await Promise.resolve()
+      await attachPage()
+      if (
+        disposed ||
+        revision !== accountRevision ||
+        sessionID !== props.sessionID ||
+        active()?.id !== value.tabID ||
+        active()?.revision !== value.revision ||
+        active()?.loading ||
+        active()?.agentAccess ||
+        state.tabs.profile?.vaultStatus !== "unlocked" ||
+        !state.tabs.profile.vaultAvailable
+      )
+        return
+      accept(await browser.command(sessionID, value))
+    } catch {
+      if (!disposed) fail()
+    }
+  }
   const shortcut = (value: BrowserShortcut) => {
     if (value === "address") {
       address?.focus()
@@ -108,6 +148,12 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
     let frame = 0
     let previousSession = props.sessionID
     const lease = crypto.randomUUID()
+    attachPage = async () => {
+      const sessionID = props.sessionID
+      const bounds = landing() || state.tool === "settings" ? null : browserViewportBounds(viewport)
+      if (disposed || !bounds) throw new Error("Browser viewport unavailable")
+      await browser.viewport({ sessionID, lease, bounds })
+    }
     const update = () => {
       const sessionID = props.sessionID
       if (previousSession !== sessionID) {
@@ -377,6 +423,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           placeholder={language.t("browser.address.searchPlaceholder")}
           aria-label={language.t("browser.address.label")}
         />
+        <BrowserAccounts tab={active()} tabs={state.tabs} command={fillAccount} />
         <Button
           type="button"
           size="small"

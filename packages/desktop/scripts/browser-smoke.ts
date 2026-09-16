@@ -5,6 +5,50 @@ import electron from "electron"
 
 const directory = await mkdtemp(join(tmpdir(), "cm-browser-smoke-"))
 try {
+  if (process.argv.includes("--account-fill")) {
+    const { build } = await import("vite")
+    const { createRequire } = await import("node:module")
+    const require = createRequire(resolve("../app/package.json"))
+    const { default: solid } = await import(require.resolve("vite-plugin-solid"))
+    await build({
+      configFile: false,
+      root: resolve("../app"),
+      plugins: [
+        {
+          name: "account-fill-fixture",
+          enforce: "pre",
+          resolveId(id) {
+            const name = ["@/context/language", "@/context/platform", "@/context/prompt", "@/utils/toast"].find(
+              (name) =>
+                id === name || id.replaceAll("\\", "/") === resolve("../app/src", name.slice(2)).replaceAll("\\", "/"),
+            )
+            if (name) return "\0fixture:" + name
+          },
+          load(id) {
+            if (id === "\0fixture:@/context/language")
+              return `import { dict } from ${JSON.stringify(resolve("../app/src/i18n/en.ts"))}; export const useLanguage = () => ({ t: key => dict[key] ?? key })`
+            if (id === "\0fixture:@/context/platform")
+              return "export const usePlatform = () => ({ browserPanel: window.fixture.browser })"
+            if (id === "\0fixture:@/context/prompt") return "export const usePrompt = () => ({})"
+            if (id === "\0fixture:@/utils/toast") return "export const showToast = () => window.fixture.errors++"
+          },
+        },
+        solid(),
+      ],
+      resolve: { alias: { "@": resolve("../app/src") } },
+      build: {
+        outDir: directory,
+        emptyOutDir: false,
+        minify: false,
+        lib: {
+          entry: resolve("../app/test-browser/browser-account-fill.fixture.tsx"),
+          formats: ["iife"],
+          name: "AccountFillFixture",
+          fileName: () => "account-fill.js",
+        },
+      },
+    })
+  }
   const build = await Bun.build({
     entrypoints: ["./src/main/browser/native-smoke.ts"],
     target: "node",

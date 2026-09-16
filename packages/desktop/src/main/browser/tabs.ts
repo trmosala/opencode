@@ -105,6 +105,7 @@ type Owner = {
   suspended: number
   shutting?: boolean
   generationCheck?: () => void
+  loginCheck?: () => void
 }
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
@@ -301,6 +302,7 @@ function state(group: Group): BrowserTabs {
         const contents = tab.view.webContents
         return {
           id: tab.id,
+          revision: tab.revision,
           openerID: tab.openerID,
           agentAccess: tab.agentAccess,
           loadFailed: tab.loadFailed,
@@ -333,6 +335,7 @@ function publish(owner: Owner, group: Group) {
 
 function layout(owner: Owner) {
   owner.generationCheck?.()
+  owner.loginCheck?.()
   const viewport = owner.viewport
   const tab =
     viewport &&
@@ -598,6 +601,10 @@ function createTab(
     tab.loadFailed = false
     tab.find = undefined
     tab.findRequest = undefined
+    invalidate()
+    changed()
+  })
+  contents.on("dom-ready", () => {
     invalidate()
     changed()
   })
@@ -1262,26 +1269,51 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       throw new Error(nativeT("desktop.browser.generation.failed"))
     }
   } else if (command.op === "save-login" || command.op === "fill-login") {
-    if (tab.loginBusy || owner.suspended) throw new Error("A browser dialog or login operation is already pending")
+    if (
+      command.op === "fill-login" &&
+      command.revision !== undefined &&
+      (!Number.isSafeInteger(command.revision) || command.revision !== tab.revision)
+    )
+      throw new Error("Login selection expired")
+    if (tab.loginBusy || owner.suspended || owner.loginCheck)
+      throw new Error("A browser dialog or login operation is already pending")
     const ticket = vaultAccess.require()
     const revision = tab.revision
-    const check = () => {
+    const viewport = owner.viewport
+    let revoked = false
+    const check = (attached = false) => {
       vaultAccess.require(ticket)
       if (
+        revoked ||
         contents.isDestroyed() ||
         contents.isLoadingMainFrame() ||
         tab.revision !== revision ||
         group.activeID !== tab.id ||
+        !group.tabs.includes(tab) ||
+        owner.groups.get(group.sessionID) !== group ||
+        owner.viewport?.sessionID !== group.sessionID ||
+        owner.viewport?.lease !== viewport?.lease ||
+        owner.win.isDestroyed() ||
+        owner.shutting ||
         !owner.win.isVisible() ||
         owner.win.isMinimized() ||
-        tab.agentAccess
+        tab.agentAccess ||
+        (attached &&
+          (owner.attached !== tab || owner.suspended !== 0 || !owner.win.contentView.children.includes(tab.view)))
       )
         throw new Error("Login requires an unchanged active tab with agent access off")
     }
-    check()
+    check(true)
     tab.loginBusy = true
     // Invalidate any agent-access confirmation already awaiting a response.
     tab.accessRevision = (tab.accessRevision ?? 0) + 1
+    owner.loginCheck = () => {
+      try {
+        check()
+      } catch {
+        revoked = true
+      }
+    }
     try {
       const login =
         command.op === "save-login"
@@ -1290,54 +1322,52 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
               (row) => "id" in command && row.id === command.id && row.origin === new URL(contents.getURL()).origin,
             )
       if (!login) throw new Error("No matching login")
-      check()
-      owner.suspended++
-      layout(owner)
-      try {
-        const answer = await dialog.showMessageBox(owner.win, {
-          type: "question",
-          message: nativeT(
-            command.op === "save-login"
-              ? "desktop.browser.saveLogin"
-              : "field" in command && command.field === "username"
-                ? "desktop.browser.fillUsername"
-                : "field" in command && command.field === "password"
-                  ? "desktop.browser.fillPassword"
-                  : "desktop.browser.fillLogin",
-          ),
-          detail: nativeT(
-            command.op === "save-login" ? "desktop.browser.saveLoginDetail" : "desktop.browser.fillLoginDetail",
-            { origin: login.origin, username: login.username },
-          ),
-          buttons: [
-            nativeT("desktop.browser.cancel"),
-            nativeT(command.op === "save-login" ? "desktop.browser.save" : "desktop.browser.fill"),
-          ],
-          defaultId: 0,
-          cancelId: 0,
-        })
-        if (answer.response === 1) {
-          check()
-          if (command.op === "save-login" && "password" in login) saveLogins([login])
-          if (command.op === "fill-login") {
-            // Restore the native page before checking field visibility and delivering the secret.
-            owner.suspended--
-            layout(owner)
-            try {
-              await pageLogin(contents, command.id, check, command.field)
-            } finally {
-              owner.suspended++
-            }
-          }
-        }
-      } finally {
-        owner.suspended--
+      check(true)
+      const confirm = async () => {
+        check(true)
+        owner.suspended++
         layout(owner)
+        try {
+          const answer = await dialog.showMessageBox(owner.win, {
+            type: "question",
+            message: nativeT(
+              command.op === "save-login"
+                ? "desktop.browser.saveLogin"
+                : "field" in command && command.field === "username"
+                  ? "desktop.browser.fillUsername"
+                  : "field" in command && command.field === "password"
+                    ? "desktop.browser.fillPassword"
+                    : "desktop.browser.fillLogin",
+            ),
+            detail: nativeT(
+              command.op === "save-login" ? "desktop.browser.saveLoginDetail" : "desktop.browser.fillLoginDetail",
+              { origin: login.origin, username: login.username },
+            ),
+            buttons: [
+              nativeT("desktop.browser.cancel"),
+              nativeT(command.op === "save-login" ? "desktop.browser.save" : "desktop.browser.fill"),
+            ],
+            defaultId: 0,
+            cancelId: 0,
+          })
+          check()
+          return answer.response === 1
+        } finally {
+          owner.suspended--
+          layout(owner)
+        }
+      }
+      if (command.op === "fill-login") await pageLogin(contents, command.id, () => check(true), command.field, confirm)
+      else if (await confirm()) {
+        check(true)
+        if ("password" in login) saveLogins([login])
       }
     } finally {
+      owner.loginCheck = undefined
       tab.loginBusy = false
       tab.revision++
       invalidateSnapshots(contents)
+      publish(owner, group)
     }
   } else if (command.op === "select") {
     group.activeID = tab.id

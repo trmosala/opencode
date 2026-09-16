@@ -16,8 +16,8 @@ export const loginVisibility = `  const visible = (el) => {
     return document.elementFromPoint(x, y) === el
   }`
 
-// Fixed code runs only in an isolated world. The ticket lives on that world's document
-// wrapper, so a new document (even at the same URL) cannot receive a pending credential.
+// Fixed code runs only in an isolated world. One-use tickets bind fields and document
+// root mutations; document.open() can preserve the wrapper and even the original fields.
 const fields = `
   if (location.origin !== origin || !isSecureContext || top !== self) throw new Error("Unsafe login document")
   ${loginVisibility}
@@ -45,7 +45,12 @@ export function prepareLoginScript(origin: string, token: string, field?: "usern
     const origin = ${JSON.stringify(origin)}
     const field = ${JSON.stringify(field ?? "both")}
     ${fields}
-    document.__cmLoginTicket = { token: ${JSON.stringify(token)}, username, password }
+    document.__cmLoginTicket?.observer.disconnect()
+    const ticket = { token: ${JSON.stringify(token)}, username, password, changed: false }
+    // document.open() keeps the document wrapper and can reinsert the original fields.
+    ticket.observer = new MutationObserver(() => { ticket.changed = true })
+    ticket.observer.observe(document, { childList: true })
+    document.__cmLoginTicket = ticket
     return true
   })()`
 }
@@ -63,7 +68,9 @@ export function completeLoginScript(
     const field = ${JSON.stringify(field ?? "both")}
     const ticket = document.__cmLoginTicket
     delete document.__cmLoginTicket
-    if (!ticket || ticket.token !== ${JSON.stringify(token)}) throw new Error("Login document changed")
+    const changed = ticket?.changed || !!ticket?.observer.takeRecords().length
+    ticket?.observer.disconnect()
+    if (!ticket || ticket.token !== ${JSON.stringify(token)} || changed) throw new Error("Login document changed")
     ${fields}
     if (ticket.username !== username || ticket.password !== password) throw new Error("Login form changed")
     const fill = ${JSON.stringify(login ? { username: field === "password" ? undefined : login.username, password: field === "username" ? undefined : login.password } : null)}

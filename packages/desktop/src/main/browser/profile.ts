@@ -140,28 +140,69 @@ export function forgetLogin(id: string) {
 }
 
 // Use the isolated world and the native input setter; never return passwords to the app renderer or submit forms.
-export async function pageLogin(contents: WebContents, id?: string, check = () => {}, field?: "username" | "password") {
+export async function pageLogin(
+  contents: WebContents,
+  id?: string,
+  check = () => {},
+  field?: "username" | "password",
+  confirm?: () => Promise<boolean>,
+) {
   if (field !== undefined && (id === undefined || !["username", "password"].includes(field)))
     throw new Error("Invalid login field")
   const ticket = vaultAccess.require()
   const origin = loginOrigin(contents.getURL())
   if (!vaultAvailable()) throw new Error("Secure storage unavailable")
-  const token = randomUUID()
-  await contents.executeJavaScriptInIsolatedWorld(999, [{ code: prepareLoginScript(origin, token, field) }])
-  vaultAccess.require(ticket)
-  check()
   const credential = id === undefined ? undefined : readLogins().find((row) => row.id === id && row.origin === origin)
   if (id !== undefined && !credential) throw new Error("Credential origin mismatch")
+  const token = randomUUID()
   check()
-  vaultAccess.require(ticket)
-  const result = await contents.executeJavaScriptInIsolatedWorld(999, [
-    {
-      code: completeLoginScript(origin, token, credential, Date.now() + Math.min(5000, vaultAccess.remaining()), field),
-    },
-  ])
-  vaultAccess.require(ticket)
-  check()
-  if (!credential) return requireLogin(result)
+  try {
+    await contents.executeJavaScriptInIsolatedWorld(999, [{ code: prepareLoginScript(origin, token, field) }])
+    vaultAccess.require(ticket)
+    check()
+    // Consent belongs to these fields, not a document discovered after the dialog.
+    if (confirm && !(await confirm())) return
+    vaultAccess.require(ticket)
+    check()
+    if (credential) {
+      const current = readLogins().find((row) => row.id === id)
+      if (
+        !current ||
+        current.origin !== origin ||
+        current.username !== credential.username ||
+        current.password !== credential.password
+      )
+        throw new Error("Account changed")
+    }
+    check()
+    vaultAccess.require(ticket)
+    const result = await contents.executeJavaScriptInIsolatedWorld(999, [
+      {
+        code: completeLoginScript(
+          origin,
+          token,
+          credential,
+          Date.now() + Math.min(5000, vaultAccess.remaining()),
+          field,
+        ),
+      },
+    ])
+    vaultAccess.require(ticket)
+    check()
+    if (!credential) return requireLogin(result)
+  } catch {
+    // Page exceptions and execution details must never cross the app IPC boundary.
+    throw new Error("Login operation failed")
+  } finally {
+    if (!contents.isDestroyed())
+      await contents
+        .executeJavaScriptInIsolatedWorld(999, [
+          {
+            code: `if (document.__cmLoginTicket?.token === ${JSON.stringify(token)}) { document.__cmLoginTicket.observer.disconnect(); delete document.__cmLoginTicket } true`,
+          },
+        ])
+        .catch(() => undefined)
+  }
 }
 
 export async function importBrowserData(win: BrowserWindow, profile: Session, kind: "passwords" | "cookies") {

@@ -1,4 +1,5 @@
 export type BrowserTab = {
+  revision?: number
   connection?: "https" | "http" | "unknown" | "error"
   id: string
   openerID?: string
@@ -134,7 +135,7 @@ export type BrowserCommand =
   | { op: "zoom"; tabID: string; factor: number }
   | { op: "device"; tabID: string; enabled: boolean }
   | { op: "print" | "save-login"; tabID: string }
-  | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password" }
+  | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password"; revision?: number }
   | { op: "generate-password"; tabID: string; length?: number; symbols?: boolean }
   | { op: "forget-login"; id: string }
   | { op: "edit-login"; origin: string; id?: string }

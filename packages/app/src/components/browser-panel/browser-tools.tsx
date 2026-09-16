@@ -88,6 +88,90 @@ export function BrowserMenu(props: {
   )
 }
 
+export function BrowserAccounts(props: {
+  tab?: BrowserTab
+  tabs: BrowserTabs
+  command(command: BrowserCommand): Promise<unknown>
+}) {
+  const language = useLanguage()
+  const [state, setState] = createStore({ open: false, busy: false })
+  const accounts = () => {
+    const tab = props.tab
+    const profile = props.tabs.profile
+    if (!tab || tab.loading || tab.agentAccess || !profile?.vaultAvailable || profile.vaultStatus !== "unlocked")
+      return []
+    const url = URL.parse(tab.url)
+    if (!url || !["https:", "http:"].includes(url.protocol)) return []
+    return profile.credentials.filter((login) => login.origin === url.origin)
+  }
+  createEffect(() => {
+    props.tab?.id
+    props.tab?.url
+    props.tab?.revision
+    props.tab?.loading
+    props.tab?.agentAccess
+    props.tabs.profile?.vaultStatus
+    props.tabs.profile?.vaultAvailable
+    setState("open", false)
+  })
+  const fill = async (id: string, field?: "username" | "password") => {
+    const tab = props.tab
+    if (state.busy || !state.open || !tab || !accounts().some((login) => login.id === id)) return
+    const command: BrowserCommand = { op: "fill-login", tabID: tab.id, id, field, revision: tab.revision }
+    setState({ open: false, busy: true })
+    try {
+      await props.command(command)
+    } finally {
+      setState("busy", false)
+    }
+  }
+  return (
+    <DropdownMenu open={state.open} onOpenChange={(open) => setState("open", open)}>
+      <DropdownMenu.Trigger
+        as={Button}
+        type="button"
+        size="small"
+        variant="ghost"
+        data-account-selector
+        disabled={state.busy || !accounts().length}
+      >
+        {language.t("browser.menu.passwords")}
+      </DropdownMenu.Trigger>
+      <Show when={state.open}>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content class="max-h-80 max-w-[calc(100vw-16px)] overflow-y-auto">
+            <For each={accounts()}>
+              {(login) => (
+                <DropdownMenu.Group data-account-id={login.id}>
+                  <DropdownMenu.GroupLabel class="break-all">{login.username}</DropdownMenu.GroupLabel>
+                  <For each={["both", "username", "password"] as const}>
+                    {(field) => (
+                      <DropdownMenu.Item
+                        data-field={field}
+                        onSelect={() => void fill(login.id, field === "both" ? undefined : field)}
+                      >
+                        <DropdownMenu.ItemLabel>
+                          {language.t(
+                            field === "both"
+                              ? "browser.passwords.fill"
+                              : field === "username"
+                                ? "browser.passwords.fillUsername"
+                                : "browser.passwords.fillPassword",
+                          )}
+                        </DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    )}
+                  </For>
+                </DropdownMenu.Group>
+              )}
+            </For>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </Show>
+    </DropdownMenu>
+  )
+}
+
 export function BrowserTools(props: {
   panel: BrowserToolPanel
   tab?: BrowserTab

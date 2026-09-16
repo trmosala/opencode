@@ -47,6 +47,11 @@ app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion")
 const userAgents = new Map<string, string>()
 const server = createServer((request, response) => {
   userAgents.set(request.url ?? "/", request.headers["user-agent"] ?? "")
+  if (request.url === "/account-fill.js" && process.argv.includes("--account-fill")) {
+    response.writeHead(200, { "Content-Type": "text/javascript" })
+    response.end(readFileSync(join(profile!, "account-fill.js")))
+    return
+  }
   if (request.url?.startsWith("/download")) {
     response.writeHead(200, {
       "Content-Type": "application/octet-stream",
@@ -311,6 +316,485 @@ async function run() {
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
+
+  if (process.argv.includes("--account-fill")) {
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    const contents = one.view.webContents
+    const form =
+      '<form method="post"><input autocomplete="username"><input type="password" autocomplete="current-password"><button>Submit</button></form>'
+    try {
+      vaultAuthentication.verify = async () => {}
+      await command({ op: "unlock-vault" })
+      saveLogins([{ origin: url, username: "selected-user", password: "fixture-selected-secret" }])
+      const id = browserProfile().credentials[0].id
+      await contents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(form)}; true`)
+      dialog.showMessageBox = (async () => {
+        await contents.executeJavaScript(
+          `document.open(); document.write(${JSON.stringify(form)}); document.close(); true`,
+        )
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      stage("account fill: document replacement during consent")
+      await assert.rejects(
+        command({ op: "fill-login", tabID: first, id }),
+        "Consent must not authorize a replacement document",
+      )
+      assert.equal(await contents.executeJavaScript("document.querySelector('input[type=password]').value"), "")
+      stage("account fill: original fields moved into a replacement document")
+      await contents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(form)}; true`)
+      dialog.showMessageBox = (async () => {
+        await contents.executeJavaScript(
+          "const original = document.querySelector('form'); document.open(); document.write('<!doctype html><body></body>'); document.close(); document.body.append(original); true",
+        )
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await assert.rejects(
+        command({ op: "fill-login", tabID: first, id }),
+        "Reusing fields must not authorize a replacement document",
+      )
+      assert.equal(await contents.executeJavaScript("document.querySelector('input[type=password]').value"), "")
+      stage("account fill: mounted selector")
+      saveLogins([
+        { origin: url, username: "second-user", password: "fixture-second-secret" },
+        { origin: url.replace("http:", "https:"), username: "scheme-mismatch", password: "fixture-other-secret" },
+        { origin: "https://login.example.test", username: "subdomain-mismatch", password: "fixture-other-secret" },
+        {
+          origin: `http://127.0.0.1:${address.port === 65535 ? 65534 : address.port + 1}`,
+          username: "port-mismatch",
+          password: "fixture-other-secret",
+        },
+      ])
+      await contents.executeJavaScript(
+        `document.body.innerHTML = ${JSON.stringify(form)}; window.submissions = 0; document.querySelector('form').onsubmit = event => { event.preventDefault(); window.submissions++ }; true`,
+      )
+      const chrome = win.webContents
+      chrome.debugger.attach("1.3")
+      await chrome.debugger.sendCommand("Runtime.enable")
+      await chrome.debugger.sendCommand("Runtime.addBinding", { name: "fixtureRequest" })
+      let fills = 0
+      let dialogs = 0
+      const requests: Promise<unknown>[] = []
+      let holdViewport: Promise<void> | undefined
+      let heldViewport = false
+      let answer: () => Promise<number> = async () => 1
+      const failures: unknown[] = []
+      const send = chrome.send.bind(chrome)
+      chrome.send = (channel, ...args) => {
+        send(channel, ...args)
+        if (channel === "browser-tabs")
+          requests.push(
+            chrome.executeJavaScript(`window.fixture?.accept(${JSON.stringify(args[0])}); true`).catch((error) => {
+              failures.push(error)
+            }),
+          )
+      }
+      chrome.debugger.on("message", (_event, method, params) => {
+        if (method !== "Runtime.bindingCalled" || params.name !== "fixtureRequest") return
+        const input = JSON.parse(params.payload)
+        const pending = (async () => {
+          try {
+            let result
+            if (input.op === "viewport") {
+              result = browserViewport(owner, input.args[0])
+              if (input.args[0].bounds && holdViewport) {
+                heldViewport = true
+                await holdViewport
+              }
+            } else {
+              if (input.args[1].op === "fill-login") {
+                fills++
+                assert.equal(owner.attached, one, "Fill must wait for acknowledged reattachment")
+                assert(win.contentView.children.includes(one.view))
+                assert.equal(input.acknowledgedViewport, true, "Renderer must receive the viewport acknowledgement")
+                assert.equal(input.menuOpen, false, "Menu must be disposed before dispatch")
+                assert.equal(input.accounts, 0, "Account elements must be removed before dispatch")
+              }
+              result = await browserCommand(owner, input.args[0], input.args[1])
+            }
+            await chrome.executeJavaScript(`window.fixture.resolve(${input.id}, ${JSON.stringify(result ?? null)})`)
+          } catch (error) {
+            failures.push(error)
+            await chrome.executeJavaScript(`window.fixture.resolve(${input.id}, null, true)`)
+          }
+        })()
+        requests.push(pending)
+      })
+      const publish = async () =>
+        chrome.executeJavaScript(`window.fixture.accept(${JSON.stringify(await command({ op: "state" }))}); true`)
+      dialog.showMessageBox = (async (_win, options) => {
+        dialogs++
+        assert.equal(options?.defaultId, 0)
+        assert.equal(options?.cancelId, 0)
+        assert(!JSON.stringify(options).includes("fixture-"))
+        assert.equal(
+          await contents.executeJavaScript("[...document.querySelectorAll('input')].every(el => !el.value)"),
+          true,
+        )
+        return { response: await answer(), checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      await chrome.executeJavaScript(
+        `document.body.innerHTML = ''; const script = document.createElement('script'); script.src = '/account-fill.js'; document.body.append(script); true`,
+      )
+      stage("account fill: loading renderer fixture")
+      await wait(() => chrome.executeJavaScript("!!window.fixture"))
+      await publish()
+      stage("account fill: mounting selector")
+      await wait(() => chrome.executeJavaScript("!!document.querySelector('[data-account-selector]')"))
+      const click = async (selector: string) => {
+        const point = await chrome.executeJavaScript(
+          `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el || el.disabled) throw new Error('Fixture control unavailable'); const r = el.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`,
+        )
+        chrome.sendInputEvent({ type: "mouseDown", ...point, button: "left", clickCount: 1 })
+        chrome.sendInputEvent({ type: "mouseUp", ...point, button: "left", clickCount: 1 })
+      }
+      stage("account fill: initial panel attachment")
+      await wait(() => owner.viewport?.lease !== "first" && owner.attached === one).catch(async () => {
+        console.log(
+          "Fixture layout",
+          JSON.stringify(
+            await chrome.executeJavaScript(
+              "({ visibility: document.visibilityState, viewport: document.querySelector('.min-h-0.flex-1')?.getBoundingClientRect().toJSON(), size: [innerWidth, innerHeight], errors: window.fixture.errors })",
+            ),
+          ),
+        )
+        throw new Error("Panel did not acquire viewport")
+      })
+      await click("[data-account-selector]")
+      stage("account fill: opening menu")
+      await wait(() => chrome.executeJavaScript("!!document.querySelector('[data-component=dropdown-menu-content]')"))
+      stage("account fill: detaching viewport for menu")
+      await wait(() => owner.attached === undefined)
+      assert.equal(fills, 0)
+      assert.equal(dialogs, 0)
+      assert.equal(await chrome.executeJavaScript("document.querySelectorAll('[data-account-id]').length"), 2)
+      const second = browserProfile().credentials.find((row) => row.username === "second-user")!
+      let releaseViewport!: () => void
+      holdViewport = new Promise((resolve) => {
+        releaseViewport = resolve
+      })
+      await click(`[data-account-id="${second.id}"] [data-field=both]`)
+      await wait(() => heldViewport)
+      assert.equal(fills, 0, "Selection must wait for the viewport acknowledgement")
+      assert.equal(dialogs, 0)
+      holdViewport = undefined
+      releaseViewport()
+      stage("account fill: waiting for selection dispatch")
+      await wait(() => fills === 1)
+      stage("account fill: waiting for native consent")
+      await wait(() => dialogs === 1)
+      await Promise.all(requests)
+      assert.equal(
+        await contents.executeJavaScript("document.querySelector('input[type=password]').value"),
+        "fixture-second-secret",
+      )
+      assert.equal(
+        await contents.executeJavaScript("document.querySelector('input[autocomplete=username]').value"),
+        "second-user",
+      )
+      assert.equal(await contents.executeJavaScript("window.submissions"), 0)
+      assert.equal(await chrome.executeJavaScript("window.fixture.errors"), 0)
+      assert.deepEqual(failures, [])
+      const reset = async (markup = form) => {
+        await contents.executeJavaScript(
+          `document.body.innerHTML = ${JSON.stringify(markup)}; window.submissions = 0; document.querySelector('form').onsubmit = event => { event.preventDefault(); window.submissions++ }; true`,
+        )
+        await publish()
+        await wait(() => chrome.executeJavaScript("!document.querySelector('[data-account-selector]').disabled")).catch(
+          () => {
+            throw new Error(
+              `Fixture selector unavailable: vault=${browserProfile().vaultStatus}, active=${owner.groups.get("smoke")!.activeID === first}, loading=${contents.isLoading()}`,
+            )
+          },
+        )
+        await wait(() => owner.attached === one)
+      }
+      const open = async () => {
+        await click("[data-account-selector]")
+        await wait(() => chrome.executeJavaScript("!!document.querySelector('[data-component=dropdown-menu-content]')"))
+        await wait(() => owner.attached === undefined)
+      }
+      const choose = async (account: string, field: string) => {
+        const before = fills
+        await click(`[data-account-id="${account}"] [data-field=${field}]`)
+        await wait(() => fills === before + 1)
+        await Promise.all(requests)
+        await wait(() => chrome.executeJavaScript("!document.querySelector('[data-account-selector]').disabled"))
+      }
+      for (const failure of ["preparation", "delivery"] as const) {
+        stage(`account fill: mounted ${failure} failure then Username retry`)
+        await reset('<form method="post"><input autocomplete="username"></form>')
+        const before: { failures: number; dialogs: number } = { failures: failures.length, dialogs }
+        if (failure === "delivery")
+          answer = async () => {
+            await contents.executeJavaScript(
+              "const input = document.querySelector('input'); input.replaceWith(input.cloneNode()); true",
+            )
+            return 1
+          }
+        await open()
+        await choose(id, failure === "preparation" ? "both" : "username")
+        assert.equal(failures.length, before.failures + 1)
+        assert.deepEqual(
+          failures.slice(before.failures).map((error) => (error as Error).message),
+          ["Login operation failed"],
+        )
+        assert.equal(dialogs, before.dialogs + (failure === "delivery" ? 1 : 0))
+        assert.equal(await contents.executeJavaScript("document.querySelector('input').value"), "")
+        assert.equal(
+          await contents.executeJavaScriptInIsolatedWorld(999, [{ code: "!!document.__cmLoginTicket" }]),
+          false,
+        )
+        answer = async () => 1
+        // Retry only via the mounted UI: no reset, navigation, state request or manual publication.
+        await open()
+        await choose(id, "username")
+        assert.equal(
+          await contents.executeJavaScript("document.querySelector('input').value"),
+          "selected-user",
+          `Username retry after ${failure} must succeed: ${failures.map((error) => (error as Error).message).join(", ")}`,
+        )
+        assert.equal(failures.length, before.failures + 1)
+        assert.equal(dialogs, before.dialogs + (failure === "delivery" ? 2 : 1))
+        assert.equal(await contents.executeJavaScript("window.submissions"), 0)
+      }
+      stage("account fill: revocation during viewport acknowledgement")
+      for (const change of ["lock", "tab", "agent", "reload"] as const) {
+        await reset()
+        await open()
+        const before: { fills: number; dialogs: number } = { fills, dialogs }
+        heldViewport = false
+        holdViewport = new Promise((resolve) => {
+          releaseViewport = resolve
+        })
+        await click(`[data-account-id="${id}"] [data-field=both]`)
+        await wait(() => heldViewport)
+        if (change === "lock") await command({ op: "lock-vault" })
+        if (change === "tab") await command({ op: "new" })
+        if (change === "agent") one.agentAccess = true
+        if (change === "reload") await command({ op: "navigate", tabID: first, url: contents.getURL() })
+        await publish()
+        if (change === "lock") await command({ op: "unlock-vault" })
+        if (change === "tab") await command({ op: "select", tabID: first })
+        if (change === "agent") one.agentAccess = false
+        await publish()
+        holdViewport = undefined
+        releaseViewport()
+        await Promise.all(requests)
+        await wait(() => chrome.executeJavaScript("!document.querySelector('[data-account-selector]').disabled"))
+        assert.equal(fills, before.fills, `Pending selection must not revive after ${change}`)
+        assert.equal(dialogs, before.dialogs)
+        assert.equal(
+          await contents.executeJavaScript("[...document.querySelectorAll('input')].every(el => !el.value)"),
+          true,
+        )
+      }
+      stage("account fill: explicit field-only steps and cancellation")
+      for (const field of ["username", "password"] as const) {
+        await reset(
+          `<form method="post"><input ${field === "username" ? 'autocomplete="username"' : 'type="password" autocomplete="current-password"'}></form>`,
+        )
+        await open()
+        assert.equal(await contents.executeJavaScript("document.querySelector('input').value"), "")
+        await choose(id, field)
+        assert.equal(
+          await contents.executeJavaScript("document.querySelector('input').value"),
+          field === "username" ? "selected-user" : "fixture-selected-secret",
+        )
+        assert.equal(await contents.executeJavaScript("window.submissions"), 0)
+      }
+      answer = async () => 0
+      await reset()
+      await open()
+      await choose(second.id, "both")
+      assert.equal(
+        await contents.executeJavaScript("[...document.querySelectorAll('input')].every(el => !el.value)"),
+        true,
+      )
+      assert.equal(
+        await contents.executeJavaScriptInIsolatedWorld(999, [{ code: "!!document.__cmLoginTicket" }]),
+        false,
+      )
+      answer = async () => 1
+      stage("account fill: stale menus and metadata suppression")
+      for (const change of ["navigation", "reload", "lock", "agent"] as const) {
+        await reset()
+        await open()
+        const before: number = fills
+        if (change === "navigation") await command({ op: "navigate", tabID: first, url: `${url}?next` })
+        if (change === "reload") await command({ op: "navigate", tabID: first, url: contents.getURL() })
+        if (change === "lock") await command({ op: "lock-vault" })
+        if (change === "agent") one.agentAccess = true
+        await publish()
+        await wait(() => chrome.executeJavaScript("!document.querySelector('[data-component=dropdown-menu-content]')"))
+        assert.equal(await chrome.executeJavaScript("document.querySelectorAll('[data-account-id]').length"), 0)
+        assert.equal(fills, before)
+        if (change === "lock") {
+          assert.deepEqual(browserProfile().credentials, [])
+          await command({ op: "unlock-vault" })
+        }
+        if (change === "agent") one.agentAccess = false
+        await publish()
+        assert.equal(
+          await chrome.executeJavaScript("!!document.querySelector('[data-component=dropdown-menu-content]')"),
+          false,
+        )
+      }
+      // Exercise invalid URL handling and genuine subdomain/scheme/port equality in the mounted component.
+      const real = await command({ op: "state" })
+      await reset()
+      await open()
+      const unavailable = structuredClone(real)
+      unavailable.profile!.vaultAvailable = false
+      await chrome.executeJavaScript(`window.fixture.accept(${JSON.stringify(unavailable)}); true`)
+      await wait(() => chrome.executeJavaScript("!document.querySelector('[data-component=dropdown-menu-content]')"))
+      assert.equal(await chrome.executeJavaScript("document.querySelector('[data-account-selector]').disabled"), true)
+      assert.equal(await chrome.executeJavaScript("document.querySelectorAll('[data-account-id]').length"), 0)
+      await publish()
+      for (const activeURL of ["", "not a URL", "about:blank", "https://example.test/login"]) {
+        const next = structuredClone(real)
+        next.tabs.find((tab) => tab.id === first)!.url = activeURL
+        next.profile!.credentials = [
+          { id: "exact", origin: "https://example.test", username: "exact-user" },
+          { id: "sub", origin: "https://login.example.test", username: "sub-user" },
+          { id: "scheme", origin: "http://example.test", username: "scheme-user" },
+          { id: "port", origin: "https://example.test:444", username: "port-user" },
+        ]
+        await chrome.executeJavaScript(`window.fixture.accept(${JSON.stringify(next)}); true`)
+        if (activeURL !== "https://example.test/login") {
+          assert.equal(
+            await chrome.executeJavaScript("document.querySelector('[data-account-selector]').disabled"),
+            true,
+          )
+          continue
+        }
+        await open()
+        assert.deepEqual(
+          await chrome.executeJavaScript(
+            "[...document.querySelectorAll('[data-account-id]')].map(el => el.dataset.accountId)",
+          ),
+          ["exact"],
+        )
+      }
+      await publish()
+      await reset()
+      stage("account fill: authoritative consent and preparation races")
+      for (const change of ["lock", "tab", "tab-back", "viewport-back", "reload", "fields", "account"] as const) {
+        stage(`account fill: consent race ${change}`)
+        await reset()
+        const revision = one.revision
+        answer = async () => {
+          if (change === "lock") {
+            await command({ op: "lock-vault" })
+            await assert.rejects(command({ op: "unlock-vault" }), "No overlapping native authentication")
+            await vaultAccess.unlock(win)
+          }
+          if (change === "tab" || change === "tab-back") await command({ op: "new" })
+          if (change === "tab-back") await command({ op: "select", tabID: first })
+          if (change === "viewport-back") {
+            const viewport = owner.viewport!
+            browserViewport(owner, { sessionID: "other", lease: "other", bounds: viewport.bounds })
+            browserViewport(owner, viewport)
+          }
+          if (change === "reload") {
+            await command({ op: "navigate", tabID: first, url: contents.getURL() })
+            await contents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(form)}; true`)
+          }
+          if (change === "fields")
+            await contents.executeJavaScript(
+              "document.querySelector('input[type=password]').outerHTML = '<input type=password>'; true",
+            )
+          if (change === "account")
+            writeLogins(readLogins().map((row) => (row.id === id ? { ...row, password: "changed-secret" } : row)))
+          return 1
+        }
+        await assert.rejects(
+          command({ op: "fill-login", tabID: first, id, revision }),
+          `Must reject ${change} during consent`,
+        )
+        assert.equal(
+          await contents.executeJavaScript("[...document.querySelectorAll('input')].every(el => !el.value)"),
+          true,
+        )
+        if (change === "tab") await command({ op: "select", tabID: first })
+        if (change === "account")
+          writeLogins(
+            readLogins().map((row) => (row.id === id ? { ...row, password: "fixture-selected-secret" } : row)),
+          )
+      }
+      answer = async () => 1
+      await reset()
+      const stale = one.revision
+      await command({ op: "navigate", tabID: first, url: contents.getURL() })
+      await reset()
+      const before = dialogs
+      await assert.rejects(command({ op: "fill-login", tabID: first, id, revision: stale }))
+      assert.equal(dialogs, before)
+      const execute = contents.executeJavaScriptInIsolatedWorld.bind(contents)
+      contents.executeJavaScriptInIsolatedWorld = (async (world, scripts, ...rest) => {
+        const result = await execute(world, scripts, ...rest)
+        if (scripts[0]?.code.includes("document.__cmLoginTicket = ticket")) {
+          await contents.executeJavaScript(
+            `document.open(); document.write(${JSON.stringify(form)}); document.close(); true`,
+          )
+        }
+        return result
+      }) as typeof contents.executeJavaScriptInIsolatedWorld
+      try {
+        await assert.rejects(command({ op: "fill-login", tabID: first, id }))
+        assert.equal(await contents.executeJavaScript("document.querySelector('input[type=password]').value"), "")
+      } finally {
+        contents.executeJavaScriptInIsolatedWorld = execute
+      }
+      stage("account fill: detached view and sanitized execution errors")
+      await reset()
+      contents.executeJavaScriptInIsolatedWorld = (async (world, scripts, ...rest) => {
+        const result = await execute(world, scripts, ...rest)
+        if (scripts[0]?.code.includes("document.__cmLoginTicket = ticket")) win.contentView.removeChildView(one.view)
+        return result
+      }) as typeof contents.executeJavaScriptInIsolatedWorld
+      try {
+        await assert.rejects(command({ op: "fill-login", tabID: first, id }))
+        assert.equal(await contents.executeJavaScript("document.querySelector('input[type=password]').value"), "")
+      } finally {
+        contents.executeJavaScriptInIsolatedWorld = execute
+        win.contentView.addChildView(one.view)
+      }
+      contents.executeJavaScriptInIsolatedWorld = (async () => {
+        throw new Error("fixture-selected-secret execution details")
+      }) as typeof contents.executeJavaScriptInIsolatedWorld
+      try {
+        await assert.rejects(
+          command({ op: "fill-login", tabID: first, id }),
+          (error) => error instanceof Error && error.message === "Login operation failed",
+        )
+      } finally {
+        contents.executeJavaScriptInIsolatedWorld = execute
+      }
+      stage("account fill: document.write while menu is open")
+      await reset()
+      await open()
+      const prior = one.revision
+      await contents.executeJavaScript(
+        `document.open(); document.write(${JSON.stringify(form)}); document.close(); true`,
+      )
+      await wait(() => one.revision !== prior)
+      await publish()
+      await wait(() => chrome.executeJavaScript("!document.querySelector('[data-component=dropdown-menu-content]')"))
+      assert.deepEqual(
+        failures.map((error) => (error as Error).message),
+        ["Login operation failed", "Login operation failed"],
+      )
+      assert.equal(await chrome.executeJavaScript("window.fixture.errors"), 2)
+      stage("PASS focused account fill")
+    } finally {
+      vaultAccess.lock()
+      vaultAuthentication.verify = verify
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
 
   if (process.argv.includes("--generation")) {
     const verify = vaultAuthentication.verify
