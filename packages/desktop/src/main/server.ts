@@ -3,8 +3,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
-import { parseBrowserIpcRequest } from "@cookiemonster/cm-browser/protocol"
-import { routeBrowserRequest } from "./browser/router"
+import { attachBrowserBridge } from "./browser/bridge"
 import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
@@ -80,13 +79,7 @@ export async function spawnLocalServer(
   })
   let exited = false
   const exit = defer<number>()
-  const onBrowserMessage = (message: unknown) => {
-    const request = parseBrowserIpcRequest(message)
-    if (!request) return
-    void routeBrowserRequest(request).then((response) =>
-      child.postMessage({ type: "browser_result", id: request.id, response }),
-    )
-  }
+  const stopBrowserBridge = attachBrowserBridge(child)
 
   const onProcessGone = (_event: unknown, details: Details) => {
     if (details.type !== "Utility" || details.name !== SIDECAR_SERVICE_NAME) return
@@ -94,11 +87,10 @@ export async function spawnLocalServer(
   }
 
   app.on("child-process-gone", onProcessGone)
-  child.on("message", onBrowserMessage)
   child.once("exit", (code) => {
     exited = true
     app.off("child-process-gone", onProcessGone)
-    child.off("message", onBrowserMessage)
+    stopBrowserBridge()
     options.onExit?.(code)
     exit.resolve(code)
   })
@@ -157,6 +149,7 @@ export async function spawnLocalServer(
       userDataPath: options.userDataPath,
     })
   }).catch((error) => {
+    stopBrowserBridge()
     if (!exited) child.kill()
     throw error
   })
@@ -189,6 +182,7 @@ export async function spawnLocalServer(
       stop: () => {
         if (stopping) return stopping
         if (exited) return Promise.resolve()
+        stopBrowserBridge()
         child.postMessage({ type: "stop" })
         stopping = Promise.race([
           exit.promise.then(() => undefined),

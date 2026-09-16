@@ -222,6 +222,14 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.driver.inputHeld":
+    "Browser input may still be held after an interrupted action. Close this tab and open a new tab, then grant agent access again. Reloading or toggling access does not recover this tab.",
+  "desktop.browser.driver.frameUnavailable": "Browser frame unavailable.",
+  "desktop.browser.driver.contextUnavailable": "Browser context unavailable.",
+  "desktop.browser.driver.probeUnavailable": "Browser element probe unavailable.",
+  "desktop.browser.driver.invalidSelector": "Invalid CSS selector.",
+  "desktop.browser.driver.viewportUnavailable": "Browser viewport unavailable.",
+  "desktop.browser.driver.staleScrollRef": "Element ref is stale. Read browser state again.",
   "desktop.browser.contacts.preview": "Fill these contact details?",
   "desktop.browser.contacts.detail":
     "Website: {{origin}}\nContact: {{label}}\n\n{{fields}}\n\nOnly the listed fields will be filled. The website can read these values. Nothing is submitted.",

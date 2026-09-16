@@ -232,6 +232,9 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
     browser_click: "ask",
     browser_fill: "ask",
     browser_press_key: "ask",
+    browser_scroll: "ask",
+    browser_wait_for_element: "allow",
+    browser_wait_for_navigation: "allow",
   })
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   for (const agentName of MODEL_IDS) {

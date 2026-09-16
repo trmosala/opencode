@@ -55,12 +55,25 @@ export type WriteRequest = { readonly tabID: string } & (
   | { readonly op: "click"; readonly ref: string }
   | { readonly op: "fill"; readonly ref: string; readonly text: string }
   | { readonly op: "press_key"; readonly key: string; readonly modifiers: readonly Modifier[] }
+  | {
+      readonly op: "scroll"
+      readonly ref?: string
+      readonly deltaX: number
+      readonly deltaY: number
+      readonly timeoutMs?: number
+    }
 )
 
-export type PageRequest = { readonly op: "read_state"; readonly tabID: string } | WriteRequest
+export type WaitRequest = { readonly tabID: string; readonly timeoutMs: number } & (
+  | { readonly op: "wait_for_element"; readonly selector: string }
+  | { readonly op: "wait_for_navigation"; readonly url: string }
+)
+
+export type PageRequest = { readonly op: "read_state"; readonly tabID: string } | WriteRequest | WaitRequest
 
 export type Request =
   | HistoryRequest
+  | WaitRequest
   | { readonly op: "list_tabs" }
   | { readonly op: "prepare_write"; readonly request: WriteRequest }
   | { readonly op: "read_state"; readonly tabID: string }
@@ -75,6 +88,7 @@ export type ErrorCode =
   | "bad_request"
   | "unavailable"
   | "timeout"
+  | "cancelled"
 
 export type Failure = { readonly ok: false; readonly code: ErrorCode; readonly error: string }
 export type Success<T> = { readonly ok: true; readonly result: T }
@@ -85,6 +99,26 @@ export type BrowserIpcRequest = {
   readonly id: string
   readonly sessionID: string
   readonly request: Request
+}
+
+export type BrowserIpcCancel = {
+  readonly type: "browser_cancel"
+  readonly id: string
+  readonly sessionID: string
+}
+
+export function parseBrowserIpcCancel(value: unknown): BrowserIpcCancel | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  if (!("type" in value) || value.type !== "browser_cancel") return undefined
+  if (!("id" in value) || typeof value.id !== "string" || !value.id || value.id.length > 128) return undefined
+  if (
+    !("sessionID" in value) ||
+    typeof value.sessionID !== "string" ||
+    !value.sessionID ||
+    value.sessionID.length > 128
+  )
+    return undefined
+  return { type: "browser_cancel", id: value.id, sessionID: value.sessionID }
 }
 
 export type BrowserIpcResult = {
@@ -166,6 +200,17 @@ export function parseRequest(value: unknown): Request | undefined {
     return typeof input.tabID === "string" && input.tabID.length > 0 && input.tabID.length <= 128
       ? { op: "read_state", tabID: input.tabID }
       : undefined
+  if (input.op === "wait_for_element" || input.op === "wait_for_navigation") {
+    if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128 || !validTimeout(input.timeoutMs))
+      return undefined
+    if (input.op === "wait_for_element")
+      return typeof input.selector === "string" && input.selector.trim().length > 0 && input.selector.length <= 512
+        ? { op: input.op, tabID: input.tabID, selector: input.selector, timeoutMs: input.timeoutMs }
+        : undefined
+    return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH && hostOf(input.url)
+      ? { op: input.op, tabID: input.tabID, url: input.url, timeoutMs: input.timeoutMs }
+      : undefined
+  }
   const request = parseWriteRequest(input)
   const context = parseAccessContext(input.context)
   return request && context ? { ...request, context } : undefined
@@ -196,6 +241,10 @@ export function parseAccessContext(value: unknown): AccessContext | undefined {
   }
 }
 
+function validTimeout(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= OPERATION_TIMEOUT_MS
+}
+
 function parseWriteRequest(value: unknown): WriteRequest | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
@@ -205,6 +254,28 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH
       ? { op: "navigate", tabID, url: input.url }
       : undefined
+  if (input.op === "scroll") {
+    if (
+      typeof input.deltaX !== "number" ||
+      !Number.isInteger(input.deltaX) ||
+      Math.abs(input.deltaX) > 2000 ||
+      typeof input.deltaY !== "number" ||
+      !Number.isInteger(input.deltaY) ||
+      Math.abs(input.deltaY) > 2000 ||
+      (input.deltaX === 0 && input.deltaY === 0) ||
+      (input.ref !== undefined && (typeof input.ref !== "string" || !input.ref || input.ref.length > 256)) ||
+      (input.timeoutMs !== undefined && !validTimeout(input.timeoutMs))
+    )
+      return undefined
+    return {
+      op: "scroll",
+      tabID,
+      deltaX: input.deltaX,
+      deltaY: input.deltaY,
+      ...(typeof input.ref === "string" ? { ref: input.ref } : {}),
+      ...(validTimeout(input.timeoutMs) ? { timeoutMs: input.timeoutMs } : {}),
+    }
+  }
   if (input.op === "click" || input.op === "fill") {
     if (typeof input.ref !== "string" || !input.ref || input.ref.length > 256) return
     if (input.op === "click") return { op: "click", tabID, ref: input.ref }
@@ -223,8 +294,8 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
 export function parseBrowserIpcRequest(value: unknown): BrowserIpcRequest | undefined {
   if (!value || typeof value !== "object") return
   const input = value as Record<string, unknown>
-  if (input.type !== "browser_request" || typeof input.id !== "string" || !input.id) return
-  if (typeof input.sessionID !== "string" || !input.sessionID) return
+  if (input.type !== "browser_request" || typeof input.id !== "string" || !input.id || input.id.length > 128) return
+  if (typeof input.sessionID !== "string" || !input.sessionID || input.sessionID.length > 128) return
   const request = parseRequest(input.request)
   if (!request) return
   return { type: "browser_request", id: input.id, sessionID: input.sessionID, request }

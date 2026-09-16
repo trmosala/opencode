@@ -180,6 +180,18 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--scroll-wait")) {
+    const { scrollWaitSmoke } = await import("./scroll-wait.fixture")
+    await scrollWaitSmoke()
+    stage("PASS scroll/wait")
+    return
+  }
+  if (process.argv.includes("--cancellation")) {
+    const { cancellationSmoke } = await import("./cancellation.fixture")
+    await cancellationSmoke()
+    stage("PASS cancellation")
+    return
+  }
   if (process.argv.includes("--persistence-reopen")) {
     const { persistenceReopen } = await import("./persistence-reopen.fixture")
     await persistenceReopen(profile!)
@@ -487,7 +499,13 @@ async function run() {
       (candidate) => candidate.startsWith(url) || candidate.startsWith(url.replace("127.0.0.1", "localhost")),
     )
   const route = async (request: Request | WriteRequest) => {
-    if (request.op !== "navigate" && request.op !== "click" && request.op !== "fill" && request.op !== "press_key")
+    if (
+      request.op !== "navigate" &&
+      request.op !== "click" &&
+      request.op !== "fill" &&
+      request.op !== "press_key" &&
+      request.op !== "scroll"
+    )
       return dispatch(request)
     if ("context" in request) return dispatch(request)
     const prepared = await dispatch({ op: "prepare_write", request })

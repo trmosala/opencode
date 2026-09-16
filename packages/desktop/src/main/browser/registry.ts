@@ -1,13 +1,15 @@
 import { invalidateSnapshots, type DriverContents, type Target } from "./driver"
 import { failure, type HistoryRequest, type Response, type BrowserState } from "@cookiemonster/cm-browser/protocol"
 
-let historyHandler: ((sessionID: string, request: HistoryRequest) => Promise<Response<BrowserState>>) | undefined
+let historyHandler:
+  | ((sessionID: string, request: HistoryRequest, signal?: AbortSignal) => Promise<Response<BrowserState>>)
+  | undefined
 export function setBrowserHistoryHandler(handler: NonNullable<typeof historyHandler>) {
   historyHandler = handler
 }
-export function routeBrowserHistory(sessionID: string, request: HistoryRequest) {
+export function routeBrowserHistory(sessionID: string, request: HistoryRequest, signal?: AbortSignal) {
   return (
-    historyHandler?.(sessionID, request) ??
+    historyHandler?.(sessionID, request, signal) ??
     Promise.resolve(failure("no_target", "Open this task in CookieMonster before using browser history."))
   )
 }

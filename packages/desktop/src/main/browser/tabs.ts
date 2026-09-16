@@ -111,20 +111,26 @@ type Owner = {
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
 const transfers = new Map<string, { item: DownloadItem; owner: Owner; group: Group; download: BrowserDownload }>()
-setBrowserHistoryHandler(async (sessionID, request) => {
+setBrowserHistoryHandler(async (sessionID, request, signal) => {
   const owner = [...owners.values()].find(
     (entry) => entry.linkContext?.sessionID === sessionID || entry.groups.has(sessionID),
   )
   if (!owner || owner.shutting || owner.win.isDestroyed())
     return failure("no_target", "Open this task in CookieMonster before using browser history.")
-  return agentHistory(owner.win, sessionID, request, (row) => {
-    const group = groupFor(owner, sessionID)
-    if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
-    const tab = createTab(owner, group, undefined, row)
-    publish(owner, group)
-    owner.win.webContents.send("browser-opened", sessionID)
-    return tab.id
-  }).catch(() => failure("unavailable", "Browser history operation unavailable."))
+  return agentHistory(
+    owner.win,
+    sessionID,
+    request,
+    (row) => {
+      const group = groupFor(owner, sessionID)
+      if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
+      const tab = createTab(owner, group, undefined, row)
+      publish(owner, group)
+      owner.win.webContents.send("browser-opened", sessionID)
+      return tab.id
+    },
+    signal,
+  ).catch(() => failure("unavailable", "Browser history operation unavailable."))
 })
 let profileReady = false
 vaultAccess.subscribe(() => owners.forEach((owner) => owner.groups.forEach((group) => publish(owner, group))))

@@ -10,7 +10,9 @@ import {
 } from "./protocol"
 
 async function run(port: BrowserPort, context: ToolContext, request: Request) {
-  const response = await port.send(context.sessionID, request)
+  context.abort.throwIfAborted()
+  const response = await port.send(context.sessionID, request, context.abort)
+  context.abort.throwIfAborted()
   if (!response.ok) throw new Error(`${response.error} (${response.code})`)
   return response.result
 }
@@ -41,8 +43,14 @@ const result = (state: BrowserState) => ({
   metadata: { tabID: state.tabID, url: state.url },
 })
 
+async function ask(context: ToolContext, input: Parameters<ToolContext["ask"]>[0]) {
+  context.abort.throwIfAborted()
+  await context.ask(input)
+  context.abort.throwIfAborted()
+}
+
 async function askRead(context: ToolContext) {
-  await context.ask({ permission: "browser_read_state", patterns: ["*"], always: ["*"], metadata: {} })
+  await ask(context, { permission: "browser_read_state", patterns: ["*"], always: ["*"], metadata: {} })
 }
 
 async function askWrite(port: BrowserPort, context: ToolContext, permission: string, request: WriteRequest) {
@@ -53,7 +61,7 @@ async function askWrite(port: BrowserPort, context: ToolContext, permission: str
   const url = request.op === "navigate" ? request.url : binding.origin
   const host = hostOf(url)
   if (!host) throw new Error(`Browser URL is not HTTP(S): ${url}`)
-  await context.ask({ permission, patterns: [host], always: [host], metadata: request })
+  await ask(context, { permission, patterns: [host], always: [host], metadata: request })
   return { ...request, context: binding }
 }
 
@@ -79,7 +87,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         limit: tool.schema.number().int().min(1).max(20).optional(),
       },
       async execute(args, context) {
-        await context.ask({ permission: "browser_search_history", patterns: ["*"], always: ["*"], metadata: args })
+        await ask(context, { permission: "browser_search_history", patterns: ["*"], always: ["*"], metadata: args })
         return result(await run(port, context, { op: "search_history", ...args, limit: args.limit ?? 10 }))
       },
     }),
@@ -88,7 +96,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         "Open a ref returned by browser_search_history in a new private tab. Main asks for native confirmation. This does not grant agent page access. Deleted, expired and other-task refs are rejected.",
       args: { ref: tool.schema.string().min(1).max(128) },
       async execute(args, context) {
-        await context.ask({ permission: "browser_open_history", patterns: ["*"], always: ["*"], metadata: args })
+        await ask(context, { permission: "browser_open_history", patterns: ["*"], always: ["*"], metadata: args })
         return result(await run(port, context, { op: "open_history", ref: args.ref }))
       },
     }),
@@ -101,6 +109,48 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         return result(
           await run(port, context, args.tabID ? { op: "read_state", tabID: args.tabID } : { op: "list_tabs" }),
         )
+      },
+    }),
+    browser_scroll: tool({
+      description:
+        "Send one bounded Chromium wheel event at the viewport center, or over a current interactive ref. Native hit testing, scroll chaining and site wheel handlers apply; movement is not guaranteed. Nested containers need a visible interactive ref inside them; empty/noninteractive containers are not directly targetable. Returns a fresh snapshot.",
+      args: {
+        tabID,
+        ref: tool.schema.string().min(1).max(256).optional(),
+        deltaX: tool.schema.number().int().min(-2000).max(2000),
+        deltaY: tool.schema.number().int().min(-2000).max(2000),
+        timeoutMs: tool.schema.number().int().min(1).max(15000).optional(),
+      },
+      async execute(args, context) {
+        if (!args.deltaX && !args.deltaY) throw new Error("At least one scroll delta must be nonzero.")
+        const request = { op: "scroll", ...args } as const
+        return result(await run(port, context, await askWrite(port, context, "browser_scroll", request)))
+      },
+    }),
+    browser_wait_for_element: tool({
+      description:
+        "Observe this tab's current top-frame document until a supported selector has positive viewport intersection and passes Chromium opacity/visibility checks, then return a fresh bounded snapshot. Only one ASCII compound selector, at most 512 characters: optional tag [A-Za-z][A-Za-z0-9-]* followed by zero or more #id or .class tokens whose names match [A-Za-z_][A-Za-z0-9_-]*; at least one token required (e.g. button#save.primary). No whitespace, attributes, pseudos, escapes, combinators, universal selectors or lists. Unsupported selectors return bad_request. This is not an occlusion/clickability check. Navigation interrupts this wait. No iframe/shadow DOM search; no ref is promised unless the match is included among snapshot interactive elements.",
+      args: {
+        tabID,
+        selector: tool.schema.string().min(1).max(512),
+        timeoutMs: tool.schema.number().int().min(1).max(15000),
+      },
+      async execute(args, context) {
+        await askRead(context)
+        return result(await run(port, context, { op: "wait_for_element", ...args }))
+      },
+    }),
+    browser_wait_for_navigation: tool({
+      description:
+        "Observe an explicit tab until its exact URL equals url and main-frame loading is finished, then return a fresh snapshot. Level-triggered: an already-loaded URL succeeds immediately; this does not prove a fresh same-URL reload. Never starts or stops navigation.",
+      args: {
+        tabID,
+        url: tool.schema.string().url().max(2048),
+        timeoutMs: tool.schema.number().int().min(1).max(15000),
+      },
+      async execute(args, context) {
+        await askRead(context)
+        return result(await run(port, context, { op: "wait_for_navigation", ...args }))
       },
     }),
     browser_navigate: tool({

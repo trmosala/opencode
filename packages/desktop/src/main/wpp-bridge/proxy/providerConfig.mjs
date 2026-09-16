@@ -51,11 +51,7 @@ const GPT_COST = { input: 5, output: 30, cache_read: 0.5, cache_write: 0 }
 function projectModel(agentName) {
   return {
     name: agentName,
-    family: agentName.startsWith("CM_Opus")
-      ? "claude"
-      : agentName.startsWith("CM_Gemini")
-        ? "gemini"
-        : "gpt-5",
+    family: agentName.startsWith("CM_Opus") ? "claude" : agentName.startsWith("CM_Gemini") ? "gemini" : "gpt-5",
     attachment: true,
     // Non-Opus variants retain the previous builder accounting estimate until WPP exposes an
     // authoritative rate for each project-agent route.
@@ -143,6 +139,9 @@ export function o1CodeConfigContent(browserPlugin, aePlugin) {
       browser_click: "ask",
       browser_fill: "ask",
       browser_press_key: "ask",
+      browser_scroll: "ask",
+      browser_wait_for_element: "allow",
+      browser_wait_for_navigation: "allow",
     },
     lsp: true,
   })

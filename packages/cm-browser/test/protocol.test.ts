@@ -7,9 +7,64 @@ import {
   MAX_URL_LENGTH,
   hostAllowed,
   parseBrowserIpcRequest,
+  parseBrowserIpcCancel,
   parseRequest,
   stateDirectory,
 } from "../src/protocol"
+
+test("scroll and waits require explicit targets and bounded inputs", () => {
+  const scroll = { op: "scroll", tabID: "one", deltaX: -2000, deltaY: 2000 } as const
+  const prepare = (request: unknown) => parseRequest({ op: "prepare_write", request })
+  expect(prepare(scroll)).toEqual({ op: "prepare_write", request: scroll })
+  expect(parseRequest(scroll)).toBeUndefined()
+  for (const values of [
+    { deltaX: 2001 },
+    { deltaY: -2001 },
+    { deltaX: Infinity },
+    { deltaY: NaN },
+    { deltaX: 0.5 },
+    { deltaX: "1" },
+    { deltaX: 0, deltaY: 0 },
+    { ref: "" },
+    { ref: "x".repeat(257) },
+  ])
+    expect(prepare({ ...scroll, ...values })).toBeUndefined()
+  const waits = [
+    { op: "wait_for_element", tabID: "one", selector: "#ready", timeoutMs: 15000 },
+    { op: "wait_for_navigation", tabID: "one", url: "http://localhost/done", timeoutMs: 15000 },
+  ] as const
+  for (const wait of waits) {
+    expect(parseRequest(wait)).toEqual(wait)
+    expect(prepare(wait)).toBeUndefined()
+    for (const timeoutMs of [undefined, 0, -1, 15001, 0.5, Infinity, NaN, "1"])
+      expect(parseRequest({ ...wait, timeoutMs })).toBeUndefined()
+  }
+  for (const input of [...waits, scroll]) {
+    const parse = input.op === "scroll" ? prepare : parseRequest
+    for (const tabID of [undefined, "", "x".repeat(129)]) expect(parse({ ...input, tabID })).toBeUndefined()
+    for (const timeoutMs of [0, -1, 15001, 0.5, Infinity]) expect(parse({ ...input, timeoutMs })).toBeUndefined()
+    expect(parse({ ...input, timeoutMs: 1 })).toBeDefined()
+  }
+  for (const selector of ["", " ", "x".repeat(513)]) expect(parseRequest({ ...waits[0], selector })).toBeUndefined()
+  for (const url of ["", "file:///private", "http://localhost/" + "x".repeat(MAX_URL_LENGTH)])
+    expect(parseRequest({ ...waits[1], url })).toBeUndefined()
+})
+
+test("private cancellation requires bounded request and session identities, never a signal payload", () => {
+  const cancel = { type: "browser_cancel", id: "request", sessionID: "session" } as const
+  expect(parseBrowserIpcCancel({ ...cancel, signal: {}, request: {} })).toEqual(cancel)
+  expect(parseBrowserIpcRequest(cancel)).toBeUndefined()
+  for (const invalid of [null, [], {}, { ...cancel, id: "" }, { ...cancel, sessionID: 42 }])
+    expect(parseBrowserIpcCancel(invalid)).toBeUndefined()
+  for (const key of ["id", "sessionID"])
+    for (const length of [128, 129]) {
+      const input = { ...cancel, [key]: "x".repeat(length) }
+      expect(Boolean(parseBrowserIpcCancel(input))).toBe(length === 128)
+      expect(Boolean(parseBrowserIpcRequest({ ...input, type: "browser_request", request: { op: "list_tabs" } }))).toBe(
+        length === 128,
+      )
+    }
+})
 
 test("success bounds complete UTF-8 response JSON without truncating identities", () => {
   const overhead = Buffer.byteLength(JSON.stringify({ ok: true, result: "" }))

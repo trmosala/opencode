@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { MAX_SNAPSHOT_BYTES } from "@cookiemonster/cm-browser/protocol"
 import { execute, type DriverContents, type Target } from "./driver"
 import { parseSnapshot, snapshotScript } from "./snapshot"
+import { DESKTOP_NATIVE_ENGLISH, createDesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
+import { setNativeTranslations } from "../native-translations"
 
 type Call = { method: string; params?: Record<string, unknown> }
 const element = (fingerprint = "send") => ({
@@ -59,6 +61,226 @@ async function firstRef(view: ReturnType<typeof fake>) {
 }
 
 describe("browser driver", () => {
+  test("scroll sends one wheel over a current ref without down/up and refreshes", async () => {
+    const view = fake()
+    const ref = await firstRef(view)
+    const response = await execute(view.target, {
+      op: "scroll",
+      tabID: "one",
+      ref,
+      deltaX: -100,
+      deltaY: 200,
+      timeoutMs: 1000,
+    })
+    expect(response.ok).toBe(true)
+    expect(view.calls.filter((call) => call.method.startsWith("Input."))).toEqual([
+      { method: "Input.dispatchMouseEvent", params: { type: "mouseWheel", x: 30, y: 25, deltaX: -100, deltaY: 200 } },
+    ])
+    expect(response.ok && response.result.elements[0].ref).not.toBe(ref)
+    view.setElements([element("changed")])
+    expect(await execute(view.target, { op: "scroll", tabID: "one", ref, deltaX: 0, deltaY: 1 })).toMatchObject({
+      code: "stale_ref",
+    })
+    expect(view.calls.filter((call) => call.method.startsWith("Input."))).toHaveLength(1)
+  })
+
+  test("element wait rejects selectors outside its safe subset before any native query", async () => {
+    for (const selector of [
+      'input[value^="s"]',
+      'input[value^="wrong"]',
+      'body:has(input[value^="s"])',
+      'input[value^="s"] + div',
+      'body input[value^="s"]',
+      '[name="password"]',
+      ":is(#ready)",
+      ":not(#ready)",
+      "input:valid",
+      "#ready:hover",
+      "#\\\\72 eady",
+      "#ready,body",
+      "#ready > div",
+      "#ready div",
+      "*",
+      "|input",
+      "#ready\n",
+      "#ready\r",
+      "#ready\t",
+      "#ready/*comment*/",
+      "#",
+      ".1ready",
+      "x".repeat(513),
+      "",
+    ]) {
+      const view = fake()
+      expect(await execute(view.target, { op: "wait_for_element", tabID: "one", selector, timeoutMs: 1000 })).toEqual({
+        ok: false,
+        code: "bad_request",
+        error: "Invalid CSS selector.",
+      })
+      expect(view.calls).toEqual([])
+    }
+  })
+
+  test("new driver failures use the typed native bundle, including quarantine", async () => {
+    const messages = createDesktopNativeBundle("en", (key) =>
+      key.startsWith("desktop.browser.driver.") ? `fixture:${key}` : DESKTOP_NATIVE_ENGLISH[key],
+    )
+    setNativeTranslations(messages)
+    try {
+      const view = fake()
+      const ref = await firstRef(view)
+      view.setElements([element("changed")])
+      expect(await execute(view.target, { op: "scroll", tabID: "one", ref, deltaX: 0, deltaY: 1 })).toMatchObject({
+        error: "fixture:desktop.browser.driver.staleScrollRef",
+      })
+      expect(await execute(view.target, { op: "scroll", tabID: "one", deltaX: 0, deltaY: 1 })).toMatchObject({
+        error: "fixture:desktop.browser.driver.viewportUnavailable",
+      })
+      const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+      view.target.contents.debugger.sendCommand = async (method, params) => {
+        if (params?.type === "keyDown") throw new Error("Held input")
+        return send(method, params)
+      }
+      await expect(execute(view.target, { op: "press_key", tabID: "one", key: "x", modifiers: [] })).rejects.toThrow()
+      expect(await execute(view.target, { op: "read_state", tabID: "one" })).toMatchObject({
+        error: "fixture:desktop.browser.driver.inputHeld",
+      })
+    } finally {
+      setNativeTranslations(createDesktopNativeBundle("en", (key) => DESKTOP_NATIVE_ENGLISH[key]))
+    }
+  })
+
+  test.each([true, false, "invalid"])("element wait probes a bounded visible result: %s", async (match) => {
+    const view = fake()
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 7 }
+      if (params?.contextId === 7) return { result: { value: match } }
+      return send(method, params)
+    }
+    const pending = execute(view.target, { op: "wait_for_element", tabID: "one", selector: "#ready", timeoutMs: 30 })
+    if (match === false) await expect(pending).rejects.toThrow(/timed out/)
+    else expect(await pending).toMatchObject(match === true ? { ok: true } : { code: "bad_request" })
+    expect(view.calls.some((call) => call.method.startsWith("Input."))).toBe(false)
+  })
+
+  test("navigation wait observes an already finished exact URL without loading or stopping", async () => {
+    const view = fake()
+    view.target.contents.loadURL = async () => {
+      throw new Error("Must not navigate")
+    }
+    view.target.contents.stop = () => {
+      throw new Error("Must not stop")
+    }
+    expect(
+      await execute(view.target, {
+        op: "wait_for_navigation",
+        tabID: "one",
+        url: view.target.contents.getURL(),
+        timeoutMs: 1000,
+      }),
+    ).toMatchObject({ ok: true })
+    await expect(
+      execute(view.target, { op: "wait_for_navigation", tabID: "one", url: "http://localhost/other", timeoutMs: 20 }),
+    ).rejects.toThrow(/timed out/)
+  })
+
+  test.each(["pre-abort", "held command", "poll"])("cancellation at %s prevents follow-on commands", async (stage) => {
+    const view = fake()
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<void>()
+    const held = Promise.withResolvers<void>()
+    let stops = 0
+    view.target.contents.stop = () => {
+      stops++
+    }
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      const value = await send(method, params)
+      entered.resolve()
+      await held.promise
+      return value
+    }
+    if (stage === "pre-abort") controller.abort()
+    if (stage === "poll") {
+      view.target.contents.loadURL = async () => {
+        entered.resolve()
+      }
+      view.target.contents.isLoadingMainFrame = () => true
+    }
+    const pending = execute(
+      { ...view.target, signal: controller.signal, deadline: Date.now() + 1000 },
+      stage === "poll"
+        ? { tabID: "one", op: "navigate", url: "http://localhost/next" }
+        : { tabID: "one", op: "press_key", key: "Enter", modifiers: [] },
+    )
+    const outcome = pending.catch((error: unknown) => error)
+    try {
+      if (stage !== "pre-abort" && stage !== "poll") await entered.promise
+      controller.abort()
+      held.resolve()
+      expect(await outcome).toBeInstanceOf(Error)
+      expect(view.calls.filter((call) => call.method.startsWith("Input."))).toEqual([])
+      if (stage === "pre-abort") expect(view.attached()).toBe(false)
+      expect(stops).toBe(stage === "poll" ? 1 : 0)
+    } finally {
+      held.resolve()
+      controller.abort()
+    }
+  })
+
+  test.each([
+    ["keyDown", "cancel", true],
+    ["mousePressed", "cancel", true],
+    ["keyDown", "reject", true],
+    ["mousePressed", "reject", true],
+    ["keyUp", "reject", true],
+    ["mouseReleased", "reject", true],
+    ["keyUp", "cancel", false],
+    ["mouseReleased", "cancel", false],
+  ] as const)("interrupted %s (%s) quarantines only unacknowledged pairs", async (type, reason, blocked) => {
+    const view = fake()
+    const ref = await firstRef(view)
+    const controller = new AbortController()
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      const result = await send(method, params)
+      if (params?.type === type) {
+        if (reason === "reject") throw new Error("Uncertain native completion")
+        controller.abort()
+      }
+      return result
+    }
+    await expect(
+      execute(
+        { ...view.target, signal: controller.signal },
+        type.startsWith("key")
+          ? { op: "press_key", tabID: "one", key: "x", modifiers: [] }
+          : { op: "fill", tabID: "one", ref, text: "must not type" },
+      ),
+    ).rejects.toThrow()
+    const input = view.calls.filter((call) => call.method.startsWith("Input."))
+    expect(input.at(-1)?.params?.type).toBe(type)
+    view.target.contents.debugger.sendCommand = send
+    const count = view.calls.length
+    const result = await execute(view.target, { op: "read_state", tabID: "one" })
+    expect(result.ok).toBe(!blocked)
+    if (blocked) {
+      expect(result).toMatchObject({ code: "unavailable", error: expect.stringContaining("Close this tab") })
+      expect(await execute(view.target, { op: "navigate", tabID: "one", url: "http://localhost/new" })).toMatchObject({
+        code: "unavailable",
+      })
+      for (const request of [
+        { op: "scroll", tabID: "one", deltaX: 0, deltaY: 1 },
+        { op: "wait_for_element", tabID: "one", selector: "#ready", timeoutMs: 1000 },
+        { op: "wait_for_navigation", tabID: "one", url: view.target.contents.getURL(), timeoutMs: 1000 },
+      ] as const)
+        expect(await execute(view.target, request)).toMatchObject({ code: "unavailable" })
+      expect(view.calls).toHaveLength(count)
+    }
+  })
+
   test("read_state attaches and returns bounded visible state with opaque refs", async () => {
     const view = fake()
     const response = await execute(view.target, { tabID: "one", op: "read_state" })

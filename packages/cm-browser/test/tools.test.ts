@@ -51,6 +51,95 @@ function fakeContext(sessionID = "ses_1") {
 }
 
 describe("browser tools", () => {
+  test.each([
+    ["browser_scroll", { deltaX: 0, deltaY: 200, timeoutMs: 1000 }],
+    ["browser_wait_for_element", { selector: "#ready", timeoutMs: 1000 }],
+    ["browser_wait_for_navigation", { url: state.url, timeoutMs: 1000 }],
+  ] as const)("%s keeps read gating, task identity and abort", async (name, args) => {
+    const browser = fakePort()
+    const call = fakeContext()
+    const controller = new AbortController()
+    call.context.abort = controller.signal
+    const send = browser.port.send
+    const port: BrowserPort = {
+      send: async (sessionID, request, signal) => {
+        expect(signal).toBe(controller.signal)
+        return send(sessionID, request, signal)
+      },
+    }
+    const tools = browserTools(port)
+    expect(tools[name]).toBeDefined()
+    await tools[name].execute({ tabID: "one", ...args }, call.context)
+    expect(call.asked[0]).toEqual({ permission: "browser_read_state", patterns: ["*"] })
+    expect(browser.sent.at(-1)).toMatchObject({
+      sessionID: call.context.sessionID,
+      request: { op: name.slice(8), tabID: "one", ...args },
+    })
+    if (name === "browser_scroll") {
+      expect(call.asked.at(-1)).toEqual({ permission: name, patterns: ["teams.microsoft.com"] })
+      expect(browser.sent.at(-1)?.request).toMatchObject({ context: state.context })
+    } else expect(call.asked).toHaveLength(1)
+    controller.abort()
+    const count = browser.sent.length
+    await expect(tools[name].execute({ tabID: "one", ...args }, call.context)).rejects.toThrow()
+    expect(browser.sent).toHaveLength(count)
+  })
+
+  test.each(["before", "read", "write", "prepare"])(
+    "abort during %s prevents further approval or dispatch",
+    async (stage) => {
+      const browser = fakePort()
+      const call = fakeContext()
+      const controller = new AbortController()
+      call.context.abort = controller.signal
+      const send = browser.port.send
+      const port: BrowserPort = {
+        send: async (sessionID, request, signal) => {
+          expect(signal).toBe(controller.signal)
+          const reply = await send(sessionID, request, signal)
+          if (stage === "prepare") controller.abort()
+          return reply
+        },
+      }
+      const ask = call.context.ask
+      call.context.ask = async (input) => {
+        await ask(input)
+        if (input.permission === (stage === "read" ? "browser_read_state" : "browser_press_key")) controller.abort()
+      }
+      if (stage === "before") controller.abort()
+      await expect(
+        browserTools(port).browser_press_key.execute({ tabID: "one", key: "Enter" }, call.context),
+      ).rejects.toThrow()
+      expect(browser.sent.every(({ request }) => request.op === "prepare_write")).toBe(true)
+      expect(browser.sent).toHaveLength(stage === "before" || stage === "read" ? 0 : 1)
+      expect(call.asked).toHaveLength(stage === "before" ? 0 : stage === "write" ? 2 : 1)
+    },
+  )
+
+  test.each(["browser_scroll", "browser_wait_for_element", "browser_wait_for_navigation"])(
+    "%s cannot bypass read denial or abort during read approval",
+    async (name) => {
+      for (const reason of ["deny", "abort"]) {
+        const browser = fakePort()
+        const call = fakeContext()
+        const controller = new AbortController()
+        call.context.abort = controller.signal
+        call.context.ask = async (input) => {
+          expect(input.permission).toBe("browser_read_state")
+          if (reason === "deny") throw new Error("Read denied")
+          controller.abort()
+        }
+        await expect(
+          browserTools(browser.port)[name].execute(
+            { tabID: "one", deltaX: 0, deltaY: 1, selector: "#ready", url: state.url, timeoutMs: 1000 },
+            call.context,
+          ),
+        ).rejects.toThrow()
+        expect(browser.sent).toEqual([])
+      }
+    },
+  )
+
   test("read state renders visible text and opaque refs", async () => {
     const browser = fakePort()
     const call = fakeContext("ses_read")
@@ -101,6 +190,7 @@ describe("browser tools", () => {
     ["browser_click", { ref: "s4:e0" }],
     ["browser_fill", { ref: "s4:e1", text: "hi" }],
     ["browser_navigate", { url: "http://localhost/destination" }],
+    ["browser_scroll", { deltaX: 0, deltaY: 200 }],
   ] as const)("%s retains the context captured before deferred approval", async (name, args) => {
     const browser = fakePort()
     const call = fakeContext()
@@ -125,6 +215,38 @@ describe("browser tools", () => {
       await pending
       expect(browser.sent).toHaveLength(2)
       expect(browser.sent[1].request).toMatchObject({ tabID: "one", context: state.context })
+    } finally {
+      approval.resolve()
+      await pending
+    }
+  })
+
+  test.each([
+    ["browser_press_key", { key: "Enter" }],
+    ["browser_click", { ref: "s4:e0" }],
+    ["browser_fill", { ref: "s4:e1", text: "hi" }],
+    ["browser_navigate", { url: "http://localhost/destination" }],
+    ["browser_scroll", { deltaX: 0, deltaY: 200 }],
+  ] as const)("%s cannot dispatch after an aborted deferred approval answers late", async (name, args) => {
+    const browser = fakePort()
+    const call = fakeContext()
+    const controller = new AbortController()
+    const waiting = Promise.withResolvers<void>()
+    const approval = Promise.withResolvers<void>()
+    call.context.abort = controller.signal
+    call.context.ask = async (input) => {
+      if (input.permission !== name) return
+      waiting.resolve()
+      await approval.promise
+    }
+    const tools = browserTools(browser.port)
+    const pending = tools[name].execute({ tabID: "one", ...args }, call.context).catch((error: unknown) => error)
+    try {
+      await waiting.promise
+      controller.abort()
+      approval.resolve()
+      expect(await pending).toBeInstanceOf(Error)
+      expect(browser.sent.map(({ request }) => request.op)).toEqual(["prepare_write"])
     } finally {
       approval.resolve()
       await pending

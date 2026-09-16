@@ -22,7 +22,9 @@ export async function agentHistory(
   sessionID: string,
   request: HistoryRequest,
   open: (row: { url: string; title: string }) => string,
+  signal?: AbortSignal,
 ): Promise<Response<BrowserState>> {
+  signal?.throwIfAborted()
   const revision = browserPreferencesRevision()
   const enabled = () =>
     !win.isDestroyed() &&
@@ -76,7 +78,7 @@ export async function agentHistory(
         buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
         defaultId: 0,
         cancelId: 0,
-        signal: controller.signal,
+        signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
       })
       if (answer.response !== 1) return failure("access_denied", "Browser history request declined.")
     } catch {
@@ -86,6 +88,7 @@ export async function agentHistory(
       pending.delete(win)
     }
   }
+  signal?.throwIfAborted()
   if (Date.now() >= deadline || !enabled())
     return failure("access_denied", "Browser history access changed or expired.")
   const base = { tabID: "", url: "", title: "Browser history", visibleText: "", elements: [] }
