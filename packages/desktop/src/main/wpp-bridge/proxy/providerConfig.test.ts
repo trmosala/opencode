@@ -233,6 +233,7 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
     browser_hover: "ask",
     browser_drag: "ask",
     browser_select_option: "ask",
+    browser_screenshot: "ask",
     browser_fill: "ask",
     browser_press_key: "ask",
     browser_scroll: "ask",

@@ -3,6 +3,8 @@ import {
   DEFAULT_ALLOWLIST,
   MAX_TYPED_TEXT,
   MAX_SNAPSHOT_BYTES,
+  screenshotBytes,
+  screenshotDimensions,
   success,
   MAX_URL_LENGTH,
   hostAllowed,
@@ -11,6 +13,51 @@ import {
   parseRequest,
   stateDirectory,
 } from "../src/protocol"
+
+test("screenshot byte, edge, raster and complete UTF-8 response budgets are exact", () => {
+  for (const length of [46_080, 46_081]) {
+    const bytes = Buffer.alloc(length)
+    bytes.set([255, 216, 255])
+    bytes.set([255, 217], length - 2)
+    expect(Boolean(screenshotBytes(bytes.toString("base64")))).toBe(length === 46_080)
+  }
+  for (const value of ["", "!!!!", "/9j/2Q==\\n", "/9j/2R==", Buffer.from("not jpeg").toString("base64")])
+    expect(screenshotBytes(value)).toBeUndefined()
+  expect(screenshotDimensions(4096, 1024)).toBe(true)
+  expect(screenshotDimensions(2048, 2048)).toBe(true)
+  for (const pair of [
+    [4097, 1],
+    [4096, 1025],
+    [2048, 2049],
+    [0, 1],
+    [1.5, 1],
+    [NaN, 1],
+  ])
+    expect(screenshotDimensions(...(pair as [number, number]))).toBe(false)
+  const state = {
+    tabID: "one",
+    url: "http://localhost/",
+    title: "",
+    visibleText: "",
+    elements: [],
+    screenshot: { data: "a".repeat(61_440), width: 1, height: 1 },
+  }
+  const spare = 65_536 - Buffer.byteLength(JSON.stringify({ ok: true, result: state }))
+  state.url += "x".repeat(spare)
+  expect(success(state).ok).toBe(true)
+  expect(success({ ...state, url: state.url + "x" }).ok).toBe(false)
+  expect(success({ ...state, url: state.url.slice(0, -1) + "é" }).ok).toBe(false)
+})
+
+test("screenshot requires approval binding and exposes no capture controls", () => {
+  const request = { op: "screenshot", tabID: "one" } as const
+  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
+  expect(parseRequest(request)).toBeUndefined()
+  expect(parseRequest({ ...request, context, clip: {}, quality: 100, fullPage: true })).toEqual({ ...request, context })
+  for (const tabID of ["", 1, undefined, "x".repeat(129)])
+    expect(parseRequest({ op: "prepare_write", request: { ...request, tabID } })).toBeUndefined()
+})
 
 test("drag accepts only bounded endpoint refs and retains write binding", () => {
   const request = {

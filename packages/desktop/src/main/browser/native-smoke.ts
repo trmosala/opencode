@@ -188,6 +188,12 @@ async function run() {
     stage("PASS snapshots")
     if (process.argv.includes("--snapshots")) return
   }
+  if (process.argv.includes("--screenshots")) {
+    const { screenshotsSmoke } = await import("./screenshots.fixture")
+    await screenshotsSmoke()
+    stage("PASS screenshots")
+    return
+  }
   if (process.argv.includes("--interactions")) {
     const { interactionsSmoke } = await import("./interactions.fixture")
     await interactionsSmoke()
@@ -521,6 +527,7 @@ async function run() {
       request.op !== "select_option" &&
       request.op !== "fill" &&
       request.op !== "press_key" &&
+      request.op !== "screenshot" &&
       request.op !== "scroll"
     )
       return dispatch(request)

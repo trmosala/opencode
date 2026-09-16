@@ -334,6 +334,12 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.leaveDetail": "Changes you made may not be saved.",
   "desktop.browser.leaveConfirm": "Leave",
   "desktop.browser.stay": "Stay",
+  "desktop.browser.screenshotConsent": "Share this tab's visible pixels with the agent?",
+  "desktop.browser.screenshotDetail":
+    "Task: {{task}}\nTab: {{tab}}\nSource: {{url}}\n\nThis one screenshot shares all visible pixels, including passwords, editable values, canvas and cross-origin frames. Nothing is redacted or checked for sensitive data. An attachment already shared cannot be recalled. This does not grant future screenshots.",
+  "desktop.browser.screenshotUnavailable": "Browser screenshot unavailable or exceeds the size limit.",
+  "desktop.browser.screenshotDenied": "Browser screenshot consent was not granted.",
+  "desktop.browser.screenshotDeliveryUnavailable": "Browser screenshot delivery unavailable.",
   "desktop.browser.access": "Allow agent access to this tab?",
   "desktop.browser.accessDetail":
     "The agent may read and interact with signed-in pages in this tab on allowed hosts. Other tabs remain private. Browser cookies are stored in a separate persistent profile.",

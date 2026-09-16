@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { MAX_SNAPSHOT_BYTES } from "@cookiemonster/cm-browser/protocol"
-import { execute, shouldShowBrowserContextMenu, type DriverContents, type Target } from "./driver"
+import { execute, shouldShowBrowserContextMenu, screenshotDecoder, type DriverContents, type Target } from "./driver"
 import { parseSnapshot, snapshotScript } from "./snapshot"
 import { DESKTOP_NATIVE_ENGLISH, createDesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 import { setNativeTranslations } from "../native-translations"
@@ -75,6 +75,65 @@ async function firstRef(view: ReturnType<typeof fake>) {
 }
 
 describe("browser driver", () => {
+  test("screenshot bounds preflight and decoded raster, rejects malformed capture, never retries or reads DOM", async () => {
+    const decoder = screenshotDecoder.size
+    try {
+      for (const reason of [
+        "success",
+        "edge",
+        "pixels",
+        "empty",
+        "base64",
+        "jpeg",
+        "decode",
+        "raster",
+        "bytes",
+        "url",
+      ]) {
+        const view = fake({ url: reason === "url" ? "http://localhost/" + "x".repeat(65536) : undefined })
+        let captures = 0
+        screenshotDecoder.size = async () =>
+          reason === "decode" ? undefined : { width: reason === "raster" ? 4097 : 1, height: 1 }
+        view.target.contents.debugger.sendCommand = async (method, params) => {
+          if (method === "Page.getLayoutMetrics")
+            return {
+              visualViewport: {
+                clientWidth: reason === "edge" ? 4097 : reason === "pixels" ? 4096 : 1,
+                clientHeight: reason === "pixels" ? 1025 : 1,
+              },
+            }
+          expect(method).toBe("Page.captureScreenshot")
+          expect(params).toEqual({ format: "jpeg", quality: 60, fromSurface: true, captureBeyondViewport: false })
+          captures++
+          return {
+            data:
+              reason === "empty"
+                ? ""
+                : reason === "base64"
+                  ? "bad!"
+                  : reason === "jpeg"
+                    ? "YWJjZA=="
+                    : reason === "bytes"
+                      ? "a".repeat(61444)
+                      : "/9j/2Q==",
+          }
+        }
+        const response = await execute(view.target, { op: "screenshot", tabID: "one" })
+        expect(response.ok).toBe(reason === "success")
+        expect(captures).toBe(reason === "edge" || reason === "pixels" ? 0 : 1)
+        if (response.ok)
+          expect(response.result).toMatchObject({
+            title: "",
+            visibleText: "",
+            elements: [],
+            screenshot: { width: 1, height: 1, data: "/9j/2Q==" },
+          })
+      }
+    } finally {
+      screenshotDecoder.size = decoder
+    }
+  })
+
   test("drag jointly validates endpoints, sends four fixed moves and releases once", async () => {
     const view = fake()
     view.setElements([element(), { ...element("drop"), rect: { x: 210, y: 20, width: 40, height: 10 } }])

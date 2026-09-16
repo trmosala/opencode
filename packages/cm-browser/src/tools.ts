@@ -3,6 +3,9 @@ import type { BrowserPort } from "./port"
 import {
   hostOf,
   parseAccessContext,
+  screenshotBytes,
+  screenshotDimensions,
+  MAX_SNAPSHOT_BYTES,
   type BrowserState,
   type Modifier,
   type Request,
@@ -117,6 +120,34 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         return result(
           await run(port, context, args.tabID ? { op: "read_state", tabID: args.tabID } : { op: "list_tabs" }),
         )
+      },
+    }),
+    browser_screenshot: tool({
+      description:
+        "Share one viewport JPEG from an opted-in task tab. Requires separate screenshot approval and native per-capture consent, even when tool permission allows. All visible pixels, including passwords, editable values, canvas and cross-origin frames, are disclosed without redaction. No full-page capture, resizing or retry. Returns an image attachment, not DOM refs.",
+      args: { tabID },
+      async execute(args, context) {
+        const request = { op: "screenshot", tabID: args.tabID } as const
+        const state = await run(port, context, await askWrite(port, context, "browser_screenshot", request))
+        const image = state?.screenshot
+        if (
+          !image ||
+          !screenshotDimensions(image.width, image.height) ||
+          !screenshotBytes(image.data) ||
+          state.tabID !== args.tabID ||
+          typeof state.url !== "string" ||
+          !hostOf(state.url) ||
+          state.title !== "" ||
+          state.visibleText !== "" ||
+          !Array.isArray(state.elements) ||
+          state.elements.length ||
+          Buffer.byteLength(JSON.stringify({ ok: true, result: state })) > MAX_SNAPSHOT_BYTES
+        )
+          throw new Error("Invalid browser screenshot result.")
+        return {
+          output: `Screenshot ${image.width}x${image.height}; tab ${state.tabID}; source ${state.url}`,
+          attachments: [{ type: "file" as const, mime: "image/jpeg", url: `data:image/jpeg;base64,${image.data}` }],
+        }
       },
     }),
     browser_scroll: tool({

@@ -6,6 +6,49 @@ export const MAX_URL_LENGTH = 2_048
 export const MAX_TYPED_TEXT = 10_000
 export const MAX_SNAPSHOT_BYTES = 64 * 1024
 export const OPERATION_TIMEOUT_MS = 15_000
+export const MAX_SCREENSHOT_EDGE = 4096
+export const MAX_SCREENSHOT_PIXELS = 4_194_304
+export const MAX_SCREENSHOT_BYTES = 46_080
+export const MAX_SCREENSHOT_BASE64 = 61_440
+
+export type Screenshot = { readonly data: string; readonly width: number; readonly height: number }
+
+export function screenshotDimensions(width: unknown, height: unknown): boolean {
+  return (
+    typeof width === "number" &&
+    typeof height === "number" &&
+    Number.isInteger(width) &&
+    Number.isInteger(height) &&
+    width > 0 &&
+    height > 0 &&
+    width <= MAX_SCREENSHOT_EDGE &&
+    height <= MAX_SCREENSHOT_EDGE &&
+    width * height <= MAX_SCREENSHOT_PIXELS
+  )
+}
+
+export function screenshotBytes(data: unknown): Buffer | undefined {
+  if (
+    typeof data !== "string" ||
+    !data ||
+    data.length > MAX_SCREENSHOT_BASE64 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)
+  )
+    return
+  const bytes = Buffer.from(data, "base64")
+  if (
+    bytes.length < 4 ||
+    bytes.length > MAX_SCREENSHOT_BYTES ||
+    bytes.toString("base64") !== data ||
+    bytes[0] !== 255 ||
+    bytes[1] !== 216 ||
+    bytes[2] !== 255 ||
+    bytes[bytes.length - 2] !== 255 ||
+    bytes[bytes.length - 1] !== 217
+  )
+    return
+  return bytes
+}
 
 export const DEFAULT_ALLOWLIST: readonly string[] = ["localhost", "127.0.0.1", "teams.microsoft.com"]
 export const MODIFIERS = ["Ctrl", "Alt", "Shift", "Meta"] as const
@@ -27,6 +70,7 @@ export type ElementRef = {
 }
 
 export type BrowserState = {
+  readonly screenshot?: Screenshot
   readonly context?: AccessContext
   readonly history?: readonly { ref: string; url: string; title: string; time: number }[]
   readonly opened?: boolean
@@ -58,6 +102,7 @@ export type AccessContext = {
 }
 
 export type WriteRequest = { readonly tabID: string } & (
+  | { readonly op: "screenshot" }
   | { readonly op: "navigate"; readonly url: string }
   | { readonly op: "click"; readonly ref: string; readonly mode?: "left" | "double" | "right" }
   | { readonly op: "hover"; readonly ref: string }
@@ -260,6 +305,7 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
   const input = value as Record<string, unknown>
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
+  if (input.op === "screenshot") return { op: "screenshot", tabID }
   if (input.op === "navigate")
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH
       ? { op: "navigate", tabID, url: input.url }

@@ -51,6 +51,42 @@ function fakeContext(sessionID = "ses_1") {
 }
 
 describe("browser tools", () => {
+  test("screenshot uses named approval and only attachment pixels, rejecting invalid results", async () => {
+    const image = { data: Buffer.from([255, 216, 255, 217]).toString("base64"), width: 1, height: 1 }
+    const value = { ...state, title: "", visibleText: "", elements: [], screenshot: image }
+    const browser = fakePort(success(value))
+    const call = fakeContext()
+    const reply = await browserTools(browser.port).browser_screenshot.execute({ tabID: "one" }, call.context)
+    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_screenshot"])
+    expect(browser.sent.map((item) => item.request.op)).toEqual(["prepare_write", "screenshot"])
+    expect(browser.sent[1].request).toMatchObject({ context: state.context })
+    expect(reply).toEqual({
+      output: `Screenshot 1x1; tab one; source ${state.url}`,
+      attachments: [{ type: "file", mime: "image/jpeg", url: `data:image/jpeg;base64,${image.data}` }],
+    })
+    for (const screenshot of [
+      undefined,
+      { ...image, data: "" },
+      { ...image, data: "bad!" },
+      { ...image, width: 4097 },
+      { ...image, width: 4096, height: 4096 },
+    ]) {
+      const invalid = fakePort(success({ ...value, screenshot }))
+      await expect(
+        browserTools(invalid.port).browser_screenshot.execute({ tabID: "one" }, fakeContext().context),
+      ).rejects.toThrow("Invalid browser screenshot")
+    }
+    const denied = fakePort()
+    const denial = fakeContext()
+    denial.context.ask = async (input) => {
+      if (input.permission === "browser_screenshot") throw new Error("Denied")
+    }
+    await expect(
+      browserTools(denied.port).browser_screenshot.execute({ tabID: "one" }, denial.context),
+    ).rejects.toThrow("Denied")
+    expect(denied.sent.map((item) => item.request.op)).toEqual(["prepare_write"])
+  })
+
   test.each([
     ["browser_drag", { sourceRef: "s4:e0", targetRef: "s4:e1" }],
     ["browser_select_option", { ref: "s4:e0", optionRef: "s4:o1" }],

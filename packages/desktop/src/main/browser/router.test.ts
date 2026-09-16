@@ -14,8 +14,10 @@ import {
 import { browserTools } from "@cookiemonster/cm-browser/tools"
 import { registerBrowserTab, setBrowserAgentEnabled, type BrowserRegistration } from "./registry"
 import { routeBrowserRequest } from "./router"
-import { browserInputFailure, shouldShowBrowserContextMenu } from "./driver"
+import { browserInputFailure, shouldShowBrowserContextMenu, screenshotDecoder } from "./driver"
 import { parseSnapshot } from "./snapshot"
+import { DESKTOP_NATIVE_ENGLISH } from "@opencode-ai/app/i18n/desktop-native"
+import { setNativeTranslations } from "../native-translations"
 
 function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
   const calls: string[] = []
@@ -82,6 +84,241 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
   }
   return { tab, calls, remove, route, write }
 }
+
+test.each(["success", "missing", "regrant", "aba", "replace", "allowlist", "global", "cancel", "deadline"] as const)(
+  "screenshot real-route response-to-post race is fail closed: %s",
+  async (reason) => {
+    const { tab, route, remove } = fixture()
+    const decode = screenshotDecoder.size
+    screenshotDecoder.size = async () => ({ width: 1, height: 1 })
+    tab.confirmScreenshot = async () => () => {}
+    tab.contents.debugger.sendCommand = async (method) =>
+      method === "Page.getLayoutMetrics"
+        ? { visualViewport: { clientWidth: 1, clientHeight: 1 } }
+        : { data: "/9j/2Q==" }
+    const posted = Promise.withResolvers<BrowserIpcResult>()
+    const child = Object.assign(new EventEmitter(), {
+      postMessage: (result: BrowserIpcResult) => posted.resolve(result),
+    })
+    let allowed = true
+    const stop = attachBrowserBridge(child, async (message, _allowed, control) => {
+      const response = await routeBrowserRequest(message, () => allowed, {
+        ...control,
+        deadline: reason === "deadline" ? Date.now() + 30 : control.deadline,
+        onScreenshotDelivery: reason === "missing" ? undefined : control.onScreenshotDelivery,
+      })
+      expect(response.ok).toBe(true)
+      if (reason === "regrant") {
+        tab.accessRevision = 1
+        tab.agentAccess = false
+        tab.agentAccess = true
+      }
+      if (reason === "aba") {
+        await tab.contents.loadURL("http://localhost/b")
+        await tab.contents.loadURL("http://localhost/")
+      }
+      if (reason === "replace") {
+        remove()
+        registerBrowserTab({ ...tab })
+      }
+      if (reason === "allowlist") allowed = false
+      if (reason === "global") {
+        setBrowserAgentEnabled(false)
+        setBrowserAgentEnabled(true)
+        tab.agentAccess = true
+      }
+      if (reason === "cancel")
+        child.emit("message", { type: "browser_cancel", id: message.id, sessionID: message.sessionID })
+      if (reason === "deadline") await Bun.sleep(40)
+      return response
+    })
+    try {
+      const request = { op: "screenshot", tabID: tab.id } as const
+      const prepared = await route({ op: "prepare_write", request })
+      if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+      child.emit("message", {
+        type: "browser_request",
+        id: "post",
+        sessionID: tab.sessionID,
+        request: { ...request, context: prepared.result.context },
+      })
+      const reply = await posted.promise
+      expect(reply.response.ok).toBe(reason === "success")
+      if (!reply.response.ok) expect(JSON.stringify(reply)).not.toContain("/9j/")
+      await new Promise((resolve) => setImmediate(resolve))
+    } finally {
+      stop()
+      remove()
+      setBrowserAgentEnabled(true)
+      screenshotDecoder.size = decode
+    }
+  },
+)
+
+test.each(["route", "post"] as const)("screenshot %s delivery error uses native i18n", async (phase) => {
+  const { tab, route, remove } = fixture()
+  const decode = screenshotDecoder.size.bind(screenshotDecoder)
+  const key = "desktop.browser.screenshotDeliveryUnavailable"
+  expect(DESKTOP_NATIVE_ENGLISH[key]).toBe("Browser screenshot delivery unavailable.")
+  setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH, [key]: "test delivery sentinel" } })
+  let invalidated = false
+  tab.confirmScreenshot = async () => () => {
+    if (invalidated) throw new Error("Owner changed")
+  }
+  screenshotDecoder.size = async () => ({ width: 1, height: 1 })
+  tab.contents.debugger.sendCommand = async (method) =>
+    method === "Page.getLayoutMetrics" ? { visualViewport: { clientWidth: 1, clientHeight: 1 } } : { data: "/9j/2Q==" }
+  const posted = Promise.withResolvers<BrowserIpcResult>()
+  const child = Object.assign(new EventEmitter(), {
+    postMessage: (result: BrowserIpcResult) => posted.resolve(result),
+  })
+  const stop = attachBrowserBridge(child, async (message, _allowed, control) => {
+    const response = await routeBrowserRequest(message, () => true, {
+      ...control,
+      onSettled(operation) {
+        control.onSettled?.(operation)
+        if (phase === "route")
+          void operation.then(() => {
+            invalidated = true
+          })
+      },
+    })
+    expect(response.ok).toBe(phase === "post")
+    invalidated = true
+    return response
+  })
+  try {
+    const request = { op: "screenshot", tabID: tab.id } as const
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+    child.emit("message", {
+      type: "browser_request",
+      id: "i18n",
+      sessionID: tab.sessionID,
+      request: { ...request, context: prepared.result.context },
+    })
+    expect((await posted.promise).response).toEqual({
+      ok: false,
+      code: "unavailable",
+      error: "test delivery sentinel",
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+  } finally {
+    stop()
+    remove()
+    screenshotDecoder.size = decode
+    setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH } })
+  }
+})
+
+test("screenshot rejects private, foreign, missing consent and stale native approval before capture", async () => {
+  const { tab, route, write, calls, remove } = fixture()
+  try {
+    const request = { op: "screenshot", tabID: tab.id } as const
+    expect(await write(request)).toMatchObject({ code: "access_denied" })
+    tab.agentAccess = false
+    expect(await write(request)).toMatchObject({ code: "access_denied" })
+    expect(await route({ op: "prepare_write", request }, "other")).toMatchObject({ code: "no_target" })
+    tab.agentAccess = true
+    tab.confirmScreenshot = async () => {
+      tab.revision++
+      return () => {}
+    }
+    expect(await write(request)).toMatchObject({ ok: false })
+    expect(calls).toEqual([])
+    expect(tab.screenshotConsent).toBeUndefined()
+  } finally {
+    remove()
+  }
+})
+
+test.each(["success", "cancel", "timeout", "regrant", "aba", "replace", "global", "allowlist", "owner"] as const)(
+  "screenshot held capture drops stale pixels and retains lease: %s",
+  async (reason) => {
+    const { tab, route, remove } = fixture()
+    const decode = screenshotDecoder.size
+    const entered = Promise.withResolvers<void>(),
+      held = Promise.withResolvers<void>(),
+      settled = Promise.withResolvers<void>()
+    const controller = new AbortController()
+    let allowed = true
+    tab.contents.backgroundThrottling = true
+    tab.confirmScreenshot = async () => () => {}
+    screenshotDecoder.size = async () => ({ width: 1, height: 1 })
+    tab.contents.debugger.sendCommand = async (method, params) => {
+      if (method === "Page.getLayoutMetrics") return { visualViewport: { clientWidth: 1, clientHeight: 1 } }
+      expect(method).toBe("Page.captureScreenshot")
+      expect(params).toEqual({ format: "jpeg", quality: 60, fromSurface: true, captureBeyondViewport: false })
+      entered.resolve()
+      await held.promise
+      return { data: "/9j/2Q==" }
+    }
+    try {
+      const request = { op: "screenshot", tabID: tab.id } as const
+      const prepared = await route({ op: "prepare_write", request })
+      if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+      const pending = routeBrowserRequest(
+        {
+          type: "browser_request",
+          id: "pixels",
+          sessionID: tab.sessionID,
+          request: { ...request, context: prepared.result.context },
+        },
+        () => allowed,
+        {
+          signal: controller.signal,
+          deadline: Date.now() + (reason === "timeout" ? 30 : 1000),
+          onSettled: (operation) => {
+            void operation.finally(() => settled.resolve())
+          },
+        },
+      )
+      await entered.promise
+      expect(tab.navigationAllowed).toBeUndefined()
+      if (reason === "cancel") controller.abort()
+      if (reason === "regrant") {
+        tab.agentAccess = false
+        tab.accessRevision = 1
+        tab.agentAccess = true
+      }
+      if (reason === "aba") {
+        await tab.contents.loadURL("http://localhost/b")
+        await tab.contents.loadURL("http://localhost/")
+      }
+      if (reason === "replace") {
+        remove()
+        registerBrowserTab({ ...tab })
+      }
+      if (reason === "global") {
+        setBrowserAgentEnabled(false)
+        setBrowserAgentEnabled(true)
+        tab.agentAccess = true
+      }
+      if (reason === "allowlist") allowed = false
+      if (reason === "owner") tab.ownerID++
+      if (reason === "cancel" || reason === "timeout") {
+        expect(await pending).toMatchObject({ code: reason === "cancel" ? "cancelled" : "timeout" })
+        expect(tab.screenshotConsent?.signal.aborted).toBe(true)
+      }
+      expect(tab.contents.backgroundThrottling).toBe(false)
+      expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "unavailable" })
+      held.resolve()
+      const response = await pending
+      await settled.promise
+      expect(response.ok).toBe(reason === "success")
+      if (!response.ok) expect(JSON.stringify(response)).not.toContain("/9j/")
+      expect(tab.contents.backgroundThrottling).toBe(true)
+      expect(tab.screenshotConsent).toBeUndefined()
+    } finally {
+      held.resolve()
+      controller.abort()
+      await settled.promise
+      screenshotDecoder.size = decode
+      remove()
+      setBrowserAgentEnabled(true)
+    }
+  },
+)
 
 test.each(["success", "cancel", "revoke", "timeout", "owner", "source", "registration", "policy", "reject"] as const)(
   "drag held movement retains ownership and quarantine through %s settlement",

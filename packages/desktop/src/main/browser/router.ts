@@ -13,6 +13,7 @@ import { browserInputFailure, execute } from "./driver"
 import { browserTabs, browserRegistration, browserAgentEnabled, routeBrowserHistory } from "./registry"
 import { browserURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
+import { nativeT } from "../native-translations"
 
 const busy = new Set<string>()
 
@@ -20,6 +21,7 @@ export type BrowserOperation = {
   signal?: AbortSignal
   deadline?: number
   onSettled?: (operation: Promise<unknown>) => void
+  onScreenshotDelivery?: (check: () => void) => void
 }
 
 export async function routeBrowserRequest(
@@ -52,7 +54,14 @@ export async function routeBrowserRequest(
     interrupted = () => resolve(controller.signal.reason)
     controller.signal.addEventListener("abort", interrupted, { once: true })
   })
-  const operation = route(message, isAllowed, controller.signal, deadline)
+  let deliveryCheck: (() => void) | undefined
+  const operation = route(message, isAllowed, controller.signal, deadline, (check) => {
+    deliveryCheck = () => {
+      control.signal?.throwIfAborted()
+      check()
+    }
+    control.onScreenshotDelivery?.(deliveryCheck)
+  })
     .then((response) =>
       controller.signal.aborted
         ? controller.signal.reason
@@ -69,7 +78,16 @@ export async function routeBrowserRequest(
     )
   control.onSettled?.(operation)
   try {
-    return await Promise.race([operation, cancelled])
+    const response = await Promise.race([operation, cancelled])
+    if (response.ok && validated.op === "screenshot") {
+      try {
+        if (!deliveryCheck) throw new Error("Missing screenshot authority")
+        deliveryCheck()
+      } catch {
+        return failure("unavailable", nativeT("desktop.browser.screenshotDeliveryUnavailable"))
+      }
+    }
+    return response
   } finally {
     clearTimeout(timer)
     control.signal?.removeEventListener("abort", abort)
@@ -82,6 +100,7 @@ async function route(
   isAllowed: (url: string) => boolean,
   signal: AbortSignal,
   deadline: number,
+  onScreenshotDelivery: (check: () => void) => void,
 ): Promise<Response<BrowserState>> {
   signal.throwIfAborted()
   const parsed = parseRequest(message.request)
@@ -162,7 +181,8 @@ async function route(
       !tab.agentAccess ||
       (tab.accessRevision ?? 0) !== accessRevision ||
       contents.isDestroyed() ||
-      ((observing || request.op === "scroll" || request.op === "select_option") && browserInputFailure(contents)) ||
+      ((observing || request.op === "screenshot" || request.op === "scroll" || request.op === "select_option") &&
+        browserInputFailure(contents)) ||
       ((!navigating || (source && request.op === "navigate")) &&
         (tab.revision !== revision || contents.getURL() !== url)) ||
       (!navigating && contents.isLoadingMainFrame()) ||
@@ -182,17 +202,39 @@ async function route(
       destination = { revision: tab.revision, url: current }
     }
   }
-  // Observation must not veto an independently initiated user navigation.
-  if (!observing) tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
+  // Screenshots observe every source transition but never veto user navigation.
+  const screenshot = request.op === "screenshot"
+  const consent = screenshot ? new AbortController() : undefined
+  const revoke = () => consent?.abort()
+  let ownerCheck: (() => void) | undefined
+  const authority = (source = false) => {
+    check(source)
+    consent?.signal.throwIfAborted()
+    ownerCheck?.()
+  }
+  if (!observing && !screenshot) tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
   busy.add(tab.id)
-  // CDP input needs current compositor hit-test data, including for background tabs.
   const release = keepBrowserRendering(contents)
   try {
-    // Do not race native settlement here: cancelled calls may still act until their promise settles.
-    return await execute({ tabID: tab.id, contents, check, signal, deadline }, request)
+    if (consent) {
+      tab.screenshotConsent = consent
+      signal.addEventListener("abort", revoke, { once: true })
+      authority()
+      const approved = await tab.confirmScreenshot?.(url, consent.signal)
+      ownerCheck = typeof approved === "function" ? approved : undefined
+      authority()
+      if (!ownerCheck) return failure("access_denied", nativeT("desktop.browser.screenshotDenied"))
+      onScreenshotDelivery(authority)
+    }
+    // Keep busy/rendering ownership until actual native settlement, even after an early reply.
+    const response = await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
+    if (screenshot) authority()
+    return response
   } finally {
+    signal.removeEventListener("abort", revoke)
+    if (consent && tab.screenshotConsent === consent) tab.screenshotConsent = undefined
     busy.delete(tab.id)
-    if (!observing) tab.navigationAllowed = undefined
+    if (!observing && !screenshot) tab.navigationAllowed = undefined
     release()
   }
 }

@@ -3,6 +3,8 @@ import { setTimeout } from "node:timers/promises"
 import {
   MAX_SNAPSHOT_BYTES,
   OPERATION_TIMEOUT_MS,
+  screenshotBytes,
+  screenshotDimensions,
   failure,
   success,
   type BrowserState,
@@ -19,6 +21,17 @@ import {
   type SnapshotElement,
 } from "./snapshot"
 import { nativeT } from "../native-translations"
+
+// Narrow native decoder seam: Bun unit tests do not load Electron.
+export const screenshotDecoder = {
+  async size(bytes: Buffer, check: () => void) {
+    check()
+    const { nativeImage } = await import("electron")
+    check()
+    const image = nativeImage.createFromBuffer(bytes)
+    return image.isEmpty() ? undefined : image.getSize()
+  },
+}
 
 export type DriverContents = {
   backgroundThrottling?: boolean
@@ -243,6 +256,37 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
   const blocked = browserInputFailure(target.contents)
   if (blocked) return blocked
   attach(target.contents)
+
+  if (request.op === "screenshot") {
+    const unavailable = () => failure("unavailable", nativeT("desktop.browser.screenshotUnavailable"))
+    const metrics = (await send(target, "Page.getLayoutMetrics")) as
+      | {
+          visualViewport?: { clientWidth?: unknown; clientHeight?: unknown }
+        }
+      | undefined
+    const viewport = metrics?.visualViewport
+    if (!viewport || !screenshotDimensions(viewport.clientWidth, viewport.clientHeight)) return unavailable()
+    const captured = (await send(target, "Page.captureScreenshot", {
+      format: "jpeg",
+      quality: 60,
+      fromSurface: true,
+      captureBeyondViewport: false,
+    })) as { data?: unknown } | undefined
+    const bytes = screenshotBytes(captured?.data)
+    if (!bytes) return unavailable()
+    check(target)
+    const size = await screenshotDecoder.size(bytes, () => check(target))
+    check(target)
+    if (!size || !screenshotDimensions(size.width, size.height)) return unavailable()
+    return success({
+      tabID: target.tabID,
+      url: target.contents.getURL(),
+      title: "",
+      visibleText: "",
+      elements: [],
+      screenshot: { data: bytes.toString("base64"), width: size.width, height: size.height },
+    })
+  }
 
   if (request.op === "wait_for_navigation") {
     while (target.contents.getURL() !== request.url || target.contents.isLoadingMainFrame()) await settle(target)

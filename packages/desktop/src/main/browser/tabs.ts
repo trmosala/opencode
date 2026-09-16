@@ -104,6 +104,7 @@ type Owner = {
   viewport?: { sessionID: string; lease: string; bounds: BrowserBounds }
   attached?: Tab
   suspended: number
+  screenshotEpoch: number
   shutting?: boolean
   generationCheck?: () => void
   loginCheck?: () => void
@@ -140,7 +141,7 @@ export function registerBrowserOwner(win: BrowserWindow) {
   setBrowserAgentEnabled(browserPreferencesState().agentEnabled)
   const existing = owners.get(win.webContents.id)
   if (existing) return existing
-  const owner: Owner = { win, groups: new Map(), suspended: 0 }
+  const owner: Owner = { win, groups: new Map(), suspended: 0, screenshotEpoch: 0 }
   const id = win.webContents.id
   owners.set(id, owner)
   const hide = () => {
@@ -149,10 +150,12 @@ export function registerBrowserOwner(win: BrowserWindow) {
   }
   win.on("resize", hide)
   win.on("hide", () => {
+    owner.screenshotEpoch++
     vaultAccess.lock()
     layout(owner)
   })
   win.on("close", () => {
+    owner.screenshotEpoch++
     owner.shutting = true
   })
   win.on("show", () => {
@@ -160,21 +163,25 @@ export function registerBrowserOwner(win: BrowserWindow) {
     layout(owner)
   })
   win.on("minimize", () => {
+    owner.screenshotEpoch++
     vaultAccess.lock()
     layout(owner)
   })
   win.on("restore", () => layout(owner))
   win.webContents.on("did-start-navigation", (_event, _url, _inPlace, main) => {
+    owner.screenshotEpoch++
     if (main) {
       vaultAccess.lock()
       hide()
     }
   })
   win.webContents.on("render-process-gone", () => {
+    owner.screenshotEpoch++
     vaultAccess.lock()
     hide()
   })
   win.webContents.once("destroyed", () => {
+    owner.screenshotEpoch++
     owner.shutting = true
     vaultAccess.lock()
     owners.delete(id)
@@ -580,6 +587,81 @@ function createTab(
     openerID: popup?.openerID,
     loadFailed: false,
   }
+  tab.confirmScreenshot = async (url, signal) => {
+    if (
+      owner.suspended ||
+      owner.shutting ||
+      owner.win.isDestroyed() ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
+      !group.tabs.includes(tab)
+    )
+      return false
+    const consent = tab.screenshotConsent
+    if (!consent || consent.signal !== signal || signal.aborted) return false
+    const epoch = owner.screenshotEpoch
+    const revoke = () => consent.abort()
+    const sheet =
+      process.platform === "darwin"
+        ? new BrowserWindow({
+            width: 400,
+            height: 160,
+            show: false,
+            title: nativeT("desktop.browser.screenshotConsent"),
+            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+          })
+        : undefined
+    sheet?.on("close", revoke)
+    owner.win.on("close", revoke)
+    owner.win.on("hide", revoke)
+    owner.win.on("minimize", revoke)
+    owner.win.webContents.on("destroyed", revoke)
+    owner.win.webContents.on("render-process-gone", revoke)
+    owner.win.webContents.on("did-start-navigation", revoke)
+    owner.suspended++
+    layout(owner)
+    try {
+      signal.throwIfAborted()
+      sheet?.showInactive()
+      const options = {
+        type: "warning" as const,
+        message: nativeT("desktop.browser.screenshotConsent"),
+        detail: nativeT("desktop.browser.screenshotDetail", { task: tab.sessionID, tab: tab.id, url }),
+        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
+        defaultId: 0,
+        cancelId: 0,
+        signal,
+      }
+      const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
+      if (answer.response !== 1) return false
+      // Retain the original owner epoch through disclosure, not just native consent.
+      return () => {
+        signal.throwIfAborted()
+        if (
+          owner.screenshotEpoch !== epoch ||
+          owner.shutting ||
+          owner.win.isDestroyed() ||
+          owner.win.webContents.isDestroyed() ||
+          !owner.win.isVisible() ||
+          owner.win.isMinimized() ||
+          owners.get(tab.ownerID) !== owner ||
+          owner.groups.get(tab.sessionID) !== group ||
+          !group.tabs.includes(tab)
+        )
+          throw new Error("Screenshot owner changed")
+      }
+    } finally {
+      owner.win.removeListener("close", revoke)
+      owner.win.removeListener("hide", revoke)
+      owner.win.removeListener("minimize", revoke)
+      owner.win.webContents.removeListener("destroyed", revoke)
+      owner.win.webContents.removeListener("render-process-gone", revoke)
+      owner.win.webContents.removeListener("did-start-navigation", revoke)
+      if (sheet && !sheet.isDestroyed()) sheet.destroy()
+      owner.suspended--
+      layout(owner)
+    }
+  }
   if (tab.transferGuarded) {
     tab.uploadGuard = guardUploads(owner.win, tab, contents)
     void tab.uploadGuard.catch(() => {
@@ -605,6 +687,7 @@ function createTab(
   const changed = () => publish(owner, group)
   const invalidate = () => {
     tab.accessConsent?.abort()
+    tab.screenshotConsent?.abort()
     tab.revision++
     invalidateSnapshots(contents)
     cancelPicker(contents)
@@ -863,6 +946,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
             group.tabs.forEach((tab) => {
               if (allowed(tab.contents.getURL())) return
               tab.accessConsent?.abort()
+              tab.screenshotConsent?.abort()
               tab.agentAccess = false
               tab.accessRevision = (tab.accessRevision ?? 0) + 1
               tab.revision++
@@ -1414,6 +1498,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     if (typeof command.enabled !== "boolean") throw new Error("Invalid browser access")
     if (!command.enabled) {
       tab.accessConsent?.abort()
+      tab.screenshotConsent?.abort()
       tab.agentAccess = false
       tab.accessRevision = (tab.accessRevision ?? 0) + 1
       tab.revision++
