@@ -1,10 +1,11 @@
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { createEffect, For, onCleanup, Show } from "solid-js"
+import { createEffect, createUniqueId, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { BrowserCommand, BrowserTab, BrowserTabs, BrowserClearKind, BrowserClearRange } from "@/browser-panel"
+import { browserDeviceSize, BROWSER_DEVICE_MIN, BROWSER_DEVICE_MAX, BROWSER_DEVICE_DEFAULT } from "@/browser-panel"
 import { BrowserSettings } from "./browser-settings"
 import { BrowserLibrary } from "./browser-library"
 import { BrowserSite } from "./browser-site"
@@ -27,9 +28,11 @@ export function BrowserMenu(props: {
   tab?: BrowserTab
   open(panel: BrowserToolPanel): void
   command(command: BrowserCommand): Promise<unknown>
-  screenshot(): void
+  screenshot(closed: Promise<void>): void
 }) {
   const language = useLanguage()
+  let finishScreenshot: (() => void) | undefined
+  onCleanup(() => finishScreenshot?.())
   return (
     <DropdownMenu>
       <DropdownMenu.Trigger
@@ -40,7 +43,12 @@ export function BrowserMenu(props: {
         aria-label={language.t("browser.menu.label")}
       />
       <DropdownMenu.Portal>
-        <DropdownMenu.Content>
+        <DropdownMenu.Content
+          onCloseAutoFocus={() => {
+            finishScreenshot?.()
+            finishScreenshot = undefined
+          }}
+        >
           <DropdownMenu.Item disabled={!props.tab} onSelect={() => props.open("find")}>
             <DropdownMenu.ItemLabel>{language.t("browser.menu.find")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
@@ -64,7 +72,16 @@ export function BrowserMenu(props: {
               {language.t(props.tab?.device ? "browser.menu.deviceOff" : "browser.menu.device")}
             </DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
-          <DropdownMenu.Item disabled={!props.tab} onSelect={() => props.screenshot()}>
+          <DropdownMenu.Item
+            disabled={!props.tab}
+            onSelect={() =>
+              props.screenshot(
+                new Promise<void>((resolve) => {
+                  finishScreenshot = resolve
+                }),
+              )
+            }
+          >
             <DropdownMenu.ItemLabel>{language.t("browser.menu.screenshot")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
@@ -85,6 +102,92 @@ export function BrowserMenu(props: {
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu>
+  )
+}
+
+export function BrowserDeviceToolbar(props: { tab: BrowserTab; command(command: BrowserCommand): Promise<unknown> }) {
+  const language = useLanguage()
+  const help = createUniqueId()
+  const [state, setState] = createStore({ width: "", height: "", busy: false })
+  const current = () => props.tab.deviceSize ?? BROWSER_DEVICE_DEFAULT
+  const size = () => browserDeviceSize({ width: Number(state.width), height: Number(state.height) })
+  createEffect(() => {
+    props.tab.id
+    setState({ width: String(current().width), height: String(current().height) })
+  })
+  const apply = async (rotate = false) => {
+    const value = size()
+    if (state.busy || props.tab.loading || !props.tab.device || !props.tab.deviceSize || !value) return
+    const command: BrowserCommand = {
+      op: "device",
+      tabID: props.tab.id,
+      enabled: true,
+      size: rotate ? { width: value.height, height: value.width } : value,
+    }
+    setState("busy", true)
+    try {
+      await props.command(command)
+    } finally {
+      setState("busy", false)
+    }
+  }
+  return (
+    <Show
+      when={props.tab.deviceSize}
+      fallback={
+        <div class="shrink-0 px-2 py-1 text-12-regular text-text-weak">{language.t("browser.device.size")}</div>
+      }
+    >
+      <form
+        class="shrink-0 max-h-48 overflow-y-auto border-b border-border-weaker-base px-2 py-1 text-12-regular text-text-base"
+        aria-label={language.t("browser.menu.device")}
+        onSubmit={(event) => {
+          event.preventDefault()
+          void apply()
+        }}
+      >
+        <p role="status" class="mb-1">
+          {language.t("browser.device.current", current())}
+        </p>
+        <fieldset class="flex flex-wrap items-center gap-2" disabled={state.busy || props.tab.loading}>
+          <For each={["width", "height"] as const}>
+            {(axis) => (
+              <label class="flex items-center gap-1">
+                {language.t(`browser.device.${axis}`)}
+                <input
+                  type="number"
+                  min={BROWSER_DEVICE_MIN}
+                  max={BROWSER_DEVICE_MAX}
+                  step={1}
+                  required
+                  aria-describedby={help}
+                  class="w-20 border border-border-weak-base rounded px-2 py-1"
+                  value={state[axis]}
+                  onInput={(event) => setState(axis, event.currentTarget.value)}
+                />
+              </label>
+            )}
+          </For>
+          <Button type="submit" size="small" disabled={!size()}>
+            {language.t("browser.device.apply")}
+          </Button>
+          <Button type="button" size="small" variant="ghost" disabled={!size()} onClick={() => void apply(true)}>
+            {language.t("browser.device.rotate")}
+          </Button>
+          <Button
+            type="button"
+            size="small"
+            variant="ghost"
+            onClick={() => void props.command({ op: "device", tabID: props.tab.id, enabled: false })}
+          >
+            {language.t("browser.menu.deviceOff")}
+          </Button>
+        </fieldset>
+        <p id={help} class="mt-1 text-text-weak">
+          {language.t("browser.device.limits")}
+        </p>
+      </form>
+    </Show>
   )
 }
 

@@ -13,13 +13,14 @@ import type {
   BrowserClearKind,
   BrowserClearRange,
 } from "@opencode-ai/app/browser-panel"
-import { browserShortcut } from "@opencode-ai/app/browser-panel"
+import { browserShortcut, browserDeviceSize, BROWSER_DEVICE_DEFAULT } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
 import { browserPreferences, browserURL, browserPageURL, BROWSER_PARTITION } from "./policy"
 import {
   registerBrowserTab,
   setBrowserAgentEnabled,
   browserAgentEnabled,
+  browserOperationBusy,
   setBrowserHistoryHandler,
   type BrowserRegistration,
 } from "./registry"
@@ -38,8 +39,9 @@ import {
 } from "./preferences"
 import { updateAgentHost, allowed } from "./allowlist"
 import { transferRule } from "./transfer-policy"
-import { invalidateSnapshots, shouldShowBrowserContextMenu } from "./driver"
-import { browserContext, cancelPicker } from "./context"
+import { browserInputFailure, invalidateSnapshots, shouldShowBrowserContextMenu } from "./driver"
+import { deviceEmulation } from "./device-preview"
+import { captureBrowserContext, cancelPicker } from "./context"
 import { initializeVaultLocking, vaultAccess } from "./vault-session"
 import { vaultAvailable } from "./vault"
 import { readContacts, saveContact, deleteContact } from "./contacts"
@@ -96,6 +98,7 @@ type Tab = BrowserRegistration & {
   openerID?: string
   loadFailed: boolean
   device?: boolean
+  deviceSize?: { width: number; height: number }
   find?: { active: number; matches: number }
   findRequest?: number
   permissionReload?: boolean
@@ -126,6 +129,7 @@ type Owner = {
   shutting?: boolean
   generationCheck?: () => void
   loginCheck?: () => void
+  captureChecks?: Set<() => void>
 }
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
@@ -377,6 +381,7 @@ function state(group: Group): BrowserTabs {
                   : "unknown",
           zoom: contents.getZoomFactor(),
           device: tab.device,
+          deviceSize: tab.deviceSize ?? BROWSER_DEVICE_DEFAULT,
           find: tab.find,
           url: contents.getURL() || tab.saved.url,
           title: contents.getTitle().slice(0, 512) || tab.saved.title,
@@ -396,6 +401,7 @@ function publish(owner: Owner, group: Group) {
 function layout(owner: Owner) {
   owner.generationCheck?.()
   owner.loginCheck?.()
+  owner.captureChecks?.forEach((check) => check())
   const viewport = owner.viewport
   const tab =
     viewport &&
@@ -430,14 +436,7 @@ function layout(owner: Owner) {
 }
 
 function contentsDevice(tab: Tab, width: number, height: number) {
-  tab.view.webContents.enableDeviceEmulation({
-    screenPosition: "mobile",
-    screenSize: { width: 390, height: 844 },
-    viewPosition: { x: 0, y: 0 },
-    deviceScaleFactor: 1,
-    viewSize: { width: 390, height: 844 },
-    scale: Math.min(1, width / 390, height / 844),
-  })
+  tab.view.webContents.enableDeviceEmulation(deviceEmulation(tab.deviceSize ?? BROWSER_DEVICE_DEFAULT, width, height))
 }
 
 function createTab(
@@ -723,6 +722,11 @@ function createTab(
   })
   contents.on("dom-ready", () => {
     invalidate()
+    if (tab.device) {
+      // A new document can reset Chromium's emulation while the per-tab preview stays enabled.
+      const bounds = tab.view.getBounds()
+      contentsDevice(tab, bounds.width, bounds.height)
+    }
     changed()
   })
   contents.on("did-fail-load", (_event, code, _description, _url, main) => {
@@ -1189,9 +1193,30 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       throw new Error("Invalid zoom")
     contents.setZoomFactor(command.factor)
   } else if (command.op === "device") {
-    if (typeof command.enabled !== "boolean") throw new Error("Invalid device mode")
+    const size =
+      command.size === undefined ? (tab.deviceSize ?? BROWSER_DEVICE_DEFAULT) : browserDeviceSize(command.size)
+    if (typeof command.enabled !== "boolean" || !size) throw new Error(nativeT("desktop.browser.device.invalid"))
+    if (
+      group.activeID !== tab.id ||
+      owner.suspended ||
+      tab.loginBusy ||
+      tab.agentClose ||
+      tab.permissionReloadPhase ||
+      contents.isLoadingMainFrame() ||
+      browserOperationBusy.has(tab.id) ||
+      browserInputFailure(contents)
+    )
+      throw new Error(nativeT("desktop.browser.tabs.busy"))
+    tab.accessConsent?.abort()
+    tab.screenshotConsent?.abort()
+    tab.cancelLoginOffer?.()
+    tab.revision++
+    invalidateSnapshots(contents)
+    cancelPicker(contents)
+    // ponytail: per-tab memory only; navigation keeps the preview, recovery creates a fresh baseline tab.
+    if (!command.enabled) contents.disableDeviceEmulation()
+    tab.deviceSize = size
     tab.device = command.enabled
-    if (!tab.device) contents.disableDeviceEmulation()
     layout(owner)
   } else if (command.op === "print") {
     if (group.activeID !== tab.id) throw new Error("Browser tab not active")
@@ -1715,15 +1740,8 @@ export function browserViewport(
 }
 
 export async function browserPageContext(owner: Owner, sessionID: string, tabID: string, command: unknown) {
-  const group = groupFor(owner, sessionID)
-  const tab = group.tabs.find((tab) => tab.id === tabID)
-  // The menu temporarily detaches the native view. capturePage can still capture the selected tab.
-  const screenshot = command === "screenshot" && group.activeID === tabID && owner.win.isVisible()
-  if (!tab || (!screenshot && owner.attached !== tab) || tab.view.webContents.isDestroyed())
-    throw new Error("Browser tab not visible")
-  if (command !== "selection" && command !== "pick" && command !== "screenshot")
-    throw new Error("Invalid browser context command")
-  return browserContext(tab.view.webContents, command)
+  groupFor(owner, sessionID)
+  return captureBrowserContext(owner, sessionID, tabID, command)
 }
 
 function reloadForPermissions(tab: Tab, request = true) {

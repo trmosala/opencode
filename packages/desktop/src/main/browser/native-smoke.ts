@@ -14,7 +14,7 @@ import {
   openBrowserLink,
   browserLinkMenu,
 } from "./tabs"
-import { browserRegistration } from "./registry"
+import { browserOperationBusy, browserRegistration } from "./registry"
 import { routeBrowserRequest } from "./router"
 import { allowed, updateAgentHost } from "./allowlist"
 import { browserTools } from "../../../../cm-browser/src/tools"
@@ -876,6 +876,209 @@ async function run() {
   }
   browserViewport(owner, { sessionID: "smoke", lease: "first", bounds: { x: 0, y: 100, width: 800, height: 500 } })
   assert.equal(owner.attached, one)
+
+  if (process.argv.includes("--capture-selection")) {
+    const contents = one.view.webContents
+    const capturePage = contents.capturePage
+    const viewport = owner.viewport!
+    const second = (await command({ op: "new" })).activeID!
+    await command({ op: "navigate", tabID: second, url })
+    const other = (await browserCommand(owner, "capture-other", { op: "new" })).activeID!
+    await browserCommand(owner, "capture-other", { op: "navigate", tabID: other, url })
+    await command({ op: "select", tabID: first })
+    browserLinkContext(owner, "smoke", "capture-selection")
+    const results: { change: string; accepted: boolean }[] = []
+    try {
+      for (const change of ["none", "tab", "viewport", "link"]) {
+        const started = Promise.withResolvers<void>()
+        const release = Promise.withResolvers<void>()
+        const revision = one.revision
+        const taskEpoch = owner.taskEpoch
+        const screenshotEpoch = owner.screenshotEpoch
+        contents.capturePage = async (...args) => {
+          const image = await capturePage.apply(contents, args)
+          assert(!image.isEmpty())
+          started.resolve()
+          await release.promise
+          return image
+        }
+        const pending = browserPageContext(owner, "smoke", first, "screenshot")
+        void pending.catch(() => undefined)
+        try {
+          await started.promise
+          if (change === "none") await command({ op: "select", tabID: first })
+          if (change === "tab") {
+            await command({ op: "select", tabID: second })
+            await command({ op: "select", tabID: first })
+          }
+          if (change === "viewport") {
+            browserViewport(owner, { ...viewport, sessionID: "capture-other" })
+            browserViewport(owner, viewport)
+          }
+          if (change === "link") {
+            browserLinkContext(owner, "capture-other", "capture-selection")
+            browserLinkContext(owner, "smoke", "capture-selection")
+          }
+          assert.equal(owner.attached, one)
+          assert.equal(one.revision, revision)
+          assert.equal(owner.screenshotEpoch, screenshotEpoch)
+          if (change === "none" || change === "tab") assert.equal(owner.taskEpoch, taskEpoch)
+          release.resolve()
+          const accepted = await pending.then(
+            (value) => {
+              assert.equal(typeof value, "string")
+              return true
+            },
+            (error) => {
+              assert.match(error.message, /Browser tab not visible/)
+              return false
+            },
+          )
+          results.push({ change, accepted })
+          assert.equal(owner.captureChecks?.size, 0, "Capture observer must settle with its capture")
+        } finally {
+          release.resolve()
+          await pending.catch(() => undefined)
+          contents.capturePage = capturePage
+        }
+      }
+      console.log("Capture selection witness:", JSON.stringify(results))
+      assert.deepEqual(results, [
+        { change: "none", accepted: true },
+        { change: "tab", accepted: false },
+        { change: "viewport", accepted: false },
+        { change: "link", accepted: false },
+      ])
+      stage("PASS capture selection A-B-A")
+    } finally {
+      contents.capturePage = capturePage
+      win.destroy()
+    }
+    return
+  }
+
+  let offers = 0
+  const submitLogin = async (secret: string, outcome = "spa", user = "automatic-user") => {
+    stage(`automatic offers: ${outcome}, ${user || "password step"}, prior offers ${offers}`)
+    await one.view.webContents.executeJavaScript(
+      `document.body.innerHTML = '<form method="post" action="/login-success"><input autocomplete="username"><input type="password"><button type="submit">Sign in</button></form>'; document.querySelector('input').value = ${JSON.stringify(user)}; document.querySelector('input[type=password]').value = ${JSON.stringify(secret)}; ${outcome === "spa" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); event.target.remove(); document.body.append('Welcome') }" : outcome === "failed" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>') }" : ""}; true`,
+    )
+    if (!secret)
+      await one.view.webContents.executeJavaScript("document.querySelector('input[type=password]').remove(); true")
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    const point = await one.view.webContents.executeJavaScript(
+      "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()",
+    )
+    // ponytail: acknowledge capture before fixture input; locked/excluded cases intentionally remain unarmed.
+    if (vaultAccess.status() === "unlocked" && !browserProfile().loginOfferExclusions?.includes(new URL(url).origin))
+      await one.readyLoginOffers!(() => {})
+    one.view.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
+    one.view.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
+  }
+
+  if (process.argv.includes("--offer-arming")) {
+    const contents = one.view.webContents
+    const verify = vaultAuthentication.verify
+    const consent = dialog.showMessageBox
+    const send = contents.debugger.sendCommand.bind(contents.debugger)
+    const ready = one.readyLoginOffers!
+    const release = Promise.withResolvers<void>()
+    let heldUntil = 0
+    let readyRequested = false
+    let received = false
+    let captured = false
+    let replied = false
+    let consentAborted = false
+    let submitted: Promise<void> | undefined
+    let pendingArm: Promise<unknown> | undefined
+    const observe = (_event: unknown, method: string, params: { name?: string; payload?: string }) => {
+      if (method !== "Runtime.bindingCalled" || !params.name?.startsWith("cmLoginOffer")) return
+      received = true
+      captured = params.payload !== "null"
+    }
+    try {
+      vaultAuthentication.verify = async () => {}
+      await command({ op: "unlock-vault" })
+      await command({ op: "preferences", values: { offerSaveLogins: true } })
+      dialog.showMessageBox = (async (_win, options) => {
+        offers++
+        consentAborted = options?.signal?.aborted === true
+        replied = offers === 2
+        return { response: replied ? 2 : 0, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      stage("offer arming: baseline after navigation")
+      await wait(() => !contents.isLoading())
+      await ready(() => {})
+      await submitLogin("declined-secret", "spa", "declined-user")
+      await wait(() => offers === 1 && !one.loginBusy)
+      assert.equal(readLogins().length, 0)
+
+      // Hold one real renewal past expiry, without changing the lease or forging an acknowledgement.
+      contents.debugger.sendCommand = (async (method, params, ...rest) => {
+        if (
+          method === "Runtime.evaluate" &&
+          params?.expression?.startsWith("globalThis.__cmOffers.until = ") &&
+          !heldUntil
+        ) {
+          heldUntil = Number(params.expression.split(" = ")[1])
+          pendingArm = (async () => {
+            await release.promise
+            return send(method, params, ...rest)
+          })()
+          return pendingArm
+        }
+        return send(method, params, ...rest)
+      }) as typeof contents.debugger.sendCommand
+      await wait(() => heldUntil > 0 && Date.now() >= heldUntil)
+      one.readyLoginOffers = async (check) => {
+        readyRequested = true
+        return ready(check)
+      }
+      contents.debugger.on("message", observe)
+      await contents.executeJavaScript(`window.offerTrusted = false;
+        document.addEventListener('submit', event => { window.offerTrusted = event.isTrusted }, { once: true }); true`)
+      submitted = submitLogin("never-secret", "spa", "never-user")
+      void submitted.catch(() => undefined)
+      await wait(() => readyRequested || received)
+      release.resolve()
+      await submitted
+      let persisted = false
+      try {
+        await wait(() => browserProfile().loginOfferExclusions?.includes(new URL(url).origin) === true)
+        persisted = true
+      } catch {
+        // Assert the same missing-exclusion symptom with secret-free boundary witnesses.
+      }
+      const trusted = await contents.executeJavaScript("window.offerTrusted === true")
+      assert.deepEqual(
+        { persisted, trusted, received, captured, dialog: offers === 2, replied, consentAborted },
+        {
+          persisted: true,
+          trusted: true,
+          received: true,
+          captured: true,
+          dialog: true,
+          replied: true,
+          consentAborted: false,
+        },
+        "Never exclusion missing after delayed arming",
+      )
+      assert.equal(readLogins().length, 0)
+      console.log("PASS delayed login-offer arming and Never persistence")
+    } finally {
+      release.resolve()
+      await submitted?.catch(() => undefined)
+      await pendingArm?.catch(() => undefined)
+      contents.debugger.sendCommand = send
+      one.readyLoginOffers = ready
+      contents.debugger.removeListener("message", observe)
+      dialog.showMessageBox = consent
+      vaultAccess.lock()
+      vaultAuthentication.verify = verify
+      win.destroy()
+    }
+    return
+  }
 
   if (process.argv.includes("--account-fill")) {
     const verify = vaultAuthentication.verify
@@ -3829,10 +4032,26 @@ async function run() {
   const screenshot = await browserPageContext(owner, "smoke", first, "screenshot")
   assert(typeof screenshot === "string" && screenshot.startsWith("data:image/png;base64,"))
   stage("picker cancellation")
+  const cursor = await one.view.webContents.executeJavaScript("document.documentElement.style.cursor")
+  const escaped = browserPageContext(owner, "smoke", first, "pick")
+  await wait(() => one.view.webContents.executeJavaScript("document.documentElement.style.cursor === 'crosshair'"))
+  one.view.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" })
+  one.view.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" })
+  assert.equal(await escaped, undefined)
+  assert.equal(await one.view.webContents.executeJavaScript("document.documentElement.style.cursor"), cursor)
   const picking = browserPageContext(owner, "smoke", first, "pick")
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  const cancelled = assert.rejects(picking, /Browser tab not visible/)
+  await wait(() => one.view.webContents.executeJavaScript("document.documentElement.style.cursor === 'crosshair'"))
   await command({ op: "select", tabID: second })
-  assert.equal(await picking, undefined)
+  // Tab switching cleans up the picker but invalidates its capture target.
+  await cancelled
+  assert.equal(await one.view.webContents.executeJavaScript("document.documentElement.style.cursor"), cursor)
+  assert.equal(
+    await one.view.webContents.executeJavaScriptInIsolatedWorld(998, [
+      { code: "typeof window.__cookieMonsterCancelPickElement" },
+    ]),
+    "undefined",
+  )
   await assert.rejects(browserPageContext(owner, "smoke", first, "executeJavaScript"))
 
   await win.webContents.executeJavaScript(
@@ -4192,9 +4411,137 @@ async function run() {
   await wait(() => one.find?.matches === 1)
   await command({ op: "find", tabID: first, text: "" })
   assert.equal(one.find, undefined)
-  await command({ op: "device", tabID: first, enabled: true })
-  assert.deepEqual(await one.view.webContents.executeJavaScript("[screen.width,screen.height]"), [390, 844])
-  await command({ op: "device", tabID: first, enabled: false })
+  {
+    stage("custom device preview and restoration")
+    const contents = one.view.webContents
+    const viewport = owner.viewport!
+    const measure = () =>
+      contents.executeJavaScript("[screen.width,screen.height,innerWidth,innerHeight,devicePixelRatio]")
+    const baseline = await measure()
+    const identity = await contents.executeJavaScript("[navigator.userAgent,navigator.maxTouchPoints]")
+    const epoch = owner.taskEpoch
+    browserViewport(owner, { ...viewport, bounds: null })
+    assert.equal(owner.attached, undefined)
+    assert.equal(owner.taskEpoch, epoch + 1)
+    const prepare = contents.executeJavaScriptInIsolatedWorld
+    const preparing = Promise.withResolvers<void>()
+    const prepared = Promise.withResolvers<void>()
+    contents.executeJavaScriptInIsolatedWorld = async (...args) => {
+      const result = await prepare.apply(contents, args)
+      preparing.resolve()
+      await prepared.promise
+      return result
+    }
+    const detachedCapture = browserPageContext(owner, "smoke", first, "screenshot")
+    void detachedCapture.catch(() => undefined)
+    try {
+      await preparing.promise
+      browserViewport(owner, viewport)
+      assert.equal(owner.attached, one)
+      assert.equal(owner.taskEpoch, epoch + 2)
+      prepared.resolve()
+      await assert.rejects(detachedCapture, /Browser tab not visible/)
+    } finally {
+      prepared.resolve()
+      await detachedCapture.catch(() => undefined)
+      contents.executeJavaScriptInIsolatedWorld = prepare
+    }
+    const screenshot = await browserPageContext(owner, "smoke", first, "screenshot")
+    assert(typeof screenshot === "string")
+    assert.match(screenshot, /^data:image\/png;base64,/)
+    assert.equal(owner.taskEpoch, epoch + 2)
+    await command({ op: "device", tabID: first, enabled: true })
+    assert.deepEqual((await measure()).slice(0, 2), [390, 844])
+    for (const size of [
+      { width: 360, height: 800 },
+      { width: 800, height: 360 },
+    ]) {
+      const revision = one.revision
+      const capturePage = contents.capturePage
+      const release = Promise.withResolvers<void>()
+      let captured = false
+      contents.capturePage = async (...args) => {
+        const image = await capturePage.apply(contents, args)
+        captured = true
+        await release.promise
+        return image
+      }
+      const pending = browserPageContext(owner, "smoke", first, "screenshot")
+      void pending.catch(() => undefined)
+      try {
+        await wait(() => captured)
+        const result = await command({ op: "device", tabID: first, enabled: true, size })
+        assert.deepEqual(result.tabs.find((tab) => tab.id === first)?.deviceSize, size)
+        release.resolve()
+        await assert.rejects(pending, /Browser tab not visible/)
+      } finally {
+        release.resolve()
+        await pending.catch(() => undefined)
+        contents.capturePage = capturePage
+      }
+      assert(one.revision > revision)
+      assert.deepEqual((await measure()).slice(0, 2), [size.width, size.height])
+      assert.deepEqual(await contents.executeJavaScript("[navigator.userAgent,navigator.maxTouchPoints]"), identity)
+      assert.equal(contents.getZoomFactor(), 1)
+    }
+    const revision = one.revision
+    for (const value of [NaN, Infinity, -1, 159, 4097, 390.5]) {
+      await assert.rejects(command({ op: "device", tabID: first, enabled: true, size: { width: value, height: 800 } }))
+      await assert.rejects(command({ op: "device", tabID: first, enabled: true, size: { width: 360, height: value } }))
+    }
+    assert.equal(one.revision, revision)
+    browserOperationBusy.add(first)
+    try {
+      await assert.rejects(command({ op: "device", tabID: first, enabled: false }))
+      assert.equal(one.device, true)
+      assert.equal(one.revision, revision)
+    } finally {
+      browserOperationBusy.delete(first)
+    }
+    await command({ op: "navigate", tabID: first, url: `${url}?device-preview` })
+    assert.deepEqual((await measure()).slice(0, 2), [800, 360])
+    const fresh = (await command({ op: "new" })).activeID!
+    const freshTab = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === fresh)!
+    await wait(() => !freshTab.contents.isLoadingMainFrame())
+    assert.equal(freshTab.device, undefined)
+    assert.equal(freshTab.agentAccess, false)
+    assert.deepEqual(
+      await freshTab.view.webContents.executeJavaScript("[screen.width,screen.height]"),
+      baseline.slice(0, 2),
+    )
+    await assert.rejects(command({ op: "device", tabID: first, enabled: false }))
+    await command({ op: "select", tabID: first })
+    assert.equal(owner.attached, one)
+    assert.deepEqual((await measure()).slice(0, 2), [800, 360])
+    browserViewport(owner, { ...viewport, bounds: { ...viewport.bounds, width: 300, height: 250 } })
+    assert.deepEqual((await measure()).slice(0, 2), [800, 360])
+    browserViewport(owner, { ...viewport, bounds: null })
+    assert.equal(owner.attached, undefined)
+    browserViewport(owner, viewport)
+    assert.equal(owner.attached, one)
+    await command({ op: "device", tabID: first, enabled: false })
+    await command({ op: "navigate", tabID: first, url: `${url}?private` })
+    assert.deepEqual(await measure(), baseline)
+    browserViewport(owner, { ...viewport, bounds: { ...viewport.bounds, width: 300, height: 250 } })
+    assert.deepEqual((await measure()).slice(2, 4), [300, 250])
+    browserViewport(owner, viewport)
+    assert.deepEqual(await measure(), baseline)
+    await command({ op: "select", tabID: fresh })
+    await command({ op: "device", tabID: fresh, enabled: true, size: { width: 500, height: 700 } })
+    await command({ op: "close", tabID: fresh })
+    await wait(() => freshTab.contents.isDestroyed())
+    const reopened = (await command({ op: "reopen" })).activeID!
+    const reopenedTab = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === reopened)!
+    await wait(() => !reopenedTab.contents.isLoadingMainFrame())
+    assert.notEqual(reopened, fresh)
+    assert.equal(reopenedTab.device, undefined)
+    assert.equal(reopenedTab.deviceSize, undefined)
+    assert.equal(reopenedTab.agentAccess, false)
+    await command({ op: "close", tabID: reopened })
+    await wait(() => reopenedTab.contents.isDestroyed())
+    await command({ op: "select", tabID: first })
+    assert.deepEqual(await measure(), baseline)
+  }
   const print = one.view.webContents.print
   let printed = false
   one.view.webContents.print = (_options, callback) => {
@@ -4496,7 +4843,6 @@ async function run() {
       offerContext = params.executionContextId
   }
   one.view.webContents.debugger.on("message", observeOffer)
-  let offers = 0
   let offerAnswer = 1
   const automaticDialog = dialog.showMessageBox
   dialog.showMessageBox = (async (_window, options) => {
@@ -4505,20 +4851,6 @@ async function run() {
     offers++
     return { response: offerAnswer, checkboxChecked: false }
   }) as typeof dialog.showMessageBox
-  const submitLogin = async (secret: string, outcome = "spa", user = "automatic-user") => {
-    stage(`automatic offers: ${outcome}, ${user || "password step"}, prior offers ${offers}`)
-    await one.view.webContents.executeJavaScript(
-      `document.body.innerHTML = '<form method="post" action="/login-success"><input autocomplete="username"><input type="password"><button type="submit">Sign in</button></form>'; document.querySelector('input').value = ${JSON.stringify(user)}; document.querySelector('input[type=password]').value = ${JSON.stringify(secret)}; ${outcome === "spa" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); event.target.remove(); document.body.append('Welcome') }" : outcome === "failed" ? "document.querySelector('form').onsubmit = event => { event.preventDefault(); document.body.insertAdjacentHTML('beforeend', '<p role=alert>Rejected</p>') }" : ""}; true`,
-    )
-    if (!secret)
-      await one.view.webContents.executeJavaScript("document.querySelector('input[type=password]').remove(); true")
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    const point = await one.view.webContents.executeJavaScript(
-      "(() => { const r=document.querySelector('button').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()",
-    )
-    one.view.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point })
-    one.view.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point })
-  }
   await submitLogin("auto-secret")
   await wait(() => readLogins().some((row) => row.username === "automatic-user"))
   assert.equal(offers, 1)

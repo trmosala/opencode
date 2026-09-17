@@ -1,4 +1,5 @@
 import type { WebContents } from "electron"
+import type { browserPageContext } from "./tabs"
 import type { BrowserSelection } from "@opencode-ai/app/browser-panel"
 import { keepBrowserRendering } from "./rendering"
 
@@ -16,7 +17,68 @@ export function cancelPicker(contents: WebContents) {
     .catch(() => undefined)
 }
 
-export async function browserContext(contents: WebContents, command: "selection" | "pick" | "screenshot") {
+export async function captureBrowserContext(
+  owner: Parameters<typeof browserPageContext>[0],
+  sessionID: string,
+  tabID: string,
+  command: unknown,
+): Promise<string | BrowserSelection | undefined> {
+  const group = owner.groups.get(sessionID)
+  const tab = group?.tabs.find((tab) => tab.id === tabID)
+  // The menu temporarily detaches the native view. capturePage can still capture the selected tab.
+  const screenshot = command === "screenshot" && group?.activeID === tabID && owner.win.isVisible()
+  if (!group || !tab || (!screenshot && owner.attached !== tab) || tab.view.webContents.isDestroyed())
+    throw new Error("Browser tab not visible")
+  if (command !== "selection" && command !== "pick" && command !== "screenshot")
+    throw new Error("Invalid browser context command")
+  const contents = tab.view.webContents
+  const frame = contents.mainFrame
+  const revision = tab.revision
+  const url = contents.getURL()
+  const taskEpoch = owner.taskEpoch
+  const screenshotEpoch = owner.screenshotEpoch
+  let obsolete = false
+  // ponytail: latch selection per capture; shared epochs also govern consent and tab settlement.
+  const selectionChanged = () => {
+    obsolete ||= group.activeID !== tabID
+  }
+  const check = () => {
+    if (
+      obsolete ||
+      owner.shutting ||
+      owner.win.isDestroyed() ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
+      owner.taskEpoch !== taskEpoch ||
+      owner.screenshotEpoch !== screenshotEpoch ||
+      owner.groups.get(sessionID) !== group ||
+      group?.tabs.find((entry) => entry.id === tabID) !== tab ||
+      group.activeID !== tabID ||
+      tab.view.webContents !== contents ||
+      tab.contents !== contents ||
+      contents.isDestroyed() ||
+      contents.isLoadingMainFrame() ||
+      contents.mainFrame !== frame ||
+      frame.detached ||
+      contents.getURL() !== url ||
+      tab.revision !== revision ||
+      (command !== "screenshot" && owner.attached !== tab)
+    )
+      throw new Error("Browser tab not visible")
+  }
+  check()
+  const checks = (owner.captureChecks ??= new Set())
+  checks.add(selectionChanged)
+  try {
+    const result = await browserContext(contents, command, check)
+    check()
+    return result
+  } finally {
+    checks.delete(selectionChanged)
+  }
+}
+
+async function browserContext(contents: WebContents, command: "selection" | "pick" | "screenshot", check: () => void) {
   if (command === "screenshot") {
     const release = keepBrowserRendering(contents)
     try {
@@ -26,7 +88,9 @@ export async function browserContext(contents: WebContents, command: "selection"
           code: "new Promise(resolve => { const timer = setTimeout(resolve, 1000); requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve() })) })",
         },
       ])
+      check()
       const image = await contents.capturePage()
+      check()
       const size = image.getSize()
       if (image.isEmpty() || size.width * size.height > 32_000_000) throw new Error("Browser screenshot too large")
       const bytes = image.toPNG()

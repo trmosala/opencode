@@ -474,6 +474,7 @@ export const DESKTOP_NATIVE_ENGLISH = {
   // English fallback until reviewed translations are available. Append to preserve indexed locale keys.
   "desktop.browser.recovery.failed":
     "This page could not be restored. Use Reload, enter an address, or close this tab.",
+  "desktop.browser.device.invalid": "Device dimensions must be whole numbers from 160 to 4096 CSS pixels.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

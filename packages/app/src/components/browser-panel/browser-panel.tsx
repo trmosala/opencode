@@ -1,6 +1,16 @@
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { createEffect, createMemo, createUniqueId, For, onCleanup, onMount, Show } from "solid-js"
+import {
+  createComputed,
+  createEffect,
+  createMemo,
+  createRoot,
+  createUniqueId,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
@@ -15,7 +25,13 @@ import {
 } from "./browser-context"
 import { addImage, appendText, imagePart } from "./browser-actions"
 import { browserViewportBounds } from "./browser-viewport"
-import { BrowserAccounts, BrowserMenu, BrowserTools, type BrowserToolPanel } from "./browser-tools"
+import {
+  BrowserAccounts,
+  BrowserDeviceToolbar,
+  BrowserMenu,
+  BrowserTools,
+  type BrowserToolPanel,
+} from "./browser-tools"
 import { browserSuggestions } from "./browser-suggestions"
 
 export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
@@ -224,21 +240,42 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
     void go(row.url)
   }
 
+  const trackCapture = (current: () => boolean) =>
+    createRoot((dispose) => {
+      let obsolete = false
+      // ponytail: latch each capture synchronously; returning to its tab must not revive it.
+      createComputed(() => {
+        obsolete ||= !current()
+      })
+      return { current: () => !obsolete && current(), dispose }
+    })
+
   const selection = async () => {
     const tab = active()
     if (!tab || state.selecting) return
     const page = { url: tab.url, title: tab.title }
     const sessionID = props.sessionID
+    const revision = tab.revision
+    const tabID = tab.id
+    const { current, dispose } = trackCapture(
+      () =>
+        !disposed &&
+        props.sessionID === sessionID &&
+        active()?.id === tabID &&
+        active()?.revision === revision &&
+        active()?.url === page.url,
+    )
     const target = prompt.capture()
     const captured = { capture: () => target }
     const attachScreenshot = async () => {
-      if (!state.tabs.profile?.preferences?.selectionScreenshots) return
-      const part = imagePart(await browser.screenshot(sessionID, tab.id))
-      if (part) addImage(captured, part)
+      if (!current() || !state.tabs.profile?.preferences?.selectionScreenshots) return
+      const part = imagePart(await browser.screenshot(sessionID, tabID))
+      if (current() && part) addImage(captured, part)
     }
     setState("selecting", true)
     try {
-      const text = formatBrowserSelectionContext(page, await browser.selection(sessionID, tab.id))
+      const text = formatBrowserSelectionContext(page, await browser.selection(sessionID, tabID))
+      if (!current()) return
       if (text) {
         appendText(captured, text)
         await attachScreenshot()
@@ -248,29 +285,52 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
         title: language.t("browser.toast.selectionMode.title"),
         description: language.t("browser.toast.selectionMode.description"),
       })
-      const picked = await browser.pick(sessionID, tab.id)
+      const picked = await browser.pick(sessionID, tabID)
+      if (!current()) return
       const context = formatBrowserElementContext(page, picked)
       if (context) {
         appendText(captured, context)
         await attachScreenshot()
       }
     } catch {
-      if (!disposed) fail()
+      if (current()) fail()
     } finally {
+      dispose()
       if (!disposed) setState("selecting", false)
     }
   }
 
-  const screenshot = async () => {
+  const screenshot = async (closed?: Promise<void>) => {
     const tab = active()
     if (!tab) return
+    const sessionID = props.sessionID
+    const tabID = tab.id
+    const revision = tab.revision
+    const url = tab.url
+    const { current, dispose } = trackCapture(
+      () =>
+        !disposed &&
+        props.sessionID === sessionID &&
+        active()?.id === tabID &&
+        active()?.revision === revision &&
+        active()?.url === url &&
+        !active()?.loading,
+    )
     const target = prompt.capture()
     try {
-      const part = imagePart(await browser.screenshot(props.sessionID, tab.id))
+      // Menu cleanup, then acknowledged native attachment, must precede the capture epoch.
+      await closed
+      if (!current()) return
+      await attachPage()
+      if (!current()) return
+      const part = imagePart(await browser.screenshot(sessionID, tabID))
+      if (!current()) return
       if (!part) throw new Error("Invalid screenshot")
       addImage({ capture: () => target }, part)
     } catch {
-      showToast({ variant: "error", title: language.t("browser.toast.screenshotFailed.title") })
+      if (current()) showToast({ variant: "error", title: language.t("browser.toast.screenshotFailed.title") })
+    } finally {
+      dispose()
     }
   }
 
@@ -327,7 +387,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           tab={active()}
           open={(tool) => setState("tool", tool)}
           command={command}
-          screenshot={() => void screenshot()}
+          screenshot={(closed) => void screenshot(closed)}
         />
       </div>
       <form
@@ -539,9 +599,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           />
         )}
       </Show>
-      <Show when={active()?.device}>
-        <div class="shrink-0 px-2 py-1 text-12-regular text-text-weak">{language.t("browser.device.size")}</div>
-      </Show>
+      <Show when={active()?.device && active()}>{(tab) => <BrowserDeviceToolbar tab={tab()} command={command} />}</Show>
       <div
         ref={viewport}
         class="min-h-0 flex-1"

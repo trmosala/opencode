@@ -200,6 +200,13 @@ export const browser = {
   "browser.menu.zoom": "Zoom",
   "browser.menu.device": "Show device toolbar",
   "browser.menu.deviceOff": "Hide device toolbar",
+  "browser.device.width": "Width (CSS px)",
+  "browser.device.height": "Height (CSS px)",
+  "browser.device.apply": "Apply size",
+  "browser.device.rotate": "Swap width and height",
+  "browser.device.current": "Mobile preview: {{width}} x {{height}} CSS px",
+  "browser.device.limits":
+    "Use whole numbers from 160 to 4096. The preview scales to fit with an emulated device scale factor of 1; page zoom is unchanged. Page viewport metadata and zoom can affect layout. Chromium identity is preserved. Swapping dimensions previews portrait or landscape layout, not device sensors. Touch emulation is not available through this Electron device API; mouse input is unchanged.",
   "browser.menu.screenshot": "Take a screenshot and add to chat",
   "browser.menu.import": "Import cookies and passwords…",
   "browser.menu.passwords": "Passwords and autofill",

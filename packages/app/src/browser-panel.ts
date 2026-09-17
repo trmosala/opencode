@@ -21,6 +21,7 @@ export type BrowserTab = {
   loadError?: string
   zoom?: number
   device?: boolean
+  deviceSize?: BrowserDeviceSize
   find?: { active: number; matches: number }
 }
 
@@ -104,6 +105,28 @@ export type BrowserTabs = {
   profile?: BrowserProfile
   recentlyClosed?: { id: string; url: string; title: string; time: number }[]
 }
+export type BrowserDeviceSize = { width: number; height: number }
+export const BROWSER_DEVICE_MIN = 160
+export const BROWSER_DEVICE_MAX = 4096
+export const BROWSER_DEVICE_DEFAULT: BrowserDeviceSize = { width: 390, height: 844 }
+
+export function browserDeviceSize(value: unknown): BrowserDeviceSize | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const size = value as Record<string, unknown>
+  if (
+    typeof size.width !== "number" ||
+    typeof size.height !== "number" ||
+    !Number.isInteger(size.width) ||
+    !Number.isInteger(size.height) ||
+    size.width < BROWSER_DEVICE_MIN ||
+    size.width > BROWSER_DEVICE_MAX ||
+    size.height < BROWSER_DEVICE_MIN ||
+    size.height > BROWSER_DEVICE_MAX
+  )
+    return
+  return { width: size.width, height: size.height }
+}
+
 export type BrowserBounds = { x: number; y: number; width: number; height: number }
 export type BrowserShortcut = "address" | "new" | "reopen" | "close" | "reload" | "next" | "previous" | "find" | "print"
 export type BrowserClearKind = "history" | "cache" | "cookies" | "passwords" | "downloads"
@@ -142,7 +165,7 @@ export type BrowserCommand =
   | { op: "access"; tabID: string; enabled: boolean }
   | { op: "find"; tabID: string; text: string; forward?: boolean; next?: boolean }
   | { op: "zoom"; tabID: string; factor: number }
-  | { op: "device"; tabID: string; enabled: boolean }
+  | { op: "device"; tabID: string; enabled: boolean; size?: BrowserDeviceSize }
   | { op: "print" | "save-login"; tabID: string }
   | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password"; revision?: number }
   | { op: "generate-password"; tabID: string; length?: number; symbols?: boolean }
