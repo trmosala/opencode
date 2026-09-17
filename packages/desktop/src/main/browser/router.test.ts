@@ -12,7 +12,14 @@ import {
   type WriteRequest,
 } from "@cookiemonster/cm-browser/protocol"
 import { browserTools } from "@cookiemonster/cm-browser/tools"
-import { registerBrowserTab, setBrowserAgentEnabled, type BrowserRegistration } from "./registry"
+import {
+  registerBrowserTab,
+  setBrowserAgentEnabled,
+  setBrowserTabHandler,
+  browserOperationBusy,
+  type BrowserRegistration,
+} from "./registry"
+import { createTabHandler, type NativeTabAction } from "./agent-tabs"
 import { routeBrowserRequest } from "./router"
 import { browserInputFailure, shouldShowBrowserContextMenu, screenshotDecoder } from "./driver"
 import { parseSnapshot } from "./snapshot"
@@ -84,6 +91,298 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
   }
   return { tab, calls, remove, route, write }
 }
+
+test("tab lifecycle tokens bind exact task, action, target and source without private metadata", async () => {
+  const { tab, route, remove, calls } = fixture()
+  tab.agentAccess = false
+  let mutations = 0
+  let ownerEpoch = 0
+  let consent: () => boolean = () => true
+  setBrowserTabHandler(
+    createTabHandler((sessionID, request) => {
+      if (sessionID !== tab.sessionID || (request.op !== "create_tab" && request.tabID !== tab.id)) return
+      const epoch = ownerEpoch
+      return {
+        owner: tab,
+        target: request.op === "create_tab" ? undefined : tab,
+        source: tab,
+        check() {
+          if (epoch !== ownerEpoch) throw new Error("Owner changed")
+        },
+        confirm: async () => consent(),
+        run(check) {
+          check()
+          mutations++
+          return request.op === "create_tab" ? "created-id" : tab.id
+        },
+      }
+    }),
+  )
+  const request = { op: "select_tab", tabID: tab.id } as const
+  const prepare = async () => {
+    const prepared = await route({ op: "prepare_tab", request })
+    if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing token")
+    expect(prepared.result).toEqual({
+      tabID: "",
+      url: "",
+      title: "",
+      visibleText: "",
+      elements: [],
+      tabToken: prepared.result.tabToken,
+    })
+    return prepared.result.tabToken
+  }
+  try {
+    expect(await route({ op: "prepare_tab", request }, "foreign")).toMatchObject({ code: "no_target" })
+    expect(await route({ op: "prepare_tab", request: { ...request, tabID: "missing" } })).toMatchObject({
+      code: "no_target",
+    })
+    expect(await route({ ...request, token: "missing" })).toMatchObject({ code: "access_denied" })
+    for (const reason of [
+      "foreign",
+      "op",
+      "target",
+      "source",
+      "access",
+      "owner",
+      "global",
+      "consent",
+      "post-consent",
+    ]) {
+      const token = await prepare()
+      if (reason === "source") tab.revision += 2
+      if (reason === "access") tab.accessRevision = (tab.accessRevision ?? 0) + 2
+      if (reason === "owner") ownerEpoch += 2
+      if (reason === "global") {
+        setBrowserAgentEnabled(false)
+        setBrowserAgentEnabled(true)
+      }
+      if (reason === "consent") consent = () => false
+      if (reason === "post-consent")
+        consent = () => {
+          ownerEpoch++
+          return true
+        }
+      expect(
+        await route(
+          {
+            ...request,
+            token,
+            ...(reason === "op" ? { op: "close_tab" as const } : {}),
+            ...(reason === "target" ? { tabID: "other" } : {}),
+          },
+          reason === "foreign" ? "foreign" : tab.sessionID,
+        ),
+      ).toMatchObject({ ok: false })
+      expect(await route({ ...request, token })).toMatchObject({ code: "access_denied" })
+      consent = () => true
+    }
+    expect(mutations).toBe(0)
+    const token = await prepare()
+    expect(await route({ ...request, token })).toEqual({
+      ok: true,
+      result: {
+        tabID: "",
+        url: "",
+        title: "",
+        visibleText: "",
+        elements: [],
+        tabResult: { op: "select_tab", tabID: tab.id },
+      },
+    })
+    expect(await route({ ...request, token })).toMatchObject({ code: "access_denied" })
+    expect(mutations).toBe(1)
+    expect(tab.agentAccess).toBe(false)
+    expect(calls).toEqual([])
+  } finally {
+    setBrowserTabHandler(undefined)
+    setBrowserAgentEnabled(true)
+    remove()
+  }
+})
+
+test("blank creation tokens observe global epochs even with no registered tabs", async () => {
+  const owner = {}
+  let mutations = 0
+  setBrowserTabHandler(
+    createTabHandler(() => ({
+      owner,
+      check() {},
+      confirm: async () => true,
+      run(check) {
+        check()
+        mutations++
+        return "created-blank"
+      },
+    })),
+  )
+  const route = (request: Request) =>
+    routeBrowserRequest({
+      type: "browser_request",
+      id: "blank",
+      sessionID: "empty-task",
+      request,
+    })
+  try {
+    const prepared = await route({ op: "prepare_tab", request: { op: "create_tab" } })
+    if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing token")
+    setBrowserAgentEnabled(false)
+    setBrowserAgentEnabled(true)
+    expect(await route({ op: "create_tab", token: prepared.result.tabToken })).toMatchObject({ ok: false })
+    expect(mutations).toBe(0)
+    const fresh = await route({ op: "prepare_tab", request: { op: "create_tab" } })
+    if (!fresh.ok || !fresh.result.tabToken) throw new Error("Missing token")
+    expect(await route({ op: "create_tab", token: fresh.result.tabToken })).toEqual({
+      ok: true,
+      result: {
+        tabID: "",
+        url: "",
+        title: "",
+        visibleText: "",
+        elements: [],
+        tabResult: { op: "create_tab", tabID: "created-blank" },
+      },
+    })
+    expect(mutations).toBe(1)
+  } finally {
+    setBrowserTabHandler(undefined)
+    setBrowserAgentEnabled(true)
+  }
+})
+
+test.each(["create_tab", "select_tab", "close_tab"] as const)(
+  "tab lifecycle %s rejects busy distinct source at preparation and admission",
+  async (op) => {
+    const { tab, route, remove, calls } = fixture()
+    const source = { ...tab, id: "distinct-source" }
+    const removeSource = registerBrowserTab(source)
+    let prompts = 0
+    setBrowserTabHandler(
+      createTabHandler(() => ({
+        owner: tab,
+        source,
+        target: op === "create_tab" ? undefined : tab,
+        check() {},
+        async confirm() {
+          prompts++
+          return true
+        },
+        run: () => tab.id,
+      })),
+    )
+    const request = op === "create_tab" ? { op } : { op, tabID: tab.id }
+    try {
+      const prepared = await route({ op: "prepare_tab", request })
+      if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing token")
+      expect(browserOperationBusy.has(source.id)).toBe(false)
+      browserOperationBusy.add(source.id)
+      expect(await route({ op: "prepare_tab", request })).toMatchObject({ code: "unavailable" })
+      expect(await route({ ...request, token: prepared.result.tabToken })).toMatchObject({ code: "unavailable" })
+      expect(prompts).toBe(0)
+      expect(browserOperationBusy.has(source.id)).toBe(true)
+      expect(browserOperationBusy.has(tab.id)).toBe(false)
+      expect(calls).toEqual([])
+    } finally {
+      browserOperationBusy.delete(source.id)
+      removeSource()
+      remove()
+      setBrowserTabHandler(undefined)
+    }
+  },
+)
+
+test.each(["consent", "close"] as const)(
+  "cancelled tab %s holds busy, rendering and bridge correlation until settlement",
+  async (phase) => {
+    const { tab, route, remove } = fixture()
+    tab.contents.backgroundThrottling = true
+    const source = { ...tab, id: "cancel-source" }
+    const removeSource = registerBrowserTab(source)
+    const held = Promise.withResolvers<string | undefined>()
+    const entered = Promise.withResolvers<void>()
+    let mutations = 0
+    const action: NativeTabAction = {
+      owner: tab,
+      target: tab,
+      source,
+      check() {},
+      async confirm() {
+        if (phase === "consent") {
+          entered.resolve()
+          await held.promise
+        }
+        return true
+      },
+      run(check) {
+        check()
+        mutations++
+        entered.resolve()
+        return held.promise
+      },
+    }
+    setBrowserTabHandler(createTabHandler(() => action))
+    const replies: BrowserIpcResult[] = []
+    const child = Object.assign(new EventEmitter(), { postMessage: (reply: BrowserIpcResult) => replies.push(reply) })
+    let settlement: Promise<unknown> | undefined
+    let routed = 0
+    const stop = attachBrowserBridge(child, (message, allowed, control) => {
+      routed++
+      return routeBrowserRequest(message, allowed, {
+        ...control,
+        onSettled(pending) {
+          settlement = pending
+          control?.onSettled?.(pending)
+        },
+      })
+    })
+    const request = { op: "close_tab", tabID: tab.id } as const
+    try {
+      const prepared = await route({ op: "prepare_tab", request })
+      if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing token")
+      const message = {
+        type: "browser_request",
+        id: "held-close",
+        sessionID: tab.sessionID,
+        request: { ...request, token: prepared.result.tabToken },
+      }
+      child.emit("message", message)
+      await entered.promise
+      expect(browserOperationBusy.has(source.id)).toBe(true)
+      expect(await route({ op: "read_state", tabID: source.id })).toMatchObject({ code: "unavailable" })
+      expect(await route({ op: "prepare_write", request: { op: "screenshot", tabID: source.id } })).toMatchObject({
+        code: "unavailable",
+      })
+      child.emit("message", { type: "browser_cancel", id: message.id, sessionID: tab.sessionID })
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(replies).toHaveLength(1)
+      expect(replies[0].response).toMatchObject({ code: "cancelled" })
+      expect(browserOperationBusy.has(tab.id)).toBe(true)
+      expect(browserOperationBusy.has(source.id)).toBe(true)
+      expect(tab.contents.backgroundThrottling).toBe(false)
+      expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "unavailable" })
+      expect(
+        await route({ op: "prepare_write", request: { op: "navigate", tabID: tab.id, url: "http://localhost/" } }),
+      ).toMatchObject({ code: "unavailable" })
+      child.emit("message", message)
+      expect(routed).toBe(1)
+      held.resolve(undefined)
+      await settlement
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(browserOperationBusy.has(tab.id)).toBe(false)
+      expect(browserOperationBusy.has(source.id)).toBe(false)
+      expect(tab.contents.backgroundThrottling).toBe(true)
+      expect(mutations).toBe(phase === "close" ? 1 : 0)
+      expect(replies).toHaveLength(1)
+    } finally {
+      held.resolve(undefined)
+      await settlement
+      stop()
+      setBrowserTabHandler(undefined)
+      removeSource()
+      remove()
+    }
+  },
+)
 
 test.each(["success", "missing", "regrant", "aba", "replace", "allowlist", "global", "cancel", "deadline"] as const)(
   "screenshot real-route response-to-post race is fail closed: %s",

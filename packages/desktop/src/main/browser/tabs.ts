@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { EventEmitter } from "node:events"
 import { rmSync } from "node:fs"
 import { basename, join } from "node:path"
 import { app, BrowserWindow, WebContentsView, dialog, session, shell } from "electron"
@@ -72,10 +73,13 @@ import {
   clearGenerationScript,
 } from "./password-generation"
 import { agentHistory } from "./agent-history"
-import { failure } from "@cookiemonster/cm-browser/protocol"
+import { createTabHandler, TabRecoveryRequired, type NativeTabAction } from "./agent-tabs"
+import { setBrowserTabHandler } from "./registry"
+import { failure, type TabRequest } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 
 type Tab = BrowserRegistration & {
+  agentClose?: { check: () => void }
   uploadGuard?: Promise<unknown>
   saved: SavedTab
   view: WebContentsView
@@ -85,6 +89,8 @@ type Tab = BrowserRegistration & {
   find?: { active: number; matches: number }
   findRequest?: number
   permissionReload?: boolean
+  permissionReloadQueued?: boolean
+  permissionReloadPhase?: "dispatch" | "loading"
   cancelLoginOffer?: () => void
   readyLoginOffers?: (check: () => void) => Promise<number>
   loginBusy?: boolean
@@ -105,6 +111,8 @@ type Owner = {
   attached?: Tab
   suspended: number
   screenshotEpoch: number
+  taskEpoch: number
+  tabConsent?: AbortController
   shutting?: boolean
   generationCheck?: () => void
   loginCheck?: () => void
@@ -133,6 +141,7 @@ setBrowserHistoryHandler(async (sessionID, request, signal) => {
     signal,
   ).catch(() => failure("unavailable", "Browser history operation unavailable."))
 })
+setBrowserTabHandler(createTabHandler(resolveNativeTabAction))
 let profileReady = false
 vaultAccess.subscribe(() => owners.forEach((owner) => owner.groups.forEach((group) => publish(owner, group))))
 
@@ -141,10 +150,14 @@ export function registerBrowserOwner(win: BrowserWindow) {
   setBrowserAgentEnabled(browserPreferencesState().agentEnabled)
   const existing = owners.get(win.webContents.id)
   if (existing) return existing
-  const owner: Owner = { win, groups: new Map(), suspended: 0, screenshotEpoch: 0 }
+  const owner: Owner = { win, groups: new Map(), suspended: 0, screenshotEpoch: 0, taskEpoch: 0 }
   const id = win.webContents.id
   owners.set(id, owner)
   const hide = () => {
+    if (owner.viewport) {
+      owner.taskEpoch++
+      owner.tabConsent?.abort()
+    }
     owner.viewport = undefined
     layout(owner)
   }
@@ -209,6 +222,13 @@ export function browserLinkContext(owner: Owner, sessionID: string | null, lease
     (sessionID !== null && (typeof sessionID !== "string" || !sessionID || sessionID.length > 256))
   )
     throw new Error("Invalid browser context")
+  if (
+    (sessionID !== null && (owner.linkContext?.sessionID !== sessionID || owner.linkContext?.lease !== lease)) ||
+    (sessionID === null && owner.linkContext?.lease === lease)
+  ) {
+    owner.taskEpoch++
+    owner.tabConsent?.abort()
+  }
   if (sessionID !== null) owner.linkContext = { sessionID, lease }
   if (sessionID === null && owner.linkContext?.lease === lease) owner.linkContext = undefined
 }
@@ -693,15 +713,15 @@ function createTab(
     cancelPicker(contents)
   }
   contents.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame && (!browserURL(event.url) || tab.navigationAllowed?.(event.url) === false))
+    if (event.isMainFrame && (tab.agentClose || !browserURL(event.url) || tab.navigationAllowed?.(event.url) === false))
       event.preventDefault()
   })
   contents.on("will-redirect", (event, url, _inPlace, main) => {
     if (main && (!browserURL(url) || tab.navigationAllowed?.(url) === false)) event.preventDefault()
   })
-  contents.on("did-start-navigation", (_event, _url, _inPlace, main) => {
+  contents.on("did-start-navigation", (_event, _url, inPlace, main) => {
     if (!main) return
-    tab.permissionReload = false
+    if (!inPlace && tab.permissionReloadPhase) tab.permissionReloadPhase = "loading"
     tab.loadFailed = false
     tab.find = undefined
     tab.findRequest = undefined
@@ -723,6 +743,9 @@ function createTab(
     changed()
   }
   contents.on("did-navigate", () => {
+    // A main-frame document commit covers all prior requests, including ones queued before this commit.
+    tab.permissionReload = false
+    tab.permissionReloadQueued = false
     invalidate()
     navigated()
   })
@@ -742,7 +765,14 @@ function createTab(
     changed()
   })
   contents.on("did-start-loading", changed)
-  contents.on("did-stop-loading", changed)
+  contents.on("did-stop-loading", () => {
+    // A stopped attempt (including 204/abort/failure) permits recovery but does not prove document disposal.
+    if (tab.permissionReloadPhase === "loading") {
+      tab.permissionReloadPhase = undefined
+      reloadForPermissions(tab, false)
+    }
+    changed()
+  })
   contents.on("page-title-updated", navigated)
   contents.on("render-process-gone", () => {
     tab.agentAccess = false
@@ -750,25 +780,40 @@ function createTab(
     changed()
   })
   contents.on("will-prevent-unload", (event) => {
+    const pending = tab.agentClose
     // A site cannot keep capturing by vetoing the reload after its permission is revoked.
-    if (tab.permissionReload) {
+    if (tab.permissionReloadPhase && !pending) {
       event.preventDefault()
       return
+    }
+    if (pending) {
+      try {
+        pending.check()
+      } catch {
+        return
+      }
     }
     owner.suspended++
     layout(owner)
     try {
-      if (
-        dialog.showMessageBoxSync(owner.win, {
-          type: "warning",
-          message: nativeT("desktop.browser.leave"),
-          detail: nativeT("desktop.browser.leaveDetail"),
-          buttons: [nativeT("desktop.browser.stay"), nativeT("desktop.browser.leaveConfirm")],
-          defaultId: 0,
-          cancelId: 0,
-        }) === 1
-      )
-        event.preventDefault()
+      const answer = dialog.showMessageBoxSync(owner.win, {
+        type: "warning",
+        message: nativeT("desktop.browser.leave"),
+        detail: nativeT("desktop.browser.leaveDetail"),
+        buttons: [nativeT("desktop.browser.stay"), nativeT("desktop.browser.leaveConfirm")],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      if (answer !== 1) return
+      // The sync dialog blocks timers; check the same absolute deadline after its answer.
+      if (pending) {
+        try {
+          pending.check()
+        } catch {
+          return
+        }
+      }
+      event.preventDefault()
     } finally {
       owner.suspended--
       layout(owner)
@@ -995,8 +1040,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
           entry.groups.forEach((group) =>
             group.tabs.forEach((tab) => {
               if (mediaOrigin(tab.contents.getURL(), origin, true)) {
-                tab.permissionReload = true
-                tab.view.webContents.reload()
+                reloadForPermissions(tab)
               }
             }),
           ),
@@ -1047,6 +1091,13 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   const tab = "tabID" in command && group.tabs.find((tab) => tab.id === command.tabID)
   if (!tab || tab.view.webContents.isDestroyed()) throw new Error("Browser tab not found")
   const contents = tab.view.webContents
+  if (
+    (tab.agentClose ||
+      (tab.permissionReloadPhase &&
+        !(command.op === "stop" && tab.permissionReloadPhase === "loading" && contents.isLoadingMainFrame()))) &&
+    ["close", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
+  )
+    throw new Error(nativeT("desktop.browser.tabs.busy"))
   if (command.op === "clear-site") {
     if (!browserURL(contents.getURL()) || contents.getURL() === "about:blank" || owner.suspended)
       throw new Error("Invalid site")
@@ -1073,8 +1124,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
             group.tabs.forEach((other) => {
               if (other.contents.isDestroyed() || new URL(other.contents.getURL() || "about:blank").origin !== origin)
                 return
-              other.permissionReload = true
-              other.view.webContents.reload()
+              reloadForPermissions(other)
             }),
           ),
         )
@@ -1490,8 +1540,10 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
   } else if (command.op === "forward") {
     if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
-  } else if (command.op === "reload") contents.reload()
-  else if (command.op === "stop") contents.stop()
+  } else if (command.op === "reload") {
+    if (tab.permissionReload) reloadForPermissions(tab)
+    else contents.reload()
+  } else if (command.op === "stop") contents.stop()
   else if (command.op === "access") {
     if (command.enabled && tab.loginBusy) throw new Error("Login operation pending")
     if (command.enabled && !browserAgentEnabled()) throw new Error("Browser agent access is disabled")
@@ -1609,7 +1661,11 @@ export function browserViewport(
   if (!input || typeof input.lease !== "string" || input.lease.length > 128) throw new Error("Invalid browser viewport")
   groupFor(owner, input.sessionID)
   if (input.bounds === null) {
-    if (owner.viewport?.lease === input.lease) owner.viewport = undefined
+    if (owner.viewport?.lease === input.lease) {
+      owner.taskEpoch++
+      owner.tabConsent?.abort()
+      owner.viewport = undefined
+    }
   } else {
     if (
       !input.bounds ||
@@ -1619,6 +1675,10 @@ export function browserViewport(
       })
     )
       throw new Error("Invalid browser bounds")
+    if (owner.viewport?.sessionID !== input.sessionID || owner.viewport?.lease !== input.lease) {
+      owner.taskEpoch++
+      owner.tabConsent?.abort()
+    }
     owner.viewport = { sessionID: input.sessionID, lease: input.lease, bounds: input.bounds }
   }
   layout(owner)
@@ -1634,4 +1694,194 @@ export async function browserPageContext(owner: Owner, sessionID: string, tabID:
   if (command !== "selection" && command !== "pick" && command !== "screenshot")
     throw new Error("Invalid browser context command")
   return browserContext(tab.view.webContents, command)
+}
+
+function reloadForPermissions(tab: Tab, request = true) {
+  if (tab.contents.isDestroyed()) return
+  if (request) {
+    tab.permissionReload = true
+    tab.permissionReloadQueued = true
+  }
+  // ponytail: coalesce fresh requests, never replay an attempted obligation after 204/Stop.
+  if (!tab.permissionReloadQueued || tab.agentClose || tab.permissionReloadPhase) return
+  tab.permissionReloadQueued = false
+  tab.permissionReloadPhase = "dispatch"
+  try {
+    tab.view.webContents.reload()
+  } catch (error) {
+    tab.permissionReloadPhase = undefined
+    throw error
+  }
+}
+
+function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeTabAction | undefined {
+  const current = () =>
+    [...owners.values()].filter(
+      (entry) =>
+        !entry.shutting &&
+        !entry.win.isDestroyed() &&
+        !entry.win.webContents.isDestroyed() &&
+        (entry.linkContext?.sessionID ?? entry.viewport?.sessionID) === sessionID &&
+        (!entry.viewport || entry.viewport.sessionID === sessionID),
+    )
+  const matches = current()
+  if (matches.length !== 1) return undefined
+  const owner = matches[0]
+  const ownerID = owner.win.webContents.id
+  const epoch = owner.taskEpoch
+  const lifecycle = owner.screenshotEpoch
+  const group = owner.groups.get(sessionID)
+  const activeID = group?.activeID
+  const target = request.op === "create_tab" ? undefined : group?.tabs.find((tab) => tab.id === request.tabID)
+  if (request.op !== "create_tab" && !target) return undefined
+  const check = () => {
+    const matches = current()
+    if (
+      matches.length !== 1 ||
+      matches[0] !== owner ||
+      owners.get(ownerID) !== owner ||
+      owner.taskEpoch !== epoch ||
+      owner.screenshotEpoch !== lifecycle ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
+      owner.groups.get(sessionID) !== group ||
+      group?.activeID !== activeID ||
+      (target &&
+        (!group?.tabs.includes(target) ||
+          target.contents.isDestroyed() ||
+          target.ownerID !== ownerID ||
+          target.loginBusy ||
+          target.permissionReload)) ||
+      (request.op === "create_tab" && (group?.tabs.length ?? 0) >= 32)
+    )
+      throw new Error("Tab owner changed")
+    if (request.op === "create_tab" && !group) {
+      // ponytail: require manual restoration rather than merging unloaded recovery into a live group.
+      const recovery = savedTabs(sessionID)
+      if (recovery && (recovery.tabs.length || recovery.closed.length)) throw new TabRecoveryRequired()
+    }
+  }
+  return {
+    owner,
+    target,
+    source: group?.tabs.find((tab) => tab.id === activeID),
+    check,
+    async confirm(signal) {
+      check()
+      if (owner.suspended || owner.tabConsent) return false
+      const consent = new AbortController()
+      owner.tabConsent = consent
+      const revoke = () => consent.abort()
+      const sheet =
+        process.platform === "darwin"
+          ? new BrowserWindow({
+              width: 400,
+              height: 160,
+              show: false,
+              title: nativeT(`desktop.browser.tabs.${request.op}`),
+              webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+            })
+          : undefined
+      sheet?.on("close", revoke)
+      signal.addEventListener("abort", revoke, { once: true })
+      owner.win.on("close", revoke)
+      owner.win.on("hide", revoke)
+      owner.win.on("minimize", revoke)
+      owner.win.webContents.on("destroyed", revoke)
+      owner.win.webContents.on("render-process-gone", revoke)
+      owner.win.webContents.on("did-start-navigation", revoke)
+      owner.suspended++
+      layout(owner)
+      try {
+        signal.throwIfAborted()
+        consent.signal.throwIfAborted()
+        check()
+        sheet?.showInactive()
+        const options = {
+          type: "warning" as const,
+          message: nativeT(`desktop.browser.tabs.${request.op}`),
+          detail:
+            request.op === "create_tab"
+              ? nativeT("desktop.browser.tabs.createDetail", { task: sessionID })
+              : nativeT("desktop.browser.tabs.targetDetail", { task: sessionID, tab: request.tabID }),
+          buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
+          defaultId: 0,
+          cancelId: 0,
+          signal: consent.signal,
+        }
+        const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
+        signal.throwIfAborted()
+        consent.signal.throwIfAborted()
+        check()
+        return answer.response === 1
+      } finally {
+        signal.removeEventListener("abort", revoke)
+        owner.win.removeListener("close", revoke)
+        owner.win.removeListener("hide", revoke)
+        owner.win.removeListener("minimize", revoke)
+        owner.win.webContents.removeListener("destroyed", revoke)
+        owner.win.webContents.removeListener("render-process-gone", revoke)
+        owner.win.webContents.removeListener("did-start-navigation", revoke)
+        if (sheet && !sheet.isDestroyed()) sheet.destroy()
+        if (owner.tabConsent === consent) owner.tabConsent = undefined
+        owner.suspended--
+        layout(owner)
+      }
+    },
+    run(authority) {
+      authority()
+      if (owner.suspended) throw new Error("Browser dialog pending")
+      if (request.op === "create_tab") {
+        // Do not restore saved tabs as a side effect of an agent's single-tab creation.
+        const destination = group ?? { sessionID, tabs: [], closed: [] }
+        if (!group) owner.groups.set(sessionID, destination)
+        const created = createTab(owner, destination)
+        owner.win.webContents.send("browser-opened", sessionID)
+        return created.id
+      }
+      if (!target || !group) throw new Error("Missing tab")
+      if (request.op === "select_tab") {
+        group.activeID = target.id
+        persistGroup(owner, group)
+        layout(owner)
+        publish(owner, group)
+        return target.id
+      }
+      const contents = target.view.webContents
+      const events: EventEmitter = contents
+      return new Promise<string | undefined>((resolve, reject) => {
+        let settled = false
+        const finish = (closed: boolean) => {
+          if (settled) return
+          settled = true
+          contents.removeListener("destroyed", destroyed)
+          events.removeListener("-before-unload-fired", unloaded)
+          if (target.agentClose === pending) target.agentClose = undefined
+          if (!closed) reloadForPermissions(target, false)
+          resolve(closed ? target.id : undefined)
+        }
+        const destroyed = () => finish(true)
+        // Electron 42 emits this close-only acknowledgement after the renderer returns,
+        // unlike will-prevent-unload. Revalidate this internal event on Electron upgrades.
+        const unloaded = (event: Electron.Event, proceed: boolean) => {
+          if (!proceed || event.defaultPrevented) setImmediate(() => finish(contents.isDestroyed()))
+        }
+        const pending = { check: authority }
+        target.agentClose = pending
+        contents.once("destroyed", destroyed)
+        events.on("-before-unload-fired", unloaded)
+        try {
+          authority()
+          contents.close({ waitForBeforeUnload: true })
+        } catch (error) {
+          settled = true
+          contents.removeListener("destroyed", destroyed)
+          events.removeListener("-before-unload-fired", unloaded)
+          if (target.agentClose === pending) target.agentClose = undefined
+          reject(error)
+        }
+        // Cancellation only ends the reply, never this native settlement or its busy lease.
+      })
+    },
+  }
 }

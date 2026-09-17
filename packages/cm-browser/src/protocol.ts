@@ -69,7 +69,15 @@ export type ElementRef = {
   readonly optionsTruncated?: boolean
 }
 
+export type TabRequest =
+  | { readonly op: "create_tab" }
+  | { readonly op: "select_tab" | "close_tab"; readonly tabID: string }
+
+export type TabResult = { readonly op: TabRequest["op"]; readonly tabID: string }
+
 export type BrowserState = {
+  readonly tabToken?: string
+  readonly tabResult?: TabResult
   readonly screenshot?: Screenshot
   readonly context?: AccessContext
   readonly history?: readonly { ref: string; url: string; title: string; time: number }[]
@@ -127,6 +135,8 @@ export type WaitRequest = { readonly tabID: string; readonly timeoutMs: number }
 export type PageRequest = { readonly op: "read_state"; readonly tabID: string } | WriteRequest | WaitRequest
 
 export type Request =
+  | { readonly op: "prepare_tab"; readonly request: TabRequest }
+  | (TabRequest & { readonly token: string })
   | HistoryRequest
   | WaitRequest
   | { readonly op: "list_tabs" }
@@ -212,9 +222,36 @@ export function parseAllowlist(value: unknown): readonly string[] | undefined {
     .map((host) => host.trim().toLowerCase())
 }
 
-export function parseRequest(value: unknown): Request | undefined {
-  if (!value || typeof value !== "object") return
+export function parseTabRequest(value: unknown): TabRequest | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
+  if (input.op === "create_tab")
+    return Object.keys(input).every((key) => key === "op") ? { op: "create_tab" } : undefined
+  if (
+    (input.op !== "select_tab" && input.op !== "close_tab") ||
+    Object.keys(input).some((key) => key !== "op" && key !== "tabID") ||
+    typeof input.tabID !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(input.tabID)
+  )
+    return
+  return { op: input.op, tabID: input.tabID }
+}
+
+export function parseRequest(value: unknown): Request | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (input.op === "prepare_tab") {
+    if (Object.keys(input).some((key) => key !== "op" && key !== "request")) return
+    const request = parseTabRequest(input.request)
+    return request ? { op: "prepare_tab", request } : undefined
+  }
+  if (input.op === "create_tab" || input.op === "select_tab" || input.op === "close_tab") {
+    const { token, ...action } = input
+    const request = parseTabRequest(action)
+    return request && typeof token === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(token)
+      ? { ...request, token }
+      : undefined
+  }
   if (input.op === "search_history") {
     if (
       typeof input.query !== "string" ||

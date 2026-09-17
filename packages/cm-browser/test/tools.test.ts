@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { BrowserPort } from "../src/port"
 import { browserTools } from "../src/tools"
-import { failure, success, type BrowserState, type Request, type Response } from "../src/protocol"
+import { failure, success, type BrowserState, type Request, type Response, type TabRequest } from "../src/protocol"
 
 const state = {
   context: {
@@ -51,6 +51,179 @@ function fakeContext(sessionID = "ses_1") {
 }
 
 describe("browser tools", () => {
+  const emptyTabState = { tabID: "", url: "", title: "", visibleText: "", elements: [] }
+  const tabActions: TabRequest["op"][] = ["create_tab", "select_tab", "close_tab"]
+
+  test.each(tabActions)("%s binds token before deferred named approval, denial and late abort", async (op) => {
+    for (const decision of ["allow", "deny", "abort"]) {
+      const request: TabRequest = op === "create_tab" ? { op } : { op, tabID: "one" }
+      const args = op === "create_tab" ? {} : { tabID: "one" }
+      const prepared = { ...emptyTabState, tabToken: "original-token" }
+      const sent: { sessionID: string; request: Request }[] = []
+      const call = fakeContext("lifecycle-session")
+      const controller = new AbortController()
+      call.context.abort = controller.signal
+      const waiting = Promise.withResolvers<void>()
+      const approval = Promise.withResolvers<void>()
+      call.context.ask = async (input) => {
+        expect(input).toEqual({ permission: `browser_${op}`, patterns: ["*"], always: ["*"], metadata: request })
+        expect(sent).toEqual([{ sessionID: "lifecycle-session", request: { op: "prepare_tab", request } }])
+        waiting.resolve()
+        await approval.promise
+      }
+      const port: BrowserPort = {
+        send: async (sessionID, action, signal) => {
+          expect(signal).toBe(controller.signal)
+          sent.push({ sessionID, request: action })
+          return success(action.op === "prepare_tab" ? prepared : { ...emptyTabState, tabResult: { op, tabID: "one" } })
+        },
+      }
+      const tools = browserTools(port)
+      const pending = tools[`browser_${op}`].execute(args, call.context).catch((error: unknown) => error)
+      try {
+        await waiting.promise
+        prepared.tabToken = "changed-token"
+        if (decision === "abort") controller.abort()
+        if (decision === "deny") approval.reject(new Error("Denied"))
+        else approval.resolve()
+        const reply = await pending
+        if (decision !== "allow") {
+          expect(reply).toBeInstanceOf(Error)
+          expect(sent).toHaveLength(1)
+          continue
+        }
+        expect(reply).toBe(`${op} one`)
+        expect(sent).toEqual([
+          { sessionID: "lifecycle-session", request: { op: "prepare_tab", request } },
+          { sessionID: "lifecycle-session", request: { ...request, token: "original-token" } },
+        ])
+      } finally {
+        approval.resolve()
+        await pending
+      }
+    }
+  })
+
+  test.each(tabActions)("%s checks abort around preparation and execution awaits", async (op) => {
+    for (const stage of ["before", "prepare_tab", op]) {
+      const call = fakeContext()
+      const controller = new AbortController()
+      call.context.abort = controller.signal
+      const sent: Request[] = []
+      const port: BrowserPort = {
+        send: async (_sessionID, request, signal) => {
+          expect(signal).toBe(controller.signal)
+          sent.push(request)
+          if (request.op === stage) controller.abort()
+          return success(
+            request.op === "prepare_tab"
+              ? { ...emptyTabState, tabToken: "opaque" }
+              : { ...emptyTabState, tabResult: { op, tabID: "one" } },
+          )
+        },
+      }
+      if (stage === "before") controller.abort()
+      await expect(
+        browserTools(port)[`browser_${op}`].execute(op === "create_tab" ? {} : { tabID: "one" }, call.context),
+      ).rejects.toThrow()
+      expect(sent).toHaveLength(stage === "before" ? 0 : stage === "prepare_tab" ? 1 : 2)
+      expect(call.asked).toHaveLength(stage === op ? 1 : 0)
+    }
+  })
+
+  test.each(tabActions)("%s rejects unknown inputs without preparation or approval", async (op) => {
+    const args = op === "create_tab" ? {} : { tabID: "one" }
+    for (const extra of [
+      { url: "https://private.invalid/" },
+      { title: "private" },
+      { sessionID: "other" },
+      { token: "supplied" },
+      { context: {} },
+      { op: "read_state" },
+      { unknown: true },
+      ...(op === "create_tab" ? [{ tabID: "one" }] : [{ tabID: "" }, { tabID: "x".repeat(129) }]),
+    ]) {
+      const browser = fakePort()
+      const call = fakeContext()
+      await expect(
+        browserTools(browser.port)[`browser_${op}`].execute({ ...args, ...extra }, call.context),
+      ).rejects.toThrow()
+      expect(browser.sent).toEqual([])
+      expect(call.asked).toEqual([])
+    }
+  })
+
+  test.each(tabActions)("%s rejects malformed or metadata-bearing lifecycle results without retry", async (op) => {
+    const args = op === "create_tab" ? {} : { tabID: "one" }
+    const prepared = { ...emptyTabState, tabToken: "opaque" }
+    const completed = { ...emptyTabState, tabResult: { op, tabID: "one" } }
+    const extras = [
+      { url: "https://private.invalid/" },
+      { title: "PRIVATE" },
+      { visibleText: "PRIVATE" },
+      { elements: [state.elements[0]] },
+      { tabs: [] },
+      { history: [] },
+      { context: state.context },
+      { screenshot: {} },
+      { metadata: {} },
+      { opened: false },
+      { truncated: false },
+      { unknown: true },
+    ]
+    for (const stage of ["prepare_tab", op]) {
+      const valid = stage === "prepare_tab" ? prepared : completed
+      const invalid =
+        stage === "prepare_tab"
+          ? [
+              emptyTabState,
+              ...[undefined, "", 1, "x".repeat(129), "https://private.invalid/"].map((tabToken) => ({
+                ...prepared,
+                tabToken,
+              })),
+              { ...prepared, tabResult: completed.tabResult },
+            ]
+          : [
+              emptyTabState,
+              ...[
+                undefined,
+                {},
+                { op: "navigate", tabID: "one" },
+                { op, tabID: "" },
+                { op, tabID: "x".repeat(129) },
+                { op, tabID: "https://private.invalid/" },
+                { op, tabID: "one", title: "PRIVATE" },
+              ].map((tabResult) => ({ ...completed, tabResult })),
+              { ...completed, tabToken: "opaque" },
+              ...(op === "create_tab" ? [] : [{ ...completed, tabResult: { op, tabID: "other" } }]),
+            ]
+      for (const value of [
+        ...invalid,
+        ...extras.map((extra) => ({ ...valid, ...extra })),
+        { ...valid, tabID: "one" },
+      ]) {
+        const sent: Request[] = []
+        const call = fakeContext()
+        const port: BrowserPort = {
+          send: async (_sessionID, request) => {
+            sent.push(request)
+            return success((request.op === stage ? value : prepared) as BrowserState)
+          },
+        }
+        await expect(browserTools(port)[`browser_${op}`].execute(args, call.context)).rejects.toThrow(
+          /Invalid browser tab/,
+        )
+        expect(sent).toHaveLength(stage === "prepare_tab" ? 1 : 2)
+        expect(call.asked).toHaveLength(stage === "prepare_tab" ? 0 : 1)
+      }
+    }
+    const browser = fakePort(failure("bad_request", "Invalid browser request."))
+    const call = fakeContext()
+    await expect(browserTools(browser.port)[`browser_${op}`].execute(args, call.context)).rejects.toThrow(/bad_request/)
+    expect(browser.sent).toHaveLength(1)
+    expect(call.asked).toEqual([])
+  })
+
   test("screenshot uses named approval and only attachment pixels, rejecting invalid results", async () => {
     const image = { data: Buffer.from([255, 216, 255, 217]).toString("base64"), width: 1, height: 1 }
     const value = { ...state, title: "", visibleText: "", elements: [], screenshot: image }

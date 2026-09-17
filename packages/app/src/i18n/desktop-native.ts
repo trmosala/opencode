@@ -222,6 +222,23 @@ function locale(value: string) {
 }
 
 export const DESKTOP_NATIVE_ENGLISH = {
+  "desktop.browser.tabs.create_tab": "Create one blank private tab?",
+  "desktop.browser.tabs.select_tab": "Select this browser tab?",
+  "desktop.browser.tabs.close_tab": "Close this browser tab?",
+  "desktop.browser.tabs.createDetail":
+    "Task: {{task}}\nTarget: one new about:blank tab\n\nThis creates and selects one private tab. No destination is opened and no page access is granted.",
+  "desktop.browser.tabs.targetDetail":
+    "Task: {{task}}\nTab: {{tab}}\n\nOnly this tab is affected. This approval does not grant page access. Closing still respects the page's unsaved-changes confirmation.",
+  "desktop.browser.tabs.noTarget":
+    "Open exactly one current task window in CookieMonster before using browser tab actions.",
+  "desktop.browser.tabs.changed":
+    "Browser tab approval expired or its task, owner or source changed. Request approval again.",
+  "desktop.browser.tabs.denied": "Browser tab action consent was not granted.",
+  "desktop.browser.tabs.busy": "Another browser operation is still running.",
+  "desktop.browser.tabs.unavailable": "Browser tab action unavailable.",
+  "desktop.browser.tabs.stay": "The browser tab stayed open.",
+  "desktop.browser.tabs.recoveryRequired":
+    "Open this task's browser manually to restore its saved tabs and recently closed history before creating a tab.",
   "desktop.browser.driver.inputHeld":
     "Browser input may still be held after an interrupted action. Close this tab and open a new tab, then grant agent access again. Reloading or toggling access does not recover this tab.",
   "desktop.browser.driver.frameUnavailable": "Browser frame unavailable.",

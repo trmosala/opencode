@@ -10,12 +10,19 @@ import {
 } from "@cookiemonster/cm-browser/protocol"
 import { allowed } from "./allowlist"
 import { browserInputFailure, execute } from "./driver"
-import { browserTabs, browserRegistration, browserAgentEnabled, routeBrowserHistory } from "./registry"
+import {
+  browserTabs,
+  browserRegistration,
+  browserAgentEnabled,
+  routeBrowserHistory,
+  routeBrowserTab,
+  browserOperationBusy,
+} from "./registry"
 import { browserURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
 
-const busy = new Set<string>()
+const busy = browserOperationBusy
 
 export type BrowserOperation = {
   signal?: AbortSignal
@@ -105,8 +112,10 @@ async function route(
   signal.throwIfAborted()
   const parsed = parseRequest(message.request)
   if (!parsed) return failure("bad_request", "Invalid browser request.")
-  const request = parsed.op === "prepare_write" ? parsed.request : parsed
   if (!browserAgentEnabled()) return failure("access_denied", "Browser agent access is disabled in browser settings.")
+  if (parsed.op === "prepare_tab" || "token" in parsed)
+    return routeBrowserTab(message.sessionID, parsed, signal, deadline)
+  const request = parsed.op === "prepare_write" ? parsed.request : parsed
   if (request.op === "search_history" || request.op === "open_history")
     return routeBrowserHistory(message.sessionID, request, signal)
   if (request.op === "list_tabs") {

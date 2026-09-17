@@ -14,6 +14,41 @@ import {
   stateDirectory,
 } from "../src/protocol"
 
+test("tab lifecycle requires exact actions, explicit targets and preparation tokens", () => {
+  for (const request of [
+    { op: "create_tab" },
+    { op: "select_tab", tabID: "one" },
+    { op: "close_tab", tabID: "one" },
+  ] as const) {
+    expect(parseRequest({ op: "prepare_tab", request })).toEqual({ op: "prepare_tab", request })
+    expect(parseRequest(request)).toBeUndefined()
+    expect(parseRequest({ ...request, token: "a".repeat(36) })).toEqual({ ...request, token: "a".repeat(36) })
+    for (const token of [undefined, "", 1, "x".repeat(129)]) expect(parseRequest({ ...request, token })).toBeUndefined()
+    expect(parseRequest({ op: "prepare_write", request })).toBeUndefined()
+    expect(
+      parseRequest({ op: "prepare_tab", request: { ...request, url: "https://private.invalid/" } }),
+    ).toBeUndefined()
+    for (const extra of [
+      { url: "https://private.invalid/" },
+      { context: {} },
+      { sessionID: "other" },
+      { unknown: true },
+    ]) {
+      expect(parseRequest({ op: "prepare_tab", request: { ...request, ...extra } })).toBeUndefined()
+      expect(parseRequest({ op: "prepare_tab", request, ...extra })).toBeUndefined()
+      expect(parseRequest({ ...request, token: "opaque", ...extra })).toBeUndefined()
+    }
+    expect(parseRequest({ op: "prepare_tab", request: { ...request, token: "opaque" } })).toBeUndefined()
+    for (const token of ["x".repeat(128), "uuid_123-abc"])
+      expect(parseRequest({ ...request, token })).toEqual({ ...request, token })
+    for (const token of ["https://private.invalid/", "private title", "opaque\\n"])
+      expect(parseRequest({ ...request, token })).toBeUndefined()
+  }
+  for (const tabID of [undefined, "", 1, "x".repeat(129)])
+    expect(parseRequest({ op: "prepare_tab", request: { op: "close_tab", tabID } })).toBeUndefined()
+  expect(parseRequest({ op: "prepare_tab", request: { op: "create_tab", tabID: "one" } })).toBeUndefined()
+})
+
 test("screenshot byte, edge, raster and complete UTF-8 response budgets are exact", () => {
   for (const length of [46_080, 46_081]) {
     const bytes = Buffer.alloc(length)

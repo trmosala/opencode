@@ -1,5 +1,37 @@
 import { invalidateSnapshots, type DriverContents, type Target } from "./driver"
-import { failure, type HistoryRequest, type Response, type BrowserState } from "@cookiemonster/cm-browser/protocol"
+import {
+  failure,
+  type HistoryRequest,
+  type Request,
+  type Response,
+  type BrowserState,
+} from "@cookiemonster/cm-browser/protocol"
+import { nativeT } from "../native-translations"
+
+export type TabLifecycleRequest = Extract<Request, { op: "prepare_tab" | "create_tab" | "select_tab" | "close_tab" }>
+export const browserOperationBusy = new Set<string>()
+let tabHandler:
+  | ((
+      sessionID: string,
+      request: TabLifecycleRequest,
+      signal: AbortSignal,
+      deadline: number,
+    ) => Promise<Response<BrowserState>>)
+  | undefined
+export function setBrowserTabHandler(handler: typeof tabHandler) {
+  tabHandler = handler
+}
+export function routeBrowserTab(
+  sessionID: string,
+  request: TabLifecycleRequest,
+  signal: AbortSignal,
+  deadline: number,
+) {
+  return (
+    tabHandler?.(sessionID, request, signal, deadline) ??
+    Promise.resolve(failure("no_target", nativeT("desktop.browser.tabs.noTarget")))
+  )
+}
 
 let historyHandler:
   | ((sessionID: string, request: HistoryRequest, signal?: AbortSignal) => Promise<Response<BrowserState>>)
@@ -30,8 +62,11 @@ export type BrowserRegistration = {
 }
 const tabs = new Map<string, BrowserRegistration>()
 let agentEnabled = true
+let agentEpoch = 0
 export const browserAgentEnabled = () => agentEnabled
+export const browserAgentEpoch = () => agentEpoch
 export function setBrowserAgentEnabled(enabled: boolean) {
+  if (agentEnabled !== enabled) agentEpoch++
   agentEnabled = enabled
   if (enabled) return
   tabs.forEach((tab) => {

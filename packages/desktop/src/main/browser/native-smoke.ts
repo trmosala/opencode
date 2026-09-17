@@ -188,6 +188,12 @@ async function run() {
     stage("PASS snapshots")
     if (process.argv.includes("--snapshots")) return
   }
+  if (process.argv.includes("--tab-lifecycle")) {
+    const { tabLifecycleSmoke } = await import("./tab-lifecycle.fixture")
+    await tabLifecycleSmoke()
+    stage("PASS tab lifecycle")
+    return
+  }
   if (process.argv.includes("--screenshots")) {
     const { screenshotsSmoke } = await import("./screenshots.fixture")
     await screenshotsSmoke()

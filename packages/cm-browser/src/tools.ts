@@ -3,6 +3,8 @@ import type { BrowserPort } from "./port"
 import {
   hostOf,
   parseAccessContext,
+  parseTabRequest,
+  type TabRequest,
   screenshotBytes,
   screenshotDimensions,
   MAX_SNAPSHOT_BYTES,
@@ -76,6 +78,36 @@ async function askWrite(port: BrowserPort, context: ToolContext, permission: str
   return { ...request, context: binding }
 }
 
+const tabState = tool.schema
+  .object({
+    tabID: tool.schema.literal(""),
+    url: tool.schema.literal(""),
+    title: tool.schema.literal(""),
+    visibleText: tool.schema.literal(""),
+    elements: tool.schema.array(tool.schema.never()).max(0),
+  })
+  .strict()
+
+const opaqueID = tool.schema.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
+
+async function runTab(port: BrowserPort, context: ToolContext, op: TabRequest["op"], args: Record<string, unknown>) {
+  context.abort.throwIfAborted()
+  const request = parseTabRequest({ ...args, op })
+  if ("op" in args || !request) throw new Error("Invalid browser tab request.")
+  const prepared = tabState
+    .extend({ tabToken: opaqueID })
+    .safeParse(await run(port, context, { op: "prepare_tab", request }))
+  if (!prepared.success) throw new Error("Invalid browser tab preparation result.")
+  const token = prepared.data.tabToken
+  await ask(context, { permission: `browser_${op}`, patterns: ["*"], always: ["*"], metadata: request })
+  const completed = tabState
+    .extend({ tabResult: tool.schema.object({ op: tool.schema.literal(op), tabID: opaqueID }).strict() })
+    .safeParse(await run(port, context, { ...request, token }))
+  if (!completed.success || (request.op !== "create_tab" && completed.data.tabResult.tabID !== request.tabID))
+    throw new Error("Invalid browser tab lifecycle result.")
+  return `${completed.data.tabResult.op} ${completed.data.tabResult.tabID}`
+}
+
 const modifiers = (args: { ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean }) =>
   [
     args.ctrl ? "Ctrl" : undefined,
@@ -88,6 +120,24 @@ const tabID = tool.schema.string().min(1).max(128).describe("Explicit tab ID fro
 
 export function browserTools(port: BrowserPort): Record<string, ToolDefinition> {
   return {
+    browser_create_tab: tool({
+      description:
+        "Create one blank private tab in this task after named lifecycle approval. No URL or page access grant. Returns only the operation and opaque tab ID; no automatic retry.",
+      args: {},
+      execute: (args, context) => runTab(port, context, "create_tab", args),
+    }),
+    browser_select_tab: tool({
+      description:
+        "Select an explicit tab in this task after named lifecycle approval. Does not grant page access or expose private page metadata. Returns only the operation and opaque tab ID; no automatic retry.",
+      args: { tabID },
+      execute: (args, context) => runTab(port, context, "select_tab", args),
+    }),
+    browser_close_tab: tool({
+      description:
+        "Close an explicit tab in this task after named lifecycle approval, respecting unsaved-page confirmation. Does not grant page access or expose private page metadata. Returns only the operation and opaque tab ID; no automatic retry.",
+      args: { tabID },
+      execute: (args, context) => runTab(port, context, "close_tab", args),
+    }),
     browser_search_history: tool({
       description:
         "Search the local browser visit history by title/URL and optional inclusive Unix millisecond dates. Returns at most 20 visits with short-lived refs. Main-process Never/Ask/Allow policy applies independently of page access. Deleted history is unavailable.",
