@@ -21,7 +21,15 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest)
   const post = (message: BrowserIpcResult, screenshot = false, check?: () => void) => {
     if (stopped) return
     try {
-      if (message.response.ok && (screenshot || message.response.result.screenshot !== undefined)) {
+      if (
+        message.response.ok &&
+        (screenshot ||
+          message.response.result.screenshot !== undefined ||
+          message.response.result.frames !== undefined ||
+          message.response.result.frameRef !== undefined ||
+          message.response.result.frameContext !== undefined ||
+          message.response.result.frameSelectContext !== undefined)
+      ) {
         try {
           if (!check) throw new Error("Missing screenshot delivery guard")
           check()

@@ -26,7 +26,7 @@ export type PageSnapshot = {
 // ponytail: bounded DOM naming subset, not an AX/ARIA engine; no editable values or persistent observers.
 export const snapshotScript = (
   id: string,
-  reference?: { generation: string; token: string; fill?: boolean },
+  reference?: { generation: string; token: string; fill?: boolean; focused?: boolean },
 ) => `(() => {
   const id = ${JSON.stringify(id)}, reference = ${JSON.stringify(reference ?? null)};
   const newToken = () => Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16).padStart(8, "0")).join("");
@@ -213,6 +213,17 @@ export const snapshotScript = (
       ancestry.some((node, index) => node !== (stored.chain[index]?.deref() ?? null))) return null;
     if (!visible(el) || disabled(el) || !interactive(el)) return null;
     if (reference.fill && (!stored.fillKind || fillKind(el) !== stored.fillKind)) return null;
+    if (reference.focused) {
+      let active = document.activeElement;
+      for (let depth = 0; active?.shadowRoot && depth < 64; depth++) {
+        const inner = active.shadowRoot.activeElement;
+        if (!inner || inner === active) break;
+        active = inner;
+      }
+      if (active !== el) return null;
+      // Keyboard identity is independent of the pointer center, which caret scrolling can move offscreen.
+      return page([describe(el, reference.token)]);
+    }
     const rect = el.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
     let hit = document.elementFromPoint(x, y);
     for (let depth = 0; hit?.shadowRoot && depth < 64; depth++) {

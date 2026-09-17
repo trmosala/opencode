@@ -34,6 +34,8 @@ export const screenshotDecoder = {
 }
 
 export type DriverContents = {
+  readonly mainFrame: { readonly detached: boolean }
+  readonly focusedFrame: { readonly detached: boolean } | null
   backgroundThrottling?: boolean
   isDestroyed(): boolean
   isLoadingMainFrame(): boolean
@@ -53,6 +55,7 @@ export type Target = {
   readonly check?: (source?: boolean) => void
   readonly signal?: AbortSignal
   readonly deadline?: number
+  readonly inputRef?: string
 }
 
 function check(target: Target, source = false) {
@@ -74,15 +77,36 @@ export function browserInputFailure(contents: DriverContents) {
   return failure("unavailable", nativeT("desktop.browser.driver.inputHeld"))
 }
 
+function checkFocusedFrame(target: Target) {
+  check(target, true)
+  // Native frame identity is only a focus boundary, not a document identity.
+  const main = target.contents.mainFrame
+  if (!main || main.detached || target.contents.focusedFrame !== main) throw new Error("Browser focused frame changed")
+}
+
 async function send(target: Target, method: string, params?: Record<string, unknown>) {
   check(target)
   if (target.contents.isLoadingMainFrame()) throw new Error("Browser page is loading")
+  const keyboard = method === "Input.dispatchKeyEvent" || method === "Input.insertText"
+  if (keyboard) {
+    checkFocusedFrame(target)
+    if (target.inputRef && !(await resolveRef(target, target.inputRef, true, true)))
+      throw new Error("Browser focused input changed")
+    // Recheck native focus and source/access after the identity await. Dispatch is not atomic with these checks.
+    checkFocusedFrame(target)
+  }
   const input = method === "Input.dispatchKeyEvent" || method === "Input.dispatchMouseEvent"
   if (input && (params?.type === "keyDown" || params?.type === "mousePressed")) inputDown.add(target.contents)
   const result = await target.contents.debugger.sendCommand(method, params)
   if (input && (params?.type === "keyUp" || params?.type === "mouseReleased")) inputDown.delete(target.contents)
   check(target)
   if (target.contents.isLoadingMainFrame()) throw new Error("Browser page is loading")
+  if (keyboard) {
+    checkFocusedFrame(target)
+    if (target.inputRef && !(await resolveRef(target, target.inputRef, true, true)))
+      throw new Error("Browser focused input changed")
+    checkFocusedFrame(target)
+  }
   return result
 }
 
@@ -222,13 +246,18 @@ async function dispatchKey(target: Target, key: string, modifiers: readonly Modi
   return true
 }
 
-async function resolveRef(target: Target, ref: string, fill = false) {
+async function resolveRef(target: Target, ref: string, fill = false, focused = false) {
   const match = /^([^:]+):([a-zA-Z0-9-]{1,64})$/.exec(ref)
   if (!match || !match[1].startsWith(`${target.tabID}.`)) return
   const stored = histories.get(target.contents)?.snapshots.get(match[1])
   const expected = stored?.page.elements.find((element) => element.token === match[2])
   if (!stored || !expected || target.contents.getURL() !== stored.page.url) return
-  const current = await capture(target, stored.id, { generation: stored.page.generation, token: expected.token, fill })
+  const current = await capture(target, stored.id, {
+    generation: stored.page.generation,
+    token: expected.token,
+    fill,
+    focused,
+  })
   const actual = current?.generation === stored.page.generation ? current.elements[0] : undefined
   if (!actual || actual.token !== expected.token || actual.disabled !== false) return
   return actual
@@ -358,6 +387,27 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       x = viewport.clientWidth / 2
       y = viewport.clientHeight / 2
     }
+    // ponytail: native hit metadata only; no child document inspection or frame grant.
+    x = Math.round(x)
+    y = Math.round(y)
+    const tree = (await send(target, "Page.getFrameTree")) as { frameTree?: { frame?: { id?: unknown } } } | undefined
+    const hit = (await send(target, "DOM.getNodeForLocation", { x, y })) as
+      | { frameId?: unknown; backendNodeId?: unknown }
+      | undefined
+    if (
+      typeof tree?.frameTree?.frame?.id !== "string" ||
+      hit?.frameId !== tree.frameTree.frame.id ||
+      typeof hit.backendNodeId !== "number"
+    )
+      return failure("unavailable", nativeT("desktop.browser.driver.frameUnavailable"))
+    // OOPIF hits can identify the parent-owned iframe instead of the child frame.
+    const node = (await send(target, "DOM.describeNode", {
+      backendNodeId: hit.backendNodeId,
+      depth: 0,
+      pierce: false,
+    })) as { node?: { nodeName?: unknown } } | undefined
+    if (typeof node?.node?.nodeName !== "string" || /^(iframe|frame|object|embed)$/i.test(node.node.nodeName))
+      return failure("unavailable", nativeT("desktop.browser.driver.frameUnavailable"))
     await send(target, "Input.dispatchMouseEvent", {
       type: "mouseWheel",
       x,
@@ -429,6 +479,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
     }
 
     if (request.op === "fill") {
+      target = { ...target, inputRef: request.ref }
       await dispatchKey(target, "a", [process.platform === "darwin" ? "Meta" : "Ctrl"])
       await dispatchKey(target, "Backspace")
       for (const character of request.text) await dispatchKey(target, character)

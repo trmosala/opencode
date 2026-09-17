@@ -75,7 +75,7 @@ import {
 import { agentHistory } from "./agent-history"
 import { createTabHandler, TabRecoveryRequired, type NativeTabAction } from "./agent-tabs"
 import { setBrowserTabHandler } from "./registry"
-import { failure, type TabRequest } from "@cookiemonster/cm-browser/protocol"
+import { failure, hasFrameTarget, type TabRequest } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 
 type Tab = BrowserRegistration & {
@@ -883,6 +883,9 @@ function createTab(
 
 export async function browserCommand(owner: Owner, sessionID: string, value: unknown) {
   if (!value || typeof value !== "object") throw new Error("Invalid browser command")
+  // Native commands are top-only; frame consent never authorizes credential delivery.
+  if (hasFrameTarget(value as Record<string, unknown>))
+    throw new Error(nativeT("desktop.browser.driver.frameUnavailable"))
   const command = value as BrowserCommand
   const group = groupFor(owner, sessionID)
   if (command.op === "open-link") {

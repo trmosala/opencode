@@ -26,6 +26,10 @@ export function loadAllowlist(path = allowlistPath()): readonly string[] {
 
 export const allowed = (url: string, path = allowlistPath()) => hostAllowed(url, loadAllowlist(path))
 
+// ponytail: one epoch invalidates all pending frame authority; per-host epochs only if needed.
+let policyRevision = 0
+export const hostPolicyRevision = () => policyRevision
+
 export function updateAgentHost(value: string, remove = false, path = allowlistPath()) {
   if (typeof value !== "string" || typeof remove !== "boolean") throw new Error("Invalid host")
   const host = value.trim().toLowerCase()
@@ -42,6 +46,7 @@ export function updateAgentHost(value: string, remove = false, path = allowlistP
   try {
     writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`)
     renameSync(temporary, path)
+    policyRevision++
   } finally {
     rmSync(temporary, { force: true })
   }

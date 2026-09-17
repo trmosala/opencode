@@ -14,6 +14,104 @@ import {
   stateDirectory,
 } from "../src/protocol"
 
+test("explicit frame reads require exact preparation and origin binding, never raw CDP targeting", () => {
+  const frameRef = "a".repeat(36)
+  const frameContext = {
+    frameRef,
+    approval: "b".repeat(36),
+    topOrigin: "https://top.test:8443",
+    origin: "https://child.test:9443",
+  }
+  const prepare = { op: "prepare_frame", tabID: "one", frameRef } as const
+  const read = { op: "read_state", tabID: "one", frameRef, frameContext } as const
+  expect(parseRequest(prepare)).toEqual(prepare)
+  expect(parseRequest(read)).toEqual(read)
+  expect(parseRequest({ ...read, frameContext: undefined })).toBeUndefined()
+  expect(parseRequest({ ...prepare, frameContext })).toBeUndefined()
+  expect(parseRequest({ op: "read_state", tabID: "one", frameContext })).toBeUndefined()
+  for (const key of ["frameId", "sessionID", "contextId", "script", "unknown"]) {
+    expect(parseRequest({ ...prepare, [key]: "x" })).toBeUndefined()
+    expect(parseRequest({ ...read, [key]: "x" })).toBeUndefined()
+  }
+  for (const invalid of [
+    { origin: "null" },
+    { origin: "https://child.test/path" },
+    { topOrigin: "about:blank" },
+    { frameRef: "c".repeat(36) },
+    { approval: "" },
+    { extra: true },
+  ])
+    expect(parseRequest({ ...read, frameContext: { ...frameContext, ...invalid } })).toBeUndefined()
+  expect(
+    parseRequest({ op: "prepare_write", request: { op: "click", tabID: "one", ref: "x", frameContext } }),
+  ).toBeUndefined()
+})
+
+test("frame selection requires exact operation, frame and option consent with no top fallback", () => {
+  const frameRef = "a".repeat(36)
+  const ref = `frame.${"b".repeat(36)}:select`
+  const optionRef = `frame.${"b".repeat(36)}:option`
+  const frameContext = {
+    frameRef,
+    approval: "c".repeat(36),
+    topOrigin: "https://top.test",
+    origin: "https://child.test",
+  }
+  const frameSelectContext = { ...frameContext, op: "select_option" as const, ref, optionRef }
+  const prepare = { op: "prepare_frame_select" as const, tabID: "one", frameRef, ref, optionRef }
+  const select = { ...prepare, op: "select_option" as const, frameSelectContext }
+  expect(parseRequest(prepare)).toEqual(prepare)
+  expect(parseRequest(select)).toEqual(select)
+  for (const extra of [{ frameContext }, { context: {} }, { sessionID: "raw" }, { unknown: true }]) {
+    expect(parseRequest({ ...prepare, ...extra })).toBeUndefined()
+    expect(parseRequest({ ...select, ...extra })).toBeUndefined()
+  }
+  for (const invalid of [
+    undefined,
+    frameContext,
+    { ...frameSelectContext, op: "read_state" },
+    { ...frameSelectContext, ref: optionRef },
+    { ...frameSelectContext, optionRef: ref },
+    { ...frameSelectContext, frameRef: "d".repeat(36) },
+    { ...frameSelectContext, extra: true },
+  ])
+    expect(parseRequest({ ...select, frameSelectContext: invalid })).toBeUndefined()
+  expect(parseRequest({ op: "read_state", tabID: "one", frameRef, frameContext: frameSelectContext })).toBeUndefined()
+  expect(parseRequest({ op: "read_state", tabID: "one", frameSelectContext })).toBeUndefined()
+  expect(parseRequest({ op: "prepare_write", request: prepare })).toBeUndefined()
+  expect(parseRequest({ ...select, frameRef: undefined })).toBeUndefined()
+  expect(parseRequest({ ...prepare, ref: "top:select" })).toBeUndefined()
+})
+
+test("unsupported frame arguments never silently fall back to the top document", () => {
+  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const writes = [
+    { op: "select_option", tabID: "one", ref: "select", optionRef: "option" },
+    { op: "click", tabID: "one", ref: "button" },
+    { op: "fill", tabID: "one", ref: "input", text: "text" },
+    { op: "hover", tabID: "one", ref: "button" },
+    { op: "drag", tabID: "one", sourceRef: "source", targetRef: "target" },
+    { op: "press_key", tabID: "one", key: "Enter", modifiers: [] },
+    { op: "scroll", tabID: "one", deltaX: 0, deltaY: 1 },
+    { op: "navigate", tabID: "one", url: "http://localhost/" },
+    { op: "screenshot", tabID: "one" },
+  ]
+  const requests = [
+    { op: "read_state", tabID: "one" },
+    { op: "list_tabs" },
+    { op: "wait_for_element", tabID: "one", selector: "button", timeoutMs: 1 },
+    { op: "wait_for_navigation", tabID: "one", url: "http://localhost/", timeoutMs: 1 },
+    ...writes.map((request) => ({ ...request, context })),
+    ...writes.map((request) => ({ op: "prepare_write", request })),
+  ]
+  for (const key of ["frameRef", "frameId", "frameID", "executionContextId", "contextId", "sessionId", "sessionID"])
+    for (const value of [undefined, null, "", "opaque", 1, {}]) {
+      for (const request of requests) expect(parseRequest({ ...request, [key]: value })).toBeUndefined()
+      for (const request of writes)
+        expect(parseRequest({ op: "prepare_write", request: { ...request, [key]: value } })).toBeUndefined()
+    }
+})
+
 test("tab lifecycle requires exact actions, explicit targets and preparation tokens", () => {
   for (const request of [
     { op: "create_tab" },

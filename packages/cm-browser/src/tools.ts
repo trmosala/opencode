@@ -2,7 +2,11 @@ import { tool, type ToolContext, type ToolDefinition } from "@opencode-ai/plugin
 import type { BrowserPort } from "./port"
 import {
   hostOf,
+  hasFrameTarget,
   parseAccessContext,
+  parseFrameContext,
+  parseFrameSelectContext,
+  parseRequest,
   parseTabRequest,
   type TabRequest,
   screenshotBytes,
@@ -35,6 +39,15 @@ const result = (state: BrowserState) => ({
             `tabID: ${state.tabID}`,
             `url: ${state.url}`,
             `title: ${state.title}`,
+            ...(state.frameRef
+              ? [`frameRef: ${state.frameRef} (only separately approved single-select is supported)`]
+              : []),
+            ...(state.frames
+              ? [
+                  "eligible direct frames (separate approval required):",
+                  ...state.frames.map((frame) => `[${frame.frameRef}] ${frame.origin}`),
+                ]
+              : []),
             "",
             "visible text:",
             state.visibleText || "(none)",
@@ -119,7 +132,7 @@ const modifiers = (args: { ctrl?: boolean; alt?: boolean; shift?: boolean; meta?
 const tabID = tool.schema.string().min(1).max(128).describe("Explicit tab ID from browser_read_state's tab inventory")
 
 export function browserTools(port: BrowserPort): Record<string, ToolDefinition> {
-  return {
+  const tools: Record<string, ToolDefinition> = {
     browser_create_tab: tool({
       description:
         "Create one blank private tab in this task after named lifecycle approval. No URL or page access grant. Returns only the operation and opaque tab ID; no automatic retry.",
@@ -163,9 +176,43 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
     }),
     browser_read_state: tool({
       description:
-        "Without tabID, list only tabs the user opted into agent access. With tabID, read that tab's bounded visible text and opaque element refs. Private tabs are never exposed.",
-      args: { tabID: tabID.optional() },
+        "Without tabID, list opted-in tabs. With tabID, read bounded top-document text/refs and up to 32 eligible direct iframe origins/opaque frameRefs, without child content. With explicit frameRef, separately approve the exact top and receiving origins before a child snapshot; child option refs support only separately approved single-select, never top-document mutations. Only fully visible, unobscured ordinary HTTP(S) direct iframes are supported. Nested, sandboxed, inherited/opaque, transformed, clipped, overlapping or unmapped frames are omitted/refused. Private tabs are never exposed.",
+      args: {
+        tabID: tabID.optional(),
+        frameRef: opaqueID
+          .optional()
+          .describe("Explicit direct-child frame ref from a top snapshot; read-only and separately approved"),
+      },
       async execute(args, context) {
+        if ("frameRef" in args) {
+          if (!args.tabID || typeof args.frameRef !== "string" || !/^[a-f0-9-]{36}$/.test(args.frameRef))
+            throw new Error("Unsupported browser frame target.")
+          await askRead(context)
+          const request = { op: "prepare_frame", tabID: args.tabID, frameRef: args.frameRef } as const
+          const prepared = await run(port, context, request)
+          const binding = parseFrameContext(prepared.frameContext)
+          if (!binding || binding.frameRef !== args.frameRef || prepared.tabID !== args.tabID)
+            throw new Error("Invalid browser frame preparation.")
+          await ask(context, {
+            permission: "browser_read_frame",
+            patterns: [`${binding.topOrigin} -> ${binding.origin}`],
+            always: [],
+            metadata: {
+              tabID: args.tabID,
+              frameRef: args.frameRef,
+              topOrigin: binding.topOrigin,
+              receivingOrigin: binding.origin,
+            },
+          })
+          return result(
+            await run(port, context, {
+              op: "read_state",
+              tabID: args.tabID,
+              frameRef: args.frameRef,
+              frameContext: binding,
+            }),
+          )
+        }
         await askRead(context)
         return result(
           await run(port, context, args.tabID ? { op: "read_state", tabID: args.tabID } : { op: "list_tabs" }),
@@ -292,14 +339,49 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
     }),
     browser_select_option: tool({
       description:
-        "Choose an opaque optionRef owned by a native single-select ref in the same tab snapshot. Disabled selects/options/groups and multiple selects are refused. Uses the native selected setter, not keyboard input; bubbling input/change events have isTrusted=false and fire only on selection change. Site handlers may submit, navigate or mutate; dispatched effects cannot be recalled, and failures never automatically retry selection. Returns a fresh snapshot without option values.",
+        "Choose an opaque optionRef owned by a native single-select ref in the same tab snapshot. Disabled selects/options/groups and multiple selects are refused. Uses the native selected setter, not keyboard input; bubbling input/change events have isTrusted=false and fire only on selection change. Site handlers may submit, navigate or mutate; dispatched effects cannot be recalled, and failures never automatically retry selection. Top selections return a fresh snapshot without option values. With explicit frameRef, requires fresh exact top/receiving-origin consent for the original frame snapshot's select and option refs; returns acknowledgement only, with no implicit child reread.",
       args: {
         tabID,
         ref: tool.schema.string().min(1).max(256),
         optionRef: tool.schema.string().min(1).max(256),
+        frameRef: opaqueID.optional(),
       },
       async execute(args, context) {
         const request = { op: "select_option", tabID: args.tabID, ref: args.ref, optionRef: args.optionRef } as const
+        if ("frameRef" in args) {
+          const preparation = parseRequest({ ...args, op: "prepare_frame_select" })
+          if ("op" in args || !preparation || preparation.op !== "prepare_frame_select")
+            throw new Error("Unsupported browser frame selection.")
+          await askRead(context)
+          const prepared = await run(port, context, preparation)
+          const binding = parseFrameSelectContext(prepared.frameSelectContext)
+          if (
+            !binding ||
+            prepared.tabID !== args.tabID ||
+            binding.frameRef !== args.frameRef ||
+            binding.ref !== args.ref ||
+            binding.optionRef !== args.optionRef
+          )
+            throw new Error("Invalid browser frame selection preparation.")
+          await ask(context, {
+            permission: "browser_select_frame_option",
+            patterns: [`${binding.topOrigin} -> ${binding.origin}`],
+            always: [],
+            metadata: {
+              ...request,
+              frameRef: args.frameRef,
+              topOrigin: binding.topOrigin,
+              receivingOrigin: binding.origin,
+            },
+          })
+          return result(
+            await run(port, context, {
+              ...request,
+              frameRef: preparation.frameRef,
+              frameSelectContext: binding,
+            }),
+          )
+        }
         return result(await run(port, context, await askWrite(port, context, "browser_select_option", request)))
       },
     }),
@@ -327,4 +409,18 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       },
     }),
   }
+  for (const [name, definition] of Object.entries(tools)) {
+    const execute = definition.execute
+    definition.execute = async (args, context) => {
+      const { frameRef, ...rest } = args
+      if (
+        hasFrameTarget(rest) ||
+        ("frameRef" in args && !["browser_read_state", "browser_select_option"].includes(name)) ||
+        ("frameRef" in args && (typeof frameRef !== "string" || !/^[a-f0-9-]{36}$/.test(frameRef)))
+      )
+        throw new Error("Unsupported browser frame target.")
+      return execute(args, context)
+    }
+  }
+  return tools
 }

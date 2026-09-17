@@ -7,6 +7,7 @@ import {
   type BrowserState,
 } from "@cookiemonster/cm-browser/protocol"
 import { nativeT } from "../native-translations"
+import type { createFrameSessions } from "./frame-sessions"
 
 export type TabLifecycleRequest = Extract<Request, { op: "prepare_tab" | "create_tab" | "select_tab" | "close_tab" }>
 export const browserOperationBusy = new Set<string>()
@@ -52,6 +53,7 @@ export type BrowserRegistration = {
   sessionID: string
   contents: DriverContents
   transferGuarded?: boolean
+  frameSessions?: ReturnType<typeof createFrameSessions>
   agentAccess: boolean
   revision: number
   accessRevision?: number

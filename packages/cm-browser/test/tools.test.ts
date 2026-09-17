@@ -51,6 +51,79 @@ function fakeContext(sessionID = "ses_1") {
 }
 
 describe("browser tools", () => {
+  test("frame targeting is rejected before plugin approval or top-page dispatch", async () => {
+    const browser = fakePort()
+    const call = fakeContext()
+    for (const definition of Object.values(browserTools(browser.port)))
+      for (const key of ["frameRef", "frameId", "frameID", "executionContextId", "contextId", "sessionId", "sessionID"])
+        for (const value of [undefined, null, "", "opaque", 1, {}])
+          await expect(definition.execute({ tabID: "one", [key]: value }, call.context)).rejects.toThrow(
+            "Unsupported browser frame target.",
+          )
+    expect(browser.sent).toEqual([])
+    expect(call.asked).toEqual([])
+  })
+
+  test("frame selection preserves original refs across separate deferred consent and rejects forged inputs", async () => {
+    const args = {
+      tabID: "one",
+      frameRef: "a".repeat(36),
+      ref: `frame.${"b".repeat(36)}:select`,
+      optionRef: `frame.${"b".repeat(36)}:option`,
+    }
+    for (const decision of ["allow", "deny", "abort"]) {
+      const binding = {
+        ...args,
+        op: "select_option" as const,
+        approval: "c".repeat(36),
+        topOrigin: "https://top.test:8443",
+        origin: "https://child.test:9443",
+      }
+      const { tabID: _tabID, ...frameSelectContext } = binding
+      const sent: Request[] = []
+      const call = fakeContext()
+      const controller = new AbortController()
+      call.context.abort = controller.signal
+      const entered = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      call.context.ask = async (input) => {
+        if (input.permission === "browser_read_state") return
+        expect(input.permission).toBe("browser_select_frame_option")
+        expect(input.patterns).toEqual([`${binding.topOrigin} -> ${binding.origin}`])
+        expect(input.always).toEqual([])
+        expect(input.metadata.ref).toBe(args.ref)
+        expect(input.metadata.optionRef).toBe(args.optionRef)
+        expect(sent).toEqual([{ op: "prepare_frame_select", ...args }])
+        entered.resolve()
+        await release.promise
+      }
+      const tools = browserTools({
+        send: async (_session, request) => {
+          sent.push(request)
+          return success({ ...state, frameSelectContext })
+        },
+      })
+      const pending = tools.browser_select_option.execute(args, call.context).catch((error: unknown) => error)
+      await entered.promise
+      if (decision === "abort") controller.abort()
+      if (decision === "deny") release.reject(new Error("Denied"))
+      else release.resolve()
+      const response = await pending
+      expect(response instanceof Error).toBe(decision !== "allow")
+      expect(sent).toHaveLength(decision === "allow" ? 2 : 1)
+      if (decision === "allow") expect(sent[1]).toEqual({ op: "select_option", ...args, frameSelectContext })
+    }
+    for (const extra of [{ op: "read_state" }, { frameSelectContext: {} }, { frameContext: {} }, { unknown: true }]) {
+      const browser = fakePort()
+      const call = fakeContext()
+      await expect(
+        browserTools(browser.port).browser_select_option.execute({ ...args, ...extra }, call.context),
+      ).rejects.toThrow()
+      expect(browser.sent).toEqual([])
+      expect(call.asked).toEqual([])
+    }
+  })
+
   const emptyTabState = { tabID: "", url: "", title: "", visibleText: "", elements: [] }
   const tabActions: TabRequest["op"][] = ["create_tab", "select_tab", "close_tab"]
 

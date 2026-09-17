@@ -22,6 +22,10 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
   let url = options.url ?? "http://localhost:5173/"
   let elements = [element()]
   const contents: DriverContents = {
+    mainFrame: { detached: false },
+    get focusedFrame() {
+      return this.mainFrame
+    },
     isDestroyed: () => options.destroyed === true,
     isLoadingMainFrame: () => false,
     stop: () => {},
@@ -37,6 +41,8 @@ function fake(options: { url?: string; destroyed?: boolean; snapshot?: unknown }
       sendCommand: async (method, params) => {
         calls.push({ method, params })
         if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
+        if (method === "DOM.getNodeForLocation") return { frameId: "main", backendNodeId: 1 }
+        if (method === "DOM.describeNode") return { node: { nodeName: "BUTTON" } }
         if (method === "Page.createIsolatedWorld")
           return { executionContextId: params?.worldName === "cm-browser-wait" ? 7 : 8 }
         if (method !== "Runtime.evaluate") return {}

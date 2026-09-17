@@ -5,10 +5,11 @@ import {
   success,
   parseRequest,
   type BrowserIpcRequest,
+  type FrameRequest,
   type BrowserState,
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
-import { allowed } from "./allowlist"
+import { allowed, hostPolicyRevision } from "./allowlist"
 import { browserInputFailure, execute } from "./driver"
 import {
   browserTabs,
@@ -21,6 +22,7 @@ import {
 import { browserURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
+import { discoverFrames, executeFrame } from "./frames"
 
 const busy = browserOperationBusy
 
@@ -86,7 +88,14 @@ export async function routeBrowserRequest(
   control.onSettled?.(operation)
   try {
     const response = await Promise.race([operation, cancelled])
-    if (response.ok && validated.op === "screenshot") {
+    if (
+      response.ok &&
+      (validated.op === "screenshot" ||
+        response.result.frames !== undefined ||
+        response.result.frameRef !== undefined ||
+        response.result.frameContext !== undefined ||
+        response.result.frameSelectContext !== undefined)
+    ) {
       try {
         if (!deliveryCheck) throw new Error("Missing screenshot authority")
         deliveryCheck()
@@ -153,6 +162,7 @@ async function route(
     return failure("unavailable", "Browser page is loading. Wait for loading to finish.")
 
   const ownerID = tab.ownerID
+  const hosts = hostPolicyRevision()
   const revision = tab.revision
   const accessRevision = tab.accessRevision ?? 0
   // ponytail: hash the exact source, not a truncated URL; main's epochs also detect A-B-A.
@@ -169,6 +179,9 @@ async function route(
     })
   if (
     request.op !== "read_state" &&
+    request.op !== "prepare_frame" &&
+    request.op !== "prepare_frame_select" &&
+    !("frameRef" in request) &&
     !observing &&
     (!("context" in parsed) ||
       parsed.context.tabID !== tab.id ||
@@ -186,6 +199,7 @@ async function route(
       browserRegistration(message.sessionID, request.tabID) !== tab ||
       tab.contents !== contents ||
       tab.ownerID !== ownerID ||
+      hostPolicyRevision() !== hosts ||
       !browserAgentEnabled() ||
       !tab.agentAccess ||
       (tab.accessRevision ?? 0) !== accessRevision ||
@@ -235,9 +249,31 @@ async function route(
       if (!ownerCheck) return failure("access_denied", nativeT("desktop.browser.screenshotDenied"))
       onScreenshotDelivery(authority)
     }
+    if ("frameRef" in request) {
+      const frame = await executeFrame(tab, request as FrameRequest, authority, deadline, isAllowed)
+      const delivery = () => {
+        authority()
+        frame.check()
+      }
+      delivery()
+      onScreenshotDelivery(delivery)
+      return frame.response
+    }
     // Keep busy/rendering ownership until actual native settlement, even after an early reply.
     const response = await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
     if (screenshot) authority()
+    if (response.ok && request.op === "read_state") {
+      const discovered = await discoverFrames(tab, authority, isAllowed)
+      if (discovered) {
+        const delivery = () => {
+          authority()
+          discovered.check()
+        }
+        delivery()
+        onScreenshotDelivery(delivery)
+        return success({ ...response.result, frames: discovered.frames })
+      }
+    }
     return response
   } finally {
     signal.removeEventListener("abort", revoke)

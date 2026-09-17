@@ -5,6 +5,10 @@ import type { DriverContents } from "./driver"
 test("registry resolves exact session and tab, never a fallback", () => {
   let destroyed = false
   const contents: DriverContents = {
+    mainFrame: { detached: false },
+    get focusedFrame() {
+      return this.mainFrame
+    },
     isDestroyed: () => destroyed,
     isLoadingMainFrame: () => false,
     stop: () => {},

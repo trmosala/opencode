@@ -4,6 +4,10 @@ import { keepBrowserRendering } from "./rendering"
 
 test("overlapping capture and input restore throttling after the last operation", () => {
   const contents: DriverContents = {
+    mainFrame: { detached: false },
+    get focusedFrame() {
+      return this.mainFrame
+    },
     backgroundThrottling: true,
     isDestroyed: () => false,
     isLoadingMainFrame: () => false,

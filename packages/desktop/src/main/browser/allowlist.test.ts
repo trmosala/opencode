@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DEFAULT_ALLOWLIST } from "@cookiemonster/cm-browser/protocol"
-import { allowed, loadAllowlist, updateAgentHost } from "./allowlist"
+import { allowed, hostPolicyRevision, loadAllowlist, updateAgentHost } from "./allowlist"
 
 const temp = () => join(mkdtempSync(join(tmpdir(), "cm-browser-")), "allowlist.json")
 
@@ -13,8 +13,12 @@ describe("loadAllowlist", () => {
     updateAgentHost("example.com", false, path)
     expect(allowed("https://sub.example.com/page", path)).toBe(true)
     expect(allowed("https://notexample.com", path)).toBe(false)
+    const before = hostPolicyRevision()
     updateAgentHost("example.com", true, path)
     expect(allowed("https://sub.example.com", path)).toBe(false)
+    updateAgentHost("example.com", false, path)
+    expect(allowed("https://sub.example.com", path)).toBe(true)
+    expect(hostPolicyRevision()).toBe(before + 2)
     for (const host of ["https://example.com", "*.com", "example.com/path", "example.com:443", ""])
       expect(() => updateAgentHost(host, false, path)).toThrow()
   })

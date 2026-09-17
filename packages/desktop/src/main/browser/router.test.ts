@@ -37,6 +37,10 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
     agentAccess: true,
     transferGuarded: true,
     contents: {
+      mainFrame: { detached: false },
+      get focusedFrame() {
+        return this.mainFrame
+      },
       isDestroyed: () => false,
       isLoadingMainFrame: () => false,
       stop: () => {},
@@ -51,6 +55,8 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
         sendCommand: async (method) => {
           calls.push(method)
           if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
+          if (method === "DOM.getNodeForLocation") return { frameId: "main", backendNodeId: 1 }
+          if (method === "DOM.describeNode") return { node: { nodeName: "BUTTON" } }
           if (method === "Page.createIsolatedWorld") return { executionContextId: 8 }
           return {
             result: {

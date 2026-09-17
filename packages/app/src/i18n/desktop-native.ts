@@ -309,6 +309,9 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.transfer.download": "Allow this download from an agent-accessible tab?",
   "desktop.browser.transfer.downloadDetail": "Page: {{origin}}\nFile: {{filename}}\nDownload: {{url}}",
   "desktop.browser.transfer.upload": "Choose files to share with {{origin}}",
+  "desktop.browser.transfer.frameUpload": "Allow file selection for this embedded page?",
+  "desktop.browser.transfer.frameUploadDetail":
+    "Top page: {{topOrigin}}\nReceiving embedded page: {{origin}}\nOnly files you choose will be shared. The receiving page can read and upload them immediately.",
   "desktop.browser.openInternal": "Open in CookieMonster",
   "desktop.browser.openExternal": "Open in default browser",
   "desktop.browser.importBookmarks": "Import bookmarks",

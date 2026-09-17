@@ -75,7 +75,46 @@ export type TabRequest =
 
 export type TabResult = { readonly op: TabRequest["op"]; readonly tabID: string }
 
+export type FrameContext = {
+  readonly frameRef: string
+  readonly approval: string
+  readonly topOrigin: string
+  readonly origin: string
+}
+export type FrameSelectContext = FrameContext & {
+  readonly op: "select_option"
+  readonly ref: string
+  readonly optionRef: string
+}
+export type FrameRequest =
+  | { readonly op: "prepare_frame"; readonly tabID: string; readonly frameRef: string }
+  | {
+      readonly op: "read_state"
+      readonly tabID: string
+      readonly frameRef: string
+      readonly frameContext: FrameContext
+    }
+  | {
+      readonly op: "prepare_frame_select"
+      readonly tabID: string
+      readonly frameRef: string
+      readonly ref: string
+      readonly optionRef: string
+    }
+  | {
+      readonly op: "select_option"
+      readonly tabID: string
+      readonly frameRef: string
+      readonly ref: string
+      readonly optionRef: string
+      readonly frameSelectContext: FrameSelectContext
+    }
+
 export type BrowserState = {
+  readonly frames?: readonly { frameRef: string; origin: string }[]
+  readonly frameContext?: FrameContext
+  readonly frameSelectContext?: FrameSelectContext
+  readonly frameRef?: string
   readonly tabToken?: string
   readonly tabResult?: TabResult
   readonly screenshot?: Screenshot
@@ -135,6 +174,7 @@ export type WaitRequest = { readonly tabID: string; readonly timeoutMs: number }
 export type PageRequest = { readonly op: "read_state"; readonly tabID: string } | WriteRequest | WaitRequest
 
 export type Request =
+  | FrameRequest
   | { readonly op: "prepare_tab"; readonly request: TabRequest }
   | (TabRequest & { readonly token: string })
   | HistoryRequest
@@ -240,6 +280,57 @@ export function parseTabRequest(value: unknown): TabRequest | undefined {
 export function parseRequest(value: unknown): Request | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
+  if (input.op === "prepare_frame_select" || (input.op === "select_option" && "frameRef" in input)) {
+    if (
+      Object.keys(input).some(
+        (key) =>
+          ![
+            "op",
+            "tabID",
+            "frameRef",
+            "ref",
+            "optionRef",
+            ...(input.op === "select_option" ? ["frameSelectContext"] : []),
+          ].includes(key),
+      ) ||
+      typeof input.tabID !== "string" ||
+      !input.tabID ||
+      input.tabID.length > 128 ||
+      typeof input.frameRef !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(input.frameRef) ||
+      !frameElementRef(input.ref) ||
+      !frameElementRef(input.optionRef)
+    )
+      return
+    const target = { tabID: input.tabID, frameRef: input.frameRef, ref: input.ref, optionRef: input.optionRef }
+    if (input.op === "prepare_frame_select") return { op: input.op, ...target }
+    const frameSelectContext = parseFrameSelectContext(input.frameSelectContext)
+    return frameSelectContext &&
+      frameSelectContext.frameRef === target.frameRef &&
+      frameSelectContext.ref === target.ref &&
+      frameSelectContext.optionRef === target.optionRef
+      ? { op: input.op, ...target, frameSelectContext }
+      : undefined
+  }
+  if (input.op === "prepare_frame" || (input.op === "read_state" && "frameRef" in input)) {
+    if (
+      Object.keys(input).some(
+        (key) => !["op", "tabID", "frameRef", ...(input.op === "read_state" ? ["frameContext"] : [])].includes(key),
+      ) ||
+      typeof input.tabID !== "string" ||
+      !input.tabID ||
+      input.tabID.length > 128 ||
+      typeof input.frameRef !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(input.frameRef)
+    )
+      return
+    if (input.op === "prepare_frame") return { op: input.op, tabID: input.tabID, frameRef: input.frameRef }
+    const frameContext = parseFrameContext(input.frameContext)
+    return frameContext && frameContext.frameRef === input.frameRef
+      ? { op: "read_state", tabID: input.tabID, frameRef: input.frameRef, frameContext }
+      : undefined
+  }
+  if (hasFrameTarget(input) || "frameContext" in input) return
   if (input.op === "prepare_tab") {
     if (Object.keys(input).some((key) => key !== "op" && key !== "request")) return
     const request = parseTabRequest(input.request)
@@ -308,6 +399,44 @@ export function parseRequest(value: unknown): Request | undefined {
   return request && context ? { ...request, context } : undefined
 }
 
+const frameElementRef = (value: unknown): value is string =>
+  typeof value === "string" && /^frame\.[a-f0-9-]{36}:[a-zA-Z0-9-]{1,64}$/.test(value)
+
+export function parseFrameSelectContext(value: unknown): FrameSelectContext | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const { op, ref, optionRef, ...rest } = value as Record<string, unknown>
+  const binding = parseFrameContext(rest)
+  if (!binding || op !== "select_option" || !frameElementRef(ref) || !frameElementRef(optionRef)) return
+  return { ...binding, op, ref, optionRef }
+}
+
+export function parseFrameContext(value: unknown): FrameContext | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (
+    Object.keys(input).length !== 4 ||
+    typeof input.frameRef !== "string" ||
+    !/^[a-f0-9-]{36}$/.test(input.frameRef) ||
+    typeof input.approval !== "string" ||
+    !/^[a-f0-9-]{36}$/.test(input.approval)
+  )
+    return
+  for (const key of ["origin", "topOrigin"])
+    if (
+      typeof input[key] !== "string" ||
+      input[key].length > MAX_URL_LENGTH ||
+      !hostOf(input[key]) ||
+      new URL(input[key]).origin !== input[key]
+    )
+      return
+  return {
+    frameRef: input.frameRef,
+    approval: input.approval,
+    topOrigin: input.topOrigin as string,
+    origin: input.origin as string,
+  }
+}
+
 export function parseAccessContext(value: unknown): AccessContext | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
@@ -337,9 +466,25 @@ function validTimeout(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= OPERATION_TIMEOUT_MS
 }
 
+// Frame targeting must be admitted explicitly, never stripped into a top-document operation.
+export function hasFrameTarget(input: Record<string, unknown>) {
+  return [
+    "frameRef",
+    "frameContext",
+    "frameSelectContext",
+    "frameId",
+    "frameID",
+    "executionContextId",
+    "contextId",
+    "sessionId",
+    "sessionID",
+  ].some((key) => key in input)
+}
+
 function parseWriteRequest(value: unknown): WriteRequest | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
+  if (hasFrameTarget(input)) return
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
   if (input.op === "screenshot") return { op: "screenshot", tabID }

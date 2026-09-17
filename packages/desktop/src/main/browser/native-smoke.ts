@@ -200,6 +200,12 @@ async function run() {
     stage("PASS screenshots")
     return
   }
+  if (process.argv.includes("--frames")) {
+    const { framesSmoke } = await import("./frames.fixture")
+    await framesSmoke()
+    stage("PASS frames")
+    return
+  }
   if (process.argv.includes("--interactions")) {
     const { interactionsSmoke } = await import("./interactions.fixture")
     await interactionsSmoke()
@@ -3955,6 +3961,28 @@ async function run() {
   ])
   assert(!JSON.stringify(privateSnapshot).includes("fixture-secret"))
   assert(!JSON.stringify(privateSnapshot).includes("fixture-user"))
+  stage("explicit frame credential boundary")
+  for (const key of [
+    "frameRef",
+    "frameContext",
+    "frameId",
+    "frameID",
+    "executionContextId",
+    "contextId",
+    "sessionId",
+    "sessionID",
+  ]) {
+    for (const op of ["fill-login", "save-login"]) {
+      await assert.rejects(
+        browserCommand(owner, "smoke", { op, tabID: first, id: credential.id, [key]: "child" }),
+        /Browser frame unavailable/,
+      )
+    }
+  }
+  assert.equal(
+    await one.view.webContents.executeJavaScript("document.querySelector('input[type=password]').value"),
+    "fixture-secret",
+  )
   stage("multi-step autofill")
   await one.view.webContents.executeJavaScript(
     `document.body.innerHTML='<form method="post"><input autocomplete="username"></form>'`,
