@@ -50,7 +50,7 @@ Development builds no longer open port 9222 automatically. `CM_REMOTE_DEBUGGING=
 
 ## Browser settings
 
-Settings reuse Electron session permission handlers and DownloadItem APIs. Camera/microphone rules are exact-origin, main-frame only, HTTPS or loopback, with Block/Ask/Allow. Ask uses a native prompt per request, and OS permission requirements still apply. Changing a rule reloads matching open tabs and overrides page unload vetoes so existing capture stops. The native test uses fake media devices, never the physical camera or microphone.
+Settings reuse Electron session permission handlers and DownloadItem APIs. Camera/microphone rules are exact-origin, main-frame only, HTTPS or loopback, with Block/Ask/Allow. Ask uses a native prompt per request, and OS permission requirements still apply. Changing a rule requests a safety reload of matching open tabs, overriding reload vetoes but waiting for an outstanding agent close to settle. Existing capture ends on document replacement or closure; HTTP 204, Stop or stalled loading can delay disposal. See the lifecycle evidence below. The native test uses fake media devices, never the physical camera or microphone.
 
 Show full URL controls the unfocused address display; editing always exposes the complete URL. Include screenshots with selections adds a screenshot to the same captured chat draft as Add Selection.
 
