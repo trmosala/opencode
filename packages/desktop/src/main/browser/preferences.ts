@@ -1,6 +1,7 @@
 import { app, dialog, shell } from "electron"
 import type { BrowserWindow } from "electron"
-import { closeSync, openSync, existsSync } from "node:fs"
+import { closeSync, openSync } from "node:fs"
+import { downloadHistoryRows, savedDownloads, saveDownloadRecord } from "./download-records"
 import { basename, extname, join } from "node:path"
 import type { BrowserDownload, BrowserPermission, BrowserPreferences } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
@@ -78,26 +79,16 @@ export function reserveDownload(directory: string, filename: string) {
   }
   throw new Error("Download name limit reached")
 }
-type SavedDownload = BrowserDownload & { path?: string }
 export function downloadHistory() {
-  return (store().get("downloads", []) as SavedDownload[]).map(({ path, ...entry }) => ({
-    ...entry,
-    canReveal: !!path && existsSync(path),
-    canControl: false,
-  }))
+  return downloadHistoryRows(store().get("downloads", []))
 }
-export function recordDownload(download: BrowserDownload, path?: string) {
-  store().set(
-    "downloads",
-    [
-      { ...download, time: download.time ?? Date.now(), canControl: false, path },
-      ...(store().get("downloads", []) as SavedDownload[]).filter((entry) => entry.id !== download.id),
-    ].slice(0, 200),
-  )
+export function recordDownload(download: BrowserDownload, live: ReadonlySet<string>, path?: string) {
+  saveDownloadRecord(store(), download, path, live)
 }
 export function revealDownload(id: string) {
-  const row = (store().get("downloads", []) as SavedDownload[]).find((entry) => entry.id === id)
-  if (!row?.path || !existsSync(row.path) || row.state !== "completed") throw new Error("Saved download not found")
+  const rows = savedDownloads(store().get("downloads", []))
+  const row = rows.find((entry) => entry.id === id)
+  if (!row?.path || !downloadHistoryRows([row])[0].canReveal) throw new Error("Saved download not found")
   shell.showItemInFolder(row.path)
 }
 export function sitePermissions() {

@@ -4092,15 +4092,38 @@ async function run() {
   await automatic
   assert.equal(readFileSync(join(downloadFolder, "fixture.txt"), "utf8"), "existing-file")
   assert.equal(readFileSync(join(downloadFolder, "fixture (1).txt"), "utf8"), "browser download")
+  stage("automatic download cancellation preservation")
+  const cancelledPath = join(downloadFolder, "fixture (2).txt")
+  const previousDownloads = new Set(downloadHistory().map((row) => row.id))
   const autoCancelled = new Promise<void>((resolve) =>
     one.view.webContents.session.once("will-download", (_event, item) => {
-      item.once("done", () => resolve())
+      assert.equal(item.getSavePath(), cancelledPath)
+      // Isolate Chromium cleanup from the application's original reservation path.
+      item.setSavePath(join(profile!, "native-cancel.txt"))
+      assert.equal(readFileSync(cancelledPath, "utf8"), "")
+      writeFileSync(cancelledPath, "preserved-partial")
+      fs.renameSync(cancelledPath, `${cancelledPath}.original`)
+      writeFileSync(cancelledPath, "user-replacement", { flag: "wx" })
+      item.once("done", (_event, state) => {
+        assert.equal(state, "cancelled")
+        resolve()
+      })
       setImmediate(() => item.cancel())
     }),
   )
   one.view.webContents.downloadURL(`${url}download-cancel`)
   await autoCancelled
-  assert(!existsSync(join(downloadFolder, "fixture (2).txt")))
+  assert.equal(readFileSync(`${cancelledPath}.original`, "utf8"), "preserved-partial")
+  assert.equal(readFileSync(cancelledPath, "utf8"), "user-replacement")
+  const cancelledRows = downloadHistory().filter((row) => !previousDownloads.has(row.id))
+  assert.equal(cancelledRows.length, 1)
+  assert.equal(cancelledRows[0].state, "cancelled")
+  assert.equal(cancelledRows[0].canControl, false)
+  assert.equal(cancelledRows[0].canReveal, false)
+  await assert.rejects(
+    command({ op: "download-control", id: cancelledRows[0].id, action: "cancel" }),
+    /Download is not active in this session/,
+  )
   assert(downloadHistory().some((entry) => entry.canReveal))
   stage("download controls")
   const activeTransfer = new Promise<import("electron").DownloadItem>((resolve) => {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { EventEmitter } from "node:events"
-import { rmSync } from "node:fs"
+import { trackDownload } from "./download-records"
 import { basename, join } from "node:path"
 import { app, BrowserWindow, WebContentsView, dialog, session, shell } from "electron"
 import contextMenu from "electron-context-menu"
@@ -339,7 +339,10 @@ function state(group: Group): BrowserTabs {
     sessionID: group.sessionID,
     activeID: group.activeID,
     recentlyClosed: group.closed,
-    downloads: [...(group.downloads ?? []).filter((entry) => entry.state === "saving"), ...downloadHistory()],
+    downloads: [
+      ...(group.downloads ?? []).filter((entry) => entry.state === "saving"),
+      ...downloadHistory().filter((entry) => !transfers.has(entry.id)),
+    ],
     profile,
     tabs: group.tabs
       .filter((tab) => !tab.view.webContents.isDestroyed())
@@ -535,57 +538,33 @@ function createTab(
         paused: false,
         canControl: true,
       }
-      // Chromium owns the transfer in both modes; reserve a unique file when skipping its Save dialog.
-      item.setSaveDialogOptions({
-        title: nativeT("desktop.browser.saveDownload"),
-        defaultPath: join(downloadDirectory(), download.filename),
-      })
-      let reserved: string | undefined
-      if (!browserPreferencesState().askDownloadLocation) {
-        try {
-          reserved = reserveDownload(downloadDirectory(), download.filename)
-          item.setSavePath(reserved)
-        } catch {
-          // If the chosen directory is missing or unwritable, fall back to the native chooser.
+      trackDownload(event, item, download, {
+        save: (row, path) => recordDownload(row, new Set(transfers.keys()), path),
+        start: () => {
+          // Admission is durable before any destination is reserved or configured.
           item.setSaveDialogOptions({
             title: nativeT("desktop.browser.saveDownload"),
-            defaultPath: join(app.getPath("downloads"), download.filename),
+            defaultPath: join(downloadDirectory(), download.filename),
           })
-        }
-      }
-      target.group.downloads = [
-        download,
-        ...(target.group.downloads ?? []).filter((entry, index) => entry.state === "saving" || index < 4),
-      ]
-      transfers.set(download.id, { item, ...target, download })
-      publish(target.owner, target.group)
-      item.on("updated", (_event, state) => {
-        download.received = item.getReceivedBytes()
-        download.total = item.getTotalBytes()
-        download.paused = item.isPaused()
-        publish(target.owner, target.group)
-        if (state !== "interrupted") return
-        // This basic flow retries from the page instead of retaining a paused partial download.
-        download.state = "interrupted"
-        item.cancel()
-      })
-      item.once("done", (_event, state) => {
-        transfers.delete(download.id)
-        download.canControl = false
-        download.paused = false
-        download.received = item.getReceivedBytes()
-        download.total = item.getTotalBytes()
-        if (reserved && state !== "completed") {
-          try {
-            rmSync(reserved, { force: true })
-          } catch {
-            /* The OS may still hold the cancelled file open. */
+          if (!browserPreferencesState().askDownloadLocation) {
+            try {
+              item.setSavePath(reserveDownload(downloadDirectory(), download.filename))
+            } catch {
+              // If the chosen directory is missing or unwritable, fall back to the native chooser.
+              item.setSaveDialogOptions({
+                title: nativeT("desktop.browser.saveDownload"),
+                defaultPath: join(app.getPath("downloads"), download.filename),
+              })
+            }
           }
-        }
-        if (download.state !== "interrupted") download.state = state
-        if (state === "completed") download.filename = basename(item.getSavePath())
-        recordDownload(download, state === "completed" ? item.getSavePath() : undefined)
-        publish(target.owner, target.group)
+          target.group.downloads = [
+            download,
+            ...(target.group.downloads ?? []).filter((entry, index) => entry.state === "saving" || index < 4),
+          ]
+          transfers.set(download.id, { item, ...target, download })
+        },
+        release: () => transfers.delete(download.id),
+        publish: () => publish(target.owner, target.group),
       })
     })
     profileReady = true
