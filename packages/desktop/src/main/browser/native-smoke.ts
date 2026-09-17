@@ -933,13 +933,23 @@ async function run() {
       let heldViewport = false
       let answer: () => Promise<number> = async () => 1
       const failures: unknown[] = []
+      const fixtureErrors: unknown[] = []
+      const answers: number[] = []
+      const secretFree = (value: unknown) => {
+        const text = value instanceof Error ? value.message : JSON.stringify(value)
+        assert(
+          !/fixture-(?:selected|second|other|origin-[ABC])-secret|changed-secret/.test(text ?? ""),
+          "Secret escaped to renderer/profile/error/dialog",
+        )
+      }
       const send = chrome.send.bind(chrome)
       chrome.send = (channel, ...args) => {
+        secretFree(args)
         send(channel, ...args)
         if (channel === "browser-tabs")
           requests.push(
             chrome.executeJavaScript(`window.fixture?.accept(${JSON.stringify(args[0])}); true`).catch((error) => {
-              failures.push(error)
+              fixtureErrors.push(error)
             }),
           )
       }
@@ -947,7 +957,9 @@ async function run() {
         if (method !== "Runtime.bindingCalled" || params.name !== "fixtureRequest") return
         const input = JSON.parse(params.payload)
         const pending = (async () => {
+          let commandFailed = false
           try {
+            secretFree(input)
             let result
             if (input.op === "viewport") {
               result = browserViewport(owner, input.args[0])
@@ -958,17 +970,27 @@ async function run() {
             } else {
               if (input.args[1].op === "fill-login") {
                 fills++
-                assert.equal(owner.attached, one, "Fill must wait for acknowledged reattachment")
-                assert(win.contentView.children.includes(one.view))
+                const target = owner.groups.get(input.args[0])!.tabs.find((tab) => tab.id === input.args[1].tabID)!
+                assert(target, "Fill must target an actual task tab")
+                assert.equal(owner.attached, target, "Fill must wait for acknowledged reattachment")
+                assert(win.contentView.children.includes(target.view))
                 assert.equal(input.acknowledgedViewport, true, "Renderer must receive the viewport acknowledgement")
                 assert.equal(input.menuOpen, false, "Menu must be disposed before dispatch")
                 assert.equal(input.accounts, 0, "Account elements must be removed before dispatch")
               }
-              result = await browserCommand(owner, input.args[0], input.args[1])
+              try {
+                result = await browserCommand(owner, input.args[0], input.args[1])
+              } catch (error) {
+                commandFailed = true
+                throw error
+              }
             }
+            secretFree(result)
             await chrome.executeJavaScript(`window.fixture.resolve(${input.id}, ${JSON.stringify(result ?? null)})`)
           } catch (error) {
-            failures.push(error)
+            secretFree(error)
+            if (commandFailed) failures.push(error)
+            else fixtureErrors.push(error)
             await chrome.executeJavaScript(`window.fixture.resolve(${input.id}, null, true)`)
           }
         })()
@@ -977,15 +999,28 @@ async function run() {
       const publish = async () =>
         chrome.executeJavaScript(`window.fixture.accept(${JSON.stringify(await command({ op: "state" }))}); true`)
       dialog.showMessageBox = (async (_win, options) => {
-        dialogs++
-        assert.equal(options?.defaultId, 0)
-        assert.equal(options?.cancelId, 0)
-        assert(!JSON.stringify(options).includes("fixture-"))
-        assert.equal(
-          await contents.executeJavaScript("[...document.querySelectorAll('input')].every(el => !el.value)"),
-          true,
-        )
-        return { response: await answer(), checkboxChecked: false }
+        try {
+          dialogs++
+          assert.equal(options?.defaultId, 0)
+          assert.equal(options?.cancelId, 0)
+          secretFree(options)
+          const target = owner.groups.get("smoke")!.tabs.find((tab) => tab.loginBusy)!
+          assert(target, "Consent must belong to a pending login")
+          assert(options?.detail?.includes(new URL(target.contents.getURL()).origin))
+          assert.equal(
+            await target.view.webContents.executeJavaScript(
+              "[...document.querySelectorAll('input')].every(el => !el.value)",
+            ),
+            true,
+          )
+          const response = await answer()
+          answers.push(response)
+          return { response, checkboxChecked: false }
+        } catch (error) {
+          // Production sanitizes consent exceptions; retain fixture failures independently.
+          fixtureErrors.push(error)
+          throw error
+        }
       }) as typeof dialog.showMessageBox
       await chrome.executeJavaScript(
         `document.body.innerHTML = ''; const script = document.createElement('script'); script.src = '/account-fill.js'; document.body.append(script); true`,
@@ -1073,6 +1108,7 @@ async function run() {
         await click(`[data-account-id="${account}"] [data-field=${field}]`)
         await wait(() => fills === before + 1)
         await Promise.all(requests)
+        assert.deepEqual(fixtureErrors, [], "Fixture failures are not stale-consent rejections")
         await wait(() => chrome.executeJavaScript("!document.querySelector('[data-account-selector]').disabled"))
       }
       for (const failure of ["preparation", "delivery"] as const) {
@@ -1340,6 +1376,269 @@ async function run() {
         ["Login operation failed", "Login operation failed"],
       )
       assert.equal(await chrome.executeJavaScript("window.fixture.errors"), 2)
+
+      // Three actual origins, not metadata substitutions or inferred SSO affiliation.
+      const traffic: { site: string; method: string | undefined; url: string | undefined; body: string }[] = []
+      let redirects = 0
+      const sites = ["A", "B", "C"].map((site) =>
+        createServer((request, response) => {
+          const entry = { site, method: request.method, url: request.url, body: "" }
+          traffic.push(entry)
+          request.on("data", (chunk) => {
+            entry.body += chunk.toString()
+          })
+          if (site === "A" && request.url === "/redirect") {
+            redirects++
+            response.writeHead(302, { location: `${origins[1]}/login` })
+            response.end()
+            return
+          }
+          response.writeHead(200, { "Content-Type": "text/html" })
+          response.end(`<!doctype html><title>${site}</title>${form}<textarea id="sentinel" readonly>${site}-sentinel</textarea>
+            <script>
+              window.submissions = 0; window.messages = [];
+              document.querySelector('form').onsubmit = event => { event.preventDefault(); window.submissions++ };
+              addEventListener('message', event => window.messages.push({ origin: event.origin, data: event.data }));
+              ${site === "A" && request.url === "/callback" ? `opener.postMessage({ status: 'complete' }, ${JSON.stringify(origins[0])});` : ""}
+            </script>`)
+        }),
+      )
+      const origins: string[] = []
+      try {
+        for (const site of sites) {
+          await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve))
+          const address = site.address()
+          assert(address && typeof address !== "string")
+          origins.push(`http://127.0.0.1:${address.port}`)
+        }
+        assert.equal(new Set(origins).size, 3)
+        saveLogins(
+          origins.map((origin, index) => ({
+            origin,
+            username: "shared-user",
+            password: `fixture-origin-${["A", "B", "C"][index]}-secret`,
+          })),
+        )
+        const accounts = origins.map((origin) => browserProfile().credentials.find((row) => row.origin === origin)!)
+        assert(accounts.every(Boolean))
+        const group = owner.groups.get("smoke")!
+        const ready = async (tab: typeof one) => {
+          await publish()
+          await wait(() => group.activeID === tab.id && owner.attached === tab && !tab.contents.isLoadingMainFrame())
+          await wait(() =>
+            chrome.executeJavaScript(
+              "!!document.querySelector('[data-account-selector]') && !document.querySelector('[data-account-selector]').disabled",
+            ),
+          )
+        }
+        const fields = async (tab: typeof one, site: string, password = "") => {
+          assert.deepEqual(
+            await tab.view.webContents.executeJavaScript(`({
+            values: [...document.querySelectorAll('input')].map(el => el.value),
+            sentinel: document.querySelector('#sentinel').value, submissions: window.submissions
+          })`),
+            { values: password ? ["shared-user", password] : ["", ""], sentinel: `${site}-sentinel`, submissions: 0 },
+          )
+          assert.equal(
+            await tab.view.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: "!!document.__cmLoginTicket" }]),
+            false,
+          )
+        }
+        const only = async (id: string) => {
+          await open()
+          assert.deepEqual(
+            await chrome.executeJavaScript(
+              "[...document.querySelectorAll('[data-account-id]')].map(el => el.dataset.accountId)",
+            ),
+            [id],
+          )
+        }
+        const navigate = async (tab: typeof one, destination: string) => {
+          await command({ op: "navigate", tabID: tab.id, url: destination })
+          await wait(() => !tab.contents.isLoadingMainFrame())
+        }
+        const popup = async () => {
+          const before = new Set(group.tabs.map((tab) => tab.id))
+          await contents.executeJavaScript(
+            `window.child = window.open(${JSON.stringify(`${origins[1]}/login`)}, '_blank'); true`,
+            true,
+          )
+          await wait(() => group.tabs.some((tab) => !before.has(tab.id)))
+          const child = group.tabs.find((tab) => !before.has(tab.id))!
+          await wait(() => child.contents.getURL() === `${origins[1]}/login` && !child.contents.isLoadingMainFrame())
+          assert.equal(group.activeID, child.id)
+          assert.equal(child.openerID, first)
+          assert.equal(child.agentAccess, false)
+          assert.equal(await child.view.webContents.executeJavaScript("!!window.opener"), true)
+          assert.equal(await contents.executeJavaScript("!!window.child && !window.child.closed"), true)
+          return child
+        }
+
+        stage("account fill: actual A-to-B redirect and exact-origin selection")
+        answer = async () => 1
+        await navigate(one, `${origins[0]}/redirect`)
+        assert.equal(redirects, 1)
+        assert.equal(contents.getURL(), `${origins[1]}/login`)
+        await ready(one)
+        await fields(one, "B")
+        const unrelatedID = (await command({ op: "new" })).activeID!
+        const unrelated = group.tabs.find((tab) => tab.id === unrelatedID)!
+        await navigate(unrelated, `${origins[2]}/login`)
+        await command({ op: "select", tabID: first })
+        await ready(one)
+        const beforeWrong = dialogs
+        for (const account of [accounts[0], accounts[2]]) {
+          await assert.rejects(command({ op: "fill-login", tabID: first, id: account.id }), (error) => {
+            secretFree(error)
+            return error instanceof Error && error.message === "No matching login"
+          })
+        }
+        assert.equal(dialogs, beforeWrong, "Wrong-origin IDs must fail before consent")
+        await fields(one, "B")
+        await only(accounts[1].id)
+        await fields(one, "B")
+        await choose(accounts[1].id, "both")
+        await fields(one, "B", "fixture-origin-B-secret")
+        await fields(unrelated, "C")
+
+        stage("account fill: provider cancellation and fresh selection")
+        await navigate(one, `${origins[1]}/login`)
+        await ready(one)
+        answer = async () => 0
+        await only(accounts[1].id)
+        await choose(accounts[1].id, "both")
+        await fields(one, "B")
+        answer = async () => 1
+        await only(accounts[1].id)
+        await choose(accounts[1].id, "both")
+        await fields(one, "B", "fixture-origin-B-secret")
+
+        for (const back of [false, true]) {
+          stage(`account fill: held consent B-to-C${back ? "-to-exact-B" : ""}`)
+          await navigate(one, `${origins[1]}/login`)
+          await ready(one)
+          const before: number = failures.length
+          const beforeAnswers = answers.length
+          const revision = one.revision
+          answer = async () => {
+            await navigate(one, `${origins[2]}/login`)
+            await fields(one, "C")
+            if (back) {
+              await navigate(one, `${origins[1]}/login`)
+              assert.equal(contents.getURL(), `${origins[1]}/login`)
+            }
+            return 1
+          }
+          await only(accounts[1].id)
+          await choose(accounts[1].id, "both")
+          assert.deepEqual(answers.slice(beforeAnswers), [1], "Navigation setup must finish and approve")
+          assert.deepEqual(
+            failures.slice(before).map((error) => (error as Error).message),
+            ["Login operation failed"],
+          )
+          assert.notEqual(one.revision, revision)
+          await fields(one, back ? "B" : "C")
+          await fields(unrelated, "C")
+          answer = async () => 1
+          await ready(one)
+          await only(accounts[back ? 1 : 2].id)
+          await choose(accounts[back ? 1 : 2].id, "both")
+          await fields(one, back ? "B" : "C", back ? "fixture-origin-B-secret" : "fixture-origin-C-secret")
+        }
+
+        stage("account fill: actual provider popup, callback and close")
+        await navigate(one, `${origins[0]}/login`)
+        await ready(one)
+        const child = await popup()
+        await ready(child)
+        await fields(one, "A")
+        await fields(child, "B")
+        await only(accounts[1].id)
+        await fields(child, "B")
+        await choose(accounts[1].id, "both")
+        await fields(child, "B", "fixture-origin-B-secret")
+        await fields(one, "A")
+        await fields(unrelated, "C")
+        await child.view.webContents.executeJavaScript(
+          `location.href = ${JSON.stringify(`${origins[0]}/callback`)}; true`,
+        )
+        await wait(() => child.contents.getURL() === `${origins[0]}/callback` && !child.contents.isLoadingMainFrame())
+        await ready(child)
+        await wait(() => contents.executeJavaScript("window.messages.length === 1"))
+        assert.deepEqual(await contents.executeJavaScript("window.messages"), [
+          { origin: origins[0], data: { status: "complete" } },
+        ])
+        await fields(child, "A")
+        const callbackObserved = { tabID: child.id, url: child.contents.getURL() }
+        assert.equal(await contents.executeJavaScript("window.child.closed"), false)
+        // Negative control: a DOM-only leak must fail even with a constant callback message and no POST.
+        await child.view.webContents.executeJavaScript(
+          "document.querySelector('input[type=password]').value = 'fixture-origin-B-secret'; true",
+        )
+        await assert.rejects(fields(child, "A"), { code: "ERR_ASSERTION" })
+        await child.view.webContents.executeJavaScript(
+          "document.querySelector('input[type=password]').value = ''; true",
+        )
+        await fields(child, "A")
+        await child.view.webContents.executeJavaScript("window.close(); true")
+        await wait(() => child.contents.isDestroyed())
+        assert.deepEqual(callbackObserved, { tabID: child.id, url: `${origins[0]}/callback` })
+        assert.equal(await contents.executeJavaScript("window.child.closed"), true)
+        await fields(one, "A")
+
+        stage("account fill: popup open/select/close invalidates parent consent")
+        await command({ op: "select", tabID: first })
+        await ready(one)
+        const beforePopup = { failures: failures.length, answers: answers.length }
+        let popupSequenceComplete = false
+        answer = async () => {
+          const child = await popup()
+          await fields(child, "B")
+          await command({ op: "select", tabID: first })
+          assert.equal(group.activeID, first)
+          await command({ op: "select", tabID: child.id })
+          assert.equal(group.activeID, child.id)
+          await child.view.webContents.executeJavaScript("window.close(); true")
+          await wait(() => child.contents.isDestroyed())
+          await command({ op: "select", tabID: first })
+          assert.equal(group.activeID, first)
+          popupSequenceComplete = true
+          return 1
+        }
+        await only(accounts[0].id)
+        await choose(accounts[0].id, "both")
+        assert.equal(popupSequenceComplete, true, "Complete popup open/select/close sequence must reach approval")
+        assert.deepEqual(answers.slice(beforePopup.answers), [1])
+        assert.deepEqual(
+          failures.slice(beforePopup.failures).map((error) => (error as Error).message),
+          ["Login operation failed"],
+        )
+        await fields(one, "A")
+        answer = async () => 1
+        await only(accounts[0].id)
+        await choose(accounts[0].id, "both")
+        await fields(one, "A", "fixture-origin-A-secret")
+        await fields(unrelated, "C")
+        await Promise.all(requests)
+        assert.deepEqual(fixtureErrors, [])
+        assert.equal(failures.length, 5)
+        assert.equal(await chrome.executeJavaScript("window.fixture.errors"), failures.length)
+        failures.forEach(secretFree)
+        secretFree(browserProfile())
+        secretFree(await chrome.executeJavaScript("document.body.innerText"))
+        secretFree(traffic)
+        assert.equal(traffic.filter((entry) => entry.method !== "GET").length, 0, "No automatic HTTP submission")
+        assert.equal(traffic.filter((entry) => entry.site === "A" && entry.url === "/callback").length, 1)
+        console.log(
+          "PASS account-fill #18: redirect, popup/callback, cancellation, origin A-B-A and parent-consent invalidation",
+        )
+      } finally {
+        await Promise.all(requests)
+        for (const site of sites) {
+          site.closeAllConnections()
+          await new Promise<void>((resolve, reject) => site.close((error) => (error ? reject(error) : resolve())))
+        }
+      }
       stage("PASS focused account fill")
     } finally {
       vaultAccess.lock()
