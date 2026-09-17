@@ -224,6 +224,12 @@ async function run() {
     stage("PASS cancellation")
     return
   }
+  if (process.argv.includes("--recovery")) {
+    const { recoverySmoke } = await import("./recovery.fixture")
+    await recoverySmoke(profile!)
+    stage("PASS recovery")
+    return
+  }
   if (process.argv.includes("--persistence-reopen")) {
     const { persistenceReopen } = await import("./persistence-reopen.fixture")
     await persistenceReopen(profile!)

@@ -60,24 +60,27 @@ try {
   await Bun.write(entry, build.outputs[0])
   const env = { ...process.env, CM_BROWSER_STATE_DIR: directory, CM_BROWSER_SMOKE_PROFILE: directory }
   delete env.ELECTRON_RUN_AS_NODE
-  if (process.argv.includes("--persistence-reopen")) {
-    for (const phase of [
-      "seed",
-      "faults",
-      "interrupt-before",
-      "reopen-old",
-      "interrupt-after",
-      "reopen-new",
-      "seed-legacy",
-      "migration-fail",
-      "reopen-legacy",
-      "migrate",
-      "reopen-migrated",
-    ]) {
+  if (process.argv.includes("--persistence-reopen") || process.argv.includes("--recovery")) {
+    const recovery = process.argv.includes("--recovery")
+    for (const phase of recovery
+      ? ["interrupt-recovery", "reopen-recovery"]
+      : [
+          "seed",
+          "faults",
+          "interrupt-before",
+          "reopen-old",
+          "interrupt-after",
+          "reopen-new",
+          "seed-legacy",
+          "migration-fail",
+          "reopen-legacy",
+          "migrate",
+          "reopen-migrated",
+        ]) {
       const checkpoint = join(directory, "checkpoint.json")
       await rm(checkpoint, { force: true })
       await rm(join(directory, "result.txt"), { force: true })
-      const child = Bun.spawn([electron, entry, "--persistence-reopen"], {
+      const child = Bun.spawn([electron, entry, recovery ? "--recovery" : "--persistence-reopen"], {
         env: { ...env, CM_BROWSER_PERSISTENCE_PHASE: phase },
         stdout: "inherit",
         stderr: "inherit",
@@ -95,7 +98,9 @@ try {
           child.kill("SIGKILL")
           await child.exited
           if (await Bun.file(join(directory, "result.txt")).exists()) throw new Error("Interrupted child cleaned up")
-          console.log(`PASS ${phase}: killed owned child PID ${child.pid} at rename checkpoint`)
+          console.log(
+            `PASS ${phase}: killed owned child PID ${child.pid} at ${recovery ? "recovery" : "rename"} checkpoint`,
+          )
         } else {
           const code = await child.exited
           const result = await Bun.file(join(directory, "result.txt"))
@@ -109,7 +114,9 @@ try {
         await child.exited
       }
     }
-    console.log("PASS native persistence interruption/reopen/migration")
+    console.log(
+      recovery ? "PASS native recovery crash/relaunch" : "PASS native persistence interruption/reopen/migration",
+    )
   } else {
     const child = Bun.spawn([electron, entry, ...process.argv.slice(2)], { env, stdout: "inherit", stderr: "inherit" })
     const timeout = setTimeout(

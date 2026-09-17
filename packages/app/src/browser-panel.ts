@@ -18,6 +18,7 @@ export type BrowserTab = {
   canGoForward: boolean
   agentAccess: boolean
   loadFailed: boolean
+  loadError?: string
   zoom?: number
   device?: boolean
   find?: { active: number; matches: number }

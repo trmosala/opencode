@@ -267,6 +267,11 @@ export async function tabLifecycleSmoke() {
     layout()
     await command({ op: "access", tabID: second.id, enabled: true })
     for (const operation of ["screenshot", "press_key"] as const) {
+      if (operation === "press_key") {
+        win.focus()
+        second.view.webContents.focus()
+        await wait(() => second.view.webContents.focusedFrame === second.view.webContents.mainFrame)
+      }
       const actions = await Promise.all([
         prepare({ op: "create_tab" }),
         prepare({ op: "select_tab", tabID: first.id }),
@@ -301,7 +306,12 @@ export async function tabLifecycleSmoke() {
         `source-${operation}`,
       )
       try {
-        await entered.promise
+        await Promise.race([
+          entered.promise,
+          pending.then((result) => {
+            throw new Error(`Held ${operation} never dispatched: ${JSON.stringify(result)}`)
+          }),
+        ])
         const before: number = prompts.length
         assert.equal(owner.attached, second)
         for (const action of actions) {

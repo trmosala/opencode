@@ -49,7 +49,16 @@ import { linkDestination } from "./link-destination"
 import { saveBookmark, deleteBookmark, transferBookmarks } from "./bookmarks"
 import { getStore } from "../store"
 import { historyRows, validateClear, clearSince } from "./browsing-data"
-import { savedTabs, saveTabs, clearTabRecovery, recoveryURL, type SavedTab, type ClosedTab } from "./tab-recovery"
+import {
+  savedTabs,
+  saveTabs,
+  clearTabRecovery,
+  recoveryURL,
+  recoveryNavigation,
+  projectSavedTab,
+  type SavedTab,
+  type ClosedTab,
+} from "./tab-recovery"
 import {
   browserProfile,
   browserSettings,
@@ -82,6 +91,7 @@ type Tab = BrowserRegistration & {
   agentClose?: { check: () => void }
   uploadGuard?: Promise<unknown>
   saved: SavedTab
+  recovery?: { started: boolean; restoring: boolean }
   view: WebContentsView
   openerID?: string
   loadFailed: boolean
@@ -290,9 +300,9 @@ function groupFor(owner: Owner, sessionID: string) {
   if (typeof sessionID !== "string" || !sessionID || sessionID.length > 256) throw new Error("Invalid browser session")
   const existing = owner.groups.get(sessionID)
   if (existing) return existing
+  const saved = browserPreferencesState().restoreTabs ? savedTabs(sessionID) : undefined
   const group: Group = { sessionID, tabs: [], closed: [], restoring: true }
   owner.groups.set(sessionID, group)
-  const saved = browserPreferencesState().restoreTabs ? savedTabs(sessionID) : undefined
   if (saved) {
     group.closed = saved.closed.slice(0, 20)
     saved.tabs.slice(0, 32).forEach((tab) => createTab(owner, group, undefined, tab))
@@ -352,6 +362,7 @@ function state(group: Group): BrowserTabs {
             transferSource: !/^https?:/.test(url) ? "unavailable" : rule.origin === "*" ? "default" : "exception",
           },
           loadFailed: tab.loadFailed,
+          loadError: tab.loadFailed && tab.recovery?.restoring ? nativeT("desktop.browser.recovery.failed") : undefined,
           connection: tab.loadFailed
             ? "error"
             : contents.isLoadingMainFrame()
@@ -595,7 +606,7 @@ function createTab(
   })
   contents.once("destroyed", disposeMenu)
   const tab: Tab = {
-    saved: { url: recoveryURL(saved.url), title: saved.title.slice(0, 512) },
+    saved: projectSavedTab(saved) ?? { url: recoveryURL(saved.url), title: saved.title.slice(0, 512) },
     id: randomUUID(),
     ownerID: owner.win.webContents.id,
     sessionID: group.sessionID,
@@ -721,6 +732,9 @@ function createTab(
   })
   contents.on("did-start-navigation", (_event, _url, inPlace, main) => {
     if (!main) return
+    // Supersede the callback, not the last recoverable snapshot; a retry may fail or stop.
+    if (tab.recovery?.started) tab.recovery = undefined
+    if (tab.recovery) tab.recovery.started = true
     if (!inPlace && tab.permissionReloadPhase) tab.permissionReloadPhase = "loading"
     tab.loadFailed = false
     tab.find = undefined
@@ -738,8 +752,18 @@ function createTab(
     changed()
   })
   const navigated = () => {
-    tab.saved = { url: recoveryURL(contents.getURL()), title: contents.getTitle().slice(0, 512) }
-    persistGroup(owner, group)
+    if (!tab.recovery && !tab.loadFailed) {
+      const navigation = recoveryNavigation({
+        entries: contents.navigationHistory.getAllEntries(),
+        activeIndex: contents.navigationHistory.getActiveIndex(),
+      })
+      tab.saved = projectSavedTab({
+        url: recoveryURL(contents.getURL()),
+        title: contents.getTitle().slice(0, 512),
+        navigation,
+      })!
+      persistGroup(owner, group)
+    }
     changed()
   }
   contents.on("did-navigate", () => {
@@ -858,6 +882,7 @@ function createTab(
     changed()
   })
   contents.once("destroyed", () => {
+    tab.recovery = undefined
     unregister()
     if (owner.attached === tab) {
       if (!owner.win.isDestroyed()) owner.win.contentView.removeChildView(view)
@@ -877,7 +902,30 @@ function createTab(
   layout(owner)
   changed()
   persistGroup(owner, group)
-  if (!popup) void contents.loadURL(tab.saved.url).catch(() => undefined)
+  if (!popup) {
+    const recovery = { started: false, restoring: group.restoring || !!tab.saved.navigation }
+    tab.recovery = recovery
+    // Only URL/title projections reach Electron; never serialize or replay native pageState.
+    void (
+      tab.saved.navigation
+        ? contents.navigationHistory.restore({
+            entries: tab.saved.navigation.entries,
+            index: tab.saved.navigation.activeIndex,
+          })
+        : contents.loadURL(tab.saved.url)
+    ).then(
+      () => {
+        if (contents.isDestroyed() || tab.recovery !== recovery || tab.loadFailed) return
+        tab.recovery = undefined
+        navigated()
+      },
+      () => {
+        if (contents.isDestroyed() || tab.recovery !== recovery) return
+        tab.loadFailed = true
+        changed()
+      },
+    )
+  }
   return tab
 }
 

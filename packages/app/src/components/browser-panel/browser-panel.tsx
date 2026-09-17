@@ -524,7 +524,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
       </Show>
       <Show when={active()?.loadFailed}>
         <div role="alert" class="shrink-0 p-2 text-12-regular text-text-base">
-          {language.t("browser.toast.loadFailed")}
+          {active()?.loadError ?? language.t("browser.toast.loadFailed")}
         </div>
       </Show>
       <Show when={state.tool}>
