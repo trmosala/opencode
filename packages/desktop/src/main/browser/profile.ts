@@ -5,7 +5,14 @@ import type { BrowserWindow, Session, WebContents } from "electron"
 import type { BrowserProfile, BrowserClearKind, BrowserClearRange } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
-import { loginOrigin, parseCookieJSON, parsePasswordCSV, requireLogin, type BrowserLogin } from "./import-data"
+import {
+  loginOrigin,
+  mergeLogins,
+  parseCookieJSON,
+  parsePasswordCSV,
+  requireLogin,
+  type BrowserLogin,
+} from "./import-data"
 import { browserPreferencesState, downloadDirectory, sitePermissions } from "./preferences"
 import { loadAllowlist } from "./allowlist"
 import { clearLogins, readLogins, vaultAvailable, writeLogins } from "./vault"
@@ -28,7 +35,7 @@ function loginSummary() {
   if (vaultStatus !== "unlocked") return { credentials: [], vaultAvailable: vaultAvailable(), vaultStatus }
   try {
     const ticket = vaultAccess.require()
-    const credentials = readLogins().map(({ id, origin, username }) => ({ id, origin, username }))
+    const credentials = readLogins(false).map(({ id, origin, username }) => ({ id, origin, username }))
     vaultAccess.require(ticket)
     return {
       credentials,
@@ -74,11 +81,8 @@ export function browserSettings(rememberHistory: boolean) {
 
 export function saveLogins(logins: BrowserLogin[]) {
   if (!vaultAvailable()) throw new Error("Secure storage unavailable")
-  const batch = logins.map((value) => ({ id: randomUUID(), ...requireLogin(value) }))
-  const next = new Map(readLogins().map((row) => [JSON.stringify([row.origin, row.username]), row]))
-  batch.forEach((row) => next.set(JSON.stringify([row.origin, row.username]), row))
-  if (next.size > 2000) throw new Error("Vault limit reached")
-  writeLogins([...next.values()])
+  const plan = mergeLogins(readLogins(), logins)
+  if (plan.add || plan.replace) writeLogins(plan.rows)
 }
 
 export async function editLogin(win: BrowserWindow, input: { origin: string; id?: string }) {
@@ -205,44 +209,288 @@ export async function pageLogin(
   }
 }
 
-export async function importBrowserData(win: BrowserWindow, profile: Session, kind: "passwords" | "cookies") {
-  if (kind !== "passwords" && kind !== "cookies") throw new Error("Invalid import")
-  const ticket = kind === "passwords" ? vaultAccess.require() : undefined
-  const answer = await dialog.showOpenDialog(win, {
-    title: nativeT(kind === "passwords" ? "desktop.browser.importPasswords" : "desktop.browser.importCookies"),
-    properties: ["openFile"],
-    filters: [{ name: kind === "passwords" ? "CSV" : "JSON", extensions: [kind === "passwords" ? "csv" : "json"] }],
-  })
-  if (answer.canceled || !answer.filePaths[0]) return
-  if (kind === "passwords") vaultAccess.require(ticket)
-  const file = await open(answer.filePaths[0], "r")
-  const buffer = Buffer.alloc(5 * 1024 * 1024 + 1)
-  const text = await (async () => {
-    try {
-      if (!(await file.stat()).isFile()) throw new Error("Invalid import file")
-      let size = 0
-      while (size < buffer.length) {
-        const result = await file.read(buffer, size, buffer.length - size, null)
-        if (!result.bytesRead) break
-        size += result.bytesRead
+// ponytail: one process-local import at a time; no cross-process or atomic-cookie guarantee.
+let importing = false
+
+export async function importBrowserData(
+  win: BrowserWindow,
+  profile: Session,
+  kind: "passwords" | "cookies" | "bookmarks",
+  ownerCheck: () => void,
+) {
+  if (importing || !["passwords", "cookies", "bookmarks"].includes(kind))
+    throw new Error(nativeT("desktop.browser.import.unavailable"))
+  if (win.isDestroyed()) throw new Error(nativeT("desktop.browser.import.unavailable"))
+  const contents = win.webContents
+  importing = true
+  let invalid = false
+  let reason = nativeT("desktop.browser.import.unavailable")
+  const revoke = () => {
+    invalid = true
+  }
+  const deadline = performance.now() + 300_000
+  win.on("hide", revoke)
+  win.on("minimize", revoke)
+  win.on("close", revoke)
+  win.on("closed", revoke)
+  contents.on("did-start-navigation", revoke)
+  contents.on("render-process-gone", revoke)
+  contents.on("destroyed", revoke)
+  try {
+    const ticket = kind === "passwords" ? vaultAccess.require() : undefined
+    const check = () => {
+      try {
+        if (
+          invalid ||
+          performance.now() >= deadline ||
+          win.isDestroyed() ||
+          contents.isDestroyed() ||
+          win.webContents !== contents ||
+          !win.isVisible() ||
+          win.isMinimized()
+        )
+          throw new Error()
+        ownerCheck()
+        if (kind === "passwords") {
+          vaultAccess.require(ticket)
+          if (!vaultAvailable()) throw new Error()
+        }
+      } catch {
+        invalid = true
+        reason = nativeT("desktop.browser.import.stale")
+        throw new Error(reason)
       }
-      if (size === buffer.length) throw new Error("Import too large")
-      return buffer.toString("utf8", 0, size)
+    }
+    check()
+    const title = nativeT(
+      kind === "passwords"
+        ? "desktop.browser.importPasswords"
+        : kind === "cookies"
+          ? "desktop.browser.importCookies"
+          : "desktop.browser.importBookmarks",
+    )
+    const extension = kind === "passwords" ? "csv" : kind === "cookies" ? "json" : "html"
+    const chosen = await dialog.showOpenDialog(win, {
+      title,
+      properties: ["openFile"],
+      filters: [{ name: extension.toUpperCase(), extensions: kind === "bookmarks" ? ["html", "htm"] : [extension] }],
+    })
+    check()
+    if (chosen.canceled || !chosen.filePaths[0]) return
+    reason = nativeT("desktop.browser.import.file")
+    const file = await open(chosen.filePaths[0], "r")
+    let text = ""
+    try {
+      check()
+      const stat = await file.stat()
+      check()
+      if (!stat.isFile() || stat.size > 5 * 1024 * 1024) throw new Error()
+      const buffer = Buffer.alloc(5 * 1024 * 1024 + 1)
+      try {
+        let size = 0
+        while (size < buffer.length) {
+          const result = await file.read(buffer, size, buffer.length - size, null)
+          check()
+          if (!result.bytesRead) break
+          size += result.bytesRead
+        }
+        if (size === buffer.length) throw new Error()
+        text = buffer.toString("utf8", 0, size)
+      } finally {
+        buffer.fill(0)
+      }
     } finally {
-      buffer.fill(0)
       await file.close()
     }
-  })()
-  if (kind === "passwords") {
-    const logins = await parsePasswordCSV(text)
-    vaultAccess.require(ticket)
-    saveLogins(logins)
-    return
+    check()
+    reason = nativeT("desktop.browser.import.invalid")
+    const counts = { valid: 0, duplicate: 0, add: 0, replace: 0, unchanged: 0, unsupported: 0 }
+    let commit: () => void = () => {}
+    let cookieRows: ReturnType<typeof parseCookieJSON> = []
+    const cookieKey = (row: { domain?: string; url?: string; hostOnly?: boolean; path?: string; name?: string }) =>
+      JSON.stringify([
+        row.hostOnly === true || !row.domain
+          ? new URL(row.url ?? `https://${row.domain}/`).hostname
+          : "." + row.domain.replace(/^\./, "").toLowerCase(),
+        row.path ?? "/",
+        row.name ?? "",
+      ])
+    const cookieValue = (row: Electron.Cookie | Electron.CookiesSetDetails) =>
+      JSON.stringify([
+        cookieKey(row),
+        row.value,
+        row.secure ?? false,
+        row.httpOnly ?? false,
+        row.sameSite ?? "unspecified",
+        row.expirationDate ?? null,
+      ])
+    let baseline = new Map<string, string>()
+    const destination = (rows: Electron.Cookie[]) => {
+      const result = new Map<string, string>()
+      for (const row of rows) {
+        const key = cookieKey(row)
+        const value = cookieValue(row)
+        // Refuse ambiguous/partitioned destinations instead of overwriting a broader scope.
+        if (result.has(key) || "partitionKey" in row) throw new Error()
+        result.set(key, value)
+      }
+      return result
+    }
+    if (kind === "passwords") {
+      const imported = await parsePasswordCSV(text)
+      check()
+      const before = JSON.stringify([store().get("vault"), store().get("credentials")])
+      const plan = mergeLogins(readLogins(false), imported)
+      for (const key of Object.keys(counts) as (keyof typeof counts)[]) counts[key] = plan[key]
+      commit = () => {
+        if (JSON.stringify([store().get("vault"), store().get("credentials")]) !== before) throw new Error()
+        if (plan.add || plan.replace) writeLogins(plan.rows)
+      }
+    }
+    if (kind === "bookmarks") {
+      const { parseBookmarks } = await import("./bookmark-format")
+      check()
+      const imported = parseBookmarks(text, counts)
+      const before = JSON.stringify(store().get("bookmarks"))
+      const current = bookmarks()
+      const next = new Map(current.map((row) => [new URL(row.url).href, row]))
+      const seen = new Set<string>()
+      counts.valid = imported.length
+      for (const row of imported) {
+        if (seen.has(row.url)) {
+          counts.duplicate++
+          continue
+        }
+        seen.add(row.url)
+        if (next.has(row.url)) {
+          counts.unchanged++
+          continue
+        }
+        next.set(row.url, { ...row, id: randomUUID() })
+        counts.add++
+      }
+      if (next.size > 2000) throw new Error()
+      commit = () => {
+        if (JSON.stringify(store().get("bookmarks")) !== before) throw new Error()
+        if (counts.add) store().set("bookmarks", [...next.values()])
+      }
+    }
+    if (kind === "cookies") {
+      const imported = parseCookieJSON(text)
+      const unique = new Map(imported.map((row) => [cookieKey(row), row]))
+      counts.valid = imported.length
+      counts.duplicate = imported.length - unique.size
+      baseline = destination(await profile.cookies.get({}))
+      check()
+      cookieRows = [...unique.values()]
+      for (const row of cookieRows) {
+        const previous = baseline.get(cookieKey(row))
+        if (previous === cookieValue(row)) counts.unchanged++
+        else if (previous !== undefined) counts.replace++
+        else counts.add++
+      }
+    }
+    text = ""
+    check()
+    const answer = await dialog.showMessageBox(win, {
+      type: "warning",
+      title,
+      message: nativeT("desktop.browser.import.review"),
+      detail: [
+        nativeT("desktop.browser.import.counts", counts),
+        nativeT(`desktop.browser.import.${kind}`),
+        nativeT("desktop.browser.import.scope"),
+      ].join("\n\n"),
+      buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.import.confirm")],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    check()
+    if (answer.response !== 1) return
+    reason = nativeT("desktop.browser.import.stale")
+    let detail: string
+    if (kind !== "cookies") {
+      commit()
+      detail = nativeT("desktop.browser.import.saved", { ...counts, successful: counts.add + counts.replace })
+    } else {
+      let successful = 0
+      let failed = 0
+      let interrupted = false
+      let flush = nativeT("desktop.browser.import.noFlush")
+      const pending = cookieRows.filter((row) => baseline.get(cookieKey(row)) !== cookieValue(row))
+      try {
+        const current = destination(await profile.cookies.get({}))
+        check()
+        if (cookieRows.some((row) => current.get(cookieKey(row)) !== baseline.get(cookieKey(row)))) throw new Error()
+        for (const row of pending) {
+          check()
+          const current = destination(await profile.cookies.get({ name: row.name, domain: new URL(row.url).hostname }))
+          check()
+          if (current.get(cookieKey(row)) !== baseline.get(cookieKey(row))) throw new Error()
+          try {
+            await profile.cookies.set(row)
+            successful++
+          } catch {
+            failed++
+            interrupted = true
+            break
+          }
+          check()
+        }
+      } catch {
+        interrupted = true
+      } finally {
+        // Flush already-applied effects even when consent/ownership is no longer valid.
+        if (successful) {
+          try {
+            await profile.cookies.flushStore()
+            flush = nativeT("desktop.browser.import.flushed")
+          } catch {
+            flush = nativeT("desktop.browser.import.flushFailed")
+          }
+        }
+      }
+      try {
+        check()
+      } catch {
+        interrupted = true
+      }
+      detail = nativeT("desktop.browser.import.cookieResult", {
+        successful,
+        failed,
+        unattempted: pending.length - successful - failed,
+        unchanged: counts.unchanged,
+        duplicate: counts.duplicate,
+        flush,
+        status: nativeT(interrupted ? "desktop.browser.import.interrupted" : "desktop.browser.import.finished"),
+      })
+    }
+    const result: Electron.MessageBoxOptions = {
+      type: "info",
+      title,
+      message: nativeT("desktop.browser.import.result"),
+      detail,
+      buttons: [nativeT("desktop.browser.import.close")],
+      defaultId: 0,
+      cancelId: 0,
+    }
+    // Results contain counts only and remain reportable after owner destruction.
+    reason = detail
+    if (win.isDestroyed()) await dialog.showMessageBox(result)
+    else await dialog.showMessageBox(win, result)
+  } catch {
+    // Never echo native/parser/path errors, including failures to display the result.
+    throw new Error(reason)
+  } finally {
+    win.removeListener("hide", revoke)
+    win.removeListener("minimize", revoke)
+    win.removeListener("close", revoke)
+    win.removeListener("closed", revoke)
+    contents.removeListener("did-start-navigation", revoke)
+    contents.removeListener("render-process-gone", revoke)
+    contents.removeListener("destroyed", revoke)
+    importing = false
   }
-  const cookies = parseCookieJSON(text)
-  // Validation precedes mutation. Chromium remains authoritative for cookie validity.
-  for (const cookie of cookies) await profile.cookies.set(cookie)
-  await profile.cookies.flushStore()
 }
 
 export async function clearBrowserData(profile: Session, kind: BrowserClearKind, range: BrowserClearRange = "all") {

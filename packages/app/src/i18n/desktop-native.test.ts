@@ -13,6 +13,13 @@ import {
 } from "./desktop-native"
 
 describe("desktop native translations", () => {
+  test("preserves the fixed key prefix used by indexed locale dictionaries", () => {
+    // Baseline ff96a0e61: append keys, never shift the existing 217 locale indices.
+    expect(new Bun.CryptoHasher("sha256").update(JSON.stringify(DESKTOP_NATIVE_KEYS.slice(0, 217))).digest("hex")).toBe(
+      "2fb3560cf95ef2f103d3cf1ad5719e055c90e1394048ac8f8627d30b7456654b",
+    )
+  })
+
   test("uses native language names independent of the active locale", () => {
     expect(DESKTOP_NATIVE_LOCALES.map((locale) => DESKTOP_NATIVE_LABELS[locale])).toEqual([
       "English",

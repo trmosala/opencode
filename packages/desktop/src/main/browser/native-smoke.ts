@@ -409,6 +409,17 @@ async function run() {
   stage("creating first tab")
   win.showInactive()
   const command = (value: Parameters<typeof browserCommand>[2]) => browserCommand(owner, "smoke", value)
+  if (process.argv.includes("--imports")) {
+    const { importsSmoke } = await import("./imports.fixture")
+    try {
+      await importsSmoke(win, owner, profile!)
+      stage("PASS imports")
+    } finally {
+      vaultAccess.lock()
+      win.destroy()
+    }
+    return
+  }
   if (process.argv.includes("--accounts")) {
     const verify = vaultAuthentication.verify
     const consent = dialog.showMessageBox

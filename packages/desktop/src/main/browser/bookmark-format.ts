@@ -2,7 +2,7 @@ import { parse } from "parse5"
 import type { DefaultTreeAdapterMap } from "parse5"
 import { browserURL } from "./policy"
 
-export function parseBookmarks(html: string) {
+export function parseBookmarks(html: string, counts = { unsupported: 0 }) {
   if (Buffer.byteLength(html) > 5 * 1024 * 1024) throw new Error("Bookmark import too large")
   const nodes: DefaultTreeAdapterMap["node"][] = [parse(html)]
   const rows: { url: string; title: string; pinned: boolean }[] = []
@@ -24,7 +24,7 @@ export function parseBookmarks(html: string) {
           pinned: node.attrs.some((attr) => attr.name === "cm_pinned" && attr.value === "1"),
         })
         if (rows.length > 2000) throw new Error("Bookmark limit reached")
-      }
+      } else counts.unsupported++
     }
     if ("childNodes" in node) nodes.push(...[...node.childNodes].reverse())
   }

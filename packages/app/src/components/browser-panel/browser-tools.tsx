@@ -405,7 +405,7 @@ export function BrowserTools(props: {
       </Show>
       <Show when={props.panel === "import"}>
         <p class="mb-2">{language.t("browser.import.help")}</p>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <Button
             size="small"
             disabled={
@@ -428,6 +428,9 @@ export function BrowserTools(props: {
           </Show>
           <Button size="small" disabled={state.busy} onClick={() => void run({ op: "import", kind: "cookies" })}>
             {language.t("browser.import.cookies")}
+          </Button>
+          <Button size="small" disabled={state.busy} onClick={() => void run({ op: "bookmark-import" })}>
+            {language.t("browser.bookmarks.import")}
           </Button>
         </div>
       </Show>

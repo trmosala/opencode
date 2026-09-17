@@ -1013,10 +1013,28 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       if (command.op === "transfer-rule") saveTransferRule(command.rule, command.remove)
       if (command.op === "bookmark-save") saveBookmark(command)
       if (command.op === "bookmark-delete") deleteBookmark(command.id)
-      if (command.op === "bookmark-import" || command.op === "bookmark-export")
-        await transferBookmarks(owner.win, command.op)
-      if (command.op === "import")
-        await importBrowserData(owner.win, session.fromPartition(BROWSER_PARTITION), command.kind)
+      if (command.op === "bookmark-export") await transferBookmarks(owner.win)
+      if (command.op === "import" || command.op === "bookmark-import") {
+        const taskEpoch = owner.taskEpoch
+        const windowEpoch = owner.screenshotEpoch
+        const renderer = owner.win.webContents
+        await importBrowserData(
+          owner.win,
+          session.fromPartition(BROWSER_PARTITION),
+          command.op === "import" ? command.kind : "bookmarks",
+          () => {
+            if (
+              owner.shutting ||
+              owners.get(renderer.id) !== owner ||
+              owner.groups.get(sessionID) !== group ||
+              owner.taskEpoch !== taskEpoch ||
+              owner.screenshotEpoch !== windowEpoch ||
+              (owner.linkContext && owner.linkContext.sessionID !== sessionID)
+            )
+              throw new Error()
+          },
+        )
+      }
       if (command.op === "settings") browserSettings(command.rememberHistory)
       if (command.op === "agent-host") {
         updateAgentHost(command.host, command.remove)

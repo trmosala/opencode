@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto"
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto"
 import { app, safeStorage } from "electron"
 import { getStore } from "../store"
 import { requireLogin, type BrowserLogin } from "./import-data"
@@ -17,11 +17,11 @@ export function vaultAvailable() {
   )
 }
 
-export function readLogins(): Login[] {
+export function readLogins(migrate = true): Login[] {
   const ticket = vaultAccess.require()
   if (!vaultAvailable()) throw new Error("Secure storage unavailable")
   const value = store().get("vault")
-  if (value === undefined) return migrateLogins()
+  if (value === undefined) return migrateLogins(migrate)
   // Never fall back to old data, or silently replace a vault that cannot be authenticated.
   try {
     if (!value || typeof value !== "object") throw new Error()
@@ -103,18 +103,23 @@ function bytes(value: unknown) {
   return buffer
 }
 
-function migrateLogins(): Login[] {
+function migrateLogins(persist: boolean): Login[] {
   const legacy = store().get("credentials", [])
   if (!Array.isArray(legacy) || legacy.length > 2000) throw new Error("Invalid legacy vault")
   if (!legacy.length) return []
-  const rows = legacy.map((row) => ({
-    id: randomUUID(),
+  const rows = legacy.map((row, index) => ({
+    // Stable preview IDs avoid migrating plaintext metadata before import consent.
+    id: createHash("sha256")
+      .update(JSON.stringify([index, row]))
+      .digest("hex")
+      .slice(0, 32)
+      .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5"),
     ...requireLogin({
       origin: row.origin,
       username: row.username,
       password: safeStorage.decryptString(bytes(row.encrypted)),
     }),
   }))
-  writeLogins(rows)
+  if (persist) writeLogins(rows)
   return rows
 }

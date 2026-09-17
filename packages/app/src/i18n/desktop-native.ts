@@ -475,6 +475,39 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.recovery.failed":
     "This page could not be restored. Use Reload, enter an address, or close this tab.",
   "desktop.browser.device.invalid": "Device dimensions must be whole numbers from 160 to 4096 CSS pixels.",
+  "desktop.browser.import.review": "Review import",
+  "desktop.browser.import.confirm": "Import",
+  "desktop.browser.import.close": "Close",
+  "desktop.browser.import.counts":
+    "Valid rows: {{valid}}\nDuplicate source rows: {{duplicate}}\nAdd: {{add}}\nReplace: {{replace}}\nUnchanged: {{unchanged}}\nUnsupported rows skipped: {{unsupported}}",
+  "desktop.browser.import.scope":
+    "Only the selected category in the shared CookieMonster browser profile is affected, not app or WPP login data. No page or vault permissions are granted. Export files are plaintext and may contain passwords or session credentials; remove them yourself when no longer needed.",
+  "desktop.browser.import.passwords":
+    "Passwords match by normalized origin and username. The last source row wins; changed passwords replace existing values while retaining account IDs. Exact duplicates are skipped.",
+  "desktop.browser.import.cookies":
+    "Cookies match by domain scope, path and name. The last source row wins; conflicts replace existing cookies, including session credentials. Writes are sequential, not atomic. A failure or interruption may leave earlier writes applied. There is no rollback or automatic retry.",
+  "desktop.browser.import.bookmarks":
+    "Bookmark folders are flattened. Unsupported URLs are skipped. Normalized existing URLs keep their titles, IDs and pin state; for new URLs, the first source row wins.",
+  "desktop.browser.import.result": "Import results",
+  "desktop.browser.import.saved":
+    "Saved: {{successful}}\nUnchanged: {{unchanged}}\nDuplicate source rows: {{duplicate}}\nUnsupported rows skipped: {{unsupported}}",
+  "desktop.browser.import.cookieResult":
+    "Successful writes: {{successful}}\nFailed writes: {{failed}}\nUnattempted writes: {{unattempted}}\nUnchanged: {{unchanged}}\nDuplicate source rows: {{duplicate}}\n{{flush}}\n{{status}}\nNo rollback or automatic retry was attempted.",
+  "desktop.browser.import.flushed": "Successful writes were flushed to the cookie store.",
+  "desktop.browser.import.flushFailed":
+    "Cookie store flush failed. Successful writes may be active, but durable saving is not confirmed.",
+  "desktop.browser.import.noFlush": "No successful cookie writes required flushing.",
+  "desktop.browser.import.finished": "Import processing finished.",
+  "desktop.browser.import.interrupted":
+    "Import interrupted or the destination changed. Review a fresh import before continuing.",
+  "desktop.browser.import.unavailable":
+    "Import unavailable. Check the selected category, window and vault access, then choose the export again.",
+  "desktop.browser.import.file":
+    "Cannot read this export. Choose an available regular CSV, JSON or HTML file no larger than 5 MB.",
+  "desktop.browser.import.invalid":
+    "This export is malformed, unsupported or exceeds the category limit. No import writes were made. Cookie imports accept only the documented fields; partitioned or container-scoped cookies are not supported.",
+  "desktop.browser.import.stale":
+    "The window, task, vault access or destination changed. No further import writes were made. Choose the file again for a fresh review.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH
