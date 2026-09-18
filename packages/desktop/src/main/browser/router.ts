@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import type { EventEmitter } from "node:events"
 import {
   OPERATION_TIMEOUT_MS,
   failure,
@@ -23,6 +24,7 @@ import { browserURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
 import { discoverFrames, executeFrame } from "./frames"
+import { observeConsole } from "./console-diagnostics"
 
 const busy = browserOperationBusy
 
@@ -91,6 +93,7 @@ export async function routeBrowserRequest(
     if (
       response.ok &&
       (validated.op === "screenshot" ||
+        validated.op === "observe_console" ||
         response.result.frames !== undefined ||
         response.result.frameRef !== undefined ||
         response.result.frameContext !== undefined ||
@@ -100,7 +103,14 @@ export async function routeBrowserRequest(
         if (!deliveryCheck) throw new Error("Missing screenshot authority")
         deliveryCheck()
       } catch {
-        return failure("unavailable", nativeT("desktop.browser.screenshotDeliveryUnavailable"))
+        return failure(
+          "unavailable",
+          nativeT(
+            validated.op === "observe_console"
+              ? "desktop.browser.diagnosticsDeliveryUnavailable"
+              : "desktop.browser.screenshotDeliveryUnavailable",
+          ),
+        )
       }
     }
     return response
@@ -165,6 +175,8 @@ async function route(
   const hosts = hostPolicyRevision()
   const revision = tab.revision
   const accessRevision = tab.accessRevision ?? 0
+  const ownerContext =
+    tab.ownerContext?.() ?? createHash("sha256").update(`${tab.ownerID}:${tab.sessionID}`).digest("base64url")
   // ponytail: hash the exact source, not a truncated URL; main's epochs also detect A-B-A.
   const origin = url === "about:blank" ? url : new URL(url).origin
   const urlHash = createHash("sha256").update(url).digest("hex")
@@ -175,7 +187,7 @@ async function route(
       title: "",
       visibleText: "",
       elements: [],
-      context: { tabID: tab.id, origin, urlHash, revision, accessRevision },
+      context: { tabID: tab.id, origin, urlHash, revision, accessRevision, ownerContext },
     })
   if (
     request.op !== "read_state" &&
@@ -188,7 +200,8 @@ async function route(
       parsed.context.origin !== origin ||
       parsed.context.urlHash !== urlHash ||
       parsed.context.revision !== revision ||
-      parsed.context.accessRevision !== accessRevision)
+      parsed.context.accessRevision !== accessRevision ||
+      parsed.context.ownerContext !== ownerContext)
   )
     return failure("access_denied", "Browser approval context changed. Request approval again.")
   let destination: { revision: number; url: string } | undefined
@@ -199,6 +212,8 @@ async function route(
       browserRegistration(message.sessionID, request.tabID) !== tab ||
       tab.contents !== contents ||
       tab.ownerID !== ownerID ||
+      (tab.ownerContext?.() ?? createHash("sha256").update(`${tab.ownerID}:${tab.sessionID}`).digest("base64url")) !==
+        ownerContext ||
       hostPolicyRevision() !== hosts ||
       !browserAgentEnabled() ||
       !tab.agentAccess ||
@@ -227,7 +242,8 @@ async function route(
   }
   // Screenshots observe every source transition but never veto user navigation.
   const screenshot = request.op === "screenshot"
-  const consent = screenshot ? new AbortController() : undefined
+  const diagnostics = request.op === "observe_console"
+  const consent = screenshot || diagnostics ? new AbortController() : undefined
   const revoke = () => consent?.abort()
   let ownerCheck: (() => void) | undefined
   const authority = (source = false) => {
@@ -235,18 +251,25 @@ async function route(
     consent?.signal.throwIfAborted()
     ownerCheck?.()
   }
-  if (!observing && !screenshot) tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
+  if (!observing && !screenshot && !diagnostics) tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
   busy.add(tab.id)
   const release = keepBrowserRendering(contents)
   try {
     if (consent) {
-      tab.screenshotConsent = consent
+      if (screenshot) tab.screenshotConsent = consent
+      if (diagnostics) tab.diagnosticConsent = consent
       signal.addEventListener("abort", revoke, { once: true })
       authority()
-      const approved = await tab.confirmScreenshot?.(url, consent.signal)
+      const approved = diagnostics
+        ? await tab.confirmDiagnostics?.(url, request.durationMs, consent.signal)
+        : await tab.confirmScreenshot?.(url, consent.signal)
       ownerCheck = typeof approved === "function" ? approved : undefined
       authority()
-      if (!ownerCheck) return failure("access_denied", nativeT("desktop.browser.screenshotDenied"))
+      if (!ownerCheck)
+        return failure(
+          "access_denied",
+          nativeT(diagnostics ? "desktop.browser.diagnosticsDenied" : "desktop.browser.screenshotDenied"),
+        )
       onScreenshotDelivery(authority)
     }
     if ("frameRef" in request) {
@@ -260,7 +283,18 @@ async function route(
       return frame.response
     }
     // Keep busy/rendering ownership until actual native settlement, even after an early reply.
-    const response = await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
+    const response = diagnostics
+      ? success({
+          tabID: tab.id,
+          url: origin,
+          title: "",
+          visibleText: "",
+          elements: [],
+          diagnostics: {
+            console: await observeConsole(contents as unknown as EventEmitter, request.durationMs, authority, signal),
+          },
+        })
+      : await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
     if (screenshot) authority()
     if (response.ok && request.op === "read_state") {
       const discovered = await discoverFrames(tab, authority, isAllowed)
@@ -278,8 +312,9 @@ async function route(
   } finally {
     signal.removeEventListener("abort", revoke)
     if (consent && tab.screenshotConsent === consent) tab.screenshotConsent = undefined
+    if (consent && tab.diagnosticConsent === consent) tab.diagnosticConsent = undefined
     busy.delete(tab.id)
-    if (!observing && !screenshot) tab.navigationAllowed = undefined
+    if (!observing && !screenshot && !diagnostics) tab.navigationAllowed = undefined
     release()
   }
 }

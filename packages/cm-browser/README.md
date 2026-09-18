@@ -226,6 +226,16 @@ Final parent verification after the queued-request correction (2026-09-17): from
 
 A stalled load or unacknowledged native close can still delay queued work, and 204/Stop can retain live capture until replacement or closure. Fake-device document/global replacement and denied reacquisition are not direct track-ended, physical-device, packaged-app or macOS/Linux assurance. Configuration/model, installed processes and excluded files remain untouched.
 
+## Scoped agent console diagnostics (#25)
+
+`browser_observe_console({tabID, durationMs})` counts future console events by severity for one opted-in, task-owned tab. The interval defaults to 3 seconds and is bounded to 250–5,000 milliseconds. The tool requires ordinary read permission, a separate named `browser_observe_console` approval seeded to Ask, and a fresh default-cancel native confirmation for every observation.
+
+The response contains only `debug`, `info`, `warning`, `error`, `other`, and `total` integer counts. Production never reads, stores, logs, or returns the console message, its arguments, source URL, line number, or stack. This is redaction by construction rather than a text scrubber. Network requests, URLs, headers, bodies, cookies, storage, DOM content, vault data, passwords, autofill values, DevTools targets, and CDP are outside this tool. There is no network-observation tool and no unrestricted debugging mode.
+
+Preparation binds the exact tab, source URL hash, source and access revisions, allowlist policy, session, owner, and task epoch across plugin approval, native consent, observation, and final delivery. Navigation, loading, access revocation, task/window ownership change, registration replacement, global disable, cancellation, deadline, or policy change fails closed. Main holds per-tab busy and rendering ownership while the listener exists and always removes the listener on success or failure. The operation never blocks user navigation and never retries.
+
+Synthetic unit/router checks cover exact protocol bounds, denied/malformed output, owner/source invalidation, credential-bearing message/source sentinels, cancellation cleanup, and count-only delivery. `bun scripts/browser-smoke.ts --diagnostics` uses a temporary hidden Electron window and real Chromium console events; it passed on Windows / Electron 42.3.3 / Chromium 148.0.7778.218 on 2026-09-18. The native run proves event-level mapping and listener cleanup, not physical-dialog, accessibility, packaged-app, macOS/Linux, authenticated-site, or external security assurance.
+
 ## Agent screenshots (#15)
 
 `browser_screenshot({tabID})` requires a task-owned opted-in tab, read permission, source/access-bound `prepare_write` and separate named screenshot approval (seeded Ask). Main also requires a fresh default-cancel native confirmation for every capture, even if plugin permission allows. Tab access is not a pixel grant. Private tabs, including new pop-ups, cannot be captured; manual screenshot-to-draft is unchanged.

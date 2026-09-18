@@ -36,7 +36,7 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
     revision: 0,
     agentAccess: true,
     transferGuarded: true,
-    contents: {
+    contents: Object.assign(new EventEmitter(), {
       mainFrame: { detached: false },
       get focusedFrame() {
         return this.mainFrame
@@ -81,7 +81,7 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
           }
         },
       },
-    },
+    }),
   }
   const remove = registerBrowserTab(tab)
   const route = (request: Request, sessionID = tab.sessionID) =>
@@ -532,6 +532,79 @@ test("screenshot rejects private, foreign, missing consent and stale native appr
     expect(await write(request)).toMatchObject({ ok: false })
     expect(calls).toEqual([])
     expect(tab.screenshotConsent).toBeUndefined()
+  } finally {
+    remove()
+  }
+})
+
+test("console diagnostics bind owner approval and return counts without message payloads", async () => {
+  const { tab, route, remove } = fixture()
+  let owner = "owner-task-1"
+  tab.ownerContext = () => owner
+  tab.confirmDiagnostics = async (_url, durationMs) => {
+    expect(durationMs).toBe(250)
+    return () => {
+      if (owner !== "owner-task-1") throw new Error("Owner changed")
+    }
+  }
+  try {
+    const request = { op: "observe_console", tabID: tab.id, durationMs: 250 } as const
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+    expect(prepared.result.context.ownerContext).toBe(owner)
+    const pending = route({ ...request, context: prepared.result.context })
+    await Bun.sleep(10)
+    const contents = tab.contents as unknown as EventEmitter
+    contents.emit("console-message", {
+      params: { level: "error", message: "password=secret", sourceId: "https://user:pass@example.test/private" },
+    })
+    contents.emit("console-message", {
+      params: { level: "warning", message: "token=secret", sourceId: "https://example.test/?token=secret" },
+    })
+    const response = await pending
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        diagnostics: {
+          console: { durationMs: 250, error: 1, warning: 1, info: 0, debug: 0, other: 0, total: 2 },
+        },
+      },
+    })
+    expect(JSON.stringify(response)).not.toContain("secret")
+    expect(getEventListeners(contents, "console-message")).toHaveLength(0)
+
+    const stale = await route({ op: "prepare_write", request })
+    if (!stale.ok || !stale.result.context) throw new Error("No context")
+    owner = "owner-task-2"
+    expect(await route({ ...request, context: stale.result.context })).toMatchObject({
+      ok: false,
+      code: "access_denied",
+    })
+  } finally {
+    remove()
+  }
+})
+
+test("console diagnostics clean up and fail closed when source authority changes", async () => {
+  const { tab, route, remove } = fixture()
+  let valid = true
+  tab.confirmDiagnostics = async () => () => {
+    if (!valid) throw new Error("Owner changed")
+  }
+  try {
+    const request = { op: "observe_console", tabID: tab.id, durationMs: 250 } as const
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+    const pending = route({ ...request, context: prepared.result.context })
+    await Bun.sleep(10)
+    valid = false
+    const contents = tab.contents as unknown as EventEmitter
+    contents.emit("console-message", {
+      params: { level: "error", message: "never retained", sourceId: "https://example.test/" },
+    })
+    expect(await pending).toMatchObject({ ok: false, code: "unavailable" })
+    expect(getEventListeners(contents, "console-message")).toHaveLength(0)
+    expect(tab.diagnosticConsent).toBeUndefined()
   } finally {
     remove()
   }

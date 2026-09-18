@@ -121,6 +121,7 @@ type Group = {
   restoring?: boolean
 }
 type Owner = {
+  authorityID: string
   linkContext?: { sessionID: string; lease: string }
   win: BrowserWindow
   groups: Map<string, Group>
@@ -134,6 +135,16 @@ type Owner = {
   generationCheck?: () => void
   loginCheck?: () => void
   captureChecks?: Set<() => void>
+}
+function advanceOwnerTask(owner: Owner) {
+  owner.taskEpoch++
+  owner.tabConsent?.abort()
+  owner.groups.forEach((group) =>
+    group.tabs.forEach((tab) => {
+      tab.screenshotConsent?.abort()
+      tab.diagnosticConsent?.abort()
+    }),
+  )
 }
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
@@ -168,13 +179,19 @@ export function registerBrowserOwner(win: BrowserWindow) {
   setBrowserAgentEnabled(browserPreferencesState().agentEnabled)
   const existing = owners.get(win.webContents.id)
   if (existing) return existing
-  const owner: Owner = { win, groups: new Map(), suspended: 0, screenshotEpoch: 0, taskEpoch: 0 }
+  const owner: Owner = {
+    authorityID: randomUUID(),
+    win,
+    groups: new Map(),
+    suspended: 0,
+    screenshotEpoch: 0,
+    taskEpoch: 0,
+  }
   const id = win.webContents.id
   owners.set(id, owner)
   const hide = () => {
     if (owner.viewport) {
-      owner.taskEpoch++
-      owner.tabConsent?.abort()
+      advanceOwnerTask(owner)
     }
     owner.viewport = undefined
     layout(owner)
@@ -244,8 +261,7 @@ export function browserLinkContext(owner: Owner, sessionID: string | null, lease
     (sessionID !== null && (owner.linkContext?.sessionID !== sessionID || owner.linkContext?.lease !== lease)) ||
     (sessionID === null && owner.linkContext?.lease === lease)
   ) {
-    owner.taskEpoch++
-    owner.tabConsent?.abort()
+    advanceOwnerTask(owner)
   }
   if (sessionID !== null) owner.linkContext = { sessionID, lease }
   if (sessionID === null && owner.linkContext?.lease === lease) owner.linkContext = undefined
@@ -754,6 +770,7 @@ function createTab(
     openerID: popup?.openerID,
     loadFailed: false,
   }
+  tab.ownerContext = () => `${owner.authorityID}_${owner.taskEpoch}`
   tab.confirmScreenshot = async (url, signal) => {
     if (
       owner.suspended ||
@@ -829,6 +846,90 @@ function createTab(
       layout(owner)
     }
   }
+  tab.confirmDiagnostics = async (url, durationMs, signal) => {
+    const currentTask = () => owner.linkContext?.sessionID ?? owner.viewport?.sessionID
+    if (
+      owner.suspended ||
+      owner.shutting ||
+      owner.win.isDestroyed() ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
+      currentTask() !== tab.sessionID ||
+      !group.tabs.includes(tab)
+    )
+      return false
+    const consent = tab.diagnosticConsent
+    if (!consent || consent.signal !== signal || signal.aborted) return false
+    const taskEpoch = owner.taskEpoch
+    const windowEpoch = owner.screenshotEpoch
+    const revoke = () => consent.abort()
+    const sheet =
+      process.platform === "darwin"
+        ? new BrowserWindow({
+            width: 400,
+            height: 160,
+            show: false,
+            title: nativeT("desktop.browser.diagnosticsConsent"),
+            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+          })
+        : undefined
+    sheet?.on("close", revoke)
+    owner.win.on("close", revoke)
+    owner.win.on("hide", revoke)
+    owner.win.on("minimize", revoke)
+    owner.win.webContents.on("destroyed", revoke)
+    owner.win.webContents.on("render-process-gone", revoke)
+    owner.win.webContents.on("did-start-navigation", revoke)
+    owner.suspended++
+    layout(owner)
+    try {
+      signal.throwIfAborted()
+      sheet?.showInactive()
+      const options = {
+        type: "warning" as const,
+        message: nativeT("desktop.browser.diagnosticsConsent"),
+        detail: nativeT("desktop.browser.diagnosticsDetail", {
+          task: tab.sessionID,
+          tab: tab.id,
+          url,
+          duration: durationMs,
+        }),
+        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
+        defaultId: 0,
+        cancelId: 0,
+        signal,
+      }
+      const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
+      if (answer.response !== 1) return false
+      return () => {
+        signal.throwIfAborted()
+        if (
+          owner.taskEpoch !== taskEpoch ||
+          owner.screenshotEpoch !== windowEpoch ||
+          owner.shutting ||
+          owner.win.isDestroyed() ||
+          owner.win.webContents.isDestroyed() ||
+          !owner.win.isVisible() ||
+          owner.win.isMinimized() ||
+          currentTask() !== tab.sessionID ||
+          owners.get(tab.ownerID) !== owner ||
+          owner.groups.get(tab.sessionID) !== group ||
+          !group.tabs.includes(tab)
+        )
+          throw new Error("Diagnostics owner changed")
+      }
+    } finally {
+      owner.win.removeListener("close", revoke)
+      owner.win.removeListener("hide", revoke)
+      owner.win.removeListener("minimize", revoke)
+      owner.win.webContents.removeListener("destroyed", revoke)
+      owner.win.webContents.removeListener("render-process-gone", revoke)
+      owner.win.webContents.removeListener("did-start-navigation", revoke)
+      if (sheet && !sheet.isDestroyed()) sheet.destroy()
+      owner.suspended--
+      layout(owner)
+    }
+  }
   if (tab.transferGuarded) {
     tab.uploadGuard = guardUploads(owner.win, tab, contents)
     void tab.uploadGuard.catch(() => {
@@ -855,6 +956,7 @@ function createTab(
   const invalidate = () => {
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
+    tab.diagnosticConsent?.abort()
     tab.revision++
     invalidateSnapshots(contents)
     cancelPicker(contents)
@@ -1202,6 +1304,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
               if (allowed(tab.contents.getURL())) return
               tab.accessConsent?.abort()
               tab.screenshotConsent?.abort()
+              tab.diagnosticConsent?.abort()
               tab.agentAccess = false
               tab.accessRevision = (tab.accessRevision ?? 0) + 1
               tab.revision++
@@ -1387,6 +1490,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       throw new Error(nativeT("desktop.browser.tabs.busy"))
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
+    tab.diagnosticConsent?.abort()
     tab.cancelLoginOffer?.()
     tab.revision++
     invalidateSnapshots(contents)
@@ -1784,6 +1888,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     if (!command.enabled) {
       tab.accessConsent?.abort()
       tab.screenshotConsent?.abort()
+      tab.diagnosticConsent?.abort()
       tab.agentAccess = false
       tab.accessRevision = (tab.accessRevision ?? 0) + 1
       tab.revision++
@@ -1895,8 +2000,7 @@ export function browserViewport(
   groupFor(owner, input.sessionID)
   if (input.bounds === null) {
     if (owner.viewport?.lease === input.lease) {
-      owner.taskEpoch++
-      owner.tabConsent?.abort()
+      advanceOwnerTask(owner)
       owner.viewport = undefined
     }
   } else {
@@ -1909,8 +2013,7 @@ export function browserViewport(
     )
       throw new Error("Invalid browser bounds")
     if (owner.viewport?.sessionID !== input.sessionID || owner.viewport?.lease !== input.lease) {
-      owner.taskEpoch++
-      owner.tabConsent?.abort()
+      advanceOwnerTask(owner)
     }
     owner.viewport = { sessionID: input.sessionID, lease: input.lease, bounds: input.bounds }
   }

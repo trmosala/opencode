@@ -84,7 +84,14 @@ test("frame selection requires exact operation, frame and option consent with no
 })
 
 test("unsupported frame arguments never silently fall back to the top document", () => {
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   const writes = [
     { op: "select_option", tabID: "one", ref: "select", optionRef: "option" },
     { op: "click", tabID: "one", ref: "button" },
@@ -184,12 +191,44 @@ test("screenshot byte, edge, raster and complete UTF-8 response budgets are exac
 
 test("screenshot requires approval binding and exposes no capture controls", () => {
   const request = { op: "screenshot", tabID: "one" } as const
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
   expect(parseRequest(request)).toBeUndefined()
   expect(parseRequest({ ...request, context, clip: {}, quality: 100, fullPage: true })).toEqual({ ...request, context })
   for (const tabID of ["", 1, undefined, "x".repeat(129)])
     expect(parseRequest({ op: "prepare_write", request: { ...request, tabID } })).toBeUndefined()
+})
+
+test("console observation requires exact bounded consent and exposes no payload controls", () => {
+  const request = { op: "observe_console", tabID: "one", durationMs: 250 } as const
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
+  expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
+  expect(parseRequest(request)).toBeUndefined()
+  expect(parseRequest({ ...request, context })).toEqual({ ...request, context })
+  for (const durationMs of [249, 5001, 250.5, "250", undefined])
+    expect(parseRequest({ op: "prepare_write", request: { ...request, durationMs } })).toBeUndefined()
+  for (const extra of [
+    { includeMessages: true },
+    { includeSources: true },
+    { includeNetwork: true },
+    { filter: "password" },
+  ])
+    expect(parseRequest({ op: "prepare_write", request: { ...request, ...extra } })).toBeUndefined()
+  expect(parseRequest({ ...request, context: { ...context, ownerContext: undefined } })).toBeUndefined()
 })
 
 test("drag accepts only bounded endpoint refs and retains write binding", () => {
@@ -199,7 +238,14 @@ test("drag accepts only bounded endpoint refs and retains write binding", () => 
     sourceRef: "one.snapshot:source",
     targetRef: "one.snapshot:target",
   } as const
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
   expect(parseRequest(request)).toBeUndefined()
   expect(parseRequest({ ...request, context, x: 1, y: 2, steps: 100, duration: 100 })).toEqual({ ...request, context })
@@ -215,7 +261,14 @@ test("select_option requires bounded select and option refs with write binding",
     ref: "one.snapshot:select",
     optionRef: "one.snapshot:option",
   } as const
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
   expect(parseRequest(request)).toBeUndefined()
   expect(parseRequest({ ...request, context, value: "never forwarded" })).toEqual({ ...request, context })
@@ -225,7 +278,14 @@ test("select_option requires bounded select and option refs with write binding",
 })
 
 test("hover and click modes retain write binding and reject malformed input", () => {
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   const prepare = (request: unknown) => parseRequest({ op: "prepare_write", request })
   for (const request of [
     { op: "hover", tabID: "one", ref: "one.snapshot:e0" } as const,
@@ -329,7 +389,14 @@ test("parses explicit tab operations and rejects missing IDs and oversized input
     { op: "fill", tabID: "one", ref: "one.snapshot:e0", text: "hi" },
     { op: "press_key", tabID: "one", key: "Enter", modifiers: ["Ctrl"] },
   ] as const
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   for (const request of requests) {
     if (request.op === "read_state" || request.op === "list_tabs") {
       expect(parseRequest(request)).toEqual(request)
@@ -353,7 +420,14 @@ test("parses explicit tab operations and rejects missing IDs and oversized input
 })
 
 test("write contexts are runtime-validated and survive IPC parsing", () => {
-  const context = { tabID: "one", origin: "http://localhost", urlHash: "a".repeat(64), revision: 0, accessRevision: 0 }
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
   const request = { op: "press_key", tabID: "one", key: "Enter", modifiers: [], context } as const
   const message = { type: "browser_request", id: "req", sessionID: "session", request } as const
   expect(parseBrowserIpcRequest(message)).toEqual(message)
@@ -376,6 +450,10 @@ test("write contexts are runtime-validated and survive IPC parsing", () => {
     { ...context, revision: "0" },
     { ...context, accessRevision: NaN },
     { ...context, accessRevision: Number.MAX_SAFE_INTEGER + 1 },
+    { ...context, ownerContext: undefined },
+    { ...context, ownerContext: "" },
+    { ...context, ownerContext: "owner task" },
+    { ...context, ownerContext: "x".repeat(129) },
   ])
     expect(parseRequest({ ...request, context: invalid })).toBeUndefined()
   for (const input of [

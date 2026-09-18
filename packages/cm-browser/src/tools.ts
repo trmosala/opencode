@@ -12,6 +12,8 @@ import {
   screenshotBytes,
   screenshotDimensions,
   MAX_SNAPSHOT_BYTES,
+  MAX_CONSOLE_OBSERVATION_MS,
+  MIN_CONSOLE_OBSERVATION_MS,
   type BrowserState,
   type Modifier,
   type Request,
@@ -245,6 +247,49 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
           output: `Screenshot ${image.width}x${image.height}; tab ${state.tabID}; source ${state.url}`,
           attachments: [{ type: "file" as const, mime: "image/jpeg", url: `data:image/jpeg;base64,${image.data}` }],
         }
+      },
+    }),
+    browser_observe_console: tool({
+      description:
+        "Count future Chromium console events by severity for one bounded interval in an opted-in task tab. Requires explicit tool approval and fresh native consent. Returns counts only: never message text, source URLs, stack traces, arguments, request data or network activity. This is not CDP access.",
+      args: {
+        tabID,
+        durationMs: tool.schema
+          .number()
+          .int()
+          .min(MIN_CONSOLE_OBSERVATION_MS)
+          .max(MAX_CONSOLE_OBSERVATION_MS)
+          .optional()
+          .describe("Observation window in milliseconds; defaults to 3000 and is capped at 5000"),
+      },
+      async execute(args, context) {
+        const request = { op: "observe_console", tabID: args.tabID, durationMs: args.durationMs ?? 3_000 } as const
+        const state = await run(port, context, await askWrite(port, context, "browser_observe_console", request))
+        const value = tool.schema
+          .object({
+            durationMs: tool.schema.number().int().min(MIN_CONSOLE_OBSERVATION_MS).max(MAX_CONSOLE_OBSERVATION_MS),
+            debug: tool.schema.number().int().nonnegative(),
+            info: tool.schema.number().int().nonnegative(),
+            warning: tool.schema.number().int().nonnegative(),
+            error: tool.schema.number().int().nonnegative(),
+            other: tool.schema.number().int().nonnegative(),
+            total: tool.schema.number().int().nonnegative(),
+          })
+          .strict()
+          .safeParse(state.diagnostics?.console)
+        if (
+          !value.success ||
+          state.tabID !== args.tabID ||
+          state.title !== "" ||
+          state.visibleText !== "" ||
+          !Array.isArray(state.elements) ||
+          state.elements.length ||
+          value.data.durationMs !== request.durationMs ||
+          value.data.total !==
+            value.data.debug + value.data.info + value.data.warning + value.data.error + value.data.other
+        )
+          throw new Error("Invalid browser console observation result.")
+        return `Console counts for tab ${state.tabID} over ${value.data.durationMs}ms: error ${value.data.error}, warning ${value.data.warning}, info ${value.data.info}, debug ${value.data.debug}, other ${value.data.other}, total ${value.data.total}.`
       },
     }),
     browser_scroll: tool({

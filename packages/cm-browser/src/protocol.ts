@@ -10,8 +10,19 @@ export const MAX_SCREENSHOT_EDGE = 4096
 export const MAX_SCREENSHOT_PIXELS = 4_194_304
 export const MAX_SCREENSHOT_BYTES = 46_080
 export const MAX_SCREENSHOT_BASE64 = 61_440
+export const MIN_CONSOLE_OBSERVATION_MS = 250
+export const MAX_CONSOLE_OBSERVATION_MS = 5_000
 
 export type Screenshot = { readonly data: string; readonly width: number; readonly height: number }
+export type ConsoleObservation = {
+  readonly durationMs: number
+  readonly debug: number
+  readonly info: number
+  readonly warning: number
+  readonly error: number
+  readonly other: number
+  readonly total: number
+}
 
 export function screenshotDimensions(width: unknown, height: unknown): boolean {
   return (
@@ -118,6 +129,7 @@ export type BrowserState = {
   readonly tabToken?: string
   readonly tabResult?: TabResult
   readonly screenshot?: Screenshot
+  readonly diagnostics?: { readonly console: ConsoleObservation }
   readonly context?: AccessContext
   readonly history?: readonly { ref: string; url: string; title: string; time: number }[]
   readonly opened?: boolean
@@ -146,10 +158,12 @@ export type AccessContext = {
   readonly urlHash: string
   readonly revision: number
   readonly accessRevision: number
+  readonly ownerContext: string
 }
 
 export type WriteRequest = { readonly tabID: string } & (
   | { readonly op: "screenshot" }
+  | { readonly op: "observe_console"; readonly durationMs: number }
   | { readonly op: "navigate"; readonly url: string }
   | { readonly op: "click"; readonly ref: string; readonly mode?: "left" | "double" | "right" }
   | { readonly op: "hover"; readonly ref: string }
@@ -453,12 +467,14 @@ export function parseAccessContext(value: unknown): AccessContext | undefined {
     input.accessRevision < 0
   )
     return
+  if (typeof input.ownerContext !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(input.ownerContext)) return
   return {
     tabID: input.tabID,
     origin: input.origin,
     urlHash: input.urlHash,
     revision: input.revision,
     accessRevision: input.accessRevision,
+    ownerContext: input.ownerContext,
   }
 }
 
@@ -488,6 +504,17 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
   if (input.op === "screenshot") return { op: "screenshot", tabID }
+  if (input.op === "observe_console") {
+    if (
+      Object.keys(input).some((key) => !["op", "tabID", "durationMs", "context"].includes(key)) ||
+      typeof input.durationMs !== "number" ||
+      !Number.isInteger(input.durationMs) ||
+      input.durationMs < MIN_CONSOLE_OBSERVATION_MS ||
+      input.durationMs > MAX_CONSOLE_OBSERVATION_MS
+    )
+      return
+    return { op: "observe_console", tabID, durationMs: input.durationMs }
+  }
   if (input.op === "navigate")
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH
       ? { op: "navigate", tabID, url: input.url }

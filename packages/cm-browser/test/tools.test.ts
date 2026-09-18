@@ -11,6 +11,7 @@ const state = {
     urlHash: "a".repeat(64),
     revision: 3,
     accessRevision: 2,
+    ownerContext: "owner-task-1",
   },
   tabID: "one",
   url: "https://teams.microsoft.com/",
@@ -331,6 +332,54 @@ describe("browser tools", () => {
       browserTools(denied.port).browser_screenshot.execute({ tabID: "one" }, denial.context),
     ).rejects.toThrow("Denied")
     expect(denied.sent.map((item) => item.request.op)).toEqual(["prepare_write"])
+  })
+
+  test("console observation asks explicitly and returns only bounded severity counts", async () => {
+    const browser = fakePort(
+      success({
+        ...state,
+        title: "",
+        visibleText: "",
+        elements: [],
+        diagnostics: {
+          console: { durationMs: 250, debug: 1, info: 2, warning: 3, error: 4, other: 0, total: 10 },
+        },
+      }),
+    )
+    const call = fakeContext()
+    const reply = await browserTools(browser.port).browser_observe_console.execute(
+      { tabID: "one", durationMs: 250 },
+      call.context,
+    )
+    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_observe_console"])
+    expect(browser.sent.map((item) => item.request.op)).toEqual(["prepare_write", "observe_console"])
+    expect(browser.sent[1].request).toMatchObject({ context: state.context, durationMs: 250 })
+    expect(reply).toBe("Console counts for tab one over 250ms: error 4, warning 3, info 2, debug 1, other 0, total 10.")
+
+    for (const diagnostics of [
+      undefined,
+      { console: { durationMs: 250, debug: 0, info: 0, warning: 0, error: 0, other: 0, total: 1 } },
+      {
+        console: {
+          durationMs: 250,
+          debug: 0,
+          info: 0,
+          warning: 0,
+          error: 0,
+          other: 0,
+          total: 0,
+          messages: ["secret"],
+        },
+      },
+    ]) {
+      const invalid = fakePort(success({ ...state, title: "", visibleText: "", elements: [], diagnostics }))
+      await expect(
+        browserTools(invalid.port).browser_observe_console.execute(
+          { tabID: "one", durationMs: 250 },
+          fakeContext().context,
+        ),
+      ).rejects.toThrow("Invalid browser console observation result")
+    }
   })
 
   test.each([

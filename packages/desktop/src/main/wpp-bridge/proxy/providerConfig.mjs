@@ -144,6 +144,7 @@ export function o1CodeConfigContent(browserPlugin, aePlugin) {
       browser_drag: "ask",
       browser_select_option: "ask",
       browser_screenshot: "ask",
+      browser_observe_console: "ask",
       browser_fill: "ask",
       browser_press_key: "ask",
       browser_scroll: "ask",

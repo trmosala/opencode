@@ -206,6 +206,12 @@ async function run() {
     stage("PASS screenshots")
     return
   }
+  if (process.argv.includes("--diagnostics")) {
+    const { diagnosticsSmoke } = await import("./diagnostics.fixture")
+    await diagnosticsSmoke()
+    stage("PASS diagnostics")
+    return
+  }
   if (process.argv.includes("--frames")) {
     const { framesSmoke } = await import("./frames.fixture")
     await framesSmoke()
@@ -563,6 +569,7 @@ async function run() {
       request.op !== "fill" &&
       request.op !== "press_key" &&
       request.op !== "screenshot" &&
+      request.op !== "observe_console" &&
       request.op !== "scroll"
     )
       return dispatch(request)

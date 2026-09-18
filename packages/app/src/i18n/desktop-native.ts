@@ -513,6 +513,11 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Task: {{task}}\nTab: {{tab}}\n\nAllow is saved for this exact website. Notifications are permitted only while its private main page is selected and visible in CookieMonster. OS notification settings still apply. Blocking later prevents new notifications but cannot recall delivered notifications.",
   "desktop.browser.sitePermission.invalid": "Invalid site permission",
   "desktop.browser.sitePermission.limit": "Site limit reached",
+  "desktop.browser.diagnosticsConsent": "Share bounded console diagnostics with the agent?",
+  "desktop.browser.diagnosticsDetail":
+    "Task {{task}} requests {{duration}}ms of console severity counts from tab {{tab}} at {{url}}. Message text, source URLs, stack traces, request data, and network activity are not collected.",
+  "desktop.browser.diagnosticsDenied": "Browser diagnostics consent was not granted.",
+  "desktop.browser.diagnosticsDeliveryUnavailable": "Browser diagnostics delivery unavailable.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

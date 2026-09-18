@@ -59,7 +59,10 @@ export type BrowserRegistration = {
   accessRevision?: number
   accessConsent?: AbortController
   screenshotConsent?: AbortController
+  diagnosticConsent?: AbortController
+  ownerContext?: () => string
   confirmScreenshot?: (url: string, signal: AbortSignal) => Promise<false | (() => void)>
+  confirmDiagnostics?: (url: string, durationMs: number, signal: AbortSignal) => Promise<false | (() => void)>
   navigationAllowed?: (url: string) => boolean
 }
 const tabs = new Map<string, BrowserRegistration>()
@@ -74,6 +77,7 @@ export function setBrowserAgentEnabled(enabled: boolean) {
   tabs.forEach((tab) => {
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
+    tab.diagnosticConsent?.abort()
     tab.agentAccess = false
     tab.accessRevision = (tab.accessRevision ?? 0) + 1
     tab.revision++
@@ -87,6 +91,7 @@ export function registerBrowserTab(tab: BrowserRegistration) {
   return () => {
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
+    tab.diagnosticConsent?.abort()
     return tabs.delete(tab.id)
   }
 }
