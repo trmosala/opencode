@@ -3,6 +3,7 @@ import type { BrowserWindow } from "electron"
 import { closeSync, openSync } from "node:fs"
 import { downloadHistoryRows, savedDownloads, saveDownloadRecord } from "./download-records"
 import { basename, extname, join } from "node:path"
+import { browserSearchEngine } from "@opencode-ai/app/browser-panel"
 import type { BrowserDownload, BrowserPermission, BrowserPreferences } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
@@ -33,6 +34,7 @@ export function browserPreferencesState(): BrowserPreferences {
     selectionScreenshots: value.selectionScreenshots === true,
     askDownloadLocation: value.askDownloadLocation !== false,
     restoreTabs: value.restoreTabs !== false,
+    searchEngine: browserSearchEngine(value.searchEngine),
   }
 }
 export function saveBrowserPreferences(values: Partial<BrowserPreferences>) {
@@ -45,9 +47,11 @@ export function saveBrowserPreferences(values: Partial<BrowserPreferences>) {
         !Object.hasOwn(current, key) ||
         (key === "agentHistory"
           ? !["never", "ask", "allow"].includes(String(value))
-          : ["webLinks", "localLinks"].includes(key)
-            ? value !== "browser" && value !== "external"
-            : typeof value !== "boolean"),
+          : key === "searchEngine"
+            ? browserSearchEngine(value) !== value
+            : ["webLinks", "localLinks"].includes(key)
+              ? value !== "browser" && value !== "external"
+              : typeof value !== "boolean"),
     )
   )
     throw new Error("Invalid browser preferences")

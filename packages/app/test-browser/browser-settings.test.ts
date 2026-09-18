@@ -103,6 +103,7 @@ test("mounted settings show main eligibility and allow revocation during pending
           selectionScreenshots: false,
           askDownloadLocation: true,
           restoreTabs: true,
+          searchEngine: "duckduckgo",
         },
       },
     }
@@ -131,6 +132,15 @@ test("mounted settings show main eligibility and allow revocation during pending
       .querySelector("select")!
     expect([...uploads.options].map((option) => option.value)).toEqual(["block", "ask"])
     expect(host.textContent).toContain("Main history-search policy: Allow")
+    const search = [...host.querySelectorAll("label")]
+      .find((label) => label.textContent?.includes("Default search engine"))!
+      .querySelector("select")!
+    expect([...search.options].map((option) => option.value)).toEqual(["duckduckgo", "google", "bing"])
+    search.value = "google"
+    search.dispatchEvent(new Event("change", { bubbles: true }))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(calls.at(-1)).toEqual({ op: "preferences", values: { searchEngine: "google" } })
+    calls.length = 0
     mounted.update({ ...tabs, tabs: [{ ...tabs.tabs[0], access: undefined }] })
     expect(row().textContent).toContain("Effective access unavailable")
     expect(row().textContent).not.toContain("Page tools eligible")

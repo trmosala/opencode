@@ -3,9 +3,11 @@ import {
   formatBrowserElementContext,
   formatBrowserSelectionContext,
   formatBrowserUrlContext,
+  browserSearchTemplate,
   normalizeBrowserUrl,
   resolveBrowserAddress,
 } from "./browser-context"
+import { browserSearchEngine } from "@/browser-panel"
 
 describe("normalizeBrowserUrl", () => {
   test("defaults bare addresses to http", () => {
@@ -35,6 +37,19 @@ describe("resolveBrowserAddress", () => {
     )
   })
 
+  test("uses validated explicit engines without changing direct navigation", () => {
+    expect(resolveBrowserAddress("cookies & cream #1", "google")).toBe(
+      "https://www.google.com/search?q=cookies+%26+cream+%231",
+    )
+    expect(resolveBrowserAddress("cookies & cream #1", "bing")).toBe(
+      "https://www.bing.com/search?q=cookies+%26+cream+%231",
+    )
+    for (const engine of ["duckduckgo", "google", "bing"] as const) {
+      expect(resolveBrowserAddress("localhost:5173/a", engine)).toBe("http://localhost:5173/a")
+      expect(resolveBrowserAddress("https://example.com/a", engine)).toBe("https://example.com/a")
+    }
+  })
+
   test("preserves direct URLs, bare domains, and local development addresses", () => {
     expect(resolveBrowserAddress("https://example.com/a?q=b")).toBe("https://example.com/a?q=b")
     expect(resolveBrowserAddress("example.com/path")).toBe("http://example.com/path")
@@ -51,6 +66,31 @@ describe("resolveBrowserAddress", () => {
     expect(resolveBrowserAddress("file:///tmp/a.html")).toBeUndefined()
     expect(resolveBrowserAddress("https://user:password@example.com")).toBeUndefined()
   })
+})
+
+test("search templates require HTTPS, no credentials or fragments, and one safe query parameter", () => {
+  expect(browserSearchTemplate({ url: "https://search.example/path", parameter: "query" })).toEqual({
+    url: "https://search.example/path",
+    parameter: "query",
+  })
+  for (const value of [
+    undefined,
+    {},
+    { url: "http://search.example", parameter: "q" },
+    { url: "https://user:secret@search.example", parameter: "q" },
+    { url: "https://search.example/#fragment", parameter: "q" },
+    { url: "https://search.example/?q=existing", parameter: "q" },
+    { url: "https://search.example", parameter: "q[]" },
+  ])
+    expect(browserSearchTemplate(value)).toBeUndefined()
+})
+
+test("missing, legacy DuckDuckGo, and invalid persisted values migrate to the default", () => {
+  expect(browserSearchEngine(undefined)).toBe("duckduckgo")
+  expect(browserSearchEngine("duck.com")).toBe("duckduckgo")
+  expect(browserSearchEngine("duckduckgo.com")).toBe("duckduckgo")
+  expect(browserSearchEngine("unknown")).toBe("duckduckgo")
+  expect(browserSearchEngine("google")).toBe("google")
 })
 
 describe("browser context formatting", () => {

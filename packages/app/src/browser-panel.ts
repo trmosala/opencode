@@ -97,6 +97,15 @@ export type BrowserProfile = {
 }
 
 export type BrowserPermission = "ask" | "allow" | "block"
+export const BROWSER_SEARCH_ENGINES = ["duckduckgo", "google", "bing"] as const
+export type BrowserSearchEngine = (typeof BROWSER_SEARCH_ENGINES)[number]
+
+export function browserSearchEngine(value: unknown): BrowserSearchEngine {
+  if (value === "duck.com" || value === "duckduckgo.com") return "duckduckgo"
+  if (value === "duckduckgo" || value === "google" || value === "bing") return value
+  return "duckduckgo"
+}
+
 export type BrowserPreferences = {
   offerSaveLogins: boolean
   agentHistory: "never" | "ask" | "allow"
@@ -107,6 +116,7 @@ export type BrowserPreferences = {
   selectionScreenshots: boolean
   askDownloadLocation: boolean
   restoreTabs: boolean
+  searchEngine: BrowserSearchEngine
 }
 
 export type BrowserBookmark = { id: string; url: string; title: string; pinned: boolean; folder: string[] }

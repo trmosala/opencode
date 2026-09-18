@@ -3,6 +3,7 @@ import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { BrowserCommand, BrowserPermission, BrowserPreferences, BrowserProfile, BrowserTab } from "@/browser-panel"
+import { BROWSER_SEARCH_ENGINES, browserSearchEngine } from "@/browser-panel"
 import type { BrowserToolPanel } from "./browser-tools"
 import { BrowserTransfers } from "./browser-transfers"
 
@@ -236,7 +237,25 @@ export function BrowserSettings(props: {
       <fieldset disabled={!props.profile.preferences || props.busy} class="min-w-0 space-y-5">
         <h3 class="text-14-medium">{language.t("browser.settings.general")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <p>{language.t("browser.settings.search")}</p>
+          <label class="flex items-center justify-between gap-4">
+            <span>
+              <strong>{language.t("browser.settings.search")}</strong>
+              <p class="text-text-weak mt-1">{language.t("browser.settings.search.help")}</p>
+            </span>
+            <select
+              value={props.profile.preferences?.searchEngine ?? "duckduckgo"}
+              onChange={(event) =>
+                void props.command({
+                  op: "preferences",
+                  values: { searchEngine: browserSearchEngine(event.currentTarget.value) },
+                })
+              }
+            >
+              <For each={BROWSER_SEARCH_ENGINES}>
+                {(engine) => <option value={engine}>{language.t(`browser.search.${engine}`)}</option>}
+              </For>
+            </select>
+          </label>
           <p class="text-text-weak">{language.t("browser.settings.linksHelp")}</p>
           <For each={["webLinks", "localLinks"] as const}>
             {(key) => (

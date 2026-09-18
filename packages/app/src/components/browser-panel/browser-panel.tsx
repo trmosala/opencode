@@ -210,7 +210,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
 
   const go = async (input = state.input) => {
     if (state.opening) return
-    const url = resolveBrowserAddress(input)
+    const url = resolveBrowserAddress(input, state.tabs.profile?.preferences?.searchEngine)
     if (!url) {
       showToast({
         variant: "error",
@@ -504,7 +504,9 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           onInput={(event) =>
             setState({ input: event.currentTarget.value, suggestionsClosed: false, suggestionIndex: -1 })
           }
-          placeholder={language.t("browser.address.searchPlaceholder")}
+          placeholder={language.t("browser.address.searchPlaceholder", {
+            engine: language.t(`browser.search.${state.tabs.profile?.preferences?.searchEngine ?? "duckduckgo"}`),
+          })}
           aria-label={language.t("browser.address.label")}
         />
         <BrowserAccounts tab={active()} tabs={state.tabs} command={fillAccount} />
@@ -648,7 +650,11 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
               <path d="M3 12h18" />
             </svg>
             <h2 class="text-16-medium text-text-strong">{language.t("browser.landing.title")}</h2>
-            <p class="text-12-regular text-text-weak">{language.t("browser.landing.description")}</p>
+            <p class="text-12-regular text-text-weak">
+              {language.t("browser.landing.description", {
+                engine: language.t(`browser.search.${state.tabs.profile?.preferences?.searchEngine ?? "duckduckgo"}`),
+              })}
+            </p>
             <div class="flex flex-wrap justify-center gap-2 max-w-2xl">
               <For each={state.tabs.profile?.bookmarks?.filter((row) => row.pinned)}>
                 {(row) => (

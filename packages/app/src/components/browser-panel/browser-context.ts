@@ -1,3 +1,5 @@
+import type { BrowserSearchEngine } from "@/browser-panel"
+
 export type BrowserPageContext = {
   title?: string
   url: string
@@ -29,7 +31,30 @@ export function normalizeBrowserUrl(input: string) {
   }
 }
 
-export function resolveBrowserAddress(input: string) {
+const searchTemplates: Record<BrowserSearchEngine, { url: string; parameter: string }> = {
+  duckduckgo: { url: "https://duck.com/", parameter: "q" },
+  google: { url: "https://www.google.com/search", parameter: "q" },
+  bing: { url: "https://www.bing.com/search", parameter: "q" },
+}
+
+export function browserSearchTemplate(value: unknown): { url: string; parameter: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  if (
+    !("url" in value) ||
+    !("parameter" in value) ||
+    typeof value.url !== "string" ||
+    typeof value.parameter !== "string" ||
+    !/^[a-z][a-z\d_]{0,31}$/i.test(value.parameter) ||
+    !URL.canParse(value.url)
+  )
+    return undefined
+  const url = new URL(value.url)
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || url.searchParams.has(value.parameter))
+    return undefined
+  return { url: url.toString(), parameter: value.parameter }
+}
+
+export function resolveBrowserAddress(input: string, engine: BrowserSearchEngine = "duckduckgo") {
   const value = input.trim()
   if (!value) return
   if (value === "about:blank") return value
@@ -42,8 +67,9 @@ export function resolveBrowserAddress(input: string) {
     if (parsed.hostname.includes(".") || parsed.hostname === "localhost" || parsed.hostname.startsWith("[") || hostPort)
       return url
   }
-  const search = new URL("https://duck.com/")
-  search.searchParams.set("q", value)
+  const template = browserSearchTemplate(searchTemplates[engine]) ?? browserSearchTemplate(searchTemplates.duckduckgo)!
+  const search = new URL(template.url)
+  search.searchParams.set(template.parameter, value)
   return search.toString()
 }
 
