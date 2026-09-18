@@ -23,6 +23,22 @@ export type BrowserTab = {
   device?: boolean
   deviceSize?: BrowserDeviceSize
   find?: { active: number; matches: number }
+  siteData?: BrowserSiteData
+}
+
+export type BrowserSiteStorage =
+  | "cacheStorage"
+  | "fileSystems"
+  | "indexedDB"
+  | "localStorage"
+  | "serviceWorkers"
+  | "webSQL"
+
+export type BrowserSiteData = {
+  origin: string
+  cookies?: number
+  usage?: number
+  storage: BrowserSiteStorage[]
 }
 
 export type BrowserTransferRule = { origin: string; uploads: "ask" | "block"; downloads: BrowserPermission }
@@ -164,7 +180,7 @@ export type BrowserCommand =
   | { op: "bookmark-save"; url: string; title: string; pinned: boolean; id?: string }
   | { op: "bookmark-delete"; id: string }
   | { op: "bookmark-import" | "bookmark-export" }
-  | { op: "clear-site"; tabID: string }
+  | { op: "clear-site" | "inspect-site"; tabID: string }
   | { op: "state" | "new" }
   | { op: "select" | "close" | "back" | "forward" | "reload" | "stop"; tabID: string }
   | { op: "navigate"; tabID: string; url: string }

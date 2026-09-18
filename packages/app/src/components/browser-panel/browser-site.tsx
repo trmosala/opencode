@@ -1,5 +1,5 @@
 import { Button } from "@opencode-ai/ui/button"
-import { For, Show } from "solid-js"
+import { createEffect, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import type { BrowserTab, BrowserProfile, BrowserCommand, BrowserPermission } from "@/browser-panel"
 
@@ -20,6 +20,28 @@ export function BrowserSite(props: {
     }
   const media = () =>
     props.tab.url.startsWith("https:") || ["localhost", "127.0.0.1", "[::1]"].includes(new URL(props.tab.url).hostname)
+  const data = () => (props.tab.siteData?.origin === origin() ? props.tab.siteData : undefined)
+  let inspected = ""
+  const size = () => {
+    const bytes = data()?.usage
+    if (bytes === undefined) return ""
+    const units = ["byte", "kilobyte", "megabyte", "gigabyte"] as const
+    const unit = bytes < 1024 ? 0 : bytes < 1024 ** 2 ? 1 : bytes < 1024 ** 3 ? 2 : 3
+    return new Intl.NumberFormat(language.intl(), {
+      style: "unit",
+      unit: units[unit],
+      unitDisplay: "short",
+      maximumFractionDigits: unit ? 1 : 0,
+    }).format(bytes / 1024 ** unit)
+  }
+  createEffect(() => {
+    const id = props.tab.id
+    const url = props.tab.url
+    const key = `${id}\u0000${url}`
+    if (props.busy || props.tab.access?.loading || inspected === key || !/^https?:/.test(url)) return
+    inspected = key
+    void props.command({ op: "inspect-site", tabID: id })
+  })
   return (
     <div class="space-y-3">
       <strong class="break-all">{origin()}</strong>
@@ -89,13 +111,49 @@ export function BrowserSite(props: {
       >
         {language.t("browser.site.revoke")}
       </Button>
-      <Button
-        size="small"
-        disabled={props.busy}
-        onClick={() => void props.command({ op: "clear-site", tabID: props.tab.id })}
-      >
-        {language.t("browser.site.clear")}
-      </Button>
+      <fieldset class="space-y-2 border-t border-border-weaker-base pt-2">
+        <legend class="font-medium">{language.t("browser.site.data")}</legend>
+        <Show when={data()} fallback={<p role="status">{language.t("browser.site.inspecting")}</p>}>
+          {(inspection) => (
+            <>
+              <Show when={inspection().cookies !== undefined}>
+                <p>{language.t("browser.site.cookies", { count: inspection().cookies ?? 0 })}</p>
+              </Show>
+              <Show when={inspection().usage !== undefined}>
+                <p>{language.t("browser.site.usage", { size: size() })}</p>
+              </Show>
+              <Show when={inspection().storage.length}>
+                <p>
+                  {language.t("browser.site.storage", {
+                    types: inspection()
+                      .storage.map((type) => language.t(`browser.site.storage.${type}`))
+                      .join(", "),
+                  })}
+                </p>
+              </Show>
+              <Show when={inspection().cookies === undefined && inspection().usage === undefined}>
+                <p>{language.t("browser.site.unavailable")}</p>
+              </Show>
+            </>
+          )}
+        </Show>
+        <p class="text-text-weak">{language.t("browser.site.clearScope")}</p>
+        <Button
+          size="small"
+          variant="ghost"
+          disabled={props.busy || props.tab.access?.loading}
+          onClick={() => void props.command({ op: "inspect-site", tabID: props.tab.id })}
+        >
+          {language.t("browser.site.refresh")}
+        </Button>
+        <Button
+          size="small"
+          disabled={props.busy}
+          onClick={() => void props.command({ op: "clear-site", tabID: props.tab.id })}
+        >
+          {language.t("browser.site.clear")}
+        </Button>
+      </fieldset>
     </div>
   )
 }

@@ -50,6 +50,11 @@ app.commandLine.appendSwitch("use-fake-device-for-media-stream")
 app.commandLine.appendSwitch("enable-blink-features", "WebMCP")
 if (process.argv.includes("--snapshots") || process.argv.length === 2)
   app.commandLine.appendSwitch("host-resolver-rules", "MAP snapshots-http.test 127.0.0.1")
+if (process.argv.includes("--site-data"))
+  app.commandLine.appendSwitch(
+    "host-resolver-rules",
+    "MAP a.site-data.test 127.0.0.1, MAP b.site-data.test 127.0.0.1, MAP unrelated.test 127.0.0.1",
+  )
 // Keep trusted fixture input working when another window covers this inactive test window.
 app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion")
 let holdStream = false
@@ -428,6 +433,16 @@ async function run() {
   stage("creating first tab")
   win.showInactive()
   const command = (value: Parameters<typeof browserCommand>[2]) => browserCommand(owner, "smoke", value)
+  if (process.argv.includes("--site-data")) {
+    const { siteDataSmoke } = await import("./site-data.fixture")
+    try {
+      await siteDataSmoke(win, owner, command, address.port)
+      stage("PASS site data")
+    } finally {
+      win.destroy()
+    }
+    return
+  }
   if (process.argv.includes("--imports")) {
     const { importsSmoke } = await import("./imports.fixture")
     try {

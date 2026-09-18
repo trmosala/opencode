@@ -12,6 +12,8 @@ import type {
   BrowserTabs,
   BrowserClearKind,
   BrowserClearRange,
+  BrowserSiteData,
+  BrowserSiteStorage,
 } from "@opencode-ai/app/browser-panel"
 import { browserShortcut, browserDeviceSize, BROWSER_DEVICE_DEFAULT } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
@@ -111,6 +113,7 @@ type Tab = BrowserRegistration & {
   cancelLoginOffer?: () => void
   readyLoginOffers?: (check: () => void) => Promise<number>
   loginBusy?: boolean
+  siteData?: BrowserSiteData
 }
 type Group = {
   sessionID: string
@@ -359,6 +362,47 @@ async function clearData(kind: BrowserClearKind, range: BrowserClearRange = "all
   )
 }
 
+const siteStorage = new Map<string, BrowserSiteStorage>([
+  ["cache_storage", "cacheStorage"],
+  ["file_systems", "fileSystems"],
+  ["indexeddb", "indexedDB"],
+  ["local_storage", "localStorage"],
+  ["service_workers", "serviceWorkers"],
+  ["websql", "webSQL"],
+])
+
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+async function inspectSiteData(contents: WebContents, url: string, origin: string): Promise<BrowserSiteData> {
+  const [cookies, quota] = await Promise.allSettled([
+    contents.session.cookies.get({ url }),
+    (async () => {
+      if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
+      return contents.debugger.sendCommand("Storage.getUsageAndQuota", { origin })
+    })(),
+  ])
+  const result: BrowserSiteData = { origin, storage: [] }
+  if (cookies.status === "fulfilled") result.cookies = cookies.value.length
+  if (quota.status !== "fulfilled" || !record(quota.value)) return result
+  const value = quota.value
+  if (typeof value.usage === "number" && Number.isFinite(value.usage) && value.usage >= 0)
+    result.usage = Math.round(value.usage)
+  if (Array.isArray(value.usageBreakdown))
+    result.storage = value.usageBreakdown.flatMap((entry) => {
+      if (!record(entry)) return []
+      const row = entry
+      const type = typeof row.storageType === "string" ? siteStorage.get(row.storageType) : undefined
+      return type && typeof row.usage === "number" && Number.isFinite(row.usage) && row.usage > 0 ? [type] : []
+    })
+  return result
+}
+
+function browserDataOrigin(value: string) {
+  return !browserURL(value) || value === "about:blank" ? undefined : new URL(value).origin
+}
+
 function state(group: Group): BrowserTabs {
   const profile = browserProfile()
   return {
@@ -405,6 +449,7 @@ function state(group: Group): BrowserTabs {
           device: tab.device,
           deviceSize: tab.deviceSize ?? BROWSER_DEVICE_DEFAULT,
           find: tab.find,
+          siteData: tab.siteData?.origin === browserDataOrigin(url) ? tab.siteData : undefined,
           url: contents.getURL() || tab.saved.url,
           title: contents.getTitle().slice(0, 512) || tab.saved.title,
           loading: contents.isLoading(),
@@ -1064,6 +1109,7 @@ function createTab(
     tab.loadFailed = false
     tab.find = undefined
     tab.findRequest = undefined
+    tab.siteData = undefined
     invalidate()
     changed()
   })
@@ -1501,6 +1547,23 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     ["close", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
   )
     throw new Error(nativeT("desktop.browser.tabs.busy"))
+  if (command.op === "inspect-site") {
+    const url = contents.getURL()
+    const origin = browserDataOrigin(url)
+    if (!origin || owner.suspended || contents.isLoadingMainFrame()) throw new Error("Invalid site")
+    const revision = tab.revision
+    const data = await inspectSiteData(contents, url, origin)
+    if (
+      contents.isDestroyed() ||
+      contents.isLoadingMainFrame() ||
+      tab.revision !== revision ||
+      contents.getURL() !== url ||
+      browserDataOrigin(contents.getURL()) !== origin
+    )
+      throw new Error("Site changed during inspection")
+    tab.siteData = data
+    return state(group)
+  }
   if (command.op === "clear-site") {
     if (!browserURL(contents.getURL()) || contents.getURL() === "about:blank" || owner.suspended)
       throw new Error("Invalid site")
@@ -1520,7 +1583,16 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         await contents.session.clearData({
           origins: [origin],
           originMatchingMode: "origin-in-all-contexts",
-          dataTypes: ["cookies", "localStorage", "indexedDB", "serviceWorkers", "cache", "fileSystems", "webSQL"],
+          dataTypes: [
+            "backgroundFetch",
+            "cookies",
+            "localStorage",
+            "indexedDB",
+            "serviceWorkers",
+            "cache",
+            "fileSystems",
+            "webSQL",
+          ],
         })
         owners.forEach((entry) =>
           entry.groups.forEach((group) =>
