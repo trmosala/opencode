@@ -143,6 +143,7 @@ function advanceOwnerTask(owner: Owner) {
     group.tabs.forEach((tab) => {
       tab.screenshotConsent?.abort()
       tab.diagnosticConsent?.abort()
+      tab.siteToolConsent?.abort()
     }),
   )
 }
@@ -930,6 +931,91 @@ function createTab(
       layout(owner)
     }
   }
+  tab.confirmSiteTool = async (url, tool, argumentsJSON, signal) => {
+    const currentTask = () => owner.linkContext?.sessionID ?? owner.viewport?.sessionID
+    if (
+      owner.suspended ||
+      owner.shutting ||
+      owner.win.isDestroyed() ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
+      currentTask() !== tab.sessionID ||
+      !group.tabs.includes(tab)
+    )
+      return false
+    const consent = tab.siteToolConsent
+    if (!consent || consent.signal !== signal || signal.aborted) return false
+    const taskEpoch = owner.taskEpoch
+    const windowEpoch = owner.screenshotEpoch
+    const revoke = () => consent.abort()
+    const sheet =
+      process.platform === "darwin"
+        ? new BrowserWindow({
+            width: 480,
+            height: 260,
+            show: false,
+            title: nativeT("desktop.browser.siteToolConsent"),
+            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+          })
+        : undefined
+    sheet?.on("close", revoke)
+    owner.win.on("close", revoke)
+    owner.win.on("hide", revoke)
+    owner.win.on("minimize", revoke)
+    owner.win.webContents.on("destroyed", revoke)
+    owner.win.webContents.on("render-process-gone", revoke)
+    owner.win.webContents.on("did-start-navigation", revoke)
+    owner.suspended++
+    layout(owner)
+    try {
+      signal.throwIfAborted()
+      sheet?.showInactive()
+      const options = {
+        type: "warning" as const,
+        message: nativeT("desktop.browser.siteToolConsent"),
+        detail: nativeT("desktop.browser.siteToolDetail", {
+          task: tab.sessionID,
+          tab: tab.id,
+          url,
+          tool: tool.title || tool.name,
+          arguments: argumentsJSON,
+        }),
+        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
+        defaultId: 0,
+        cancelId: 0,
+        signal,
+      }
+      const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
+      if (answer.response !== 1) return false
+      return () => {
+        signal.throwIfAborted()
+        if (
+          owner.taskEpoch !== taskEpoch ||
+          owner.screenshotEpoch !== windowEpoch ||
+          owner.shutting ||
+          owner.win.isDestroyed() ||
+          owner.win.webContents.isDestroyed() ||
+          !owner.win.isVisible() ||
+          owner.win.isMinimized() ||
+          currentTask() !== tab.sessionID ||
+          owners.get(tab.ownerID) !== owner ||
+          owner.groups.get(tab.sessionID) !== group ||
+          !group.tabs.includes(tab)
+        )
+          throw new Error("Site tool owner changed")
+      }
+    } finally {
+      owner.win.removeListener("close", revoke)
+      owner.win.removeListener("hide", revoke)
+      owner.win.removeListener("minimize", revoke)
+      owner.win.webContents.removeListener("destroyed", revoke)
+      owner.win.webContents.removeListener("render-process-gone", revoke)
+      owner.win.webContents.removeListener("did-start-navigation", revoke)
+      if (sheet && !sheet.isDestroyed()) sheet.destroy()
+      owner.suspended--
+      layout(owner)
+    }
+  }
   if (tab.transferGuarded) {
     tab.uploadGuard = guardUploads(owner.win, tab, contents)
     void tab.uploadGuard.catch(() => {
@@ -957,6 +1043,7 @@ function createTab(
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
     tab.diagnosticConsent?.abort()
+    tab.siteToolConsent?.abort()
     tab.revision++
     invalidateSnapshots(contents)
     cancelPicker(contents)
@@ -1305,6 +1392,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
               tab.accessConsent?.abort()
               tab.screenshotConsent?.abort()
               tab.diagnosticConsent?.abort()
+              tab.siteToolConsent?.abort()
               tab.agentAccess = false
               tab.accessRevision = (tab.accessRevision ?? 0) + 1
               tab.revision++
@@ -1491,6 +1579,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
     tab.diagnosticConsent?.abort()
+    tab.siteToolConsent?.abort()
     tab.cancelLoginOffer?.()
     tab.revision++
     invalidateSnapshots(contents)
@@ -1889,6 +1978,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       tab.accessConsent?.abort()
       tab.screenshotConsent?.abort()
       tab.diagnosticConsent?.abort()
+      tab.siteToolConsent?.abort()
       tab.agentAccess = false
       tab.accessRevision = (tab.accessRevision ?? 0) + 1
       tab.revision++

@@ -94,7 +94,7 @@ The global switch immediately revokes every tab grant and invalidates snapshots;
 
 OpenCode `context.ask` is independent of these native gates. Seeded tool defaults are not evidence of the current session's effective approval policy, so settings do not claim to display it. Page eligibility still requires global access, a tab grant and an allowed loaded host, followed by the tool's applicable approval. History Never/Ask/Allow is independent of hosts and tab grants, but subject to the global switch; recording history remains a separate General setting. Opening an agent history result always requires native confirmation and creates a private tab.
 
-The settings page links to the existing password manager, imports, browsing history, and data clearing. It deliberately does not advertise contact/payment autofill, automatic path-based uploads, WebMCP discovery, or unrestricted agent CDP access, which are not implemented. Controls requiring a newer main process are disabled during renderer hot reload until the next launch.
+The settings page links to the existing password manager, imports, browsing history, and data clearing. It deliberately does not advertise contact/payment autofill, automatic path-based uploads, or unrestricted agent CDP access, which are not implemented. WebMCP site tools are exposed through the agent tools described below, not as a settings claim. Controls requiring a newer main process are disabled during renderer hot reload until the next launch.
 
 ## Agent uploads and downloads
 
@@ -235,6 +235,16 @@ The response contains only `debug`, `info`, `warning`, `error`, `other`, and `to
 Preparation binds the exact tab, source URL hash, source and access revisions, allowlist policy, session, owner, and task epoch across plugin approval, native consent, observation, and final delivery. Navigation, loading, access revocation, task/window ownership change, registration replacement, global disable, cancellation, deadline, or policy change fails closed. Main holds per-tab busy and rendering ownership while the listener exists and always removes the listener on success or failure. The operation never blocks user navigation and never retries.
 
 Synthetic unit/router checks cover exact protocol bounds, denied/malformed output, owner/source invalidation, credential-bearing message/source sentinels, cancellation cleanup, and count-only delivery. `bun scripts/browser-smoke.ts --diagnostics` uses a temporary hidden Electron window and real Chromium console events; it passed on Windows / Electron 42.3.3 / Chromium 148.0.7778.218 on 2026-09-18. The native run proves event-level mapping and listener cleanup, not physical-dialog, accessibility, packaged-app, macOS/Linux, authenticated-site, or external security assurance.
+
+## WebMCP site tools (#26)
+
+Electron 44.3.0 / Chromium 152 provides the experimental WebMCP runtime used by `browser_list_site_tools` and `browser_execute_site_tool`. Discovery exposes at most 32 tools registered by the current top document. It returns opaque refs plus bounded names, descriptions, input schemas and safety hints. Registration stack traces, DOM node IDs, frame IDs and cross-origin child tools are not exposed. All site metadata is labelled untrusted; it is data for choosing a tool, never an instruction to the agent.
+
+Execution accepts one JSON object up to 8 KiB, with bounded depth and entry count. It requires the ordinary read gate, a named `browser_execute_site_tool` approval for the exact origin, and fresh default-cancel native consent showing the task, tab, source, tool and exact JSON arguments. Main binds the opaque tool ref, registration revision, argument hash, source URL, origin, access revision, owner and task across approval and dispatch. Tool removal or replacement, navigation, loading, access revocation, owner changes, cancellation, deadline or allowlist changes fail closed. CookieMonster invokes Chromium's WebMCP domain directly and exposes no general CDP tool.
+
+Results are capped at 16 KiB and explicitly returned as untrusted site content. Every call receives native consent, including tools that advertise read-only or non-consequential hints; those website-supplied hints never weaken policy. Cancellation sends Chromium `WebMCP.cancelInvocation`. The Chromium 152 protocol calls successful completion `Success`; the current CDP draft calls it `Completed`, and the adapter accepts only those two terminal states.
+
+Unit and router fixtures cover malicious metadata, child-frame omission, stale registration, access revocation, exact consent details, cancellation and bounded untrusted results. `bun scripts/browser-smoke.ts --site-tools` runs a temporary origin-isolated loopback site against real Electron/Chromium and covers discovery, execution, cancellation, navigation invalidation and removal. It passed on Windows / Electron 44.3.0 / Chromium 152.0.7977.78 on 2026-09-18. WebMCP remains experimental and subject to Chromium/spec changes. This evidence does not establish physical-dialog accessibility, authenticated third-party sites, packaged builds, macOS/Linux behavior or external security assurance.
 
 ## Agent screenshots (#15)
 

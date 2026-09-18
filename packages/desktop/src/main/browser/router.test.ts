@@ -29,6 +29,69 @@ import { setNativeTranslations } from "../native-translations"
 function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
   const calls: string[] = []
   let url = "http://localhost/"
+  const debuggerFixture = Object.assign(new EventEmitter(), {
+    isAttached: () => true,
+    attach: () => {},
+    async sendCommand(method: string, params?: Record<string, unknown>) {
+      calls.push(method)
+      if (method === "WebMCP.enable") {
+        queueMicrotask(() =>
+          debuggerFixture.emit("message", {}, "WebMCP.toolsAdded", {
+            tools: [
+              {
+                name: "search",
+                description: "Search this site",
+                frameId: "main",
+                inputSchema: { type: "object", properties: { query: { type: "string" } } },
+                annotations: { readOnly: true, untrustedContent: true, consequential: false },
+              },
+            ],
+          }),
+        )
+        await Promise.resolve()
+        return {}
+      }
+      if (method === "WebMCP.invokeTool") {
+        setTimeout(() =>
+          debuggerFixture.emit("message", {}, "WebMCP.toolResponded", {
+            invocationId: "route-invocation",
+            status: "Completed",
+            output: { echoed: params?.input },
+          }),
+        )
+        return { invocationId: "route-invocation" }
+      }
+      if (method === "WebMCP.cancelInvocation") return {}
+      if (method === "Page.getFrameTree")
+        return {
+          frameTree: { frame: { id: "main", url, securityOrigin: new URL(url).origin } },
+        }
+      if (method === "DOM.getNodeForLocation") return { frameId: "main", backendNodeId: 1 }
+      if (method === "DOM.describeNode") return { node: { nodeName: "BUTTON" } }
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 8 }
+      return {
+        result: {
+          value: {
+            generation: "document-one",
+            url,
+            title: "",
+            visibleText: "hello",
+            elements: [
+              {
+                tag: "button",
+                role: "",
+                label: "Send",
+                text: "Send",
+                token: "send",
+                disabled: false,
+                rect: { x: 0, y: 0, width: 10, height: 10 },
+              },
+            ],
+          },
+        },
+      }
+    },
+  })
   const tab: BrowserRegistration = {
     id: "route-one",
     sessionID: "route-session",
@@ -49,38 +112,7 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
         url = next
         tab.revision++
       },
-      debugger: {
-        isAttached: () => true,
-        attach: () => {},
-        sendCommand: async (method) => {
-          calls.push(method)
-          if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } }
-          if (method === "DOM.getNodeForLocation") return { frameId: "main", backendNodeId: 1 }
-          if (method === "DOM.describeNode") return { node: { nodeName: "BUTTON" } }
-          if (method === "Page.createIsolatedWorld") return { executionContextId: 8 }
-          return {
-            result: {
-              value: {
-                generation: "document-one",
-                url,
-                title: "",
-                visibleText: "hello",
-                elements: [
-                  {
-                    tag: "button",
-                    role: "",
-                    label: "Send",
-                    text: "Send",
-                    token: "send",
-                    disabled: false,
-                    rect: { x: 0, y: 0, width: 10, height: 10 },
-                  },
-                ],
-              },
-            },
-          }
-        },
-      },
+      debugger: debuggerFixture,
     }),
   }
   const remove = registerBrowserTab(tab)
@@ -95,7 +127,7 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
     if (!prepared.result.context) throw new Error("Missing approval context")
     return route({ ...request, context: prepared.result.context })
   }
-  return { tab, calls, remove, route, write }
+  return { tab, calls, debuggerFixture, remove, route, write }
 }
 
 test("tab lifecycle tokens bind exact task, action, target and source without private metadata", async () => {
@@ -605,6 +637,89 @@ test("console diagnostics clean up and fail closed when source authority changes
     expect(await pending).toMatchObject({ ok: false, code: "unavailable" })
     expect(getEventListeners(contents, "console-message")).toHaveLength(0)
     expect(tab.diagnosticConsent).toBeUndefined()
+  } finally {
+    remove()
+  }
+})
+
+test("site tools bind discovery, named approval, native consent and invocation to one source", async () => {
+  const { tab, route, remove } = fixture()
+  let confirmations = 0
+  tab.confirmSiteTool = async (url, tool, argumentsJSON) => {
+    confirmations++
+    expect(url).toBe("http://localhost/")
+    expect(tool).toMatchObject({ name: "search", description: "Search this site", readOnly: true })
+    expect(argumentsJSON).toBe('{"query":"cookies"}')
+    return () => {}
+  }
+  try {
+    const discovered = await route({ op: "list_site_tools", tabID: tab.id })
+    if (!discovered.ok || !discovered.result.siteTools?.[0]) throw new Error("No site tool")
+    const toolRef = discovered.result.siteTools[0].ref
+    const request = { op: "prepare_site_tool", tabID: tab.id, toolRef, arguments: '{"query":"cookies"}' } as const
+    const prepared = await route(request)
+    if (!prepared.ok || !prepared.result.siteToolContext) throw new Error("No site tool context")
+    expect(prepared.result.siteToolRequest).toEqual({
+      name: "search",
+      origin: "http://localhost",
+      arguments: '{"query":"cookies"}',
+    })
+    expect(
+      await route({
+        op: "execute_site_tool",
+        tabID: tab.id,
+        toolRef,
+        arguments: '{"query":"cookies"}',
+        siteToolContext: prepared.result.siteToolContext,
+      }),
+    ).toMatchObject({
+      ok: true,
+      result: {
+        siteToolResult: {
+          name: "search",
+          origin: "http://localhost",
+          content: '{"echoed":{"query":"cookies"}}',
+        },
+      },
+    })
+    expect(confirmations).toBe(1)
+    expect(tab.siteToolConsent).toBeUndefined()
+  } finally {
+    remove()
+  }
+})
+
+test("site tool changes and access revocation fail before native dispatch", async () => {
+  const { tab, route, debuggerFixture, remove } = fixture()
+  let confirmations = 0
+  tab.confirmSiteTool = async () => {
+    confirmations++
+    return () => {}
+  }
+  try {
+    const discovered = await route({ op: "list_site_tools", tabID: tab.id })
+    if (!discovered.ok || !discovered.result.siteTools?.[0]) throw new Error("No site tool")
+    const toolRef = discovered.result.siteTools[0].ref
+    const request = { op: "prepare_site_tool", tabID: tab.id, toolRef, arguments: "{}" } as const
+    const stale = await route(request)
+    if (!stale.ok || !stale.result.siteToolContext) throw new Error("No site tool context")
+    debuggerFixture.emit("message", {}, "WebMCP.toolsRemoved", {
+      tools: [{ name: "search", frameId: "main" }],
+    })
+    expect(
+      await route({
+        op: "execute_site_tool",
+        tabID: tab.id,
+        toolRef,
+        arguments: "{}",
+        siteToolContext: stale.result.siteToolContext,
+      }),
+    ).toMatchObject({ ok: false, code: "unavailable" })
+    expect(confirmations).toBe(0)
+
+    tab.agentAccess = false
+    expect(await route(request)).toMatchObject({ ok: false, code: "access_denied" })
+    expect(confirmations).toBe(0)
   } finally {
     remove()
   }

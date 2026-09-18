@@ -231,6 +231,50 @@ test("console observation requires exact bounded consent and exposes no payload 
   expect(parseRequest({ ...request, context: { ...context, ownerContext: undefined } })).toBeUndefined()
 })
 
+test("site tools require opaque refs, bounded JSON objects and exact execution bindings", () => {
+  const list = { op: "list_site_tools", tabID: "one" } as const
+  const prepare = {
+    op: "prepare_site_tool",
+    tabID: "one",
+    toolRef: "a".repeat(8) + "-aaaa-4aaa-8aaa-" + "a".repeat(12),
+    arguments: '{"query":"hello"}',
+  } as const
+  const siteToolContext = {
+    tabID: "one",
+    origin: "https://example.com",
+    urlHash: "a".repeat(64),
+    revision: 1,
+    accessRevision: 2,
+    ownerContext: "owner-task",
+    toolRef: prepare.toolRef,
+    toolRevision: 3,
+    argumentHash: "b".repeat(64),
+  }
+  expect(parseRequest(list)).toEqual(list)
+  expect(parseRequest(prepare)).toEqual(prepare)
+  expect(parseRequest({ ...prepare, op: "execute_site_tool", siteToolContext })).toEqual({
+    ...prepare,
+    op: "execute_site_tool",
+    siteToolContext,
+  })
+  for (const argumentsValue of [
+    "[]",
+    "null",
+    "1",
+    '"x"',
+    "{",
+    '{"__proto__":{}}',
+    JSON.stringify({ x: "x".repeat(9000) }),
+  ])
+    expect(parseRequest({ ...prepare, arguments: argumentsValue })).toBeUndefined()
+  expect(parseRequest({ ...prepare, arguments: JSON.stringify({ nested: [[[[[[[[[1]]]]]]]]] }) })).toBeUndefined()
+  expect(
+    parseRequest({ ...prepare, op: "execute_site_tool", siteToolContext: { ...siteToolContext, argumentHash: "x" } }),
+  ).toBeUndefined()
+  expect(parseRequest({ ...list, frameId: "private" })).toBeUndefined()
+  expect(parseRequest({ ...prepare, name: "ignored" })).toBeUndefined()
+})
+
 test("drag accepts only bounded endpoint refs and retains write binding", () => {
   const request = {
     op: "drag",

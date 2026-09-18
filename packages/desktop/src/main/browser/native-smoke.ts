@@ -47,6 +47,7 @@ app.setPath("userData", join(profile, "profile"))
 app.setPath("sessionData", join(profile, "session"))
 app.on("window-all-closed", () => {})
 app.commandLine.appendSwitch("use-fake-device-for-media-stream")
+app.commandLine.appendSwitch("enable-blink-features", "WebMCP")
 if (process.argv.includes("--snapshots") || process.argv.length === 2)
   app.commandLine.appendSwitch("host-resolver-rules", "MAP snapshots-http.test 127.0.0.1")
 // Keep trusted fixture input working when another window covers this inactive test window.
@@ -210,6 +211,12 @@ async function run() {
     const { diagnosticsSmoke } = await import("./diagnostics.fixture")
     await diagnosticsSmoke()
     stage("PASS diagnostics")
+    return
+  }
+  if (process.argv.includes("--site-tools")) {
+    const { siteToolsSmoke } = await import("./site-tools.fixture")
+    await siteToolsSmoke()
+    stage("PASS site tools")
     return
   }
   if (process.argv.includes("--frames")) {

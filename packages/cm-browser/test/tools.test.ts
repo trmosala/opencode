@@ -382,6 +382,107 @@ describe("browser tools", () => {
     }
   })
 
+  test("site-tool discovery labels bounded metadata as untrusted", async () => {
+    const browser = fakePort(
+      success({
+        ...state,
+        title: "",
+        visibleText: "",
+        elements: [],
+        siteTools: [
+          {
+            ref: "a".repeat(8) + "-aaaa-4aaa-8aaa-" + "a".repeat(12),
+            name: "search",
+            description: "Search the site",
+            inputSchema: '{"type":"object"}',
+            readOnly: true,
+          },
+        ],
+      }),
+    )
+    const call = fakeContext()
+    const reply = await browserTools(browser.port).browser_list_site_tools.execute({ tabID: "one" }, call.context)
+    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state"])
+    expect(browser.sent.map((item) => item.request)).toEqual([{ op: "list_site_tools", tabID: "one" }])
+    if (typeof reply === "string") throw new Error("Expected structured site-tool discovery result")
+    expect(reply.output).toContain("untrusted site-provided WebMCP metadata")
+    expect(reply.output).toContain('"name":"search"')
+  })
+
+  test("site-tool execution binds preparation before named per-origin approval", async () => {
+    const toolRef = "a".repeat(8) + "-aaaa-4aaa-8aaa-" + "a".repeat(12)
+    const siteToolContext = {
+      ...state.context,
+      toolRef,
+      toolRevision: 4,
+      argumentHash: "b".repeat(64),
+    }
+    const sent: Request[] = []
+    const call = fakeContext()
+    call.context.ask = async (input) => {
+      call.asked.push({ permission: input.permission, patterns: input.patterns })
+      if (input.permission === "browser_read_state") return
+      expect(input).toEqual({
+        permission: "browser_execute_site_tool",
+        patterns: ["teams.microsoft.com"],
+        always: [],
+        metadata: {
+          tabID: "one",
+          origin: "https://teams.microsoft.com",
+          name: "send_message",
+          title: "Send message",
+          arguments: { message: "hello" },
+        },
+      })
+      expect(sent).toHaveLength(1)
+    }
+    const port: BrowserPort = {
+      send: async (_sessionID, request) => {
+        sent.push(request)
+        if (request.op === "prepare_site_tool")
+          return success({
+            ...state,
+            title: "",
+            visibleText: "",
+            elements: [],
+            siteToolContext,
+            siteToolRequest: {
+              name: "send_message",
+              title: "Send message",
+              origin: "https://teams.microsoft.com",
+              arguments: request.arguments,
+            },
+          })
+        return success({
+          ...state,
+          title: "",
+          visibleText: "",
+          elements: [],
+          siteToolResult: {
+            name: "send_message",
+            origin: "https://teams.microsoft.com",
+            content: '{"sent":true}',
+          },
+        })
+      },
+    }
+    const reply = await browserTools(port).browser_execute_site_tool.execute(
+      { tabID: "one", toolRef, arguments: '{"message":"hello"}' },
+      call.context,
+    )
+    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_execute_site_tool"])
+    expect(sent[1]).toEqual({
+      op: "execute_site_tool",
+      tabID: "one",
+      toolRef,
+      arguments: '{"message":"hello"}',
+      siteToolContext,
+    })
+    if (typeof reply === "string") throw new Error("Expected structured site-tool execution result")
+    expect(reply.output).toContain("Untrusted site-tool result")
+    expect(reply.output).toContain('{"sent":true}')
+  })
+
   test.each([
     ["browser_drag", { sourceRef: "s4:e0", targetRef: "s4:e1" }],
     ["browser_select_option", { ref: "s4:e0", optionRef: "s4:o1" }],

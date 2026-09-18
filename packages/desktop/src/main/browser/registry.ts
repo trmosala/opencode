@@ -5,6 +5,7 @@ import {
   type Request,
   type Response,
   type BrowserState,
+  type SiteTool,
 } from "@cookiemonster/cm-browser/protocol"
 import { nativeT } from "../native-translations"
 import type { createFrameSessions } from "./frame-sessions"
@@ -60,9 +61,16 @@ export type BrowserRegistration = {
   accessConsent?: AbortController
   screenshotConsent?: AbortController
   diagnosticConsent?: AbortController
+  siteToolConsent?: AbortController
   ownerContext?: () => string
   confirmScreenshot?: (url: string, signal: AbortSignal) => Promise<false | (() => void)>
   confirmDiagnostics?: (url: string, durationMs: number, signal: AbortSignal) => Promise<false | (() => void)>
+  confirmSiteTool?: (
+    url: string,
+    tool: SiteTool,
+    argumentsJSON: string,
+    signal: AbortSignal,
+  ) => Promise<false | (() => void)>
   navigationAllowed?: (url: string) => boolean
 }
 const tabs = new Map<string, BrowserRegistration>()
@@ -78,6 +86,7 @@ export function setBrowserAgentEnabled(enabled: boolean) {
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
     tab.diagnosticConsent?.abort()
+    tab.siteToolConsent?.abort()
     tab.agentAccess = false
     tab.accessRevision = (tab.accessRevision ?? 0) + 1
     tab.revision++
@@ -92,6 +101,7 @@ export function registerBrowserTab(tab: BrowserRegistration) {
     tab.accessConsent?.abort()
     tab.screenshotConsent?.abort()
     tab.diagnosticConsent?.abort()
+    tab.siteToolConsent?.abort()
     return tabs.delete(tab.id)
   }
 }

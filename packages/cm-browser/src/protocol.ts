@@ -12,6 +12,9 @@ export const MAX_SCREENSHOT_BYTES = 46_080
 export const MAX_SCREENSHOT_BASE64 = 61_440
 export const MIN_CONSOLE_OBSERVATION_MS = 250
 export const MAX_CONSOLE_OBSERVATION_MS = 5_000
+export const MAX_SITE_TOOLS = 32
+export const MAX_SITE_TOOL_ARGUMENT_BYTES = 8 * 1024
+export const MAX_SITE_TOOL_RESULT_BYTES = 16 * 1024
 
 export type Screenshot = { readonly data: string; readonly width: number; readonly height: number }
 export type ConsoleObservation = {
@@ -22,6 +25,23 @@ export type ConsoleObservation = {
   readonly error: number
   readonly other: number
   readonly total: number
+}
+
+export type SiteTool = {
+  readonly ref: string
+  readonly name: string
+  readonly title?: string
+  readonly description: string
+  readonly inputSchema?: string
+  readonly readOnly?: boolean
+  readonly consequential?: boolean
+  readonly untrustedContent?: boolean
+}
+
+export type SiteToolContext = AccessContext & {
+  readonly toolRef: string
+  readonly toolRevision: number
+  readonly argumentHash: string
 }
 
 export function screenshotDimensions(width: unknown, height: unknown): boolean {
@@ -130,6 +150,16 @@ export type BrowserState = {
   readonly tabResult?: TabResult
   readonly screenshot?: Screenshot
   readonly diagnostics?: { readonly console: ConsoleObservation }
+  readonly siteTools?: readonly SiteTool[]
+  readonly siteToolsTruncated?: boolean
+  readonly siteToolContext?: SiteToolContext
+  readonly siteToolRequest?: {
+    readonly name: string
+    readonly title?: string
+    readonly origin: string
+    readonly arguments: string
+  }
+  readonly siteToolResult?: { readonly name: string; readonly origin: string; readonly content: string }
   readonly context?: AccessContext
   readonly history?: readonly { ref: string; url: string; title: string; time: number }[]
   readonly opened?: boolean
@@ -192,6 +222,20 @@ export type Request =
   | { readonly op: "prepare_tab"; readonly request: TabRequest }
   | (TabRequest & { readonly token: string })
   | HistoryRequest
+  | { readonly op: "list_site_tools"; readonly tabID: string }
+  | {
+      readonly op: "prepare_site_tool"
+      readonly tabID: string
+      readonly toolRef: string
+      readonly arguments: string
+    }
+  | {
+      readonly op: "execute_site_tool"
+      readonly tabID: string
+      readonly toolRef: string
+      readonly arguments: string
+      readonly siteToolContext: SiteToolContext
+    }
   | WaitRequest
   | { readonly op: "list_tabs" }
   | { readonly op: "prepare_write"; readonly request: WriteRequest }
@@ -294,6 +338,40 @@ export function parseTabRequest(value: unknown): TabRequest | undefined {
 export function parseRequest(value: unknown): Request | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
+  if (input.op === "list_site_tools") {
+    if (
+      Object.keys(input).some((key) => !["op", "tabID"].includes(key)) ||
+      typeof input.tabID !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.tabID)
+    )
+      return
+    return { op: input.op, tabID: input.tabID }
+  }
+  if (input.op === "prepare_site_tool" || input.op === "execute_site_tool") {
+    const keys = [
+      "op",
+      "tabID",
+      "toolRef",
+      "arguments",
+      ...(input.op === "execute_site_tool" ? ["siteToolContext"] : []),
+    ]
+    if (
+      Object.keys(input).some((key) => !keys.includes(key)) ||
+      typeof input.tabID !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(input.tabID) ||
+      typeof input.toolRef !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(input.toolRef) ||
+      typeof input.arguments !== "string" ||
+      !parseSiteToolArguments(input.arguments)
+    )
+      return
+    if (input.op === "prepare_site_tool")
+      return { op: input.op, tabID: input.tabID, toolRef: input.toolRef, arguments: input.arguments }
+    const siteToolContext = parseSiteToolContext(input.siteToolContext)
+    return siteToolContext && siteToolContext.tabID === input.tabID && siteToolContext.toolRef === input.toolRef
+      ? { op: input.op, tabID: input.tabID, toolRef: input.toolRef, arguments: input.arguments, siteToolContext }
+      : undefined
+  }
   if (input.op === "prepare_frame_select" || (input.op === "select_option" && "frameRef" in input)) {
     if (
       Object.keys(input).some(
@@ -475,6 +553,61 @@ export function parseAccessContext(value: unknown): AccessContext | undefined {
     revision: input.revision,
     accessRevision: input.accessRevision,
     ownerContext: input.ownerContext,
+  }
+}
+
+export function parseSiteToolContext(value: unknown): SiteToolContext | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).length !== 9) return
+  const context = parseAccessContext(input)
+  if (
+    !context ||
+    typeof input.toolRef !== "string" ||
+    !/^[a-f0-9-]{36}$/.test(input.toolRef) ||
+    typeof input.toolRevision !== "number" ||
+    !Number.isSafeInteger(input.toolRevision) ||
+    input.toolRevision < 0 ||
+    typeof input.argumentHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(input.argumentHash)
+  )
+    return
+  return {
+    ...context,
+    toolRef: input.toolRef,
+    toolRevision: input.toolRevision,
+    argumentHash: input.argumentHash,
+  }
+}
+
+export function parseSiteToolArguments(value: string): Record<string, unknown> | undefined {
+  if (Buffer.byteLength(value) > MAX_SITE_TOOL_ARGUMENT_BYTES) return
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return
+    let entries = 0
+    const valid = (current: unknown, depth: number): boolean => {
+      if (current === null || typeof current === "string" || typeof current === "boolean") return true
+      if (typeof current === "number") return Number.isFinite(current)
+      if (!current || typeof current !== "object" || depth > 8) return false
+      if (Array.isArray(current)) {
+        entries += current.length
+        return entries <= 128 && current.every((item) => valid(item, depth + 1))
+      }
+      const keys = Object.keys(current)
+      entries += keys.length
+      return (
+        entries <= 128 &&
+        keys.every(
+          (key) =>
+            !["__proto__", "constructor", "prototype"].includes(key) &&
+            valid((current as Record<string, unknown>)[key], depth + 1),
+        )
+      )
+    }
+    return valid(parsed, 0) ? (parsed as Record<string, unknown>) : undefined
+  } catch {
+    return
   }
 }
 

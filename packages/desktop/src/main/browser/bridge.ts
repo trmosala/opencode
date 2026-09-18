@@ -28,7 +28,11 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest)
           message.response.result.frames !== undefined ||
           message.response.result.frameRef !== undefined ||
           message.response.result.frameContext !== undefined ||
-          message.response.result.frameSelectContext !== undefined)
+          message.response.result.frameSelectContext !== undefined ||
+          message.response.result.diagnostics !== undefined ||
+          message.response.result.siteTools !== undefined ||
+          message.response.result.siteToolContext !== undefined ||
+          message.response.result.siteToolResult !== undefined)
       ) {
         try {
           if (!check) throw new Error("Missing screenshot delivery guard")
@@ -36,7 +40,18 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest)
         } catch {
           message = {
             ...message,
-            response: failure("unavailable", nativeT("desktop.browser.screenshotDeliveryUnavailable")),
+            response: failure(
+              "unavailable",
+              nativeT(
+                message.response.result.diagnostics !== undefined
+                  ? "desktop.browser.diagnosticsDeliveryUnavailable"
+                  : message.response.result.siteTools !== undefined ||
+                      message.response.result.siteToolContext !== undefined ||
+                      message.response.result.siteToolResult !== undefined
+                    ? "desktop.browser.siteToolDeliveryUnavailable"
+                    : "desktop.browser.screenshotDeliveryUnavailable",
+              ),
+            ),
           }
         }
       }

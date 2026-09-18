@@ -518,6 +518,11 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Task {{task}} requests {{duration}}ms of console severity counts from tab {{tab}} at {{url}}. Message text, source URLs, stack traces, request data, and network activity are not collected.",
   "desktop.browser.diagnosticsDenied": "Browser diagnostics consent was not granted.",
   "desktop.browser.diagnosticsDeliveryUnavailable": "Browser diagnostics delivery unavailable.",
+  "desktop.browser.siteToolConsent": "Allow this website tool to run?",
+  "desktop.browser.siteToolDetail":
+    "Task {{task}} requests website tool {{tool}} in tab {{tab}} at {{url}}.\n\nExact JSON arguments:\n{{arguments}}\n\nThe website supplies this tool and receives these arguments. It may change website or account data. CookieMonster will return its bounded result to the agent as untrusted content.",
+  "desktop.browser.siteToolDenied": "Website tool consent was not granted.",
+  "desktop.browser.siteToolDeliveryUnavailable": "Website tool delivery unavailable.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

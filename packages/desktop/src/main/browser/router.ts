@@ -25,6 +25,7 @@ import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
 import { discoverFrames, executeFrame } from "./frames"
 import { observeConsole } from "./console-diagnostics"
+import { discoverSiteTools, invokeSiteTool, prepareSiteTool } from "./site-tools"
 
 const busy = browserOperationBusy
 
@@ -97,7 +98,10 @@ export async function routeBrowserRequest(
         response.result.frames !== undefined ||
         response.result.frameRef !== undefined ||
         response.result.frameContext !== undefined ||
-        response.result.frameSelectContext !== undefined)
+        response.result.frameSelectContext !== undefined ||
+        response.result.siteTools !== undefined ||
+        response.result.siteToolContext !== undefined ||
+        response.result.siteToolResult !== undefined)
     ) {
       try {
         if (!deliveryCheck) throw new Error("Missing screenshot authority")
@@ -108,7 +112,11 @@ export async function routeBrowserRequest(
           nativeT(
             validated.op === "observe_console"
               ? "desktop.browser.diagnosticsDeliveryUnavailable"
-              : "desktop.browser.screenshotDeliveryUnavailable",
+              : validated.op === "list_site_tools" ||
+                  validated.op === "prepare_site_tool" ||
+                  validated.op === "execute_site_tool"
+                ? "desktop.browser.siteToolDeliveryUnavailable"
+                : "desktop.browser.screenshotDeliveryUnavailable",
           ),
         )
       }
@@ -161,6 +169,8 @@ async function route(
   const url = contents.getURL()
   const observing = request.op === "wait_for_navigation" || request.op === "wait_for_element"
   const navigating = request.op === "navigate" || request.op === "wait_for_navigation"
+  const siteRequest =
+    request.op === "list_site_tools" || request.op === "prepare_site_tool" || request.op === "execute_site_tool"
   if (navigating && (!browserURL(request.url) || !isAllowed(request.url)))
     return failure("blocked_host", "Browser host is not allowlisted.")
   if (!(request.op === "navigate" && url === "about:blank") && (!browserPageURL(url) || !isAllowed(url)))
@@ -195,6 +205,7 @@ async function route(
     request.op !== "prepare_frame_select" &&
     !("frameRef" in request) &&
     !observing &&
+    !siteRequest &&
     (!("context" in parsed) ||
       parsed.context.tabID !== tab.id ||
       parsed.context.origin !== origin ||
@@ -243,7 +254,8 @@ async function route(
   // Screenshots observe every source transition but never veto user navigation.
   const screenshot = request.op === "screenshot"
   const diagnostics = request.op === "observe_console"
-  const consent = screenshot || diagnostics ? new AbortController() : undefined
+  const siteExecution = request.op === "execute_site_tool"
+  const consent = screenshot || diagnostics || siteExecution ? new AbortController() : undefined
   const revoke = () => consent?.abort()
   let ownerCheck: (() => void) | undefined
   const authority = (source = false) => {
@@ -251,11 +263,12 @@ async function route(
     consent?.signal.throwIfAborted()
     ownerCheck?.()
   }
-  if (!observing && !screenshot && !diagnostics) tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
+  if (!observing && !screenshot && !diagnostics && !siteRequest)
+    tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
   busy.add(tab.id)
   const release = keepBrowserRendering(contents)
   try {
-    if (consent) {
+    if (consent && !siteExecution) {
       if (screenshot) tab.screenshotConsent = consent
       if (diagnostics) tab.diagnosticConsent = consent
       signal.addEventListener("abort", revoke, { once: true })
@@ -271,6 +284,78 @@ async function route(
           nativeT(diagnostics ? "desktop.browser.diagnosticsDenied" : "desktop.browser.screenshotDenied"),
         )
       onScreenshotDelivery(authority)
+    }
+    if (siteRequest) {
+      const access = { tabID: tab.id, origin, urlHash, revision, accessRevision, ownerContext }
+      if (request.op === "list_site_tools") {
+        const discovered = await discoverSiteTools(contents, authority)
+        if (discovered.origin !== origin) throw new Error("Site tool origin changed")
+        onScreenshotDelivery(authority)
+        return success({
+          tabID: tab.id,
+          url: origin,
+          title: "",
+          visibleText: "",
+          elements: [],
+          siteTools: discovered.tools,
+          ...(discovered.truncated ? { siteToolsTruncated: true } : {}),
+        })
+      }
+      const prepared = await prepareSiteTool(contents, request.toolRef, request.arguments, authority)
+      if (prepared.origin !== origin) throw new Error("Site tool origin changed")
+      if (request.op === "prepare_site_tool") {
+        onScreenshotDelivery(authority)
+        return success({
+          tabID: tab.id,
+          url: origin,
+          title: "",
+          visibleText: "",
+          elements: [],
+          siteToolContext: {
+            ...access,
+            toolRef: prepared.ref,
+            toolRevision: prepared.revision,
+            argumentHash: prepared.argumentHash,
+          },
+          siteToolRequest: {
+            name: prepared.name,
+            ...(prepared.public.title ? { title: prepared.public.title } : {}),
+            origin,
+            arguments: request.arguments,
+          },
+        })
+      }
+      const context = request.siteToolContext
+      if (
+        context.tabID !== access.tabID ||
+        context.origin !== access.origin ||
+        context.urlHash !== access.urlHash ||
+        context.revision !== access.revision ||
+        context.accessRevision !== access.accessRevision ||
+        context.ownerContext !== access.ownerContext ||
+        context.toolRef !== prepared.ref ||
+        context.toolRevision !== prepared.revision ||
+        context.argumentHash !== prepared.argumentHash
+      )
+        return failure("access_denied", "Browser site tool approval context changed. Request approval again.")
+      tab.siteToolConsent = consent
+      signal.addEventListener("abort", revoke, { once: true })
+      authority()
+      const approved = await tab.confirmSiteTool?.(url, prepared.public, request.arguments, consent!.signal)
+      ownerCheck = typeof approved === "function" ? approved : undefined
+      authority()
+      if (!ownerCheck) return failure("access_denied", nativeT("desktop.browser.siteToolDenied"))
+      const result = await invokeSiteTool(contents, prepared, request.arguments, authority, consent!.signal)
+      authority()
+      onScreenshotDelivery(authority)
+      return success({
+        tabID: tab.id,
+        url: origin,
+        title: "",
+        visibleText: "",
+        elements: [],
+        siteToolResult: result,
+      })
     }
     if ("frameRef" in request) {
       const frame = await executeFrame(tab, request as FrameRequest, authority, deadline, isAllowed)
@@ -313,8 +398,9 @@ async function route(
     signal.removeEventListener("abort", revoke)
     if (consent && tab.screenshotConsent === consent) tab.screenshotConsent = undefined
     if (consent && tab.diagnosticConsent === consent) tab.diagnosticConsent = undefined
+    if (consent && tab.siteToolConsent === consent) tab.siteToolConsent = undefined
     busy.delete(tab.id)
-    if (!observing && !screenshot && !diagnostics) tab.navigationAllowed = undefined
+    if (!observing && !screenshot && !diagnostics && !siteRequest) tab.navigationAllowed = undefined
     release()
   }
 }

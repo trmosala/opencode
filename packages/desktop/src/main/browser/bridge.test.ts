@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { EventEmitter, getEventListeners } from "node:events"
-import { failure, type BrowserIpcResult } from "@cookiemonster/cm-browser/protocol"
+import { failure, success, type BrowserIpcResult } from "@cookiemonster/cm-browser/protocol"
 import { attachBrowserBridge } from "./bridge"
 
 test("sidecar owns ID/session cancellation, rejects duplicates, and cleans up on exit", async () => {
@@ -90,4 +90,49 @@ test("explicit sidecar stop aborts outstanding work and suppresses late replies"
   await done.promise
   await new Promise((resolve) => setImmediate(resolve))
   expect(replies).toEqual([])
+})
+
+test("site tool delivery rechecks authority immediately before sidecar post", async () => {
+  const child = new EventEmitter()
+  const replies: BrowserIpcResult[] = []
+  let valid = true
+  const stop = attachBrowserBridge(
+    Object.assign(child, {
+      postMessage: (reply: BrowserIpcResult) => {
+        replies.push(reply)
+      },
+    }),
+    async (_request, _allowed, control) => {
+      control.onScreenshotDelivery?.(() => {
+        if (!valid) throw new Error("Source changed")
+      })
+      valid = false
+      return success({
+        tabID: "tab",
+        url: "https://example.com",
+        title: "",
+        visibleText: "",
+        elements: [],
+        siteTools: [],
+      })
+    },
+  )
+  try {
+    child.emit("message", {
+      type: "browser_request",
+      id: "site-tools",
+      sessionID: "one",
+      request: { op: "list_site_tools", tabID: "tab" },
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(replies).toEqual([
+      {
+        type: "browser_result",
+        id: "site-tools",
+        response: { ok: false, code: "unavailable", error: "Website tool delivery unavailable." },
+      },
+    ])
+  } finally {
+    stop()
+  }
 })

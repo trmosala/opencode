@@ -68,6 +68,7 @@ const APP_IDS: Record<string, string> = {
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
+const webMCPFeature = "WebMCP"
 
 let logger: ReturnType<typeof initLogging>
 let server: SidecarListener | null = null
@@ -214,6 +215,11 @@ const main = Effect.gen(function* () {
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
   const features = app.commandLine.getSwitchValue("enable-features")
   app.commandLine.appendSwitch("enable-features", features ? `${jsCallStackFeature},${features}` : jsCallStackFeature)
+  const blinkFeatures = app.commandLine.getSwitchValue("enable-blink-features")
+  app.commandLine.appendSwitch(
+    "enable-blink-features",
+    [...new Set([webMCPFeature, ...blinkFeatures.split(",").filter(Boolean)])].join(","),
+  )
   if (!app.isPackaged && process.env.CM_REMOTE_DEBUGGING === "1")
     app.commandLine.appendSwitch("remote-debugging-port", "9222")
 
