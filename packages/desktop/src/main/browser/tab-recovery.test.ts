@@ -15,6 +15,7 @@ test("recovery projects URL/title only, bounds history around selection, and pre
     expect(JSON.stringify(navigation)).not.toContain("synthetic-secret")
   }
   const legacy = { url: entries[0].url, title: "legacy" }
+  expect(projectSavedTab({ ...legacy, pinned: true })).toEqual({ ...legacy, pinned: true })
   for (const navigation of [
     null,
     {},
@@ -31,6 +32,7 @@ test("recovery projects URL/title only, bounds history around selection, and pre
   for (const value of [null, {}, [{ ...group, active: 1 }], [{ ...group, tabs: Array(33).fill(legacy) }]]) {
     expect(() => projectRecoveryGroups(value)).toThrow()
   }
+  expect(() => projectRecoveryGroups([{ ...group, tabs: [{ ...legacy, pinned: "yes" }] }])).toThrow()
   expect(projectSavedTab({ url: "https://user:pass@example.test/", title: "" })).toBeUndefined()
   const long = { url: `https://example.test/${"x".repeat(4096)}`, title: "Legacy long URL" }
   const legacyGroup = { sessionID: "legacy", tabs: [long], active: 0, closed: [{ ...long, id: "old", time: 1 }] }

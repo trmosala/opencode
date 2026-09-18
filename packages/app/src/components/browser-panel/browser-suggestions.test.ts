@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { browserTabKeyIndex } from "@/browser-panel"
 import { browserSuggestions } from "./browser-suggestions"
 import type { BrowserTabs } from "@/browser-panel"
 
@@ -8,6 +9,7 @@ test("suggestions prefer existing tabs, deduplicate URLs, and match titles witho
     tabs: [
       {
         id: "tab",
+        pinned: false,
         url: "https://example.com/work",
         title: "My work",
         loading: false,
@@ -34,4 +36,13 @@ test("suggestions prefer existing tabs, deduplicate URLs, and match titles witho
   ])
   expect(browserSuggestions("  ", state)).toEqual([])
   expect(browserSuggestions("no match", state)).toEqual([])
+})
+
+test("tab keyboard navigation wraps and supports strip boundaries", () => {
+  expect(browserTabKeyIndex("ArrowLeft", 0, 3)).toBe(2)
+  expect(browserTabKeyIndex("ArrowRight", 2, 3)).toBe(0)
+  expect(browserTabKeyIndex("Home", 2, 3)).toBe(0)
+  expect(browserTabKeyIndex("End", 0, 3)).toBe(2)
+  expect(browserTabKeyIndex("Enter", 0, 3)).toBeUndefined()
+  expect(browserTabKeyIndex("ArrowRight", 0, 0)).toBeUndefined()
 })

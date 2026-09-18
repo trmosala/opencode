@@ -422,6 +422,7 @@ function state(group: Group): BrowserTabs {
         const rule = transferRule(profile.transferRules ?? [], url)
         return {
           id: tab.id,
+          pinned: tab.saved.pinned === true,
           revision: tab.revision,
           openerID: tab.openerID,
           agentAccess: tab.agentAccess,
@@ -656,6 +657,7 @@ function createTab(
   group: Group,
   popup?: { preferences?: WebPreferences; webContents?: WebContents; openerID: string },
   saved: SavedTab = { url: "about:blank", title: "" },
+  position?: number,
 ) {
   if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
   if (!profileReady) {
@@ -1067,7 +1069,9 @@ function createTab(
       if (!contents.isDestroyed()) contents.close()
     })
   }
-  group.tabs.push(tab)
+  const firstUnpinned = group.tabs.findIndex((entry) => entry.saved.pinned !== true)
+  const target = position ?? (tab.saved.pinned === true && firstUnpinned >= 0 ? firstUnpinned : group.tabs.length)
+  group.tabs.splice(Math.max(0, Math.min(target, group.tabs.length)), 0, tab)
   group.activeID = tab.id
   const unregister = registerBrowserTab(tab)
   const offers = watchLoginOffers(
@@ -1136,6 +1140,7 @@ function createTab(
       tab.saved = projectSavedTab({
         url: recoveryURL(contents.getURL()),
         title: contents.getTitle().slice(0, 512),
+        pinned: tab.saved.pinned === true,
         navigation,
       })!
       persistGroup(owner, group)
@@ -1546,10 +1551,63 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     (tab.agentClose ||
       (tab.permissionReloadPhase &&
         !(command.op === "stop" && tab.permissionReloadPhase === "loading" && contents.isLoadingMainFrame()))) &&
-    ["close", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
+    ["close", "close-tabs", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
   )
     throw new Error(nativeT("desktop.browser.tabs.busy"))
-  if (command.op === "inspect-site") {
+  if (command.op === "tab-pin") {
+    if (typeof command.pinned !== "boolean") throw new Error("Invalid tab pin")
+    if ((tab.saved.pinned === true) === command.pinned) return state(group)
+    group.tabs.splice(group.tabs.indexOf(tab), 1)
+    tab.saved = projectSavedTab({ ...tab.saved, pinned: command.pinned })!
+    const boundary = group.tabs.findIndex((entry) => entry.saved.pinned !== true)
+    group.tabs.splice(boundary < 0 ? group.tabs.length : boundary, 0, tab)
+    persistGroup(owner, group)
+    return state(group)
+  } else if (command.op === "tab-move") {
+    if (!["left", "right"].includes(command.direction)) throw new Error("Invalid tab move")
+    const pinned = tab.saved.pinned === true
+    const siblings = group.tabs.filter((entry) => (entry.saved.pinned === true) === pinned)
+    const position = siblings.indexOf(tab)
+    const target = siblings[position + (command.direction === "left" ? -1 : 1)]
+    if (target) {
+      const from = group.tabs.indexOf(tab)
+      const to = group.tabs.indexOf(target)
+      group.tabs[from] = target
+      group.tabs[to] = tab
+      persistGroup(owner, group)
+    }
+    return state(group)
+  } else if (command.op === "duplicate") {
+    const index = group.tabs.indexOf(tab)
+    const firstUnpinned = group.tabs.findIndex((entry) => entry.saved.pinned !== true)
+    createTab(
+      owner,
+      group,
+      undefined,
+      {
+        url: recoveryURL(contents.getURL() || tab.saved.url),
+        title: contents.getTitle().slice(0, 512) || tab.saved.title,
+        pinned: false,
+      },
+      tab.saved.pinned === true ? (firstUnpinned < 0 ? group.tabs.length : firstUnpinned) : index + 1,
+    )
+    return state(group)
+  } else if (command.op === "close-tabs") {
+    if (!["others", "right"].includes(command.scope)) throw new Error("Invalid bulk close")
+    const index = group.tabs.indexOf(tab)
+    const targets = group.tabs.filter(
+      (entry, entryIndex) =>
+        entry !== tab && entry.saved.pinned !== true && (command.scope === "others" || entryIndex > index),
+    )
+    if (targets.some((entry) => entry.agentClose || entry.permissionReloadPhase))
+      throw new Error(nativeT("desktop.browser.tabs.busy"))
+    if (targets.some((entry) => entry.id === group.activeID)) {
+      group.activeID = tab.id
+      layout(owner)
+    }
+    targets.forEach((entry) => entry.view.webContents.close({ waitForBeforeUnload: true }))
+    return state(group)
+  } else if (command.op === "inspect-site") {
     const url = contents.getURL()
     const origin = browserDataOrigin(url)
     if (!origin || owner.suspended || contents.isLoadingMainFrame()) throw new Error("Invalid site")

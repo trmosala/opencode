@@ -105,6 +105,71 @@ export function BrowserMenu(props: {
   )
 }
 
+export function BrowserTabMenu(props: {
+  tab: BrowserTab
+  tabs: BrowserTab[]
+  command(command: BrowserCommand): Promise<unknown>
+}) {
+  const language = useLanguage()
+  const siblings = () => props.tabs.filter((tab) => tab.pinned === props.tab.pinned)
+  const position = () => siblings().findIndex((tab) => tab.id === props.tab.id)
+  const index = () => props.tabs.findIndex((tab) => tab.id === props.tab.id)
+  return (
+    <DropdownMenu>
+      <DropdownMenu.Trigger
+        as={IconButton}
+        type="button"
+        icon="dot-grid"
+        variant="ghost"
+        class="shrink-0 h-6 w-6"
+        aria-label={language.t("browser.tabs.actions")}
+      />
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content>
+          <DropdownMenu.Item
+            onSelect={() => void props.command({ op: "tab-pin", tabID: props.tab.id, pinned: !props.tab.pinned })}
+          >
+            <DropdownMenu.ItemLabel>
+              {language.t(props.tab.pinned ? "browser.tabs.unpin" : "browser.tabs.pin")}
+            </DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={() => void props.command({ op: "duplicate", tabID: props.tab.id })}>
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.duplicate")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            disabled={position() <= 0}
+            onSelect={() => void props.command({ op: "tab-move", tabID: props.tab.id, direction: "left" })}
+          >
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.moveLeft")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            disabled={position() < 0 || position() >= siblings().length - 1}
+            onSelect={() => void props.command({ op: "tab-move", tabID: props.tab.id, direction: "right" })}
+          >
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.moveRight")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator />
+          <DropdownMenu.Item onSelect={() => void props.command({ op: "close", tabID: props.tab.id })}>
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.close")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            disabled={!props.tabs.some((tab) => tab.id !== props.tab.id && !tab.pinned)}
+            onSelect={() => void props.command({ op: "close-tabs", tabID: props.tab.id, scope: "others" })}
+          >
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.closeOthers")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            disabled={!props.tabs.slice(index() + 1).some((tab) => !tab.pinned)}
+            onSelect={() => void props.command({ op: "close-tabs", tabID: props.tab.id, scope: "right" })}
+          >
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.closeRight")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu>
+  )
+}
+
 export function BrowserDeviceToolbar(props: { tab: BrowserTab; command(command: BrowserCommand): Promise<unknown> }) {
   const language = useLanguage()
   const help = createUniqueId()

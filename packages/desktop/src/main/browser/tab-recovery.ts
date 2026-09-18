@@ -3,6 +3,7 @@ import { getStore } from "../store"
 export type SavedTab = {
   url: string
   title: string
+  pinned?: boolean
   navigation?: { entries: { url: string; title: string }[]; activeIndex: number }
 }
 export type ClosedTab = SavedTab & { id: string; time: number }
@@ -44,6 +45,7 @@ export function projectSavedTab(value: unknown): SavedTab | undefined {
   return {
     url: value.url,
     title: value.title,
+    ...(value && "pinned" in value && value.pinned === true ? { pinned: true } : {}),
     ...(navigation?.entries[navigation.activeIndex].url === value.url ? { navigation } : {}),
   }
 }
@@ -124,6 +126,7 @@ function validTab(value: unknown): value is { url: string; title: string } {
     value.url === recoveryURL(value.url) &&
     "title" in value &&
     typeof value.title === "string" &&
-    value.title.length <= 512
+    value.title.length <= 512 &&
+    (!("pinned" in value) || typeof value.pinned === "boolean")
   )
 }

@@ -10,6 +10,7 @@ export type BrowserTab = {
   revision?: number
   connection?: "https" | "http" | "unknown" | "error"
   id: string
+  pinned: boolean
   openerID?: string
   url: string
   title: string
@@ -173,6 +174,14 @@ export function browserShortcut(input: {
   if (key === "f") return "find"
   if (key === "p") return "print"
 }
+
+export function browserTabKeyIndex(key: string, index: number, length: number): number | undefined {
+  if (!length || index < 0 || index >= length) return
+  if (key === "ArrowLeft") return (index - 1 + length) % length
+  if (key === "ArrowRight") return (index + 1) % length
+  if (key === "Home") return 0
+  if (key === "End") return length - 1
+}
 export type BrowserCommand =
   | { op: "allow-login-offers"; origin: string }
   | { op: "transfer-rule"; rule: BrowserTransferRule; remove?: boolean }
@@ -183,6 +192,10 @@ export type BrowserCommand =
   | { op: "bookmark-import" | "bookmark-export" }
   | { op: "clear-site" | "inspect-site"; tabID: string }
   | { op: "state" | "new" }
+  | { op: "duplicate"; tabID: string }
+  | { op: "tab-pin"; tabID: string; pinned: boolean }
+  | { op: "tab-move"; tabID: string; direction: "left" | "right" }
+  | { op: "close-tabs"; tabID: string; scope: "others" | "right" }
   | { op: "select" | "close" | "back" | "forward" | "reload" | "stop"; tabID: string }
   | { op: "navigate"; tabID: string; url: string }
   | { op: "access"; tabID: string; enabled: boolean }

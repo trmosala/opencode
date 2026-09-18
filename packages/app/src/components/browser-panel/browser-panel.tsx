@@ -15,7 +15,13 @@ import { createStore, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
-import { browserShortcut, type BrowserCommand, type BrowserShortcut, type BrowserTabs } from "@/browser-panel"
+import {
+  browserShortcut,
+  browserTabKeyIndex,
+  type BrowserCommand,
+  type BrowserShortcut,
+  type BrowserTabs,
+} from "@/browser-panel"
 import { showToast } from "@/utils/toast"
 import {
   formatBrowserElementContext,
@@ -29,6 +35,7 @@ import {
   BrowserAccounts,
   BrowserDeviceToolbar,
   BrowserMenu,
+  BrowserTabMenu,
   BrowserTools,
   type BrowserToolPanel,
 } from "./browser-tools"
@@ -357,12 +364,29 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                   type="button"
                   role="tab"
                   aria-selected={tab.id === state.tabs.activeID}
+                  aria-label={`${tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)}${tab.pinned ? `, ${language.t("browser.tabs.pinned")}` : ""}`}
+                  tabIndex={tab.id === state.tabs.activeID ? 0 : -1}
                   class="truncate px-3 py-2 text-12-regular text-text-base"
                   title={tab.url}
                   onClick={() => void command({ op: "select", tabID: tab.id })}
+                  onKeyDown={(event) => {
+                    const index = state.tabs.tabs.findIndex((entry) => entry.id === tab.id)
+                    const next = browserTabKeyIndex(event.key, index, state.tabs.tabs.length)
+                    if (next === undefined) return
+                    event.preventDefault()
+                    const buttons = event.currentTarget
+                      .closest('[role="tablist"]')
+                      ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+                    buttons?.[next]?.focus()
+                    void command({ op: "select", tabID: state.tabs.tabs[next].id })
+                  }}
                 >
+                  <Show when={tab.pinned}>
+                    <span aria-hidden="true">● </span>
+                  </Show>
                   {tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)}
                 </button>
+                <BrowserTabMenu tab={tab} tabs={state.tabs.tabs} command={command} />
                 <IconButton
                   icon="close"
                   variant="ghost"
