@@ -508,6 +508,32 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "This export is malformed, unsupported or exceeds the category limit. No import writes were made. Cookie imports accept only the documented fields; partitioned or container-scoped cookies are not supported.",
   "desktop.browser.import.stale":
     "The window, task, vault access or destination changed. No further import writes were made. Choose the file again for a fresh review.",
+  "desktop.browser.backup.passphraseTitle": "Encrypted password backup",
+  "desktop.browser.backup.passphrasePrompt":
+    "Enter a backup passphrase of at least 12 characters in the Password field. Leave User name empty. This passphrase cannot be recovered or reset.",
+  "desktop.browser.backup.passphraseConfirm":
+    "Enter the same backup passphrase again in the Password field. Leave User name empty.",
+  "desktop.browser.backup.passphraseMismatch": "The backup passphrases did not match. No file was written.",
+  "desktop.browser.backup.exportTitle": "Export encrypted password backup",
+  "desktop.browser.backup.importTitle": "Import encrypted password backup",
+  "desktop.browser.backup.exported": "Encrypted password backup saved",
+  "desktop.browser.backup.exportedDetail":
+    "Saved {{file}}. Keep the file and its passphrase separate. CookieMonster cannot recover the passphrase.",
+  "desktop.browser.backup.review": "Review encrypted password backup import",
+  "desktop.browser.backup.counts":
+    "Valid accounts: {{valid}}\nDuplicate source accounts: {{duplicate}}\nAdd: {{add}}\nReplace: {{replace}}\nUnchanged: {{unchanged}}",
+  "desktop.browser.backup.imported":
+    "Added: {{add}}\nReplaced: {{replace}}\nUnchanged: {{unchanged}}\nDuplicate source accounts: {{duplicate}}",
+  "desktop.browser.backup.unavailable":
+    "Encrypted password backup is unavailable. Unlock the vault in a visible window and try again.",
+  "desktop.browser.backup.authentication":
+    "Fresh device authentication was cancelled or unavailable. No backup data was read or written.",
+  "desktop.browser.backup.exportFailed":
+    "The encrypted backup could not be completed. Existing backup files are never replaced; choose a new filename and try again.",
+  "desktop.browser.backup.importFailed":
+    "This backup is unreadable, unsupported, too large, corrupted, or the passphrase is wrong. No password changes were made.",
+  "desktop.browser.backup.stale":
+    "The window, task, vault access or password destination changed. No backup import was committed.",
   "desktop.browser.notifications.title": "Allow notifications for {{origin}}?",
   "desktop.browser.notifications.detail":
     "Task: {{task}}\nTab: {{tab}}\n\nAllow is saved for this exact website. Notifications are permitted only while its private main page is selected and visible in CookieMonster. OS notification settings still apply. Blocking later prevents new notifications but cannot recall delivered notifications.",

@@ -31,6 +31,7 @@ import { loginOfferExclusions } from "./login-offers"
 import { bookmarks, validateBookmarks, writeBookmarks } from "./bookmarks"
 import { loginEntry, loginEntryAvailable } from "./login-entry"
 import { contactSummary } from "./contacts"
+import { vaultBackupAvailable } from "./vault-backup-passphrase"
 
 let editingLogin = false
 
@@ -68,6 +69,7 @@ export function browserProfile(): BrowserProfile {
     zoomRules: browserZoomRules(),
     devicePresets: browserDevicePresets(),
     loginEntryAvailable: loginEntryAvailable(),
+    vaultBackupAvailable: vaultBackupAvailable(),
     ...loginSummary(),
     ...contactSummary(),
   }

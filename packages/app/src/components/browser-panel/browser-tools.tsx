@@ -617,6 +617,33 @@ export function BrowserTools(props: {
         >
           {language.t("browser.passwords.save")}
         </Button>
+        <div class="flex flex-wrap gap-2 my-2">
+          <Button
+            size="small"
+            disabled={
+              state.busy ||
+              !props.tabs.profile?.vaultAvailable ||
+              !props.tabs.profile?.vaultBackupAvailable ||
+              props.tabs.profile.vaultStatus !== "unlocked"
+            }
+            onClick={() => void run({ op: "vault-backup", direction: "export" })}
+          >
+            {language.t("browser.passwords.backupExport")}
+          </Button>
+          <Button
+            size="small"
+            disabled={
+              state.busy ||
+              !props.tabs.profile?.vaultAvailable ||
+              !props.tabs.profile?.vaultBackupAvailable ||
+              props.tabs.profile.vaultStatus !== "unlocked"
+            }
+            onClick={() => void run({ op: "vault-backup", direction: "import" })}
+          >
+            {language.t("browser.passwords.backupImport")}
+          </Button>
+          <p class="w-full text-text-weak">{language.t("browser.passwords.backupHelp")}</p>
+        </div>
         <form
           class="flex flex-wrap items-center gap-2 my-2"
           onSubmit={(event) => {

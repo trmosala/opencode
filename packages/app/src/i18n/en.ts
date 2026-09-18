@@ -279,6 +279,10 @@ export const browser = {
   "browser.passwords.fill": "Fill login",
   "browser.passwords.delete": "Delete",
   "browser.passwords.empty": "No saved passwords.",
+  "browser.passwords.backupExport": "Export encrypted backup",
+  "browser.passwords.backupImport": "Import encrypted backup",
+  "browser.passwords.backupHelp":
+    "Encrypted backups require fresh device authentication and a separate passphrase. The passphrase cannot be recovered. Import merges by website and username; matching passwords are replaced only after review. Native backup entry is currently available on Windows.",
   "browser.history.empty": "No browsing history yet.",
   "browser.download.empty": "No downloads in this session.",
   "browser.clear.history": "History",

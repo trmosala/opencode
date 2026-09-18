@@ -99,6 +99,7 @@ import { createTabHandler, TabRecoveryRequired, type NativeTabAction } from "./a
 import { setBrowserTabHandler } from "./registry"
 import { failure, hasFrameTarget, type TabRequest } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
+import { transferVaultBackup } from "./vault-backup"
 
 type Tab = BrowserRegistration & {
   agentClose?: { check: () => void }
@@ -452,7 +453,9 @@ function state(group: Group): BrowserTabs {
                 : contents.getURL().startsWith("http:")
                   ? "http"
                   : "unknown",
-          zoom: origin ? (profile.zoomRules?.find((row) => row.origin === origin)?.factor ?? 1) : contents.getZoomFactor(),
+          zoom: origin
+            ? (profile.zoomRules?.find((row) => row.origin === origin)?.factor ?? 1)
+            : contents.getZoomFactor(),
           device: tab.device,
           deviceSize: tab.deviceSize ?? BROWSER_DEVICE_DEFAULT,
           find: tab.find,
@@ -1436,6 +1439,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "bookmark-move",
       "bookmark-import",
       "bookmark-export",
+      "vault-backup",
       "device-preset-save",
       "device-preset-delete",
     ].includes(command.op)
@@ -1471,6 +1475,22 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
               throw new Error()
           },
         )
+      }
+      if (command.op === "vault-backup") {
+        const taskEpoch = owner.taskEpoch
+        const windowEpoch = owner.screenshotEpoch
+        const renderer = owner.win.webContents
+        await transferVaultBackup(owner.win, command.direction, () => {
+          if (
+            owner.shutting ||
+            owners.get(renderer.id) !== owner ||
+            owner.groups.get(sessionID) !== group ||
+            owner.taskEpoch !== taskEpoch ||
+            owner.screenshotEpoch !== windowEpoch ||
+            (owner.linkContext && owner.linkContext.sessionID !== sessionID)
+          )
+            throw new Error()
+        })
       }
       if (command.op === "settings") browserSettings(command.rememberHistory)
       if (command.op === "agent-host") {

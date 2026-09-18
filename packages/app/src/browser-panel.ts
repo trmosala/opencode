@@ -81,6 +81,7 @@ export type BrowserProfile = {
   rememberHistory: boolean
   vaultAvailable: boolean
   loginEntryAvailable?: boolean
+  vaultBackupAvailable?: boolean
   vaultStatus?: "locked" | "unlocking" | "unlocked"
   preferences?: BrowserPreferences
   downloadDirectory?: string
@@ -227,6 +228,7 @@ export type BrowserCommand =
   | { op: "contact-delete"; id: string; revision: string }
   | { op: "contact-fill"; tabID: string; id: string; revision: string }
   | { op: "unlock-vault" | "lock-vault" }
+  | { op: "vault-backup"; direction: "export" | "import" }
   | { op: "import"; kind: "passwords" | "cookies" }
   | { op: "settings"; rememberHistory: boolean }
   | { op: "preferences"; values: Partial<BrowserPreferences> }
