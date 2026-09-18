@@ -5022,28 +5022,68 @@ async function run() {
     "keep",
   )
   assert.equal((await session.fromPartition("persist:wpp").cookies.get({ url, name: "retained" }))[0].value, "yes")
-  await command({ op: "bookmark-save", url, title: "Pinned fixture", pinned: true })
-  const bookmark = bookmarks()[0]
-  assert(bookmark.id)
-  await command({ op: "bookmark-save", ...bookmark, title: "Edited fixture", pinned: false })
-  assert.equal(bookmarks()[0].title, "Edited fixture")
-  assert.equal(bookmarks().length, 1)
+  getStore("cm-browser").set("bookmarks", [{ id: "legacy", url: `${url}?legacy`, title: "Legacy root", pinned: true }])
+  assert.deepEqual(bookmarks()[0].folder, [])
+  assert(JSON.stringify(getStore("cm-browser").get("bookmarks")).includes('"folder":[]'))
+  await command({ op: "bookmark-save", url: `${url}?one`, title: "Folder one", pinned: true, folder: ["Work"] })
+  await command({ op: "bookmark-save", url: `${url}?two`, title: "Folder two", pinned: false, folder: ["Work"] })
+  const bookmarkOne = bookmarks().find((row) => row.url.endsWith("?one"))!
+  const bookmarkTwo = bookmarks().find((row) => row.url.endsWith("?two"))!
+  assert.deepEqual(
+    bookmarks()
+      .filter((row) => row.folder[0] === "Work")
+      .map((row) => row.id),
+    [bookmarkTwo.id, bookmarkOne.id],
+  )
+  await command({ op: "bookmark-move", id: bookmarkTwo.id, direction: "down" })
+  assert.deepEqual(
+    bookmarks()
+      .filter((row) => row.folder[0] === "Work")
+      .map((row) => row.id),
+    [bookmarkOne.id, bookmarkTwo.id],
+  )
+  await command({ op: "bookmark-save", ...bookmarkOne, title: "Edited folder one" })
+  assert.deepEqual(
+    bookmarks()
+      .filter((row) => row.folder[0] === "Work")
+      .map((row) => row.id),
+    [bookmarkOne.id, bookmarkTwo.id],
+  )
+  assert.equal(bookmarks().find((row) => row.id === bookmarkOne.id)?.title, "Edited folder one")
+  assert.equal(bookmarks().length, 3)
   await assert.rejects(command({ op: "bookmark-save", url: "javascript:alert(1)", title: "Bad", pinned: false }))
+  await assert.rejects(
+    command({
+      op: "bookmark-save",
+      url: `${url}?deep`,
+      title: "Too deep",
+      pinned: false,
+      folder: Array.from({ length: 9 }, () => "Folder"),
+    }),
+  )
   const bookmarkFile = join(profile!, "bookmarks.html")
   const saveChooser = dialog.showSaveDialog
   dialog.showSaveDialog = (async () => ({ canceled: false, filePath: bookmarkFile })) as typeof dialog.showSaveDialog
   await command({ op: "bookmark-export" })
   dialog.showSaveDialog = saveChooser
-  assert.equal(parseBookmarks(readFileSync(bookmarkFile, "utf8"))[0].title, "Edited fixture")
-  await command({ op: "bookmark-delete", id: bookmark.id })
+  const exported = parseBookmarks(readFileSync(bookmarkFile, "utf8"))
+  assert.deepEqual(
+    exported.map((row) => [row.title, row.folder, row.pinned]),
+    [
+      ["Edited folder one", ["Work"], true],
+      ["Folder two", ["Work"], false],
+      ["Legacy root", [], true],
+    ],
+  )
+  for (const bookmark of bookmarks()) await command({ op: "bookmark-delete", id: bookmark.id })
   assert.equal(bookmarks().length, 0)
   dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [bookmarkFile] })) as typeof dialog.showOpenDialog
   await command({ op: "bookmark-import" })
   await command({ op: "bookmark-import" })
   dialog.showOpenDialog = chooser
-  assert.equal(bookmarks().length, 1)
+  assert.equal(bookmarks().length, 3)
   await command({ op: "clear", kind: "history" })
-  assert.equal(bookmarks().length, 1)
+  assert.equal(bookmarks().length, 3)
   stage("beforeunload")
   await one.view.webContents.executeJavaScript("void (window.onbeforeunload=()=>false)", true)
   let prompts = 0

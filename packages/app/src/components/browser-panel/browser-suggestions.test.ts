@@ -22,7 +22,7 @@ test("suggestions prefer existing tabs, deduplicate URLs, and match titles witho
         { url: "https://example.com/work", title: "Older work", time: 1 },
         { url: "https://example.com/other", title: "WORK notes", time: 2 },
       ],
-      bookmarks: [{ id: "bookmark", url: "https://example.com/work", title: "Work", pinned: true }],
+      bookmarks: [{ id: "bookmark", url: "https://example.com/work", title: "Work", pinned: true, folder: [] }],
       credentials: [],
       rememberHistory: true,
       vaultAvailable: false,

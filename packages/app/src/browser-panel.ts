@@ -106,7 +106,7 @@ export type BrowserPreferences = {
   restoreTabs: boolean
 }
 
-export type BrowserBookmark = { id: string; url: string; title: string; pinned: boolean }
+export type BrowserBookmark = { id: string; url: string; title: string; pinned: boolean; folder: string[] }
 
 export type BrowserDownload = {
   id: string
@@ -177,8 +177,9 @@ export type BrowserCommand =
   | { op: "allow-login-offers"; origin: string }
   | { op: "transfer-rule"; rule: BrowserTransferRule; remove?: boolean }
   | { op: "open-link"; url: string; destination: "browser" | "external" }
-  | { op: "bookmark-save"; url: string; title: string; pinned: boolean; id?: string }
+  | { op: "bookmark-save"; url: string; title: string; pinned: boolean; folder?: string[]; id?: string }
   | { op: "bookmark-delete"; id: string }
+  | { op: "bookmark-move"; id: string; direction: "up" | "down" }
   | { op: "bookmark-import" | "bookmark-export" }
   | { op: "clear-site" | "inspect-site"; tabID: string }
   | { op: "state" | "new" }

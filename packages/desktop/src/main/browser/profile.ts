@@ -22,7 +22,7 @@ import { historyRows, clearSince, validateClear } from "./browsing-data"
 import { clearClosedTabs } from "./tab-recovery"
 import { transferRules } from "./transfer-permissions"
 import { loginOfferExclusions } from "./login-offers"
-import { bookmarks } from "./bookmarks"
+import { bookmarks, validateBookmarks, writeBookmarks } from "./bookmarks"
 import { loginEntry, loginEntryAvailable } from "./login-entry"
 import { contactSummary } from "./contacts"
 
@@ -352,8 +352,8 @@ export async function importBrowserData(
       const { parseBookmarks } = await import("./bookmark-format")
       check()
       const imported = parseBookmarks(text, counts)
-      const before = JSON.stringify(store().get("bookmarks"))
       const current = bookmarks()
+      const before = JSON.stringify(store().get("bookmarks"))
       const next = new Map(current.map((row) => [new URL(row.url).href, row]))
       const seen = new Set<string>()
       counts.valid = imported.length
@@ -370,10 +370,10 @@ export async function importBrowserData(
         next.set(row.url, { ...row, id: randomUUID() })
         counts.add++
       }
-      if (next.size > 2000) throw new Error()
+      validateBookmarks([...next.values()])
       commit = () => {
         if (JSON.stringify(store().get("bookmarks")) !== before) throw new Error()
-        if (counts.add) store().set("bookmarks", [...next.values()])
+        if (counts.add) writeBookmarks([...next.values()])
       }
     }
     if (kind === "cookies") {

@@ -54,7 +54,7 @@ import { readContacts, saveContact, deleteContact } from "./contacts"
 import { prepareContactScript, completeContactScript } from "./contact-form"
 import { resolveExternalURL } from "../external-url"
 import { linkDestination } from "./link-destination"
-import { saveBookmark, deleteBookmark, transferBookmarks } from "./bookmarks"
+import { saveBookmark, deleteBookmark, moveBookmark, transferBookmarks } from "./bookmarks"
 import { getStore } from "../store"
 import { historyRows, validateClear, clearSince } from "./browsing-data"
 import {
@@ -1395,6 +1395,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "transfer-rule",
       "bookmark-save",
       "bookmark-delete",
+      "bookmark-move",
       "bookmark-import",
       "bookmark-export",
     ].includes(command.op)
@@ -1406,6 +1407,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       if (command.op === "transfer-rule") saveTransferRule(command.rule, command.remove)
       if (command.op === "bookmark-save") saveBookmark(command)
       if (command.op === "bookmark-delete") deleteBookmark(command.id)
+      if (command.op === "bookmark-move") moveBookmark(command.id, command.direction)
       if (command.op === "bookmark-export") await transferBookmarks(owner.win)
       if (command.op === "import" || command.op === "bookmark-import") {
         const taskEpoch = owner.taskEpoch

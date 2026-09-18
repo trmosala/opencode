@@ -289,10 +289,10 @@ export async function importsSmoke(
       "PASS imports: malformed/unsupported/missing/directory/oversized/read-failed exports, descriptor cleanup and atomic write failure",
     )
 
-    saveBookmark({ url: "https://example.test/", title: "Keep", pinned: true })
+    saveBookmark({ url: "https://example.test/", title: "Keep", pinned: true, folder: ["Existing"] })
     fs.writeFileSync(
       source,
-      '<A HREF="https://example.test:443">Replace?</A><A HREF="https://new.test">First</A><A HREF="https://new.test/">Second</A><A HREF="javascript:alert(1)">Unsafe</A>',
+      '<DL><DT><A HREF="https://example.test:443">Replace?</A><DT><H3>Imported</H3><DL><DT><A HREF="https://new.test">First</A><A HREF="https://new.test/">Second</A><A HREF="javascript:alert(1)">Unsafe</A></DL></DL>',
     )
     const beforeBookmarks = JSON.stringify(storage.store)
     answer = 0
@@ -302,7 +302,10 @@ export async function importsSmoke(
     answer = 1
     await run("bookmarks")
     assert.equal(bookmarks().find((row) => row.url === "https://example.test/")?.title, "Keep")
+    assert.deepEqual(bookmarks().find((row) => row.url === "https://example.test/")?.folder, ["Existing"])
+    assert.equal(bookmarks().find((row) => row.url === "https://example.test/")?.pinned, true)
     assert.equal(bookmarks().find((row) => row.url === "https://new.test/")?.title, "First")
+    assert.deepEqual(bookmarks().find((row) => row.url === "https://new.test/")?.folder, ["Imported"])
     const afterBookmarks = JSON.stringify(storage.store)
     await run("bookmarks")
     assert.equal(JSON.stringify(storage.store), afterBookmarks)
