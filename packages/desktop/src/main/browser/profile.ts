@@ -13,7 +13,13 @@ import {
   requireLogin,
   type BrowserLogin,
 } from "./import-data"
-import { browserPreferencesState, downloadDirectory, sitePermissions } from "./preferences"
+import {
+  browserDevicePresets,
+  browserPreferencesState,
+  browserZoomRules,
+  downloadDirectory,
+  sitePermissions,
+} from "./preferences"
 import { loadAllowlist } from "./allowlist"
 import { clearLogins, readLogins, vaultAvailable, writeLogins } from "./vault"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
@@ -59,6 +65,8 @@ export function browserProfile(): BrowserProfile {
     sites: sitePermissions(),
     notificationsSupported: Notification.isSupported(),
     agentHosts: loadAllowlist(),
+    zoomRules: browserZoomRules(),
+    devicePresets: browserDevicePresets(),
     loginEntryAvailable: loginEntryAvailable(),
     ...loginSummary(),
     ...contactSummary(),

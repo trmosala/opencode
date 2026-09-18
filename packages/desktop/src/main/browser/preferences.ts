@@ -7,6 +7,13 @@ import type { BrowserDownload, BrowserPermission, BrowserPreferences } from "@op
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
 import { permissionValue, siteOrigin, sitePermissionRows } from "./site-permissions"
+import {
+  devicePresetRows,
+  presentationOrigin,
+  setDevicePreset,
+  setZoomRule,
+  zoomRuleRows,
+} from "./presentation-preferences"
 
 let siteRevision = 0
 export const sitePermissionsRevision = () => siteRevision
@@ -46,6 +53,41 @@ export function saveBrowserPreferences(values: Partial<BrowserPreferences>) {
     throw new Error("Invalid browser preferences")
   store().set("preferences", { ...current, ...values })
   revision++
+}
+export function browserZoomRules() {
+  try {
+    return zoomRuleRows(store().get("zoomRules", []))
+  } catch {
+    return []
+  }
+}
+export function browserZoomFactor(url: string) {
+  const origin = presentationOrigin(url)
+  return origin ? (browserZoomRules().find((row) => row.origin === origin)?.factor ?? 1) : 1
+}
+export function saveBrowserZoom(url: string, factor: number) {
+  const current = zoomRuleRows(store().get("zoomRules", []))
+  store().set("zoomRules", setZoomRule(current, url, factor))
+}
+export function browserDevicePresets() {
+  try {
+    return devicePresetRows(store().get("devicePresets", []))
+  } catch {
+    return []
+  }
+}
+export function saveBrowserDevicePreset(input: { id?: string; name: string; size: unknown }) {
+  const current = devicePresetRows(store().get("devicePresets", []))
+  store().set("devicePresets", setDevicePreset(current, input))
+}
+export function deleteBrowserDevicePreset(id: string) {
+  if (typeof id !== "string") throw new Error("Invalid browser device preset")
+  const current = devicePresetRows(store().get("devicePresets", []))
+  if (!current.some((row) => row.id === id)) throw new Error("Browser device preset changed")
+  store().set(
+    "devicePresets",
+    current.filter((row) => row.id !== id),
+  )
 }
 export function downloadDirectory() {
   return store().get("downloadDirectory", app.getPath("downloads")) as string

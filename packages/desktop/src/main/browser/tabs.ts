@@ -41,7 +41,12 @@ import {
   saveSitePermission,
   notificationPermission,
   sitePermissionsRevision,
+  browserZoomFactor,
+  saveBrowserZoom,
+  saveBrowserDevicePreset,
+  deleteBrowserDevicePreset,
 } from "./preferences"
+import { presentationOrigin } from "./presentation-preferences"
 import { siteOrigin } from "./site-permissions"
 import { updateAgentHost, allowed } from "./allowlist"
 import { transferRule } from "./transfer-policy"
@@ -419,6 +424,7 @@ function state(group: Group): BrowserTabs {
       .map((tab) => {
         const contents = tab.view.webContents
         const url = contents.getURL()
+        const origin = presentationOrigin(url)
         const rule = transferRule(profile.transferRules ?? [], url)
         return {
           id: tab.id,
@@ -446,7 +452,7 @@ function state(group: Group): BrowserTabs {
                 : contents.getURL().startsWith("http:")
                   ? "http"
                   : "unknown",
-          zoom: contents.getZoomFactor(),
+          zoom: origin ? (profile.zoomRules?.find((row) => row.origin === origin)?.factor ?? 1) : contents.getZoomFactor(),
           device: tab.device,
           deviceSize: tab.deviceSize ?? BROWSER_DEVICE_DEFAULT,
           find: tab.find,
@@ -507,6 +513,26 @@ function layout(owner: Owner) {
 
 function contentsDevice(tab: Tab, width: number, height: number) {
   tab.view.webContents.enableDeviceEmulation(deviceEmulation(tab.deviceSize ?? BROWSER_DEVICE_DEFAULT, width, height))
+}
+
+function applyBrowserZoom(contents: WebContents) {
+  if (!contents.isDestroyed()) contents.setZoomFactor(browserZoomFactor(contents.getURL()))
+}
+
+function updateBrowserZoom(contents: WebContents, factor: number) {
+  const origin = presentationOrigin(contents.getURL())
+  if (!origin) {
+    contents.setZoomFactor(factor)
+    return
+  }
+  saveBrowserZoom(contents.getURL(), factor)
+  owners.forEach((entry) =>
+    entry.groups.forEach((entryGroup) =>
+      entryGroup.tabs.forEach((entryTab) => {
+        if (presentationOrigin(entryTab.contents.getURL()) === origin) applyBrowserZoom(entryTab.view.webContents)
+      }),
+    ),
+  )
 }
 
 const notificationPrompts = new WeakSet<Owner>()
@@ -1152,10 +1178,14 @@ function createTab(
     tab.permissionReload = false
     tab.permissionReloadQueued = false
     invalidate()
+    applyBrowserZoom(contents)
     navigated()
   })
   contents.on("did-navigate-in-page", (_event, _url, main) => {
-    if (main) navigated()
+    if (main) {
+      applyBrowserZoom(contents)
+      navigated()
+    }
   })
   contents.on("did-finish-load", () => {
     rememberPage(contents.getURL(), contents.getTitle())
@@ -1257,8 +1287,11 @@ function createTab(
     if (input.type !== "keyDown" || !(input.control || input.meta) || input.alt) return
     if (!["+", "=", "-", "0"].includes(input.key)) return
     event.preventDefault()
-    contents.setZoomLevel(
-      input.key === "0" ? 0 : Math.max(-5, Math.min(5, contents.getZoomLevel() + (input.key === "-" ? -1 : 1))),
+    updateBrowserZoom(
+      contents,
+      input.key === "0"
+        ? 1
+        : Math.max(0.5, Math.min(3, contents.getZoomFactor() * (input.key === "-" ? 1 / 1.2 : 1.2))),
     )
     changed()
   })
@@ -1403,6 +1436,8 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "bookmark-move",
       "bookmark-import",
       "bookmark-export",
+      "device-preset-save",
+      "device-preset-delete",
     ].includes(command.op)
   ) {
     owner.suspended++
@@ -1414,6 +1449,8 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       if (command.op === "bookmark-delete") deleteBookmark(command.id)
       if (command.op === "bookmark-move") moveBookmark(command.id, command.direction)
       if (command.op === "bookmark-export") await transferBookmarks(owner.win)
+      if (command.op === "device-preset-save") saveBrowserDevicePreset(command)
+      if (command.op === "device-preset-delete") deleteBrowserDevicePreset(command.id)
       if (command.op === "import" || command.op === "bookmark-import") {
         const taskEpoch = owner.taskEpoch
         const windowEpoch = owner.screenshotEpoch
@@ -1692,7 +1729,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       command.factor > 3
     )
       throw new Error("Invalid zoom")
-    contents.setZoomFactor(command.factor)
+    updateBrowserZoom(contents, command.factor)
   } else if (command.op === "device") {
     const size =
       command.size === undefined ? (tab.deviceSize ?? BROWSER_DEVICE_DEFAULT) : browserDeviceSize(command.size)

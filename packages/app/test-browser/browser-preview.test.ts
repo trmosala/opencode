@@ -84,6 +84,19 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
     let tabs: BrowserTabs = {
       sessionID: "task",
       activeID: "tab",
+      profile: {
+        history: [],
+        credentials: [],
+        rememberHistory: true,
+        vaultAvailable: false,
+        devicePresets: [
+          {
+            id: "00000000-0000-4000-8000-000000000001",
+            name: "Saved phone",
+            size: { width: 412, height: 915 },
+          },
+        ],
+      },
       tabs: [
         {
           id: "tab",
@@ -169,7 +182,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
     await Promise.resolve()
     expect(calls[0]).toMatchObject({ op: "device", size: { width: 360, height: 844 } })
 
-    const menu = host.querySelector<HTMLButtonElement>('[data-slot="dropdown-menu-trigger"]')!
+    const menu = host.querySelector<HTMLButtonElement>('button[aria-label="Browser menu"]')!
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
     await Promise.resolve()
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
@@ -206,6 +219,12 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
       expect(fixture.parts.filter((part: { type: string }) => part.type === "image")).toHaveLength(1)
     }
     expect(calls.at(-1)).toMatchObject({ size: { width: 844, height: 360 } })
+    const presets = host.querySelector<HTMLSelectElement>("select")!
+    expect([...presets.options].map((option) => option.text)).toEqual(["Custom size", "Saved phone"])
+    presets.value = "00000000-0000-4000-8000-000000000001"
+    presets.dispatchEvent(new Event("change", { bubbles: true }))
+    await Promise.resolve()
+    expect(calls.at(-1)).toMatchObject({ op: "device", size: { width: 412, height: 915 } })
     tabs = { ...tabs, tabs: [...tabs.tabs, { ...tabs.tabs[0], id: "other", title: "Other" }] }
     accept(tabs)
     viewport.resolve()

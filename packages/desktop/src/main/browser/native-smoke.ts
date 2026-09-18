@@ -212,6 +212,12 @@ async function run() {
     stage("PASS tab organisation")
     return
   }
+  if (process.argv.includes("--presentation-preferences")) {
+    const { presentationPreferencesSmoke } = await import("./presentation-preferences.fixture")
+    await presentationPreferencesSmoke()
+    stage("PASS presentation preferences")
+    return
+  }
   if (process.argv.includes("--screenshots")) {
     const { screenshotsSmoke } = await import("./screenshots.fixture")
     await screenshotsSmoke()

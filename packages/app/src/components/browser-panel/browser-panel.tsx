@@ -623,7 +623,9 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           />
         )}
       </Show>
-      <Show when={active()?.device && active()}>{(tab) => <BrowserDeviceToolbar tab={tab()} command={command} />}</Show>
+      <Show when={active()?.device && active()}>
+        {(tab) => <BrowserDeviceToolbar tab={tab()} presets={state.tabs.profile?.devicePresets} command={command} />}
+      </Show>
       <div
         ref={viewport}
         class="min-h-0 flex-1"

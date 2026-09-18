@@ -4,7 +4,14 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { createEffect, createUniqueId, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
-import type { BrowserCommand, BrowserTab, BrowserTabs, BrowserClearKind, BrowserClearRange } from "@/browser-panel"
+import type {
+  BrowserCommand,
+  BrowserDevicePreset,
+  BrowserTab,
+  BrowserTabs,
+  BrowserClearKind,
+  BrowserClearRange,
+} from "@/browser-panel"
 import { browserDeviceSize, BROWSER_DEVICE_MIN, BROWSER_DEVICE_MAX, BROWSER_DEVICE_DEFAULT } from "@/browser-panel"
 import { BrowserSettings } from "./browser-settings"
 import { BrowserLibrary } from "./browser-library"
@@ -170,10 +177,14 @@ export function BrowserTabMenu(props: {
   )
 }
 
-export function BrowserDeviceToolbar(props: { tab: BrowserTab; command(command: BrowserCommand): Promise<unknown> }) {
+export function BrowserDeviceToolbar(props: {
+  tab: BrowserTab
+  presets?: BrowserDevicePreset[]
+  command(command: BrowserCommand): Promise<unknown>
+}) {
   const language = useLanguage()
   const help = createUniqueId()
-  const [state, setState] = createStore({ width: "", height: "", busy: false })
+  const [state, setState] = createStore({ width: "", height: "", name: "", preset: "", busy: false })
   const current = () => props.tab.deviceSize ?? BROWSER_DEVICE_DEFAULT
   const size = () => browserDeviceSize({ width: Number(state.width), height: Number(state.height) })
   createEffect(() => {
@@ -215,6 +226,23 @@ export function BrowserDeviceToolbar(props: { tab: BrowserTab; command(command: 
           {language.t("browser.device.current", current())}
         </p>
         <fieldset class="flex flex-wrap items-center gap-2" disabled={state.busy || props.tab.loading}>
+          <label class="flex items-center gap-1">
+            {language.t("browser.device.preset")}
+            <select
+              class="max-w-48 border border-border-weak-base rounded px-2 py-1"
+              value={state.preset}
+              onChange={(event) => {
+                const preset = props.presets?.find((row) => row.id === event.currentTarget.value)
+                setState("preset", preset?.id ?? "")
+                if (!preset) return
+                setState({ name: preset.name, width: String(preset.size.width), height: String(preset.size.height) })
+                void props.command({ op: "device", tabID: props.tab.id, enabled: true, size: preset.size })
+              }}
+            >
+              <option value="">{language.t("browser.device.custom")}</option>
+              <For each={props.presets}>{(preset) => <option value={preset.id}>{preset.name}</option>}</For>
+            </select>
+          </label>
           <For each={["width", "height"] as const}>
             {(axis) => (
               <label class="flex items-center gap-1">
@@ -228,7 +256,10 @@ export function BrowserDeviceToolbar(props: { tab: BrowserTab; command(command: 
                   aria-describedby={help}
                   class="w-20 border border-border-weak-base rounded px-2 py-1"
                   value={state[axis]}
-                  onInput={(event) => setState(axis, event.currentTarget.value)}
+                  onInput={(event) => {
+                    setState(axis, event.currentTarget.value)
+                    setState("preset", "")
+                  }}
                 />
               </label>
             )}
@@ -238,6 +269,45 @@ export function BrowserDeviceToolbar(props: { tab: BrowserTab; command(command: 
           </Button>
           <Button type="button" size="small" variant="ghost" disabled={!size()} onClick={() => void apply(true)}>
             {language.t("browser.device.rotate")}
+          </Button>
+          <label class="flex items-center gap-1">
+            {language.t("browser.device.presetName")}
+            <input
+              class="w-36 border border-border-weak-base rounded px-2 py-1"
+              value={state.name}
+              maxLength={80}
+              onInput={(event) => setState("name", event.currentTarget.value)}
+            />
+          </label>
+          <Button
+            type="button"
+            size="small"
+            disabled={!size() || !state.name.trim()}
+            onClick={() => {
+              const value = size()
+              if (!value) return
+              void props.command({
+                op: "device-preset-save",
+                id: state.preset || undefined,
+                name: state.name,
+                size: value,
+              })
+            }}
+          >
+            {language.t(state.preset ? "browser.device.updatePreset" : "browser.device.savePreset")}
+          </Button>
+          <Button
+            type="button"
+            size="small"
+            variant="ghost"
+            disabled={!state.preset}
+            onClick={() => {
+              if (!state.preset) return
+              void props.command({ op: "device-preset-delete", id: state.preset })
+              setState({ preset: "", name: "" })
+            }}
+          >
+            {language.t("browser.device.deletePreset")}
           </Button>
           <Button
             type="button"

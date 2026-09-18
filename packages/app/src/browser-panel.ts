@@ -92,6 +92,8 @@ export type BrowserProfile = {
     notifications?: BrowserPermission
   }[]
   agentHosts?: readonly string[]
+  zoomRules?: BrowserZoomRule[]
+  devicePresets?: BrowserDevicePreset[]
 }
 
 export type BrowserPermission = "ask" | "allow" | "block"
@@ -129,6 +131,8 @@ export type BrowserTabs = {
   recentlyClosed?: { id: string; url: string; title: string; time: number }[]
 }
 export type BrowserDeviceSize = { width: number; height: number }
+export type BrowserZoomRule = { origin: string; factor: number }
+export type BrowserDevicePreset = { id: string; name: string; size: BrowserDeviceSize }
 export const BROWSER_DEVICE_MIN = 160
 export const BROWSER_DEVICE_MAX = 4096
 export const BROWSER_DEVICE_DEFAULT: BrowserDeviceSize = { width: 390, height: 844 }
@@ -202,6 +206,8 @@ export type BrowserCommand =
   | { op: "find"; tabID: string; text: string; forward?: boolean; next?: boolean }
   | { op: "zoom"; tabID: string; factor: number }
   | { op: "device"; tabID: string; enabled: boolean; size?: BrowserDeviceSize }
+  | { op: "device-preset-save"; id?: string; name: string; size: BrowserDeviceSize }
+  | { op: "device-preset-delete"; id: string }
   | { op: "print" | "save-login"; tabID: string }
   | { op: "fill-login"; tabID: string; id: string; field?: "username" | "password"; revision?: number }
   | { op: "generate-password"; tabID: string; length?: number; symbols?: boolean }

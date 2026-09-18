@@ -232,6 +232,12 @@ export const browser = {
   "browser.device.height": "Height (CSS px)",
   "browser.device.apply": "Apply size",
   "browser.device.rotate": "Swap width and height",
+  "browser.device.preset": "Preset",
+  "browser.device.custom": "Custom size",
+  "browser.device.presetName": "Preset name",
+  "browser.device.savePreset": "Save preset",
+  "browser.device.updatePreset": "Update preset",
+  "browser.device.deletePreset": "Delete preset",
   "browser.device.current": "Mobile preview: {{width}} x {{height}} CSS px",
   "browser.device.limits":
     "Use whole numbers from 160 to 4096. The preview scales to fit with an emulated device scale factor of 1; page zoom is unchanged. Page viewport metadata and zoom can affect layout. Chromium identity is preserved. Swapping dimensions previews portrait or landscape layout, not device sensors. Touch emulation is not available through this Electron device API; mouse input is unchanged.",
