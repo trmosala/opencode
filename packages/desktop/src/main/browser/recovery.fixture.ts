@@ -11,7 +11,7 @@ import { vaultAuthentication } from "./vault-auth"
 import { readLogins, writeLogins } from "./vault"
 
 export async function recoverySmoke(profile: string) {
-  assert.equal(process.versions.electron, "42.3.3")
+  assert.equal(process.versions.electron, "44.3.0")
   const phase = process.env.CM_BROWSER_PERSISTENCE_PHASE
   const seed = phase === "interrupt-recovery"
   const witnessPath = join(profile, "recovery-witness.json")
