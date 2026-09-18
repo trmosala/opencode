@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { EventEmitter } from "node:events"
 import { trackDownload } from "./download-records"
 import { basename, join } from "node:path"
-import { app, BrowserWindow, WebContentsView, dialog, session, shell } from "electron"
+import { app, BrowserWindow, WebContentsView, dialog, session, shell, Notification } from "electron"
 import contextMenu from "electron-context-menu"
 import type { IpcMainInvokeEvent, WebContents, WebPreferences, DownloadItem } from "electron"
 import type {
@@ -21,6 +21,7 @@ import {
   setBrowserAgentEnabled,
   browserAgentEnabled,
   browserOperationBusy,
+  browserRegistration,
   setBrowserHistoryHandler,
   type BrowserRegistration,
 } from "./registry"
@@ -36,7 +37,10 @@ import {
   mediaOrigin,
   mediaPermission,
   saveSitePermission,
+  notificationPermission,
+  sitePermissionsRevision,
 } from "./preferences"
+import { siteOrigin } from "./site-permissions"
 import { updateAgentHost, allowed } from "./allowlist"
 import { transferRule } from "./transfer-policy"
 import { browserInputFailure, invalidateSnapshots, shouldShowBrowserContextMenu } from "./driver"
@@ -245,6 +249,7 @@ export function browserLinkContext(owner: Owner, sessionID: string | null, lease
   }
   if (sessionID !== null) owner.linkContext = { sessionID, lease }
   if (sessionID === null && owner.linkContext?.lease === lease) owner.linkContext = undefined
+  owner.captureChecks?.forEach((check) => check())
 }
 
 export async function openBrowserLink(win: BrowserWindow, value: string, destination?: "browser" | "external") {
@@ -413,6 +418,7 @@ function layout(owner: Owner) {
     cancelPicker(owner.attached.view.webContents)
     owner.win.contentView.removeChildView(owner.attached.view)
     owner.attached = undefined
+    owner.captureChecks?.forEach((check) => check())
   }
   if (!visible || !viewport) return
   const zoom = owner.win.webContents.getZoomFactor()
@@ -425,6 +431,7 @@ function layout(owner: Owner) {
     owner.attached?.cancelLoginOffer?.()
     if (owner.attached) owner.win.contentView.removeChildView(owner.attached.view)
     owner.attached = undefined
+    owner.captureChecks?.forEach((check) => check())
     return
   }
   tab.view.setBounds({ x, y, width, height })
@@ -437,6 +444,149 @@ function layout(owner: Owner) {
 
 function contentsDevice(tab: Tab, width: number, height: number) {
   tab.view.webContents.enableDeviceEmulation(deviceEmulation(tab.deviceSize ?? BROWSER_DEVICE_DEFAULT, width, height))
+}
+
+const notificationPrompts = new WeakSet<Owner>()
+
+function notificationTarget(contents: WebContents | null, requested: string, main: boolean) {
+  if (!contents || contents.isDestroyed() || main !== true || !Notification.isSupported()) return
+  const url = contents.getURL()
+  const origin = siteOrigin(url)
+  if (!origin || siteOrigin(requested) !== origin || contents.mainFrame.url !== url || contents.mainFrame.detached)
+    return
+  const owner = [...owners.values()].find((entry) => entry.attached?.view.webContents === contents)
+  const tab = owner?.attached
+  const group = tab && owner?.groups.get(tab.sessionID)
+  if (
+    !owner ||
+    !tab ||
+    !group ||
+    owner.shutting ||
+    owner.suspended ||
+    owner.win.isDestroyed() ||
+    owner.win.webContents.isDestroyed() ||
+    !owner.win.isVisible() ||
+    owner.win.isMinimized() ||
+    !owner.win.contentView.children.includes(tab.view) ||
+    owner.viewport?.sessionID !== tab.sessionID ||
+    (owner.linkContext && owner.linkContext.sessionID !== tab.sessionID) ||
+    !owner.viewport.bounds.width ||
+    !owner.viewport.bounds.height ||
+    group.activeID !== tab.id ||
+    !group.tabs.includes(tab) ||
+    browserRegistration(tab.sessionID, tab.id) !== tab ||
+    tab.ownerID !== owner.win.webContents.id ||
+    tab.contents !== contents ||
+    tab.agentAccess ||
+    tab.loginBusy ||
+    tab.agentClose ||
+    tab.recovery ||
+    tab.permissionReload ||
+    tab.permissionReloadPhase ||
+    tab.loadFailed ||
+    contents.isLoadingMainFrame() ||
+    browserOperationBusy.has(tab.id) ||
+    browserInputFailure(contents)
+  )
+    return
+  return { owner, tab, group, origin, url }
+}
+
+function requestNotification(
+  contents: WebContents | null,
+  callback: (allowed: boolean) => void,
+  details: { requestingUrl: string; isMainFrame: boolean },
+) {
+  const target = notificationTarget(contents, details.requestingUrl, details.isMainFrame)
+  if (!target || !contents || details.requestingUrl !== target.url || notificationPrompts.has(target.owner)) {
+    callback(false)
+    return
+  }
+  const permission = notificationPermission(target.origin)
+  if (permission !== "ask") {
+    callback(permission === "allow")
+    return
+  }
+  const { owner, tab, group, origin, url } = target
+  const frame = contents.mainFrame
+  const revision = tab.revision
+  const accessRevision = tab.accessRevision
+  const taskEpoch = owner.taskEpoch
+  const policy = sitePermissionsRevision()
+  const consent = new AbortController()
+  const checks = (owner.captureChecks ??= new Set())
+  const listeners: [EventEmitter, string][] = [
+    ...["hide", "minimize", "close", "closed"].map((event): [EventEmitter, string] => [owner.win, event]),
+    ...["did-start-navigation", "render-process-gone", "destroyed"].flatMap((event): [EventEmitter, string][] => [
+      [contents, event],
+      [owner.win.webContents, event],
+    ]),
+  ]
+  let settled = false
+  const valid = () => {
+    const current = notificationTarget(contents, url, true)
+    return (
+      current?.owner === owner &&
+      current.tab === tab &&
+      current.group === group &&
+      contents.mainFrame === frame &&
+      !frame.detached &&
+      contents.getURL() === url &&
+      tab.revision === revision &&
+      tab.accessRevision === accessRevision &&
+      owner.taskEpoch === taskEpoch &&
+      sitePermissionsRevision() === policy &&
+      notificationPermission(origin) === "ask"
+    )
+  }
+  const finish = (allow: boolean) => {
+    if (settled) return
+    settled = true
+    clearTimeout(timer)
+    checks.delete(check)
+    listeners.forEach(([emitter, event]) => emitter.removeListener(event, revoke))
+    notificationPrompts.delete(owner)
+    consent.abort()
+    let granted = false
+    try {
+      if (allow && valid()) {
+        // Persist before granting: Electron rechecks permission on property/show paths.
+        saveSitePermission(origin, undefined, undefined, "allow")
+        granted = true
+      }
+    } catch {
+      // A corrupt/unwritable policy never becomes a transient grant.
+    }
+    callback(granted)
+    if (granted)
+      owners.forEach((entry) => {
+        entry.captureChecks?.forEach((check) => check())
+        entry.groups.forEach((group) => publish(entry, group))
+      })
+  }
+  const revoke = () => finish(false)
+  const check = () => {
+    if (!valid()) revoke()
+  }
+  const timer = setTimeout(revoke, 30_000)
+  notificationPrompts.add(owner)
+  checks.add(check)
+  listeners.forEach(([emitter, event]) => emitter.on(event, revoke))
+  try {
+    void dialog
+      .showMessageBox(owner.win, {
+        type: "question",
+        message: nativeT("desktop.browser.notifications.title", { origin }),
+        detail: nativeT("desktop.browser.notifications.detail", { task: tab.sessionID, tab: tab.id }),
+        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
+        defaultId: 0,
+        cancelId: 0,
+        signal: consent.signal,
+      })
+      .then((answer) => finish(answer.response === 1), revoke)
+  } catch {
+    revoke()
+  }
 }
 
 function createTab(
@@ -453,6 +603,10 @@ function createTab(
     app.userAgentFallback = app.userAgentFallback.replace(/\s(?:Electron|OpenCodeDev|OpenCode|CookieMonster)\/\S+/g, "")
     profile.setUserAgent(app.userAgentFallback)
     profile.setPermissionCheckHandler((contents, permission, requested, details) => {
+      if (permission === "notifications") {
+        const target = notificationTarget(contents, requested, details.isMainFrame)
+        return !!target && details.requestingUrl === target.url && notificationPermission(target.origin) === "allow"
+      }
       if (!contents || permission !== "media") return false
       const origin = mediaOrigin(contents.getURL(), requested, details.isMainFrame)
       if (!origin) return false
@@ -461,7 +615,11 @@ function createTab(
       return mediaPermission(origin, "audio") === "allow" && mediaPermission(origin, "video") === "allow"
     })
     profile.setPermissionRequestHandler((contents, permission, callback, details) => {
-      const origin = mediaOrigin(contents.getURL(), details.requestingUrl, details.isMainFrame)
+      if (permission === "notifications") {
+        requestNotification(contents, callback, details)
+        return
+      }
+      const origin = contents && mediaOrigin(contents.getURL(), details.requestingUrl, details.isMainFrame)
       const media = "mediaTypes" in details ? details.mediaTypes : undefined
       if (
         permission !== "media" ||
@@ -1087,16 +1245,18 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       if (command.op === "download-directory") await chooseDownloadDirectory(owner.win, command.reset)
       if (command.op === "reveal-download") revealDownload(command.id)
       if (command.op === "site-permission") {
-        const origin = saveSitePermission(command.origin, command.camera, command.microphone)
-        owners.forEach((entry) =>
-          entry.groups.forEach((group) =>
-            group.tabs.forEach((tab) => {
-              if (mediaOrigin(tab.contents.getURL(), origin, true)) {
-                reloadForPermissions(tab)
-              }
-            }),
-          ),
-        )
+        const update = saveSitePermission(command.origin, command.camera, command.microphone, command.notifications)
+        owners.forEach((entry) => entry.captureChecks?.forEach((check) => check()))
+        if (update.mediaChanged)
+          owners.forEach((entry) =>
+            entry.groups.forEach((group) =>
+              group.tabs.forEach((tab) => {
+                if (!tab.contents.isDestroyed() && mediaOrigin(tab.contents.getURL(), update.origin, true)) {
+                  reloadForPermissions(tab)
+                }
+              }),
+            ),
+          )
       }
       if (command.op === "edit-login") await editLogin(owner.win, command)
       if (command.op === "forget-login") forgetLogin(command.id)

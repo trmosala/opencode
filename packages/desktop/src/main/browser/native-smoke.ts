@@ -182,6 +182,12 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--site-permissions")) {
+    const { notificationPermissionsSmoke } = await import("./notification-permissions.fixture")
+    await notificationPermissionsSmoke()
+    stage("PASS site permissions")
+    return
+  }
   if (process.argv.includes("--snapshots") || process.argv.length === 2) {
     const { snapshotsSmoke } = await import("./snapshots.fixture")
     await snapshotsSmoke()

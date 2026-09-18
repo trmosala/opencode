@@ -508,6 +508,11 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "This export is malformed, unsupported or exceeds the category limit. No import writes were made. Cookie imports accept only the documented fields; partitioned or container-scoped cookies are not supported.",
   "desktop.browser.import.stale":
     "The window, task, vault access or destination changed. No further import writes were made. Choose the file again for a fresh review.",
+  "desktop.browser.notifications.title": "Allow notifications for {{origin}}?",
+  "desktop.browser.notifications.detail":
+    "Task: {{task}}\nTab: {{tab}}\n\nAllow is saved for this exact website. Notifications are permitted only while its private main page is selected and visible in CookieMonster. OS notification settings still apply. Blocking later prevents new notifications but cannot recall delivered notifications.",
+  "desktop.browser.sitePermission.invalid": "Invalid site permission",
+  "desktop.browser.sitePermission.limit": "Site limit reached",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

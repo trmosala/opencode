@@ -6,7 +6,10 @@ import { basename, extname, join } from "node:path"
 import type { BrowserDownload, BrowserPermission, BrowserPreferences } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
-import { loginOrigin } from "./import-data"
+import { permissionValue, siteOrigin, sitePermissionRows } from "./site-permissions"
+
+let siteRevision = 0
+export const sitePermissionsRevision = () => siteRevision
 
 let revision = 0
 export const browserPreferencesRevision = () => revision
@@ -92,16 +95,51 @@ export function revealDownload(id: string) {
   shell.showItemInFolder(row.path)
 }
 export function sitePermissions() {
-  return store().get("sites", []) as { origin: string; camera: BrowserPermission; microphone: BrowserPermission }[]
+  try {
+    return sitePermissionRows(store().get("sites", []))
+  } catch {
+    // Corruption denies all permissions without repairing or overwriting the stored records.
+    return []
+  }
 }
-export function saveSitePermission(origin: string, camera: BrowserPermission, microphone: BrowserPermission) {
-  if (typeof origin !== "string" || ![camera, microphone].every((value) => ["ask", "allow", "block"].includes(value)))
-    throw new Error("Invalid site permission")
-  const normalized = loginOrigin(origin)
-  const rows = sitePermissions().filter((entry) => entry.origin !== normalized)
-  if (rows.length >= 200) throw new Error("Site limit reached")
-  store().set("sites", [{ origin: normalized, camera, microphone }, ...rows])
-  return normalized
+export function saveSitePermission(origin: unknown, camera?: unknown, microphone?: unknown, notifications?: unknown) {
+  const normalized = siteOrigin(origin)
+  const values = [camera, microphone, notifications]
+  if (
+    !normalized ||
+    !values.some((value) => value !== undefined) ||
+    values.some((value) => value !== undefined && !permissionValue(value))
+  )
+    throw new Error(nativeT("desktop.browser.sitePermission.invalid"))
+  let current: ReturnType<typeof sitePermissionRows>
+  try {
+    current = sitePermissionRows(store().get("sites", []))
+  } catch {
+    throw new Error(nativeT("desktop.browser.tabs.unavailable"))
+  }
+  const previous = current.find((entry) => entry.origin === normalized)
+  const rows = current.filter((entry) => entry.origin !== normalized)
+  if (rows.length >= 200) throw new Error(nativeT("desktop.browser.sitePermission.limit"))
+  const next = {
+    origin: normalized,
+    camera: (camera ?? previous?.camera ?? "block") as BrowserPermission,
+    microphone: (microphone ?? previous?.microphone ?? "block") as BrowserPermission,
+    notifications: (notifications ?? previous?.notifications ?? "block") as BrowserPermission,
+  }
+  store().set("sites", [next, ...rows])
+  siteRevision++
+  return {
+    origin: normalized,
+    mediaChanged:
+      next.camera !== (previous?.camera ?? "block") || next.microphone !== (previous?.microphone ?? "block"),
+  }
+}
+export function notificationPermission(origin: string): BrowserPermission {
+  try {
+    return sitePermissions().find((entry) => entry.origin === origin)?.notifications ?? "block"
+  } catch {
+    return "block"
+  }
 }
 export function mediaPermission(origin: string, media: "audio" | "video"): BrowserPermission {
   return (

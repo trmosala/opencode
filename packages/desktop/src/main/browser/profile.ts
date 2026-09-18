@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { open } from "node:fs/promises"
-import { dialog } from "electron"
+import { dialog, Notification } from "electron"
 import type { BrowserWindow, Session, WebContents } from "electron"
 import type { BrowserProfile, BrowserClearKind, BrowserClearRange } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
@@ -57,6 +57,7 @@ export function browserProfile(): BrowserProfile {
     preferences: browserPreferencesState(),
     downloadDirectory: downloadDirectory(),
     sites: sitePermissions(),
+    notificationsSupported: Notification.isSupported(),
     agentHosts: loadAllowlist(),
     loginEntryAvailable: loginEntryAvailable(),
     ...loginSummary(),

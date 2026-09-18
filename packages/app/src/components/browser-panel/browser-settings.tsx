@@ -19,6 +19,7 @@ export function BrowserSettings(props: {
     host: "",
     camera: "block" as BrowserPermission,
     microphone: "block" as BrowserPermission,
+    notifications: "block" as BrowserPermission,
   })
   const toggle = (key: keyof BrowserPreferences, value: boolean) =>
     void props.command({ op: "preferences", values: { [key]: value } })
@@ -379,6 +380,7 @@ export function BrowserSettings(props: {
                 origin: state.origin,
                 camera: state.camera,
                 microphone: state.microphone,
+                ...(props.profile.notificationsSupported === true ? { notifications: state.notifications } : {}),
               })
             }}
           >
@@ -393,7 +395,13 @@ export function BrowserSettings(props: {
                 placeholder="https://example.com"
               />
             </label>
-            <For each={["camera", "microphone"] as const}>
+            <For
+              each={
+                props.profile.notificationsSupported === true
+                  ? (["camera", "microphone", "notifications"] as const)
+                  : (["camera", "microphone"] as const)
+              }
+            >
               {(device) => (
                 <label>
                   {language.t(`browser.settings.${device}`)}
@@ -413,22 +421,39 @@ export function BrowserSettings(props: {
               {language.t("browser.settings.site.save")}
             </Button>
           </form>
+          <p>{language.t("browser.notifications.help")}</p>
+          <p>{language.t("browser.notifications.os")}</p>
+          <Show when={props.profile.notificationsSupported !== true}>
+            <p>
+              {language.t(
+                props.profile.notificationsSupported === false
+                  ? "browser.notifications.unavailable"
+                  : "browser.notifications.nextLaunch",
+              )}
+            </p>
+          </Show>
           <For each={props.profile.sites}>
             {(site) => (
               <div class="flex flex-wrap items-center gap-3 border-t border-border-weaker-base pt-3">
                 <strong class="flex-1 break-all">{site.origin}</strong>
-                <For each={["camera", "microphone"] as const}>
+                <For
+                  each={
+                    props.profile.notificationsSupported === true
+                      ? (["camera", "microphone", "notifications"] as const)
+                      : (["camera", "microphone"] as const)
+                  }
+                >
                   {(device) => (
                     <label>
                       {language.t(`browser.settings.${device}`)}
                       <select
                         class="block border border-border-weak-base rounded p-2 mt-1"
                         disabled={props.busy}
-                        value={site[device]}
+                        value={site[device] ?? "block"}
                         onChange={(event) =>
                           void props.command({
                             op: "site-permission",
-                            ...site,
+                            origin: site.origin,
                             [device]: event.currentTarget.value as BrowserPermission,
                           })
                         }

@@ -185,6 +185,14 @@ export const browser = {
   "browser.settings.origin": "Website",
   "browser.settings.camera": "Camera",
   "browser.settings.microphone": "Microphone",
+  "browser.settings.notifications": "Notifications",
+  "browser.notifications.help":
+    "Notifications default to Block. Ask requires native consent to save Allow for this exact website. Even Allow requires a selected, visible private main page, with no agent control or pending operation. Blocking prevents new notifications, not those already delivered. Notification-only changes do not reload pages.",
+  "browser.notifications.os":
+    "Delivery also depends on OS notification settings and app registration. Browser permission is not an OS grant. Manage delivery in your system notification settings.",
+  "browser.notifications.unavailable": "Native notifications are unavailable in this running app.",
+  "browser.notifications.nextLaunch":
+    "Notification controls require a supported main process. Launch the updated app to use them.",
   "browser.settings.site.save": "Save site permissions",
   "browser.permission.block": "Block",
   "browser.permission.ask": "Ask",

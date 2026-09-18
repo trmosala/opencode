@@ -16,6 +16,7 @@ export function BrowserSite(props: {
       origin: origin(),
       camera: "block" as const,
       microphone: "block" as const,
+      notifications: "block" as const,
     }
   const media = () =>
     props.tab.url.startsWith("https:") || ["localhost", "127.0.0.1", "[::1]"].includes(new URL(props.tab.url).hostname)
@@ -34,7 +35,7 @@ export function BrowserSite(props: {
               onChange={(event) =>
                 void props.command({
                   op: "site-permission",
-                  ...rule(),
+                  origin: origin(),
                   [device]: event.currentTarget.value as BrowserPermission,
                 })
               }
@@ -46,6 +47,37 @@ export function BrowserSite(props: {
           </label>
         )}
       </For>
+      <Show when={props.profile.notificationsSupported === true}>
+        <label class="flex items-center justify-between gap-2">
+          {language.t("browser.settings.notifications")}
+          <select
+            disabled={props.busy || !media()}
+            value={rule().notifications ?? "block"}
+            onChange={(event) =>
+              void props.command({
+                op: "site-permission",
+                origin: origin(),
+                notifications: event.currentTarget.value as BrowserPermission,
+              })
+            }
+          >
+            <For each={["block", "ask", "allow"] as const}>
+              {(permission) => <option value={permission}>{language.t(`browser.permission.${permission}`)}</option>}
+            </For>
+          </select>
+        </label>
+        <p>{language.t("browser.notifications.help")}</p>
+        <p>{language.t("browser.notifications.os")}</p>
+      </Show>
+      <Show when={props.profile.notificationsSupported !== true}>
+        <p>
+          {language.t(
+            props.profile.notificationsSupported === false
+              ? "browser.notifications.unavailable"
+              : "browser.notifications.nextLaunch",
+          )}
+        </p>
+      </Show>
       <Show when={!media()}>
         <p>{language.t("browser.site.mediaUnavailable")}</p>
       </Show>

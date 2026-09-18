@@ -43,11 +43,13 @@ test("mounted settings show main eligibility and allow revocation during pending
                 import { createStore } from "solid-js/store";
                 import { BrowserTools } from ${JSON.stringify(resolve("src/components/browser-panel/browser-tools.tsx"))};
                 export function mount(host, tabs, command) {
-                  const [state, setState] = createStore({ tabs: structuredClone(tabs) });
+                  const [state, setState] = createStore({ tabs: structuredClone(tabs), panel: "settings" });
                   const dispose = render(() => createComponent(BrowserTools, {
-                    panel: "settings", get tabs() { return state.tabs }, command, close() {}, open() {}
+                    get panel() { return state.panel }, get tabs() { return state.tabs },
+                    get tab() { return state.tabs.tabs.find(tab => tab.id === state.tabs.activeID) },
+                    command, close() {}, open() {}
                   }), host);
-                  return { dispose, update: tabs => setState("tabs", structuredClone(tabs)) };
+                  return { dispose, update: tabs => setState("tabs", structuredClone(tabs)), panel: panel => setState("panel", panel) };
                 }`
           },
         },
@@ -180,6 +182,59 @@ test("mounted settings show main eligibility and allow revocation during pending
     })
     expect(row().textContent).toContain("global agent access is off")
     expect(host.textContent).toContain("Agent history tools are blocked by the global switch")
+
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(button("Save site permissions").disabled).toBe(false)
+    const selectors = (text: string) =>
+      [...host.querySelectorAll("label")]
+        .filter((label) => label.textContent?.trim().startsWith(text))
+        .map((label) => label.querySelector("select")!)
+    const site = { origin: "https://display.example", camera: "allow" as const, microphone: "ask" as const }
+    for (const panel of ["settings", "site"]) {
+      mounted.panel(panel)
+      for (const notificationsSupported of [undefined, false, true]) {
+        mounted.update({
+          ...tabs,
+          activeID: "one",
+          profile: { ...tabs.profile!, notificationsSupported, sites: [site] },
+        })
+        expect(selectors("Notifications")).toHaveLength(
+          notificationsSupported === true ? (panel === "settings" ? 2 : 1) : 0,
+        )
+        if (notificationsSupported !== true) {
+          expect(host.textContent).toContain(
+            notificationsSupported === false
+              ? "Native notifications are unavailable"
+              : "Notification controls require a supported main process",
+          )
+          continue
+        }
+        expect(selectors("Notifications").at(-1)!.value).toBe("block")
+        expect([...selectors("Notifications").at(-1)!.options].map((option) => option.value)).toEqual([
+          "block",
+          "ask",
+          "allow",
+        ])
+        for (const [label, field] of [
+          ["Notifications", "notifications"],
+          ["Camera", "camera"],
+          ["Microphone", "microphone"],
+        ]) {
+          for (const value of ["ask", "allow", "block"]) {
+            // Let BrowserTools finish its async command before the next user edit.
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            const select = selectors(label).at(-1)!
+            expect(select.disabled).toBe(false)
+            const count = calls.length
+            select.value = value
+            select.dispatchEvent(new Event("change", { bubbles: true }))
+            expect(calls).toHaveLength(count + 1)
+            expect(calls.at(-1)).toEqual({ op: "site-permission", origin: site.origin, [field]: value })
+          }
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+    }
   } finally {
     dispose?.()
     host.remove()

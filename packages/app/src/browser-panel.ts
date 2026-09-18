@@ -67,7 +67,13 @@ export type BrowserProfile = {
   vaultStatus?: "locked" | "unlocking" | "unlocked"
   preferences?: BrowserPreferences
   downloadDirectory?: string
-  sites?: { origin: string; camera: BrowserPermission; microphone: BrowserPermission }[]
+  notificationsSupported?: boolean
+  sites?: {
+    origin: string
+    camera: BrowserPermission
+    microphone: BrowserPermission
+    notifications?: BrowserPermission
+  }[]
   agentHosts?: readonly string[]
 }
 
@@ -186,7 +192,13 @@ export type BrowserCommand =
   | { op: "reopen"; id?: string }
   | { op: "clear-selected"; kinds: BrowserClearKind[]; range: BrowserClearRange }
   | { op: "agent-host"; host: string; remove?: boolean }
-  | { op: "site-permission"; origin: string; camera: BrowserPermission; microphone: BrowserPermission }
+  | {
+      op: "site-permission"
+      origin: string
+      camera?: BrowserPermission
+      microphone?: BrowserPermission
+      notifications?: BrowserPermission
+    }
   | { op: "clear"; kind: "history" | "cache" | "cookies" | "passwords" | "downloads" }
 
 export type BrowserSelection = {
