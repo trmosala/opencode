@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
 import { basename, join } from "node:path"
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import { parseDesktopNativeBundle, type DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
@@ -261,9 +261,21 @@ export function registerIpcHandlers(deps: Deps) {
     return true
   })
 
-  ipcMain.handle("read-clipboard-image", () => {
-    const image = clipboard.readImage()
-    if (image.isEmpty()) return null
+  ipcMain.handle("read-clipboard-image", async () => {
+    const buffers = await Promise.all(
+      (await clipboard.read()).flatMap((item) =>
+        item.types
+          .filter((type) => type.startsWith("image/"))
+          .map(async (type) => {
+            const value = await item.getType(type)
+            return value instanceof Blob ? Buffer.from(await value.arrayBuffer()) : undefined
+          }),
+      ),
+    )
+    const image = buffers
+      .flatMap((value) => (value ? [nativeImage.createFromBuffer(value)] : []))
+      .find((value) => !value.isEmpty())
+    if (!image) return null
     const buffer = image.toPNG().buffer
     const size = image.getSize()
     return { buffer, width: size.width, height: size.height }

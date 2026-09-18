@@ -285,58 +285,51 @@ async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage
   // Lazy import so test-time consumers of this module (e.g. routeOutboundFrame) don't pull electron's
   // runtime exports, which aren't resolvable outside the Electron runtime. The import touches no
   // clipboard state, so it stays OUTSIDE the gate — only the snapshot→write→paste→restore serializes.
-  const { clipboard, nativeImage } = await import("electron")
+  const { clipboard, ClipboardItem, nativeImage } = await import("electron")
 
   // Serialize against any other concurrent paste so two workers can't interleave on the shared
   // system clipboard (corrupting each other's image AND the user's real clipboard contents).
   await clipboardGate.acquire()
-  // Snapshot every standard format (not just image-or-text) so a bridge paste fully restores what
-  // the user had copied. Custom MIME formats / OS file-path lists still can't round-trip atomically.
-  const saved = {
-    text: clipboard.readText(),
-    html: clipboard.readHTML(),
-    rtf: clipboard.readRTF(),
-    image: clipboard.readImage(),
-  }
-  const pasted: { name: string; ok: boolean; reason?: string }[] = []
   try {
-    for (const image of images) {
-      const name = image.name || "image"
-      const buffer = Buffer.from(String(image.data || ""), "base64")
-      const native = nativeImage.createFromBuffer(buffer)
-      if (native.isEmpty()) {
-        pasted.push({ name, ok: false, reason: "decode-failed" })
-        continue
+    // Electron 44's W3C clipboard API preserves every format it can read, including custom MIME
+    // entries, so the user's clipboard can be restored atomically after the trusted paste.
+    const saved = await clipboard.read()
+    const pasted: { name: string; ok: boolean; reason?: string }[] = []
+    try {
+      for (const image of images) {
+        const name = image.name || "image"
+        const buffer = Buffer.from(String(image.data || ""), "base64")
+        const native = nativeImage.createFromBuffer(buffer)
+        if (native.isEmpty()) {
+          pasted.push({ name, ok: false, reason: "decode-failed" })
+          continue
+        }
+        await clipboard.write([
+          new ClipboardItem({
+            "image/png": new Blob([new Uint8Array(native.toPNG())], { type: "image/png" }),
+          }),
+        ])
+        contents.paste()
+        // Give WPP's paste handler time to read the clipboard before the next image overwrites it.
+        await delay(800)
+        pasted.push({ name, ok: true })
       }
-      clipboard.writeImage(native)
-      contents.paste()
-      // Give WPP's paste handler time to read the clipboard before the next image overwrites it.
-      await delay(800)
-      pasted.push({ name, ok: true })
+    } finally {
+      await restoreClipboard(clipboard, saved)
     }
+    return { requested: images.length, pasted }
   } finally {
-    restoreClipboard(clipboard, saved)
     clipboardGate.release()
   }
-  return { requested: images.length, pasted }
 }
 
-// Restore the saved clipboard formats in a single write so the user gets back exactly what they had.
-// clipboard.write ignores empty fields; clear() only when nothing was saved.
-function restoreClipboard(
-  clipboard: Electron.Clipboard,
-  saved: { text: string; html: string; rtf: string; image: Electron.NativeImage },
-) {
-  const data: Electron.Data = {}
-  if (saved.text) data.text = saved.text
-  if (saved.html) data.html = saved.html
-  if (saved.rtf) data.rtf = saved.rtf
-  if (!saved.image.isEmpty()) data.image = saved.image
-  if (Object.keys(data).length === 0) {
+// Restore the saved clipboard formats in one atomic write.
+async function restoreClipboard(clipboard: Electron.Clipboard, saved: Electron.ClipboardItem[]) {
+  if (saved.length === 0) {
     clipboard.clear()
     return
   }
-  clipboard.write(data)
+  await clipboard.write(saved)
 }
 
 // Fire-and-forget post of a CONTROLLER_SOURCE frame into the page's main world (top frame + every
