@@ -4,6 +4,7 @@ import {
   parseBrowserIpcCancel,
   parseBrowserIpcRequest,
   type BrowserIpcResult,
+  type BrowserIpcRequest,
 } from "@cookiemonster/cm-browser/protocol"
 import { routeBrowserRequest } from "./router"
 import { nativeT } from "../native-translations"
@@ -18,12 +19,15 @@ type Sidecar = {
 export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest) {
   const active = new Map<string, { sessionID: string; controller: AbortController }>()
   let stopped = false
-  const post = (message: BrowserIpcResult, screenshot = false, check?: () => void) => {
+  const post = (message: BrowserIpcResult, op: BrowserIpcRequest["request"]["op"], check?: () => void) => {
     if (stopped) return
     try {
       if (
         message.response.ok &&
-        (screenshot ||
+        (op === "screenshot" ||
+          op === "scroll" ||
+          op === "wait_for_element" ||
+          op === "wait_for_navigation" ||
           message.response.result.screenshot !== undefined ||
           message.response.result.frames !== undefined ||
           message.response.result.frameRef !== undefined ||
@@ -43,13 +47,15 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest)
             response: failure(
               "unavailable",
               nativeT(
-                message.response.result.diagnostics !== undefined
-                  ? "desktop.browser.diagnosticsDeliveryUnavailable"
-                  : message.response.result.siteTools !== undefined ||
-                      message.response.result.siteToolContext !== undefined ||
-                      message.response.result.siteToolResult !== undefined
-                    ? "desktop.browser.siteToolDeliveryUnavailable"
-                    : "desktop.browser.screenshotDeliveryUnavailable",
+                op === "scroll" || op === "wait_for_element" || op === "wait_for_navigation"
+                  ? "desktop.browser.operationUnavailable"
+                  : message.response.result.diagnostics !== undefined
+                    ? "desktop.browser.diagnosticsDeliveryUnavailable"
+                    : message.response.result.siteTools !== undefined ||
+                        message.response.result.siteToolContext !== undefined ||
+                        message.response.result.siteToolResult !== undefined
+                      ? "desktop.browser.siteToolDeliveryUnavailable"
+                      : "desktop.browser.screenshotDeliveryUnavailable",
               ),
             ),
           }
@@ -87,7 +93,7 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest)
       controller.signal.removeEventListener("abort", abort)
       post(
         { type: "browser_result", id: request.id, response },
-        request.request.op === "screenshot",
+        request.request.op,
         screenshotCheck &&
           (() => {
             controller.signal.throwIfAborted()

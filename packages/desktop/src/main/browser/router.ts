@@ -94,6 +94,9 @@ export async function routeBrowserRequest(
     if (
       response.ok &&
       (validated.op === "screenshot" ||
+        validated.op === "scroll" ||
+        validated.op === "wait_for_element" ||
+        validated.op === "wait_for_navigation" ||
         validated.op === "observe_console" ||
         validated.op === "observe_network" ||
         response.result.frames !== undefined ||
@@ -111,13 +114,15 @@ export async function routeBrowserRequest(
         return failure(
           "unavailable",
           nativeT(
-            validated.op === "observe_console" || validated.op === "observe_network"
-              ? "desktop.browser.diagnosticsDeliveryUnavailable"
-              : validated.op === "list_site_tools" ||
-                  validated.op === "prepare_site_tool" ||
-                  validated.op === "execute_site_tool"
-                ? "desktop.browser.siteToolDeliveryUnavailable"
-                : "desktop.browser.screenshotDeliveryUnavailable",
+            validated.op === "scroll" || validated.op === "wait_for_element" || validated.op === "wait_for_navigation"
+              ? "desktop.browser.operationUnavailable"
+              : validated.op === "observe_console" || validated.op === "observe_network"
+                ? "desktop.browser.diagnosticsDeliveryUnavailable"
+                : validated.op === "list_site_tools" ||
+                    validated.op === "prepare_site_tool" ||
+                    validated.op === "execute_site_tool"
+                  ? "desktop.browser.siteToolDeliveryUnavailable"
+                  : "desktop.browser.screenshotDeliveryUnavailable",
           ),
         )
       }
@@ -396,6 +401,10 @@ async function route(
           })
         : await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
     if (screenshot) authority()
+    if (observing || request.op === "scroll") {
+      authority()
+      onScreenshotDelivery(authority)
+    }
     if (response.ok && request.op === "read_state") {
       const discovered = await discoverFrames(tab, authority, isAllowed)
       if (discovered) {

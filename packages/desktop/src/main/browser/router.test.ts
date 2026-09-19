@@ -1255,6 +1255,78 @@ test.each(["hover", "double", "right"] as const)(
   },
 )
 
+test.each(["scroll", "wait_for_element", "wait_for_navigation"] as const)(
+  "%s rejects stale snapshots at route and sidecar delivery",
+  async (op) => {
+    for (const phase of ["success", "post", "route", "missing"] as const) {
+      const { tab, route, remove } = fixture()
+      const send = tab.contents.debugger.sendCommand.bind(tab.contents.debugger)
+      tab.contents.debugger.sendCommand = async (method, params) => {
+        if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { clientWidth: 600, clientHeight: 400 } }
+        if (method === "Page.createIsolatedWorld" && params?.worldName === "cm-browser-wait")
+          return { executionContextId: 7 }
+        if (params?.contextId === 7) return { result: { value: true } }
+        return send(method, params)
+      }
+      const posted = Promise.withResolvers<BrowserIpcResult>()
+      const child = Object.assign(new EventEmitter(), {
+        postMessage: (reply: BrowserIpcResult) => posted.resolve(reply),
+      })
+      const revoke = () => {
+        setBrowserAgentEnabled(false)
+        setBrowserAgentEnabled(true)
+        tab.agentAccess = true
+      }
+      const responses: boolean[] = []
+      const stop = attachBrowserBridge(child, async (message, _allowed, control) => {
+        const response = await routeBrowserRequest(message, () => true, {
+          ...control,
+          onScreenshotDelivery: phase === "missing" ? undefined : control.onScreenshotDelivery,
+          onSettled(pending) {
+            control.onSettled?.(pending)
+            if (phase === "route") void pending.then(revoke)
+          },
+        })
+        responses.push(response.ok)
+        if (phase === "post") revoke()
+        return response
+      })
+      try {
+        const request =
+          op === "scroll"
+            ? { op, tabID: tab.id, deltaX: 0, deltaY: 100, timeoutMs: 1000 }
+            : op === "wait_for_element"
+              ? { op, tabID: tab.id, selector: "#ready", timeoutMs: 1000 }
+              : { op, tabID: tab.id, url: tab.contents.getURL(), timeoutMs: 1000 }
+        const prepared = request.op === "scroll" ? await route({ op: "prepare_write", request }) : undefined
+        if (prepared && !prepared.ok) throw new Error("No approval context")
+        child.emit("message", {
+          type: "browser_request",
+          id: "scroll-wait-delivery",
+          sessionID: tab.sessionID,
+          request: prepared?.ok ? { ...request, context: prepared.result.context } : request,
+        })
+        const reply = (await posted.promise).response
+        expect(responses).toEqual([phase !== "route"])
+        if (phase === "success") expect(reply).toMatchObject({ ok: true, result: { visibleText: "hello" } })
+        else {
+          expect(reply).toEqual({
+            ok: false,
+            code: "unavailable",
+            error: DESKTOP_NATIVE_ENGLISH["desktop.browser.operationUnavailable"],
+          })
+          expect(JSON.stringify(reply)).not.toContain("hello")
+        }
+        await new Promise((resolve) => setImmediate(resolve))
+      } finally {
+        stop()
+        remove()
+        setBrowserAgentEnabled(true)
+      }
+    }
+  },
+)
+
 test.each(["scroll", "wait_for_element"] as const)(
   "%s retains held native ownership and rejects interrupted epochs",
   async (op) => {
