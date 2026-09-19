@@ -126,6 +126,8 @@ Deleting visits prevents future searches/opening through these tools. It cannot 
 
 ## Agent access
 
+The September 19 follow-up completes scoped #11 implementation acceptance, including navigation read approval. Earlier OPEN checkpoints below are historical; packaged accessibility, platform and verified-localization validation remains under #19, with separate password-manager assurance under #34. See the [updated evidence](password-security.md#effective-agent-access-11).
+
 New tabs, including pop-ups, start with agent access disabled. The user must enable **Allow agent access** and accept the native confirmation for each tab. Revoking access interrupts further agent input and invalidates snapshots.
 
 The eleven page tools run in the OpenCode sidecar plugin and reach main through its parent port:
@@ -133,6 +135,7 @@ The eleven page tools run in the OpenCode sidecar plugin and reach main through 
 - `browser_read_state` without `tabID` lists opted-in tabs for the current session whose hosts are allowed, plus opted-in blank tabs.
 - `browser_read_state` with `tabID` returns that tab's page and opaque element references.
 - `browser_navigate`, `browser_click`, `browser_fill`, and `browser_press_key` require an explicit `tabID`.
+- Navigation returns a destination snapshot, so it requires `browser_read_state` approval before preparation and destination-host `browser_navigate` approval. Read denial or cancellation prevents dispatch. This approval check does not read the source page, so approved recovery from blank, loading or oversized-source tabs remains available.
 - Click and fill references are bound to a specific tab and snapshot. Navigation and access revocation invalidate them.
 - All eight writes, including hover, scroll, select-option and drag, capture main's `{tabID, origin, urlHash, revision, accessRevision}` using private `prepare_write` before OpenCode write approval. `urlHash` is SHA-256 of the entire exact live source URL; the bounded origin is used for approval. Long source paths/queries are not subject to the separate 2,048-character destination limit. Main rejects changed context, including long-source mutation, navigation away and back, reload and revoke/regrant. Navigation approves the destination host while binding the source page. This binding detects staleness; it is not a new approval or a second grant store.
 - Main-frame loading blocks page reads, input preparation and input dispatch, including checks around awaited driver commands. Navigation start, commit and DOM readiness invalidate page identity. Fresh navigation to an allowed destination remains available for recovery; stopping an old load and waiting for the destination are bounded and access-checked, with source/access and current destination-policy rechecks immediately before `loadURL`, without an intervening await. Settings show temporary loading separately from host denial and disable new grants while loading.

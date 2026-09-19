@@ -1860,7 +1860,7 @@ test("long source permits approved short navigation but rejects exact source mut
         },
       },
     )
-    expect(asked).toEqual([["127.0.0.1"]])
+    expect(asked).toEqual([["*"], ["127.0.0.1"]])
     expect(tab.contents.getURL()).toBe(request.url)
   } finally {
     remove()

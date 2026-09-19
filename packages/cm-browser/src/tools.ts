@@ -88,7 +88,7 @@ async function askRead(context: ToolContext) {
 }
 
 async function askWrite(port: BrowserPort, context: ToolContext, permission: string, request: WriteRequest) {
-  if (request.op !== "navigate") await askRead(context)
+  await askRead(context)
   const prepared = await run(port, context, { op: "prepare_write", request })
   const binding = parseAccessContext(prepared.context)
   if (!binding || binding.tabID !== request.tabID) throw new Error("Browser approval context is unavailable.")

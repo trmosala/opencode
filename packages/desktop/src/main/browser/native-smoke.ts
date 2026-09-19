@@ -875,7 +875,7 @@ async function run() {
             },
           },
         )
-        assert.deepEqual(asked, [["127.0.0.1"]])
+        assert.deepEqual(asked, [["*"], ["127.0.0.1"]])
         assert.equal(one.contents.getURL(), url)
       }
       await command({ op: "navigate", tabID: first, url })

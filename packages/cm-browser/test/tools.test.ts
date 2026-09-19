@@ -658,6 +658,41 @@ describe("browser tools", () => {
     },
   )
 
+  test.each(["deny", "abort", "allow"])("navigation respects page-read approval: %s", async (decision) => {
+    const browser = fakePort()
+    const call = fakeContext()
+    const controller = new AbortController()
+    call.context.abort = controller.signal
+    const ask = call.context.ask
+    call.context.ask = async (input) => {
+      await ask(input)
+      if (input.permission !== "browser_read_state") return
+      if (decision === "deny") throw new Error("Read denied")
+      if (decision === "abort") controller.abort()
+    }
+    const pending = browserTools(browser.port).browser_navigate.execute(
+      { tabID: "one", url: "https://destination.test/" },
+      call.context,
+    )
+    if (decision !== "allow") {
+      await expect(pending).rejects.toThrow(decision === "deny" ? "Read denied" : undefined)
+      expect(browser.sent).toEqual([])
+      expect(call.asked).toEqual([{ permission: "browser_read_state", patterns: ["*"] }])
+      return
+    }
+    const reply = await pending
+    expect(call.asked).toEqual([
+      { permission: "browser_read_state", patterns: ["*"] },
+      { permission: "browser_navigate", patterns: ["destination.test"] },
+    ])
+    expect(browser.sent.map(({ request }) => request.op)).toEqual(["prepare_write", "navigate"])
+    expect(browser.sent[1]).toEqual({
+      sessionID: call.context.sessionID,
+      request: { op: "navigate", tabID: "one", url: "https://destination.test/", context: state.context },
+    })
+    expect(typeof reply === "string" ? reply : reply.output).toContain(state.visibleText)
+  })
+
   test("select options render only owned metadata and describe untrusted events", async () => {
     const browser = fakePort(
       success({
