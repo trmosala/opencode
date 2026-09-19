@@ -17,6 +17,7 @@ import type {
 } from "@opencode-ai/app/browser-panel"
 import { browserShortcut, browserDeviceSize, BROWSER_DEVICE_DEFAULT } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
+import { observeNetwork } from "./network-diagnostics"
 import { browserPreferences, browserURL, browserPageURL, BROWSER_PARTITION } from "./policy"
 import {
   registerBrowserTab,
@@ -923,7 +924,11 @@ function createTab(
       layout(owner)
     }
   }
-  tab.confirmDiagnostics = async (url, durationMs, signal) => {
+  tab.observeNetwork = (durationMs, check, signal) =>
+    observeNetwork(contents.session.webRequest, contents, durationMs, check, signal)
+  tab.confirmDiagnostics = async (url, durationMs, signal, kind) => {
+    const title = kind === "network" ? "desktop.browser.networkConsent" : "desktop.browser.diagnosticsConsent"
+    const detail = kind === "network" ? "desktop.browser.networkDetail" : "desktop.browser.diagnosticsDetail"
     const currentTask = () => owner.linkContext?.sessionID ?? owner.viewport?.sessionID
     if (
       owner.suspended ||
@@ -946,7 +951,7 @@ function createTab(
             width: 400,
             height: 160,
             show: false,
-            title: nativeT("desktop.browser.diagnosticsConsent"),
+            title: nativeT(title),
             webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
           })
         : undefined
@@ -964,8 +969,8 @@ function createTab(
       sheet?.showInactive()
       const options = {
         type: "warning" as const,
-        message: nativeT("desktop.browser.diagnosticsConsent"),
-        detail: nativeT("desktop.browser.diagnosticsDetail", {
+        message: nativeT(title),
+        detail: nativeT(detail, {
           task: tab.sessionID,
           tab: tab.id,
           url,

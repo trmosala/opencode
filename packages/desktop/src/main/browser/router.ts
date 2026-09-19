@@ -86,7 +86,7 @@ export async function routeBrowserRequest(
         ? controller.signal.reason
         : Date.now() >= deadline
           ? failure("timeout", "Browser operation timed out.")
-          : failure("unavailable", "Browser operation interrupted or unavailable."),
+          : failure("unavailable", nativeT("desktop.browser.operationUnavailable")),
     )
   control.onSettled?.(operation)
   try {
@@ -95,6 +95,7 @@ export async function routeBrowserRequest(
       response.ok &&
       (validated.op === "screenshot" ||
         validated.op === "observe_console" ||
+        validated.op === "observe_network" ||
         response.result.frames !== undefined ||
         response.result.frameRef !== undefined ||
         response.result.frameContext !== undefined ||
@@ -110,7 +111,7 @@ export async function routeBrowserRequest(
         return failure(
           "unavailable",
           nativeT(
-            validated.op === "observe_console"
+            validated.op === "observe_console" || validated.op === "observe_network"
               ? "desktop.browser.diagnosticsDeliveryUnavailable"
               : validated.op === "list_site_tools" ||
                   validated.op === "prepare_site_tool" ||
@@ -253,7 +254,7 @@ async function route(
   }
   // Screenshots observe every source transition but never veto user navigation.
   const screenshot = request.op === "screenshot"
-  const diagnostics = request.op === "observe_console"
+  const diagnostics = request.op === "observe_console" || request.op === "observe_network"
   const siteExecution = request.op === "execute_site_tool"
   const consent = screenshot || diagnostics || siteExecution ? new AbortController() : undefined
   const revoke = () => consent?.abort()
@@ -274,7 +275,12 @@ async function route(
       signal.addEventListener("abort", revoke, { once: true })
       authority()
       const approved = diagnostics
-        ? await tab.confirmDiagnostics?.(url, request.durationMs, consent.signal)
+        ? await tab.confirmDiagnostics?.(
+            url,
+            request.durationMs,
+            consent.signal,
+            request.op === "observe_network" ? "network" : "console",
+          )
         : await tab.confirmScreenshot?.(url, consent.signal)
       ownerCheck = typeof approved === "function" ? approved : undefined
       authority()
@@ -367,19 +373,28 @@ async function route(
       onScreenshotDelivery(delivery)
       return frame.response
     }
+    if (request.op === "observe_network") {
+      authority()
+      if (!tab.observeNetwork || !consent)
+        return failure("unavailable", nativeT("desktop.browser.diagnosticsDeliveryUnavailable"))
+      const network = await tab.observeNetwork(request.durationMs, authority, consent.signal)
+      authority()
+      return success({ tabID: tab.id, url: origin, title: "", visibleText: "", elements: [], diagnostics: { network } })
+    }
     // Keep busy/rendering ownership until actual native settlement, even after an early reply.
-    const response = diagnostics
-      ? success({
-          tabID: tab.id,
-          url: origin,
-          title: "",
-          visibleText: "",
-          elements: [],
-          diagnostics: {
-            console: await observeConsole(contents as unknown as EventEmitter, request.durationMs, authority, signal),
-          },
-        })
-      : await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
+    const response =
+      request.op === "observe_console"
+        ? success({
+            tabID: tab.id,
+            url: origin,
+            title: "",
+            visibleText: "",
+            elements: [],
+            diagnostics: {
+              console: await observeConsole(contents as unknown as EventEmitter, request.durationMs, authority, signal),
+            },
+          })
+        : await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
     if (screenshot) authority()
     if (response.ok && request.op === "read_state") {
       const discovered = await discoverFrames(tab, authority, isAllowed)

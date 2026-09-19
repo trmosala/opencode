@@ -569,6 +569,29 @@ test("screenshot rejects private, foreign, missing consent and stale native appr
   }
 })
 
+test("network collector failures use native i18n without exposing raw errors", async () => {
+  const { tab, write, remove } = fixture()
+  const key = "desktop.browser.operationUnavailable"
+  expect(DESKTOP_NATIVE_ENGLISH[key]).toBe("Browser operation interrupted or unavailable.")
+  setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH, [key]: "test unavailable sentinel" } })
+  tab.confirmDiagnostics = async () => () => {}
+  tab.observeNetwork = async () => {
+    throw new Error("https://example.test/?credential=secret")
+  }
+  try {
+    expect(await write({ op: "observe_network", tabID: tab.id, durationMs: 250 })).toEqual({
+      ok: false,
+      code: "unavailable",
+      error: "test unavailable sentinel",
+    })
+    expect(tab.diagnosticConsent).toBeUndefined()
+    expect(browserOperationBusy.has(tab.id)).toBe(false)
+  } finally {
+    remove()
+    setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH } })
+  }
+})
+
 test("console diagnostics bind owner approval and return counts without message payloads", async () => {
   const { tab, route, remove } = fixture()
   let owner = "owner-task-1"
@@ -637,6 +660,178 @@ test("console diagnostics clean up and fail closed when source authority changes
     expect(await pending).toMatchObject({ ok: false, code: "unavailable" })
     expect(getEventListeners(contents, "console-message")).toHaveLength(0)
     expect(tab.diagnosticConsent).toBeUndefined()
+  } finally {
+    remove()
+  }
+})
+
+test.each([
+  "success",
+  "denied",
+  "consent-source",
+  "source",
+  "access",
+  "owner",
+  "task",
+  "policy",
+  "native-revoke",
+  "cancel",
+] as const)("network diagnostics preserve native consent, authority and cancellation: %s", async (reason) => {
+  let permitted = true
+  const { tab, route, calls, remove } = fixture(() => permitted)
+  const controller = new AbortController()
+  let observed = false
+  let task = "task-epoch-1"
+  tab.ownerContext = () => task
+  const network = {
+    durationMs: 250,
+    http1xx: 0,
+    http2xx: 1,
+    http3xx: 0,
+    http4xx: 0,
+    http5xx: 0,
+    other: 0,
+    failed: 0,
+    total: 1,
+  }
+  tab.confirmDiagnostics = async (_url, duration, signal, kind) => {
+    expect(duration).toBe(250)
+    expect(kind).toBe("network")
+    expect(signal).toBe(tab.diagnosticConsent?.signal)
+    expect(observed).toBe(false)
+    if (reason === "consent-source") tab.revision++
+    return reason === "denied" ? false : () => {}
+  }
+  tab.observeNetwork = async (duration, check, signal) => {
+    observed = true
+    expect(duration).toBe(250)
+    expect(signal).toBe(tab.diagnosticConsent?.signal)
+    expect(tab.navigationAllowed).toBeUndefined()
+    check()
+    if (reason === "source") tab.revision++
+    if (reason === "access") tab.accessRevision = 1
+    if (reason === "owner") tab.ownerID++
+    if (reason === "task") task = "task-epoch-2"
+    if (reason === "policy") permitted = false
+    if (reason === "native-revoke") tab.diagnosticConsent?.abort()
+    if (reason === "cancel") controller.abort()
+    if (reason === "cancel" || reason === "native-revoke") expect(signal.aborted).toBe(true)
+    await Promise.resolve()
+    check()
+    return network
+  }
+  try {
+    const request = { op: "observe_network", tabID: tab.id, durationMs: 250 } as const
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+    const response = await routeBrowserRequest(
+      {
+        type: "browser_request",
+        id: "network",
+        sessionID: tab.sessionID,
+        request: { ...request, context: prepared.result.context },
+      },
+      () => permitted,
+      { signal: controller.signal },
+    )
+    expect(response.ok).toBe(reason === "success")
+    expect(observed).toBe(reason !== "denied" && reason !== "consent-source")
+    if (response.ok)
+      expect(response.result).toEqual({
+        tabID: tab.id,
+        url: "http://localhost",
+        title: "",
+        visibleText: "",
+        elements: [],
+        diagnostics: { network },
+      })
+    else expect(JSON.stringify(response)).not.toContain("http2xx")
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(tab.diagnosticConsent).toBeUndefined()
+    expect(browserOperationBusy.has(tab.id)).toBe(false)
+    expect(calls).toEqual([])
+  } finally {
+    controller.abort()
+    remove()
+  }
+})
+
+test.each(["route", "post"] as const)(
+  "network real-route %s delivery drops counts after authority changes",
+  async (phase) => {
+    const { tab, route, remove } = fixture()
+    tab.confirmDiagnostics = async () => () => {}
+    tab.observeNetwork = async (_duration, check) => {
+      check()
+      return {
+        durationMs: 250,
+        http1xx: 0,
+        http2xx: 1,
+        http3xx: 0,
+        http4xx: 0,
+        http5xx: 0,
+        other: 0,
+        failed: 0,
+        total: 1,
+      }
+    }
+    const posted = Promise.withResolvers<BrowserIpcResult>()
+    const child = Object.assign(new EventEmitter(), { postMessage: (reply: BrowserIpcResult) => posted.resolve(reply) })
+    const stop = attachBrowserBridge(child, async (message, _allowed, control) => {
+      const response = await routeBrowserRequest(message, () => true, {
+        ...control,
+        onSettled(operation) {
+          control.onSettled?.(operation)
+          if (phase === "route")
+            void operation.then(() => {
+              tab.revision++
+            })
+        },
+      })
+      expect(response.ok).toBe(phase === "post")
+      if (phase === "post") tab.revision++
+      return response
+    })
+    try {
+      const request = { op: "observe_network", tabID: tab.id, durationMs: 250 } as const
+      const prepared = await route({ op: "prepare_write", request })
+      if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+      child.emit("message", {
+        type: "browser_request",
+        id: "network-race",
+        sessionID: tab.sessionID,
+        request: { ...request, context: prepared.result.context },
+      })
+      const reply = await posted.promise
+      expect(reply.response).toMatchObject({
+        ok: false,
+        code: "unavailable",
+        error: "Browser diagnostics delivery unavailable.",
+      })
+      expect(JSON.stringify(reply)).not.toContain("http2xx")
+      await new Promise((resolve) => setImmediate(resolve))
+    } finally {
+      stop()
+      remove()
+    }
+  },
+)
+
+test("network diagnostics reject private/foreign/stale approval and missing native capability", async () => {
+  const { tab, route, write, remove, calls } = fixture()
+  const request = { op: "observe_network", tabID: tab.id, durationMs: 250 } as const
+  try {
+    expect(await write(request)).toMatchObject({ code: "access_denied" })
+    tab.confirmDiagnostics = async () => () => {}
+    expect(await write(request)).toMatchObject({ code: "unavailable" })
+    expect(await route({ op: "prepare_write", request }, "foreign")).toMatchObject({ code: "no_target" })
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("No context")
+    tab.revision++
+    expect(await route({ ...request, context: prepared.result.context })).toMatchObject({ code: "access_denied" })
+    tab.agentAccess = false
+    expect(await write(request)).toMatchObject({ code: "access_denied" })
+    expect(calls).toEqual([])
   } finally {
     remove()
   }

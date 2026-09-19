@@ -382,6 +382,81 @@ describe("browser tools", () => {
     }
   })
 
+  test("network observation uses named approval, exact counts and no payload output", async () => {
+    const network = {
+      durationMs: 3000,
+      http1xx: 0,
+      http2xx: 1,
+      http3xx: 0,
+      http4xx: 2,
+      http5xx: 3,
+      other: 0,
+      failed: 4,
+      total: 10,
+    }
+    const value = { ...state, title: "", visibleText: "", elements: [], diagnostics: { network } }
+    const browser = fakePort(success(value))
+    const call = fakeContext()
+    const reply = await browserTools(browser.port).browser_observe_network.execute({ tabID: "one" }, call.context)
+    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_observe_network"])
+    expect(browser.sent.map((item) => item.request.op)).toEqual(["prepare_write", "observe_network"])
+    expect(browser.sent[1].request).toMatchObject({ context: state.context, durationMs: 3000 })
+    expect(reply).toContain("2xx 1")
+    expect(reply).toContain("zero is not a health verdict")
+    expect(reply).not.toContain(state.url)
+    const privateState = {
+      ...value,
+      url: "https://example.test/?secret=token",
+      context: state.context,
+      screenshot: { data: "secret-pixels", width: 1, height: 1 },
+    }
+    const privateReply = await browserTools(fakePort(success(privateState)).port).browser_observe_network.execute(
+      { tabID: "one" },
+      fakeContext().context,
+    )
+    expect(privateReply).not.toContain("secret")
+    for (const diagnostics of [undefined, { network, console: { secret: "payload" } }]) {
+      const invalid = fakePort(success({ ...value, diagnostics } as unknown as BrowserState))
+      await expect(
+        browserTools(invalid.port).browser_observe_network.execute({ tabID: "one" }, fakeContext().context),
+      ).rejects.toThrow("Invalid browser network observation")
+    }
+    for (const invalid of [
+      { ...network, total: 11 },
+      { ...network, durationMs: 250 },
+      { ...network, failed: -1 },
+      { ...network, http2xx: 0.5 },
+      { ...network, total: Number.MAX_SAFE_INTEGER + 1 },
+      { ...network, http2xx: Infinity },
+      { ...network, urls: ["secret"] },
+    ]) {
+      const port = fakePort(success({ ...value, diagnostics: { network: invalid } }))
+      await expect(
+        browserTools(port.port).browser_observe_network.execute({ tabID: "one" }, fakeContext().context),
+      ).rejects.toThrow("Invalid browser network observation")
+    }
+    for (const args of [
+      { tabID: "one", frameRef: "opaque" },
+      { tabID: "one", durationMs: 249 },
+      { tabID: "one", durationMs: 5001 },
+    ]) {
+      const port = fakePort()
+      await expect(
+        browserTools(port.port).browser_observe_network.execute(args, fakeContext().context),
+      ).rejects.toThrow()
+      expect(port.sent).toHaveLength(0)
+    }
+    const denied = fakePort()
+    const denial = fakeContext()
+    denial.context.ask = async (input) => {
+      if (input.permission === "browser_observe_network") throw new Error("Denied")
+    }
+    await expect(
+      browserTools(denied.port).browser_observe_network.execute({ tabID: "one" }, denial.context),
+    ).rejects.toThrow("Denied")
+    expect(denied.sent.map((item) => item.request.op)).toEqual(["prepare_write"])
+  })
+
   test("site-tool discovery labels bounded metadata as untrusted", async () => {
     const browser = fakePort(
       success({

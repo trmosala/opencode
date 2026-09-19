@@ -102,6 +102,7 @@ test("unsupported frame arguments never silently fall back to the top document",
     { op: "scroll", tabID: "one", deltaX: 0, deltaY: 1 },
     { op: "navigate", tabID: "one", url: "http://localhost/" },
     { op: "screenshot", tabID: "one" },
+    { op: "observe_network", tabID: "one", durationMs: 250 },
   ]
   const requests = [
     { op: "read_state", tabID: "one" },
@@ -206,30 +207,35 @@ test("screenshot requires approval binding and exposes no capture controls", () 
     expect(parseRequest({ op: "prepare_write", request: { ...request, tabID } })).toBeUndefined()
 })
 
-test("console observation requires exact bounded consent and exposes no payload controls", () => {
-  const request = { op: "observe_console", tabID: "one", durationMs: 250 } as const
-  const context = {
-    tabID: "one",
-    origin: "http://localhost",
-    urlHash: "a".repeat(64),
-    revision: 0,
-    accessRevision: 0,
-    ownerContext: "owner-task-1",
-  }
-  expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
-  expect(parseRequest(request)).toBeUndefined()
-  expect(parseRequest({ ...request, context })).toEqual({ ...request, context })
-  for (const durationMs of [249, 5001, 250.5, "250", undefined])
-    expect(parseRequest({ op: "prepare_write", request: { ...request, durationMs } })).toBeUndefined()
-  for (const extra of [
-    { includeMessages: true },
-    { includeSources: true },
-    { includeNetwork: true },
-    { filter: "password" },
-  ])
-    expect(parseRequest({ op: "prepare_write", request: { ...request, ...extra } })).toBeUndefined()
-  expect(parseRequest({ ...request, context: { ...context, ownerContext: undefined } })).toBeUndefined()
-})
+test.each(["observe_console", "observe_network"] as const)(
+  "%s requires exact bounded consent and exposes no payload controls",
+  (op) => {
+    const request = { op, tabID: "one", durationMs: 250 } as const
+    const context = {
+      tabID: "one",
+      origin: "http://localhost",
+      urlHash: "a".repeat(64),
+      revision: 0,
+      accessRevision: 0,
+      ownerContext: "owner-task-1",
+    }
+    expect(parseRequest({ op: "prepare_write", request })).toEqual({ op: "prepare_write", request })
+    expect(parseRequest(request)).toBeUndefined()
+    expect(parseRequest({ ...request, context })).toEqual({ ...request, context })
+    for (const durationMs of [250, 3000, 5000])
+      expect(parseRequest({ ...request, context, durationMs })).toEqual({ ...request, context, durationMs })
+    for (const durationMs of [249, 5001, 250.5, "250", undefined, NaN, Infinity])
+      expect(parseRequest({ op: "prepare_write", request: { ...request, durationMs } })).toBeUndefined()
+    for (const extra of [
+      { includeMessages: true },
+      { includeSources: true },
+      { includeNetwork: true },
+      { filter: "password" },
+    ])
+      expect(parseRequest({ op: "prepare_write", request: { ...request, ...extra } })).toBeUndefined()
+    expect(parseRequest({ ...request, context: { ...context, ownerContext: undefined } })).toBeUndefined()
+  },
+)
 
 test("site tools require opaque refs, bounded JSON objects and exact execution bindings", () => {
   const list = { op: "list_site_tools", tabID: "one" } as const

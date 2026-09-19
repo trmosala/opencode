@@ -6,6 +6,7 @@ import {
   type Response,
   type BrowserState,
   type SiteTool,
+  type NetworkObservation,
 } from "@cookiemonster/cm-browser/protocol"
 import { nativeT } from "../native-translations"
 import type { createFrameSessions } from "./frame-sessions"
@@ -64,7 +65,13 @@ export type BrowserRegistration = {
   siteToolConsent?: AbortController
   ownerContext?: () => string
   confirmScreenshot?: (url: string, signal: AbortSignal) => Promise<false | (() => void)>
-  confirmDiagnostics?: (url: string, durationMs: number, signal: AbortSignal) => Promise<false | (() => void)>
+  confirmDiagnostics?: (
+    url: string,
+    durationMs: number,
+    signal: AbortSignal,
+    kind: "console" | "network",
+  ) => Promise<false | (() => void)>
+  observeNetwork?: (durationMs: number, check: () => void, signal: AbortSignal) => Promise<NetworkObservation>
   confirmSiteTool?: (
     url: string,
     tool: SiteTool,

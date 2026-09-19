@@ -13,6 +13,38 @@ import {
 } from "./desktop-native"
 
 describe("desktop native translations", () => {
+  test("network consent appends distinct keys without changing console disclosure", () => {
+    expect(DESKTOP_NATIVE_KEYS.slice(-4)).toEqual([
+      "desktop.browser.networkConsent",
+      "desktop.browser.networkDetail",
+      "desktop.browser.networkNativeOnly",
+      "desktop.browser.operationUnavailable",
+    ])
+    expect(DESKTOP_NATIVE_ENGLISH["desktop.browser.diagnosticsConsent"]).toBe(
+      "Share bounded console diagnostics with the agent?",
+    )
+    expect(DESKTOP_NATIVE_ENGLISH["desktop.browser.diagnosticsDetail"]).toBe(
+      "Task {{task}} requests {{duration}}ms of console severity counts from tab {{tab}} at {{url}}. Message text, source URLs, stack traces, request data, and network activity are not collected.",
+    )
+    const detail = formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.browser.networkDetail"], {
+      task: "task-one",
+      tab: "tab-one",
+      url: "https://example.test",
+      duration: 250,
+    })
+    for (const text of [
+      "task-one",
+      "tab-one",
+      "250ms",
+      "terminal events",
+      "dedicated workers",
+      "before approval",
+      "incomplete",
+      "not retained",
+      "No CDP",
+    ])
+      expect(detail).toContain(text)
+  })
   test("preserves the fixed key prefix used by indexed locale dictionaries", () => {
     // Baseline ff96a0e61: append keys, never shift the existing 217 locale indices.
     expect(new Bun.CryptoHasher("sha256").update(JSON.stringify(DESKTOP_NATIVE_KEYS.slice(0, 217))).digest("hex")).toBe(

@@ -12,6 +12,9 @@ export const MAX_SCREENSHOT_BYTES = 46_080
 export const MAX_SCREENSHOT_BASE64 = 61_440
 export const MIN_CONSOLE_OBSERVATION_MS = 250
 export const MAX_CONSOLE_OBSERVATION_MS = 5_000
+export const MIN_NETWORK_OBSERVATION_MS = 250
+export const MAX_NETWORK_OBSERVATION_MS = 5_000
+export const DEFAULT_NETWORK_OBSERVATION_MS = 3_000
 export const MAX_SITE_TOOLS = 32
 export const MAX_SITE_TOOL_ARGUMENT_BYTES = 8 * 1024
 export const MAX_SITE_TOOL_RESULT_BYTES = 16 * 1024
@@ -24,6 +27,20 @@ export type ConsoleObservation = {
   readonly warning: number
   readonly error: number
   readonly other: number
+  readonly total: number
+}
+
+// Terminal events received in the window, not requests started after approval.
+// Electron may attribute workers/in-flight requests to the main frame; zero is not a health verdict.
+export type NetworkObservation = {
+  readonly durationMs: number
+  readonly http1xx: number
+  readonly http2xx: number
+  readonly http3xx: number
+  readonly http4xx: number
+  readonly http5xx: number
+  readonly other: number
+  readonly failed: number
   readonly total: number
 }
 
@@ -149,7 +166,7 @@ export type BrowserState = {
   readonly tabToken?: string
   readonly tabResult?: TabResult
   readonly screenshot?: Screenshot
-  readonly diagnostics?: { readonly console: ConsoleObservation }
+  readonly diagnostics?: { readonly console?: ConsoleObservation; readonly network?: NetworkObservation }
   readonly siteTools?: readonly SiteTool[]
   readonly siteToolsTruncated?: boolean
   readonly siteToolContext?: SiteToolContext
@@ -194,6 +211,7 @@ export type AccessContext = {
 export type WriteRequest = { readonly tabID: string } & (
   | { readonly op: "screenshot" }
   | { readonly op: "observe_console"; readonly durationMs: number }
+  | { readonly op: "observe_network"; readonly durationMs: number }
   | { readonly op: "navigate"; readonly url: string }
   | { readonly op: "click"; readonly ref: string; readonly mode?: "left" | "double" | "right" }
   | { readonly op: "hover"; readonly ref: string }
@@ -637,16 +655,16 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
   if (input.op === "screenshot") return { op: "screenshot", tabID }
-  if (input.op === "observe_console") {
+  if (input.op === "observe_console" || input.op === "observe_network") {
     if (
       Object.keys(input).some((key) => !["op", "tabID", "durationMs", "context"].includes(key)) ||
       typeof input.durationMs !== "number" ||
       !Number.isInteger(input.durationMs) ||
-      input.durationMs < MIN_CONSOLE_OBSERVATION_MS ||
-      input.durationMs > MAX_CONSOLE_OBSERVATION_MS
+      input.durationMs < (input.op === "observe_network" ? MIN_NETWORK_OBSERVATION_MS : MIN_CONSOLE_OBSERVATION_MS) ||
+      input.durationMs > (input.op === "observe_network" ? MAX_NETWORK_OBSERVATION_MS : MAX_CONSOLE_OBSERVATION_MS)
     )
       return
-    return { op: "observe_console", tabID, durationMs: input.durationMs }
+    return { op: input.op, tabID, durationMs: input.durationMs }
   }
   if (input.op === "navigate")
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH

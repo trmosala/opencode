@@ -15,6 +15,9 @@ import {
   screenshotDimensions,
   MAX_SNAPSHOT_BYTES,
   MAX_CONSOLE_OBSERVATION_MS,
+  MIN_NETWORK_OBSERVATION_MS,
+  MAX_NETWORK_OBSERVATION_MS,
+  DEFAULT_NETWORK_OBSERVATION_MS,
   MAX_SITE_TOOLS,
   MIN_CONSOLE_OBSERVATION_MS,
   type BrowserState,
@@ -293,6 +296,70 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         )
           throw new Error("Invalid browser console observation result.")
         return `Console counts for tab ${state.tabID} over ${value.data.durationMs}ms: error ${value.data.error}, warning ${value.data.warning}, info ${value.data.info}, debug ${value.data.debug}, other ${value.data.other}, total ${value.data.total}.`
+      },
+    }),
+    browser_observe_network: tool({
+      description:
+        "Count HTTP(S) Fetch/XHR terminal events received during one approved window, attributed by Electron to the opted-in main frame. May include ancestor-attributed workers and requests initiated before approval. Coverage is incomplete; zero is not a health verdict. Requires named approval and fresh native consent. Status-class and transport/abort failure counts only; no request URLs, headers, bodies, cookies or raw errors. No CDP access.",
+      args: {
+        tabID,
+        durationMs: tool.schema
+          .number()
+          .int()
+          .min(MIN_NETWORK_OBSERVATION_MS)
+          .max(MAX_NETWORK_OBSERVATION_MS)
+          .optional(),
+      },
+      async execute(args, context) {
+        const request = {
+          op: "observe_network",
+          tabID: args.tabID,
+          durationMs: args.durationMs ?? DEFAULT_NETWORK_OBSERVATION_MS,
+        } as const
+        if (!parseRequest({ op: "prepare_write", request: { ...args, ...request } }))
+          throw new Error("Invalid browser network observation request.")
+        const state = await run(port, context, await askWrite(port, context, "browser_observe_network", request))
+        const count = tool.schema.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+        const value = tool.schema
+          .object({
+            network: tool.schema
+              .object({
+                durationMs: tool.schema.literal(request.durationMs),
+                http1xx: count,
+                http2xx: count,
+                http3xx: count,
+                http4xx: count,
+                http5xx: count,
+                other: count,
+                failed: count,
+                total: count,
+              })
+              .strict(),
+          })
+          .strict()
+          .safeParse(state.diagnostics)
+        if (
+          !value.success ||
+          state.tabID !== args.tabID ||
+          state.title !== "" ||
+          state.visibleText !== "" ||
+          !Array.isArray(state.elements) ||
+          state.elements.length
+        )
+          throw new Error("Invalid browser network observation result.")
+        const counts = value.data.network
+        if (
+          counts.total !==
+          counts.http1xx +
+            counts.http2xx +
+            counts.http3xx +
+            counts.http4xx +
+            counts.http5xx +
+            counts.other +
+            counts.failed
+        )
+          throw new Error("Invalid browser network observation result.")
+        return `Network terminal-event counts for tab ${args.tabID} over ${counts.durationMs}ms: 1xx ${counts.http1xx}, 2xx ${counts.http2xx}, 3xx ${counts.http3xx}, 4xx ${counts.http4xx}, 5xx ${counts.http5xx}, other ${counts.other}, transport/abort failures ${counts.failed}, total ${counts.total}. Electron main-frame attribution may include workers and requests initiated before approval; coverage is incomplete and zero is not a health verdict.`
       },
     }),
     browser_list_site_tools: tool({

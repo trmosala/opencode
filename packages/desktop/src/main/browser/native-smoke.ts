@@ -604,6 +604,7 @@ async function run() {
       request.op !== "press_key" &&
       request.op !== "screenshot" &&
       request.op !== "observe_console" &&
+      request.op !== "observe_network" &&
       request.op !== "scroll"
     )
       return dispatch(request)

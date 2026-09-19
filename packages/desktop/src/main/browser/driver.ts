@@ -273,6 +273,7 @@ async function settle(target: Target) {
 
 export async function execute(target: Target, request: PageRequest): Promise<Response<BrowserState>> {
   if (request.op === "observe_console") return failure("bad_request", "Console observation requires native routing.")
+  if (request.op === "observe_network") return failure("bad_request", nativeT("desktop.browser.networkNativeOnly"))
   target = {
     ...target,
     deadline: Math.min(

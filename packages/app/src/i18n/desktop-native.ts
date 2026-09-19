@@ -549,6 +549,11 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Task {{task}} requests website tool {{tool}} in tab {{tab}} at {{url}}.\n\nExact JSON arguments:\n{{arguments}}\n\nThe website supplies this tool and receives these arguments. It may change website or account data. CookieMonster will return its bounded result to the agent as untrusted content.",
   "desktop.browser.siteToolDenied": "Website tool consent was not granted.",
   "desktop.browser.siteToolDeliveryUnavailable": "Website tool delivery unavailable.",
+  "desktop.browser.networkConsent": "Share bounded network counts with the agent?",
+  "desktop.browser.networkDetail":
+    "Task {{task}} requests {{duration}}ms of HTTP(S) Fetch/XHR completion and transport/abort failure counts from tab {{tab}} at {{url}}. Only terminal events received during this window and attributed by Electron to the main frame are counted. This may include ancestor-attributed dedicated workers and requests initiated before approval. Coverage is incomplete; zero counts do not mean the page is healthy. Request URLs, referrers, headers, bodies, cookies, credentials and raw errors are not retained or shared. No CDP access or vault permission is granted.",
+  "desktop.browser.networkNativeOnly": "Network observation requires native routing.",
+  "desktop.browser.operationUnavailable": "Browser operation interrupted or unavailable.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

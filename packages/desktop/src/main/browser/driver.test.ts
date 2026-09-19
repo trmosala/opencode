@@ -81,6 +81,15 @@ async function firstRef(view: ReturnType<typeof fake>) {
 }
 
 describe("browser driver", () => {
+  test("network diagnostics reject the driver path before debugger attachment", async () => {
+    const view = fake()
+    expect(await execute(view.target, { op: "observe_network", tabID: "one", durationMs: 250 })).toMatchObject({
+      ok: false,
+      code: "bad_request",
+    })
+    expect(view.attached()).toBe(false)
+    expect(view.calls).toEqual([])
+  })
   test("screenshot bounds preflight and decoded raster, rejects malformed capture, never retries or reads DOM", async () => {
     const decoder = screenshotDecoder.size
     try {
