@@ -38,8 +38,9 @@ let editingLogin = false
 const store = () => getStore("cm-browser")
 
 function loginSummary() {
+  const available = vaultAvailable()
   const vaultStatus = vaultAccess.status()
-  if (vaultStatus !== "unlocked") return { credentials: [], vaultAvailable: vaultAvailable(), vaultStatus }
+  if (!available || vaultStatus !== "unlocked") return { credentials: [], vaultAvailable: available, vaultStatus }
   try {
     const ticket = vaultAccess.require()
     const credentials = readLogins(false).map(({ id, origin, username }) => ({ id, origin, username }))

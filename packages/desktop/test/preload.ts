@@ -223,7 +223,13 @@ const electron = {
     getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }),
     getAllDisplays: () => [] as unknown[],
   },
-  systemPreferences: { getMediaAccessStatus: () => "granted" },
+  systemPreferences: {
+    getMediaAccessStatus: () => "granted",
+    canPromptTouchID: () => false,
+    promptTouchID: async (_reason: string) => {
+      throw new Error("OS authentication unavailable")
+    },
+  },
 }
 
 // mock.module returns a promise, but the registration itself is synchronous and must be in place

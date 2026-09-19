@@ -26,7 +26,7 @@ import { browserProfile, clearBrowserData, saveLogins } from "./profile"
 import { snapshotScript } from "./snapshot"
 import { browserPreferencesState, downloadDirectory, downloadHistory, mediaOrigin } from "./preferences"
 import { getStore } from "../store"
-import { readLogins, writeLogins } from "./vault"
+import { readLogins, writeLogins, vaultAvailable } from "./vault"
 import { loginEntry, decodeLoginEntry } from "./login-entry"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
 import { loginOfferSucceeded } from "./login-offer-script"
@@ -181,6 +181,91 @@ async function accountSmoke(
   } finally {
     loginEntry.prompt = entryPrompt
     dialog.showMessageBox = accountConsent
+  }
+}
+
+async function vaultCapabilitySmoke(win: BrowserWindow) {
+  const verify = vaultAuthentication.verify
+  const encryption = safeStorage.isEncryptionAvailable
+  try {
+    for (const mode of ["encryption", "remote-debugging-port", "remote-debugging-pipe"]) {
+      stage(`vault capability loss: ${mode}`)
+      assert(vaultAvailable(), "Fixture requires native secure storage")
+      const capability = (available: boolean) => {
+        if (mode === "encryption") safeStorage.isEncryptionAvailable = available ? encryption : () => false
+        else if (available) app.commandLine.removeSwitch(mode)
+        else app.commandLine.appendSwitch(mode, "0")
+      }
+      vaultAccess.lock()
+      const verification = Promise.withResolvers<void>()
+      vaultAuthentication.verify = () => verification.promise
+      const pending = vaultAccess.unlock(win)
+      void pending.catch(() => undefined)
+      assert.equal(vaultAccess.status(), "unlocking")
+      let notifications = 0
+      const unsubscribe = vaultAccess.subscribe(() => {
+        notifications++
+        assert(notifications < 4, "Capability publication must not recursively lock")
+        browserProfile()
+      })
+      try {
+        capability(false)
+        const unavailable = browserProfile()
+        assert.equal(unavailable.vaultAvailable, false)
+        assert.equal(unavailable.vaultStatus, "locked", "Observed loss must revoke pending authentication")
+        assert.deepEqual(unavailable.credentials, [])
+        assert.equal(notifications, 1)
+        assert.equal(vaultAvailable(), false)
+        assert.equal(notifications, 1, "Repeated denial must not publish another lock")
+        capability(true)
+        verification.resolve()
+        await assert.rejects(pending, /invalidated/)
+        assert.equal(vaultAccess.status(), "locked")
+      } finally {
+        unsubscribe()
+        capability(true)
+        verification.resolve()
+        await pending.catch(() => undefined)
+      }
+      vaultAuthentication.verify = async () => {}
+      await vaultAccess.unlock(win)
+      const ticket = vaultAccess.require()
+      capability(false)
+      assert.equal(vaultAvailable(), false)
+      capability(true)
+      assert.throws(() => vaultAccess.require(ticket), "Recovery must not restore the old access window")
+      await vaultAccess.unlock(win)
+      assert.throws(() => vaultAccess.require(ticket), "Fresh authentication must not revive old operation tickets")
+      vaultAccess.lock()
+      vaultAuthentication.verify = async () => {
+        capability(false)
+      }
+      try {
+        await assert.rejects(vaultAccess.unlock(win), "Authentication completion must recheck live capability")
+        assert.equal(vaultAccess.status(), "locked")
+      } finally {
+        capability(true)
+      }
+      assert.equal(vaultAccess.status(), "locked", "Recovery after rejected completion must stay locked")
+      let attempts = 0
+      vaultAuthentication.verify = async () => {
+        attempts++
+      }
+      capability(false)
+      try {
+        await assert.rejects(vaultAccess.unlock(win))
+        assert.equal(attempts, 0, "Unavailable capability must not start OS authentication")
+      } finally {
+        capability(true)
+      }
+      console.log(`PASS vault capability loss: ${mode}`)
+    }
+  } finally {
+    safeStorage.isEncryptionAvailable = encryption
+    app.commandLine.removeSwitch("remote-debugging-port")
+    app.commandLine.removeSwitch("remote-debugging-pipe")
+    vaultAuthentication.verify = verify
+    vaultAccess.lock()
   }
 }
 
@@ -481,6 +566,8 @@ async function run() {
       await command({ op: "unlock-vault" })
       saveLogins([{ origin: url, username: "fixture-user", password: "fixture-secret" }])
       await accountSmoke(win, command, url, "fixture-user")
+      await vaultCapabilitySmoke(win)
+      await command({ op: "unlock-vault" })
       stage("native account response decoding")
       const unicode = {
         origin: new URL(url).origin,
@@ -4672,6 +4759,8 @@ async function run() {
   assert.equal(browserProfile().vaultAvailable, false)
   assert.throws(() => readLogins())
   app.commandLine.removeSwitch("remote-debugging-port")
+  assert.equal(vaultAccess.status(), "locked")
+  await command({ op: "unlock-vault" })
   const encryptedVault = getStore("cm-browser").get("vault") as { data: string }
   getStore("cm-browser").set("vault", { ...encryptedVault, data: Buffer.from("tampered").toString("base64") })
   assert.throws(() => readLogins())

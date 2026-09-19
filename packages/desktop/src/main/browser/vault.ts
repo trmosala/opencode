@@ -1,21 +1,14 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto"
-import { app, safeStorage } from "electron"
+import { safeStorage } from "electron"
 import { getStore } from "../store"
 import { requireLogin, type BrowserLogin } from "./import-data"
-import { vaultAccess } from "./vault-session"
+import { vaultAccess, vaultAvailable } from "./vault-session"
+
+export { vaultAvailable } from "./vault-session"
 
 type Login = BrowserLogin & { id: string }
 const store = () => getStore("cm-browser")
 const context = Buffer.from("CookieMonster browser vault v1")
-
-export function vaultAvailable() {
-  return (
-    !app.commandLine.hasSwitch("remote-debugging-port") &&
-    !app.commandLine.hasSwitch("remote-debugging-pipe") &&
-    safeStorage.isEncryptionAvailable() &&
-    (process.platform !== "linux" || !["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend()))
-  )
-}
 
 export function readLogins(migrate = true): Login[] {
   const ticket = vaultAccess.require()
