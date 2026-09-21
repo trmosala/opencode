@@ -225,7 +225,7 @@ async function dispatchClick(target: Target, element: SnapshotElement, button = 
   await send(target, "Input.dispatchMouseEvent", { ...base, type: "mouseReleased", buttons: 0 })
 }
 
-async function dispatchKey(target: Target, key: string, modifiers: readonly Modifier[] = []) {
+async function dispatchKey(target: Target, key: string, modifiers: readonly Modifier[] = [], commands?: string[]) {
   const mapped =
     KEYS[key.trim().toLowerCase()] ??
     (Array.from(key).length === 1
@@ -242,6 +242,7 @@ async function dispatchKey(target: Target, key: string, modifiers: readonly Modi
     ...params,
     type: "keyDown",
     text: mapped.text,
+    ...(commands ? { commands } : {}),
   })
   await send(target, "Input.dispatchKeyEvent", { ...params, type: "keyUp" })
   return true
@@ -484,7 +485,13 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
 
     if (request.op === "fill") {
       target = { ...target, inputRef: request.ref }
-      await dispatchKey(target, "a", [process.platform === "darwin" ? "Meta" : "Ctrl"])
+      // CDP needs an explicit editing command for macOS contenteditable selection.
+      await dispatchKey(
+        target,
+        "a",
+        [process.platform === "darwin" ? "Meta" : "Ctrl"],
+        process.platform === "darwin" ? ["selectAll"] : undefined,
+      )
       await dispatchKey(target, "Backspace")
       for (const character of request.text) await dispatchKey(target, character)
     }
