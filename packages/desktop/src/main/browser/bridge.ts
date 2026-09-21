@@ -6,7 +6,7 @@ import {
   type BrowserIpcResult,
   type BrowserIpcRequest,
 } from "@cookiemonster/cm-browser/protocol"
-import { routeBrowserRequest } from "./router"
+import { browserDeliveryError, browserResponseNeedsDeliveryCheck, routeBrowserRequest } from "./router"
 import { nativeT } from "../native-translations"
 
 type Sidecar = {
@@ -22,42 +22,14 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest)
   const post = (message: BrowserIpcResult, op: BrowserIpcRequest["request"]["op"], check?: () => void) => {
     if (stopped) return
     try {
-      if (
-        message.response.ok &&
-        (op === "screenshot" ||
-          op === "scroll" ||
-          op === "wait_for_element" ||
-          op === "wait_for_navigation" ||
-          message.response.result.screenshot !== undefined ||
-          message.response.result.frames !== undefined ||
-          message.response.result.frameRef !== undefined ||
-          message.response.result.frameContext !== undefined ||
-          message.response.result.frameSelectContext !== undefined ||
-          message.response.result.diagnostics !== undefined ||
-          message.response.result.siteTools !== undefined ||
-          message.response.result.siteToolContext !== undefined ||
-          message.response.result.siteToolResult !== undefined)
-      ) {
+      if (message.response.ok && browserResponseNeedsDeliveryCheck(op, message.response.result)) {
         try {
-          if (!check) throw new Error("Missing screenshot delivery guard")
+          if (!check) throw new Error("Missing browser delivery guard")
           check()
         } catch {
           message = {
             ...message,
-            response: failure(
-              "unavailable",
-              nativeT(
-                op === "scroll" || op === "wait_for_element" || op === "wait_for_navigation"
-                  ? "desktop.browser.operationUnavailable"
-                  : message.response.result.diagnostics !== undefined
-                    ? "desktop.browser.diagnosticsDeliveryUnavailable"
-                    : message.response.result.siteTools !== undefined ||
-                        message.response.result.siteToolContext !== undefined ||
-                        message.response.result.siteToolResult !== undefined
-                      ? "desktop.browser.siteToolDeliveryUnavailable"
-                      : "desktop.browser.screenshotDeliveryUnavailable",
-              ),
-            ),
+            response: failure("unavailable", nativeT(browserDeliveryError(op, message.response.result))),
           }
         }
       }

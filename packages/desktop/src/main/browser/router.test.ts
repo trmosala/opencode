@@ -1255,7 +1255,7 @@ test.each(["hover", "double", "right"] as const)(
   },
 )
 
-test.each(["scroll", "wait_for_element", "wait_for_navigation"] as const)(
+test.each(["read_state", "navigate", "scroll", "wait_for_element", "wait_for_navigation"] as const)(
   "%s rejects stale snapshots at route and sidecar delivery",
   async (op) => {
     for (const phase of ["success", "post", "route", "missing"] as const) {
@@ -1293,12 +1293,19 @@ test.each(["scroll", "wait_for_element", "wait_for_navigation"] as const)(
       })
       try {
         const request =
-          op === "scroll"
-            ? { op, tabID: tab.id, deltaX: 0, deltaY: 100, timeoutMs: 1000 }
-            : op === "wait_for_element"
-              ? { op, tabID: tab.id, selector: "#ready", timeoutMs: 1000 }
-              : { op, tabID: tab.id, url: tab.contents.getURL(), timeoutMs: 1000 }
-        const prepared = request.op === "scroll" ? await route({ op: "prepare_write", request }) : undefined
+          op === "read_state"
+            ? { op, tabID: tab.id }
+            : op === "navigate"
+              ? { op, tabID: tab.id, url: "http://localhost/destination" }
+              : op === "scroll"
+                ? { op, tabID: tab.id, deltaX: 0, deltaY: 100, timeoutMs: 1000 }
+                : op === "wait_for_element"
+                  ? { op, tabID: tab.id, selector: "#ready", timeoutMs: 1000 }
+                  : { op, tabID: tab.id, url: tab.contents.getURL(), timeoutMs: 1000 }
+        const prepared =
+          request.op === "scroll" || request.op === "navigate"
+            ? await route({ op: "prepare_write", request })
+            : undefined
         if (prepared && !prepared.ok) throw new Error("No approval context")
         child.emit("message", {
           type: "browser_request",
@@ -1326,6 +1333,37 @@ test.each(["scroll", "wait_for_element", "wait_for_navigation"] as const)(
     }
   },
 )
+
+test("navigation pins the actual destination before capture", async () => {
+  for (const mode of ["redirect", "capture-change"] as const) {
+    const { tab, route, remove } = fixture()
+    const requested = "http://localhost/destination"
+    const redirected = "http://localhost/redirected"
+    const changed = "http://localhost/changed"
+    const load = tab.contents.loadURL.bind(tab.contents)
+    tab.contents.loadURL = async () => load(redirected)
+    const send = tab.contents.debugger.sendCommand.bind(tab.contents.debugger)
+    let changedDuringCapture = false
+    tab.contents.debugger.sendCommand = async (method, params) => {
+      const response = await send(method, params)
+      if (mode === "capture-change" && method === "Runtime.evaluate" && !changedDuringCapture) {
+        changedDuringCapture = true
+        await load(changed)
+      }
+      return response
+    }
+    try {
+      const request = { op: "navigate", tabID: tab.id, url: requested } as const
+      const prepared = await route({ op: "prepare_write", request })
+      if (!prepared.ok || !prepared.result.context) throw new Error("No approval context")
+      const response = await route({ ...request, context: prepared.result.context })
+      if (mode === "redirect") expect(response).toMatchObject({ ok: true, result: { url: redirected } })
+      else expect(response).toMatchObject({ ok: false, code: "unavailable" })
+    } finally {
+      remove()
+    }
+  }
+})
 
 test.each(["scroll", "wait_for_element"] as const)(
   "%s retains held native ownership and rejects interrupted epochs",

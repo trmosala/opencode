@@ -53,6 +53,7 @@ export type Target = {
   readonly tabID: string
   readonly contents: DriverContents
   readonly check?: (source?: boolean) => void
+  readonly pinDestination?: () => void
   readonly signal?: AbortSignal
   readonly deadline?: number
   readonly inputRef?: string
@@ -355,6 +356,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       if (target.contents.isDestroyed() || Date.now() >= deadline) throw new Error("Browser navigation interrupted")
       await settle(target)
     }
+    target.pinDestination?.()
     return refreshed(target)
   }
   if (request.op === "press_key") {

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { EventEmitter, getEventListeners } from "node:events"
-import { failure, success, type BrowserIpcResult } from "@cookiemonster/cm-browser/protocol"
+import { failure, success, type BrowserIpcRequest, type BrowserIpcResult } from "@cookiemonster/cm-browser/protocol"
 import { attachBrowserBridge } from "./bridge"
 
 test("sidecar owns ID/session cancellation, rejects duplicates, and cleans up on exit", async () => {
@@ -202,6 +202,134 @@ test("site tool delivery rechecks authority immediately before sidecar post", as
         response: { ok: false, code: "unavailable", error: "Website tool delivery unavailable." },
       },
     ])
+  } finally {
+    stop()
+  }
+})
+
+const deliveryContext = {
+  tabID: "tab",
+  origin: "https://example.test",
+  urlHash: "a".repeat(64),
+  revision: 0,
+  accessRevision: 0,
+  ownerContext: "owner-task",
+}
+
+function pageStateRequest(op: string): BrowserIpcRequest["request"] {
+  if (op === "read_state") return { op, tabID: "tab" }
+  if (op === "navigate") return { op, tabID: "tab", url: "https://example.test/next", context: deliveryContext }
+  if (op === "click") return { op, tabID: "tab", ref: "snapshot:button", context: deliveryContext }
+  if (op === "hover") return { op, tabID: "tab", ref: "snapshot:button", context: deliveryContext }
+  if (op === "drag")
+    return { op, tabID: "tab", sourceRef: "snapshot:source", targetRef: "snapshot:target", context: deliveryContext }
+  if (op === "select_option")
+    return { op, tabID: "tab", ref: "snapshot:select", optionRef: "snapshot:option", context: deliveryContext }
+  if (op === "fill") return { op, tabID: "tab", ref: "snapshot:input", text: "value", context: deliveryContext }
+  if (op === "press_key") return { op, tabID: "tab", key: "Enter", modifiers: [], context: deliveryContext }
+  if (op === "scroll") return { op, tabID: "tab", deltaX: 0, deltaY: 100, timeoutMs: 1000, context: deliveryContext }
+  if (op === "wait_for_element") return { op, tabID: "tab", selector: "#ready", timeoutMs: 1000 }
+  return { op: "wait_for_navigation", tabID: "tab", url: "https://example.test/next", timeoutMs: 1000 }
+}
+
+test.each([
+  "read_state",
+  "navigate",
+  "click",
+  "hover",
+  "drag",
+  "select_option",
+  "fill",
+  "press_key",
+  "scroll",
+  "wait_for_element",
+  "wait_for_navigation",
+] as const)("%s page-state delivery fails closed with missing or stale authority", async (op) => {
+  for (const mode of ["valid", "stale", "missing"] as const) {
+    const replies: BrowserIpcResult[] = []
+    const child = Object.assign(new EventEmitter(), {
+      postMessage: (reply: BrowserIpcResult) => {
+        replies.push(reply)
+      },
+    })
+    const stop = attachBrowserBridge(child, async (_request, _allowed, control) => {
+      if (mode !== "missing")
+        control.onScreenshotDelivery?.(() => {
+          if (mode === "stale") throw new Error("Source changed")
+        })
+      return success({
+        tabID: "tab",
+        url: "https://example.test/private?token=secret",
+        title: "Private title",
+        visibleText: "private page text",
+        elements: [{ ref: "snapshot:secret", tag: "button", role: "", label: "Private", text: "Private" }],
+      })
+    })
+    try {
+      child.emit("message", {
+        type: "browser_request",
+        id: `${op}-${mode}`,
+        sessionID: "one",
+        request: pageStateRequest(op),
+      })
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(replies).toHaveLength(1)
+      expect(replies[0].response.ok).toBe(mode === "valid")
+      if (mode !== "valid") {
+        expect(replies[0].response).toMatchObject({ code: "unavailable" })
+        expect(JSON.stringify(replies[0])).not.toContain("private")
+        expect(JSON.stringify(replies[0])).not.toContain("secret")
+      }
+    } finally {
+      stop()
+    }
+  }
+})
+
+test.each([
+  {
+    name: "screenshot",
+    result: {
+      tabID: "",
+      url: "",
+      title: "",
+      visibleText: "",
+      elements: [],
+      screenshot: { data: "private-image", width: 1, height: 1 },
+    },
+  },
+  {
+    name: "diagnostics",
+    result: {
+      tabID: "",
+      url: "",
+      title: "",
+      visibleText: "",
+      elements: [],
+      diagnostics: {
+        console: { durationMs: 250, debug: 0, info: 0, warning: 0, error: 1, other: 0, total: 1 },
+      },
+    },
+  },
+] as const)("unexpected $name payload still requires a final-post guard", async ({ name, result }) => {
+  const replies: BrowserIpcResult[] = []
+  const child = Object.assign(new EventEmitter(), {
+    postMessage: (reply: BrowserIpcResult) => {
+      replies.push(reply)
+    },
+  })
+  const stop = attachBrowserBridge(child, async () => success(result))
+  try {
+    child.emit("message", {
+      type: "browser_request",
+      id: `mismatch-${name}`,
+      sessionID: "one",
+      request: { op: "list_tabs" },
+    } satisfies BrowserIpcRequest)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(replies).toHaveLength(1)
+    expect(replies[0].response).toMatchObject({ code: "unavailable" })
+    expect(JSON.stringify(replies[0])).not.toContain(name === "screenshot" ? "private-image" : "durationMs")
   } finally {
     stop()
   }

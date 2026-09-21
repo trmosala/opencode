@@ -36,6 +36,78 @@ export type BrowserOperation = {
   onScreenshotDelivery?: (check: () => void) => void
 }
 
+const PAGE_STATE_OPERATIONS = new Set<BrowserIpcRequest["request"]["op"]>([
+  "read_state",
+  "navigate",
+  "click",
+  "hover",
+  "drag",
+  "select_option",
+  "fill",
+  "press_key",
+  "scroll",
+  "wait_for_element",
+  "wait_for_navigation",
+])
+
+export function browserOperationReturnsPageState(op: BrowserIpcRequest["request"]["op"], result: BrowserState) {
+  return (
+    PAGE_STATE_OPERATIONS.has(op) &&
+    result.frameRef === undefined &&
+    result.frameContext === undefined &&
+    result.frameSelectContext === undefined
+  )
+}
+
+export function browserResponseNeedsDeliveryCheck(op: BrowserIpcRequest["request"]["op"], result: BrowserState) {
+  return (
+    browserOperationReturnsPageState(op, result) ||
+    op === "screenshot" ||
+    op === "observe_console" ||
+    op === "observe_network" ||
+    result.screenshot !== undefined ||
+    result.diagnostics !== undefined ||
+    result.frames !== undefined ||
+    result.frameRef !== undefined ||
+    result.frameContext !== undefined ||
+    result.frameSelectContext !== undefined ||
+    result.siteTools !== undefined ||
+    result.siteToolContext !== undefined ||
+    result.siteToolResult !== undefined
+  )
+}
+
+export function browserDeliveryError(
+  op: BrowserIpcRequest["request"]["op"],
+  result: BrowserState,
+):
+  | "desktop.browser.operationUnavailable"
+  | "desktop.browser.diagnosticsDeliveryUnavailable"
+  | "desktop.browser.siteToolDeliveryUnavailable"
+  | "desktop.browser.screenshotDeliveryUnavailable" {
+  if (result.diagnostics !== undefined || op === "observe_console" || op === "observe_network")
+    return "desktop.browser.diagnosticsDeliveryUnavailable"
+  if (
+    result.siteTools !== undefined ||
+    result.siteToolContext !== undefined ||
+    result.siteToolResult !== undefined ||
+    op === "list_site_tools" ||
+    op === "prepare_site_tool" ||
+    op === "execute_site_tool"
+  )
+    return "desktop.browser.siteToolDeliveryUnavailable"
+  if (
+    result.screenshot !== undefined ||
+    result.frames !== undefined ||
+    result.frameRef !== undefined ||
+    result.frameContext !== undefined ||
+    result.frameSelectContext !== undefined ||
+    op === "screenshot"
+  )
+    return "desktop.browser.screenshotDeliveryUnavailable"
+  return "desktop.browser.operationUnavailable"
+}
+
 export async function routeBrowserRequest(
   message: BrowserIpcRequest,
   isAllowed: (url: string) => boolean = allowed,
@@ -91,40 +163,12 @@ export async function routeBrowserRequest(
   control.onSettled?.(operation)
   try {
     const response = await Promise.race([operation, cancelled])
-    if (
-      response.ok &&
-      (validated.op === "screenshot" ||
-        validated.op === "scroll" ||
-        validated.op === "wait_for_element" ||
-        validated.op === "wait_for_navigation" ||
-        validated.op === "observe_console" ||
-        validated.op === "observe_network" ||
-        response.result.frames !== undefined ||
-        response.result.frameRef !== undefined ||
-        response.result.frameContext !== undefined ||
-        response.result.frameSelectContext !== undefined ||
-        response.result.siteTools !== undefined ||
-        response.result.siteToolContext !== undefined ||
-        response.result.siteToolResult !== undefined)
-    ) {
+    if (response.ok && browserResponseNeedsDeliveryCheck(validated.op, response.result)) {
       try {
-        if (!deliveryCheck) throw new Error("Missing screenshot authority")
+        if (!deliveryCheck) throw new Error("Missing browser delivery authority")
         deliveryCheck()
       } catch {
-        return failure(
-          "unavailable",
-          nativeT(
-            validated.op === "scroll" || validated.op === "wait_for_element" || validated.op === "wait_for_navigation"
-              ? "desktop.browser.operationUnavailable"
-              : validated.op === "observe_console" || validated.op === "observe_network"
-                ? "desktop.browser.diagnosticsDeliveryUnavailable"
-                : validated.op === "list_site_tools" ||
-                    validated.op === "prepare_site_tool" ||
-                    validated.op === "execute_site_tool"
-                  ? "desktop.browser.siteToolDeliveryUnavailable"
-                  : "desktop.browser.screenshotDeliveryUnavailable",
-          ),
-        )
+        return failure("unavailable", nativeT(browserDeliveryError(validated.op, response.result)))
       }
     }
     return response
@@ -256,6 +300,11 @@ async function route(
       if (current !== request.url || contents.isLoadingMainFrame()) throw new Error("Browser destination changed")
       destination = { revision: tab.revision, url: current }
     }
+  }
+  const pinDestination = () => {
+    check()
+    destination = { revision: tab.revision, url: contents.getURL() }
+    check()
   }
   // Screenshots observe every source transition but never veto user navigation.
   const screenshot = request.op === "screenshot"
@@ -399,9 +448,19 @@ async function route(
               console: await observeConsole(contents as unknown as EventEmitter, request.durationMs, authority, signal),
             },
           })
-        : await execute({ tabID: tab.id, contents, check: authority, signal, deadline }, request)
+        : await execute(
+            {
+              tabID: tab.id,
+              contents,
+              check: authority,
+              signal,
+              deadline,
+              pinDestination: request.op === "navigate" ? pinDestination : undefined,
+            },
+            request,
+          )
     if (screenshot) authority()
-    if (observing || request.op === "scroll") {
+    if (response.ok && browserOperationReturnsPageState(request.op, response.result)) {
       authority()
       onScreenshotDelivery(authority)
     }
