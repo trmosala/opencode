@@ -15,7 +15,7 @@
   "mcp": {
     "chrome-devtools": {
       "type": "local",
-      "command": ["npx", "chrome-devtools-mcp@latest"],
+      "command": ["bunx", "--bun", "chrome-devtools-mcp@latest"],
     },
   },
   "tools": {

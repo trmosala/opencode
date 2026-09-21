@@ -769,6 +769,7 @@ export const McpDebugCommand = effectCmd({
             serverName,
             serverConfig.url,
             {
+              clientName: oauthConfig?.clientName,
               clientId: oauthConfig?.clientId,
               clientSecret: oauthConfig?.clientSecret,
               scope: oauthConfig?.scope,

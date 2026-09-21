@@ -26,6 +26,7 @@ const Timeout = Schema.Struct({
   execution: Schema.optional(PositiveInt),
 })
 const OAuth = Schema.Struct({
+  client_name: Schema.optional(Schema.String),
   client_id: Schema.optional(Schema.String),
   client_secret: Schema.optional(Schema.String),
   scope: Schema.optional(Schema.String),
@@ -382,6 +383,7 @@ function lowerServer(input: Schema.Schema.Type<typeof Server>) {
 
   if (input.type === "remote" && input.oauth && typeof input.oauth === "object") {
     const oauth: Record<string, unknown> = {}
+    if (input.oauth.client_name !== undefined) oauth.clientName = input.oauth.client_name
     if (input.oauth.client_id !== undefined) oauth.clientId = input.oauth.client_id
     if (input.oauth.client_secret !== undefined) oauth.clientSecret = input.oauth.client_secret
     if (input.oauth.scope !== undefined) oauth.scope = input.oauth.scope

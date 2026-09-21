@@ -3,6 +3,9 @@ import { expect, test } from "bun:test"
 import config from "./electron-builder.fedora.config"
 
 test("builds an installable CookieMonster RPM", async () => {
+  const packageJson = await Bun.file("package.json").json()
+
+  expect(packageJson.version).toBe("1.18.28")
   expect(config.appId).toBe("com.ogilvy.cookiemonster")
   expect(config.productName).toBe("CookieMonster")
   expect(config.artifactName).toBe("cookiemonster-${os}-${arch}.${ext}")

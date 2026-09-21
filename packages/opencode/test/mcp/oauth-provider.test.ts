@@ -35,6 +35,16 @@ describe("McpOAuthProvider.redirectUrl", () => {
 })
 
 describe("McpOAuthProvider.clientMetadata", () => {
+  test("uses the configured client name", () => {
+    const provider = makeProvider({ clientName: "Approved MCP Client" })
+    expect(provider.clientMetadata.client_name).toBe("Approved MCP Client")
+  })
+
+  test("defaults the client name to OpenCode", () => {
+    const provider = makeProvider({})
+    expect(provider.clientMetadata.client_name).toBe("OpenCode")
+  })
+
   test("includes redirect_uris from redirectUrl", () => {
     const provider = makeProvider({ callbackPort: 6620 })
     expect(provider.clientMetadata.redirect_uris).toEqual([`http://127.0.0.1:6620${OAUTH_CALLBACK_PATH}`])

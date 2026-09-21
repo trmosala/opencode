@@ -253,6 +253,7 @@ const layer = Layer.effect(
           key,
           mcp.url,
           {
+            clientName: oauthConfig?.clientName,
             clientId: oauthConfig?.clientId,
             clientSecret: oauthConfig?.clientSecret,
             scope: oauthConfig?.scope,
@@ -830,6 +831,7 @@ const layer = Layer.effect(
         mcpName,
         mcpConfig.url,
         {
+          clientName: oauthConfig?.clientName,
           clientId: oauthConfig?.clientId,
           clientSecret: oauthConfig?.clientSecret,
           scope: oauthConfig?.scope,
