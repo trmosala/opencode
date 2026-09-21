@@ -273,6 +273,18 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--download-recovery")) {
+    const { downloadRecoverySmoke } = await import("./download-recovery.fixture")
+    await downloadRecoverySmoke()
+    stage("PASS download recovery")
+    return
+  }
+  if (process.argv.includes("--rendering")) {
+    const { renderingSmoke } = await import("./rendering.fixture")
+    await renderingSmoke()
+    stage("PASS rendering")
+    return
+  }
   if (process.argv.includes("--site-permissions")) {
     const { notificationPermissionsSmoke } = await import("./notification-permissions.fixture")
     await notificationPermissionsSmoke()

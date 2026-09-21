@@ -14,7 +14,7 @@ import {
 
 describe("desktop native translations", () => {
   test("network consent appends distinct keys without changing console disclosure", () => {
-    expect(DESKTOP_NATIVE_KEYS.slice(-4)).toEqual([
+    expect(DESKTOP_NATIVE_KEYS.slice(-7, -3)).toEqual([
       "desktop.browser.networkConsent",
       "desktop.browser.networkDetail",
       "desktop.browser.networkNativeOnly",
@@ -44,6 +44,30 @@ describe("desktop native translations", () => {
       "No CDP",
     ])
       expect(detail).toContain(text)
+  })
+  test("download recovery appends consent keys and interpolates source and destination", () => {
+    expect(DESKTOP_NATIVE_KEYS.slice(-3)).toEqual([
+      "desktop.browser.downloadRecovery.title",
+      "desktop.browser.downloadRecovery.detail",
+      "desktop.browser.downloadRecovery.unavailable",
+    ])
+    const detail = formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.browser.downloadRecovery.detail"], {
+      filename: "report.pdf",
+      origin: "https://page.test",
+      source: "https://cdn.test",
+      directory: "/downloads",
+    })
+    for (const value of [
+      "report.pdf",
+      "https://page.test",
+      "https://cdn.test",
+      "/downloads",
+      "current browser login",
+      "will not be replaced",
+      "try again from the page",
+    ])
+      expect(detail).toContain(value)
+    expect(detail).not.toContain("{{")
   })
   test("preserves the fixed key prefix used by indexed locale dictionaries", () => {
     // Baseline ff96a0e61: append keys, never shift the existing 217 locale indices.

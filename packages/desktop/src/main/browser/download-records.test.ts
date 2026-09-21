@@ -24,6 +24,81 @@ function transfer(path: string, received = 0, total = 6) {
   })
 }
 
+test("native cancellation preserves staged interruption, explicit cancellation does not", () => {
+  for (const explicit of [false, true]) {
+    const item = transfer("/fixture")
+    const download: BrowserDownload = { id: "fixture", filename: "file", state: "saving", canControl: true }
+    const states: string[] = []
+    trackDownload({ preventDefault() {} }, item, download, {
+      save: (row) => states.push(row.state),
+      start() {},
+      release() {},
+      publish() {},
+      preserveOnNativeCancel: true,
+    })
+    if (explicit) download.state = "cancelled"
+    item.cancel()
+    expect(states).toEqual(["saving", explicit ? "cancelled" : "interrupted"])
+  }
+})
+
+test("interruption checkpoints before Chromium cancellation; staged completion records the published path", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "cm-download-lifecycle-"))
+  try {
+    const checkpoint = Promise.withResolvers<void>()
+    const item = transfer(join(directory, "partial"), 3)
+    const download: BrowserDownload = { id: "fixture", filename: "file", state: "saving", canControl: true }
+    let released = false
+    trackDownload({ preventDefault() {} }, item, download, {
+      save() {},
+      start() {},
+      release: () => {
+        released = true
+      },
+      publish() {},
+      checkpoint: () => checkpoint.promise,
+    })
+    item.emit("updated", {}, "interrupted")
+    expect(released).toBe(false)
+    checkpoint.resolve()
+    await Bun.sleep(0)
+    expect(released).toBe(true)
+    expect(download.state).toBe("interrupted")
+    const source = join(directory, "staging")
+    const destination = join(directory, "completed")
+    writeFileSync(source, "abcdef")
+    writeFileSync(destination, "abcdef")
+    const normal = transfer(source, 6)
+    const final = Promise.withResolvers<string>()
+    const paths: (string | undefined)[] = []
+    released = false
+    trackDownload(
+      { preventDefault() {} },
+      normal,
+      { id: "normal", filename: "file", state: "saving" },
+      {
+        save: (_row, path) => {
+          paths.push(path)
+        },
+        start() {},
+        release: () => {
+          released = true
+        },
+        publish() {},
+        finish: () => final.promise,
+      },
+    )
+    normal.emit("done", {}, "completed")
+    expect(released).toBe(false)
+    final.resolve(destination)
+    await Bun.sleep(0)
+    expect(released).toBe(true)
+    expect(paths).toEqual([undefined, destination])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("full live cap and failed admission reads/writes reject before saving or attaching transfer listeners", () => {
   const dir = mkdtempSync(join(tmpdir(), "cm-download-admission-"))
   try {

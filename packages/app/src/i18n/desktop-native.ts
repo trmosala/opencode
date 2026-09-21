@@ -554,6 +554,11 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Task {{task}} requests {{duration}}ms of HTTP(S) Fetch/XHR completion and transport/abort failure counts from tab {{tab}} at {{url}}. Only terminal events received during this window and attributed by Electron to the main frame are counted. This may include ancestor-attributed dedicated workers and requests initiated before approval. Coverage is incomplete; zero counts do not mean the page is healthy. Request URLs, referrers, headers, bodies, cookies, credentials and raw errors are not retained or shared. No CDP access or vault permission is granted.",
   "desktop.browser.networkNativeOnly": "Network observation requires native routing.",
   "desktop.browser.operationUnavailable": "Browser operation interrupted or unavailable.",
+  "desktop.browser.downloadRecovery.title": "Resume this saved download?",
+  "desktop.browser.downloadRecovery.detail":
+    "File: {{filename}}\nStarted from: {{origin}}\nDownload server: {{source}}\nDestination folder: {{directory}}\n\nThis uses your current browser login. The saved partial file and server response will be checked first. A new numbered file will be saved in the original folder; existing files will not be replaced. If recovery fails, try again from the page.",
+  "desktop.browser.downloadRecovery.unavailable":
+    "This download cannot be resumed. Its partial file, destination, permission, or server response is unavailable or changed. Try again from the page.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

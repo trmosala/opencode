@@ -132,6 +132,8 @@ export type BrowserDownload = {
   total?: number
   paused?: boolean
   canControl?: boolean
+  canPause?: boolean
+  canResume?: boolean
 }
 export type BrowserTabs = {
   sessionID: string
@@ -234,6 +236,7 @@ export type BrowserCommand =
   | { op: "preferences"; values: Partial<BrowserPreferences> }
   | { op: "download-directory"; reset?: boolean }
   | { op: "reveal-download"; id: string }
+  | { op: "recover-download"; id: string }
   | { op: "download-control"; id: string; action: "pause" | "resume" | "cancel" }
   | { op: "forget-download" | "forget-history"; id: string }
   | { op: "open-history"; id: string }

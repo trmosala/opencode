@@ -878,9 +878,16 @@ export function BrowserTools(props: {
           {(entry) => (
             <div class="flex flex-wrap items-center justify-between gap-2 py-1">
               <div class="min-w-0 flex-1" role="status">
-                {language.t(entry.paused ? "browser.download.paused" : `browser.download.${entry.state}`, {
-                  filename: entry.filename,
-                })}
+                {language.t(
+                  entry.canResume
+                    ? "browser.download.recoverable"
+                    : entry.paused
+                      ? "browser.download.paused"
+                      : `browser.download.${entry.state}`,
+                  {
+                    filename: entry.filename,
+                  },
+                )}
                 <Show when={entry.time}>
                   {(time) => (
                     <time class="block text-text-weak" dateTime={new Date(time()).toISOString()}>
@@ -906,21 +913,32 @@ export function BrowserTools(props: {
                 </Show>
               </div>
               <Show when={entry.canControl}>
-                <Button
-                  size="small"
-                  disabled={state.busy}
-                  onClick={() =>
-                    void run({ op: "download-control", id: entry.id, action: entry.paused ? "resume" : "pause" })
-                  }
-                >
-                  {language.t(entry.paused ? "browser.download.resume" : "browser.download.pause")}
-                </Button>
+                <Show when={entry.canPause !== false}>
+                  <Button
+                    size="small"
+                    disabled={state.busy}
+                    onClick={() =>
+                      void run({ op: "download-control", id: entry.id, action: entry.paused ? "resume" : "pause" })
+                    }
+                  >
+                    {language.t(entry.paused ? "browser.download.resume" : "browser.download.pause")}
+                  </Button>
+                </Show>
                 <Button
                   size="small"
                   disabled={state.busy}
                   onClick={() => void run({ op: "download-control", id: entry.id, action: "cancel" })}
                 >
                   {language.t("browser.download.cancel")}
+                </Button>
+              </Show>
+              <Show when={entry.canResume}>
+                <Button
+                  size="small"
+                  disabled={state.busy}
+                  onClick={() => void run({ op: "recover-download", id: entry.id })}
+                >
+                  {language.t("browser.download.recover")}
                 </Button>
               </Show>
               <Show when={entry.canReveal}>

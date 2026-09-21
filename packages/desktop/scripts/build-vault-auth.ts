@@ -72,3 +72,32 @@ if (process.platform === "win32") {
     if (build.status !== 0) throw new Error("Windows vault helper build failed")
   }
 }
+
+if (process.platform === "darwin") {
+  const arch = process.env.npm_config_arch ?? process.arch
+  if (arch !== "x64" && arch !== "arm64") throw new Error("Unsupported native entry architecture")
+  const output = resolve(import.meta.dir, "../resources/vault-auth")
+  mkdirSync(output, { recursive: true })
+  const build = spawnSync(
+    "xcrun",
+    [
+      "--sdk",
+      "macosx",
+      "clang",
+      "-fobjc-arc",
+      "-O2",
+      "-mmacosx-version-min=11.0",
+      "-arch",
+      arch === "arm64" ? "arm64" : "x86_64",
+      resolve(import.meta.dir, "../native-vault/macos-entry.m"),
+      "-framework",
+      "AppKit",
+      "-framework",
+      "CoreFoundation",
+      "-o",
+      join(output, `macos-entry-${arch}`),
+    ],
+    { stdio: "inherit" },
+  )
+  if (build.status !== 0) throw new Error("macOS native entry helper build failed")
+}
