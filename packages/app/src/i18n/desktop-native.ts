@@ -554,6 +554,8 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Task {{task}} requests {{duration}}ms of HTTP(S) Fetch/XHR completion and transport/abort failure counts from tab {{tab}} at {{url}}. Only terminal events received during this window and attributed by Electron to the main frame are counted. This may include ancestor-attributed dedicated workers and requests initiated before approval. Coverage is incomplete; zero counts do not mean the page is healthy. Request URLs, referrers, headers, bodies, cookies, credentials and raw errors are not retained or shared. No CDP access or vault permission is granted.",
   "desktop.browser.networkNativeOnly": "Network observation requires native routing.",
   "desktop.browser.operationUnavailable": "Browser operation interrupted or unavailable.",
+  "desktop.browser.generation.length":
+    "The selected length is {{length}}, but this form supports {{min}}-{{max}} characters. Choose a length in that range and try again. No password was generated or filled; your settings were not changed.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

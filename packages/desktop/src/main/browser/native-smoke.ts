@@ -30,6 +30,7 @@ import { readLogins, writeLogins, vaultAvailable } from "./vault"
 import { loginEntry, decodeLoginEntry } from "./login-entry"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
 import { loginOfferSucceeded } from "./login-offer-script"
+import { nativeT } from "../native-translations"
 import { vaultAuthentication } from "./vault-auth"
 import { vaultAccess } from "./vault-session"
 import { savedTabs } from "./tab-recovery"
@@ -2061,8 +2062,13 @@ async function run() {
           window.atomic &&= values.every(value => value === values[0]);
         }, { once: true }); true`)
     }
-    const generate = (settings: Record<string, unknown> = {}) =>
-      command({ op: "generate-password", tabID: first, ...settings })
+    const warnings: string[] = []
+    const generate = async (settings: Record<string, unknown> = {}) => {
+      const before = warnings.length
+      const result = await command({ op: "generate-password", tabID: first, ...settings })
+      if (warnings.length !== before) throw new Error("Generation refused with native guidance")
+      return result
+    }
     const clean = async () => {
       assert.equal(one.loginBusy, false)
       assert.equal(owner.suspended, 0)
@@ -2108,10 +2114,18 @@ async function run() {
           assert(options)
           assert.equal(options.defaultId, 0)
           assert.equal(options.cancelId, 0)
-          assert(options.signal)
-          assert(options.detail?.includes(origin))
           assert(!JSON.stringify(options).includes("fixture-current-secret"))
           assert(secrets.every((secret) => !JSON.stringify(options).includes(secret)))
+          if (options.type === "warning") {
+            assert.equal(one.loginBusy, false)
+            assert.equal(owner.generationCheck, undefined)
+            assert.equal(owner.suspended, 1)
+            assert.equal(options.buttons?.length, 1)
+            warnings.push(options.detail ?? "")
+            return { response: 0, checkboxChecked: false }
+          }
+          assert(options.signal)
+          assert(options.detail?.includes(origin))
           dialogs++
           return { response: await answer(options), checkboxChecked: false }
         } catch (error) {
@@ -2119,6 +2133,40 @@ async function run() {
           return { response: 0, checkboxChecked: false }
         }
       }) as typeof dialog.showMessageBox
+
+      stage("generation: document replacement cannot reuse consent for original fields")
+      for (const delivery of [false, true]) {
+        for (const mutation of [
+          "const root = document.createElement('html'); root.innerHTML = '<head></head><body></body>'; document.documentElement.replaceWith(root); document.body.append(original)",
+          "const root = document.documentElement; root.remove(); document.append(root)",
+          "document.open(); document.write('<!doctype html><html><head></head><body></body></html>'); document.close(); document.body.append(original)",
+        ]) {
+          await form()
+          const mutate = async () => {
+            await contents.executeJavaScript(`(() => {
+              const original = document.querySelector('form');
+              const fields = [...original.querySelectorAll('input')];
+              ${mutation};
+              if (document.querySelector('form') !== original ||
+                  fields.some((el, i) => el !== document.querySelectorAll('input')[i]))
+                throw new Error('Fixture must retain the original fields');
+              window.fillEvents = 0; window.submissions = 0;
+              original.addEventListener('input', () => window.fillEvents++);
+              return true;
+            })()`)
+          }
+          answer = async () => {
+            if (!delivery) await mutate()
+            return 1
+          }
+          intercept = delivery ? mutate : undefined
+          await assert.rejects(generate(), "Document replacement must invalidate generation consent")
+          await unchanged()
+          intercept = undefined
+          await contents.loadURL(url)
+        }
+      }
+      answer = async () => 1
 
       const handoffFailures: string[] = []
       stage("generation handoff: capture survives pending cleanup beyond the original grant")
@@ -2570,7 +2618,12 @@ async function run() {
           next.replace(">", ' minlength="24" maxlength="28">') +
           next.replace(">", ' minlength="20" maxlength="24">'),
       )
-      await assert.rejects(generate())
+      const lengthWarnings = warnings.length
+      const lengthDeliveries = deliveries
+      await command({ op: "generate-password", tabID: first })
+      assert.equal(warnings.length, lengthWarnings + 1)
+      assert.equal(warnings.at(-1), nativeT("desktop.browser.generation.length", { length: 20, min: 24, max: 24 }))
+      assert.equal(deliveries, lengthDeliveries, "Out-of-range settings never dispatch a password")
       await unchanged()
       await generate({ length: 24 })
       await clean()
@@ -2632,12 +2685,18 @@ async function run() {
       stage("generation: preferences, excluded origins and missing accounts")
       await form()
       await command({ op: "preferences", values: { offerSaveLogins: false } })
-      await assert.rejects(generate())
+      const disabledWarnings = warnings.length
+      await command({ op: "generate-password", tabID: first })
+      assert.equal(warnings.length, disabledWarnings + 1)
+      assert.equal(warnings.at(-1), nativeT("desktop.browser.generation.offers"))
       assert.equal(browserPreferencesState().offerSaveLogins, false)
       await unchanged()
       await command({ op: "preferences", values: { offerSaveLogins: true } })
       getStore("cm-browser").set("loginOfferExclusions", [origin])
-      await assert.rejects(generate())
+      const excludedWarnings = warnings.length
+      await command({ op: "generate-password", tabID: first })
+      assert.equal(warnings.length, excludedWarnings + 1)
+      assert.equal(warnings.at(-1), nativeT("desktop.browser.generation.offers"))
       assert.deepEqual(getStore("cm-browser").get("loginOfferExclusions"), [origin])
       await unchanged()
       await command({ op: "allow-login-offers", origin })
@@ -2778,8 +2837,13 @@ async function run() {
       await assert.rejects(generate())
       await unchanged()
       await vaultAccess.unlock(win)
+      const generationDialog = dialog.showMessageBox
       dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
-      await command({ op: "access", tabID: first, enabled: true })
+      try {
+        await command({ op: "access", tabID: first, enabled: true })
+      } finally {
+        dialog.showMessageBox = generationDialog
+      }
       assert(one.agentAccess)
       const before = deliveries
       await assert.rejects(generate())
@@ -3060,7 +3124,7 @@ async function run() {
             if (reason === "edit") {
               saveLogins([{ origin, username: "registered", password: "fixture-secret-concurrent" }])
               expectedID = readLogins().find((row) => row.origin === origin && row.username === "registered")!.id
-              assert.notEqual(expectedID, selected.id, "Concurrent edit replaces the credential ID")
+              assert.equal(expectedID, selected.id, "Concurrent edit preserves the credential ID")
             }
             return reason === "cancel" ? 0 : phase === 1 ? index : 1
           }

@@ -90,9 +90,17 @@ export function prepareGenerationScript(origin: string, token: string, expires: 
     const expires = ${JSON.stringify(expires)}
     if (Date.now() >= expires) throw new Error("Generation expired")
     ${generationFields}
-    const ticket = { token: ${JSON.stringify(token)}, expires, form, elements, users, snapshot }
+    clearTimeout(document.__cmLoginTicket?.timer)
+    document.__cmLoginTicket?.observer?.disconnect()
+    const ticket = { token: ${JSON.stringify(token)}, expires, form, elements, users, snapshot, changed: false }
+    // Root replacement can preserve both the document wrapper and the original fields.
+    ticket.observer = new MutationObserver(() => { ticket.changed = true })
+    ticket.observer.observe(document, { childList: true })
     document.__cmLoginTicket = ticket
-    ticket.timer = setTimeout(() => { if (document.__cmLoginTicket === ticket) delete document.__cmLoginTicket }, Math.max(0, expires - Date.now()))
+    ticket.timer = setTimeout(() => {
+      ticket.observer.disconnect()
+      if (document.__cmLoginTicket === ticket) delete document.__cmLoginTicket
+    }, Math.max(0, expires - Date.now()))
     return { min, max, hasUsername: !!users[0]?.value }
   })()`
 }
@@ -102,8 +110,11 @@ export function completeGenerationScript(origin: string, token: string, password
     const ticket = document.__cmLoginTicket
     clearTimeout(ticket?.timer)
     delete document.__cmLoginTicket
+    const changed = ticket?.changed || !!ticket?.observer?.takeRecords().length
+    ticket?.observer?.disconnect()
     if (!ticket || ticket.token !== ${JSON.stringify(token)} ||
         Date.now() >= Math.min(ticket.expires, ${JSON.stringify(expires)})) throw new Error("Generation expired")
+    if (changed) throw new Error("Generation document changed")
     const origin = ${JSON.stringify(origin)}
     ${generationFields}
     if (ticket.form !== form || ticket.snapshot !== snapshot || ticket.elements.length !== elements.length ||
@@ -123,5 +134,5 @@ export function completeGenerationScript(origin: string, token: string, password
 }
 
 export function clearGenerationScript(token: string) {
-  return `if (document.__cmLoginTicket?.token === ${JSON.stringify(token)}) { clearTimeout(document.__cmLoginTicket.timer); delete document.__cmLoginTicket }; true`
+  return `if (document.__cmLoginTicket?.token === ${JSON.stringify(token)}) { clearTimeout(document.__cmLoginTicket.timer); document.__cmLoginTicket.observer.disconnect(); delete document.__cmLoginTicket }; true`
 }

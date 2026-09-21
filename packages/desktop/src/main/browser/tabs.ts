@@ -1890,19 +1890,18 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   } else if (command.op === "generate-password") {
     if (tab.loginBusy || owner.suspended || owner.generationCheck)
       throw new Error(nativeT("desktop.browser.generation.failed"))
-    const options = (() => {
-      try {
-        return passwordOptions(command)
-      } catch {
-        throw new Error(nativeT("desktop.browser.generation.settings"))
-      }
-    })()
-    if (
-      !browserPreferencesState().offerSaveLogins ||
-      loginOfferExclusions().includes(new URL(contents.getURL()).origin)
-    )
-      throw new Error(nativeT("desktop.browser.generation.offers"))
+    // Recovery copy is selected in main, never derived from execution errors.
+    let detail = nativeT("desktop.browser.generation.settings")
     try {
+      const options = passwordOptions(command)
+      detail = nativeT("desktop.browser.generation.failed")
+      if (
+        !browserPreferencesState().offerSaveLogins ||
+        loginOfferExclusions().includes(new URL(contents.getURL()).origin)
+      ) {
+        detail = nativeT("desktop.browser.generation.offers")
+        throw new Error()
+      }
       const ticket = vaultAccess.require()
       const origin = loginOrigin(contents.getURL())
       const revision = tab.revision
@@ -1962,9 +1961,22 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
           typeof constraints !== "object" ||
           typeof constraints.min !== "number" ||
           typeof constraints.max !== "number" ||
+          !Number.isInteger(constraints.min) ||
+          !Number.isInteger(constraints.max) ||
+          constraints.min < 16 ||
+          constraints.max > 64 ||
+          constraints.min > constraints.max ||
           typeof constraints.hasUsername !== "boolean"
         )
           throw new Error("Invalid constraints")
+        if (options.length < constraints.min || options.length > constraints.max) {
+          detail = nativeT("desktop.browser.generation.length", {
+            length: options.length,
+            min: constraints.min,
+            max: constraints.max,
+          })
+          throw new Error()
+        }
         passwordOptions(options, constraints.min, constraints.max)
         if (!constraints.hasUsername) {
           const accounts = readLogins().filter((row) => row.origin === origin)
@@ -2044,8 +2056,35 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         }
       }
     } catch {
-      // Never forward a page exception or secret-bearing execution details to app IPC.
-      throw new Error(nativeT("desktop.browser.generation.failed"))
+      // Cleanup has finished. A handled failure returns state, avoiding a second generic app toast.
+      try {
+        if (
+          owner.suspended ||
+          owner.shutting ||
+          owner.win.isDestroyed() ||
+          !owner.win.isVisible() ||
+          owner.win.isMinimized()
+        )
+          throw new Error()
+        owner.suspended++
+        try {
+          layout(owner)
+          await dialog.showMessageBox(owner.win, {
+            type: "warning",
+            message: nativeT("desktop.browser.operationUnavailable"),
+            detail,
+            buttons: [nativeT("desktop.browser.cancel")],
+            defaultId: 0,
+            cancelId: 0,
+          })
+        } finally {
+          owner.suspended--
+          layout(owner)
+        }
+      } catch {
+        // Never forward page exceptions, secrets or native dialog errors through IPC.
+        throw new Error(nativeT("desktop.browser.generation.failed"))
+      }
     }
   } else if (command.op === "save-login" || command.op === "fill-login") {
     if (

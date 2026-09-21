@@ -14,7 +14,7 @@ import {
 
 describe("desktop native translations", () => {
   test("network consent appends distinct keys without changing console disclosure", () => {
-    expect(DESKTOP_NATIVE_KEYS.slice(-4)).toEqual([
+    expect(DESKTOP_NATIVE_KEYS.slice(-5, -1)).toEqual([
       "desktop.browser.networkConsent",
       "desktop.browser.networkDetail",
       "desktop.browser.networkNativeOnly",
@@ -156,6 +156,19 @@ describe("desktop native translations", () => {
 
   test("interpolates native templates without changing unknown placeholders", () => {
     expect(formatDesktopNativeMessage("{{known}} {{unknown}}", { known: "yes" })).toBe("yes {{unknown}}")
+  })
+
+  test("generation recovery appends bounded length guidance without shifting existing keys", () => {
+    expect(DESKTOP_NATIVE_KEYS.at(-1)).toBe("desktop.browser.generation.length")
+    expect(
+      formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.browser.generation.length"], {
+        length: 20,
+        min: 24,
+        max: 24,
+      }),
+    ).toBe(
+      "The selected length is 20, but this form supports 24-24 characters. Choose a length in that range and try again. No password was generated or filled; your settings were not changed.",
+    )
   })
 })
 
