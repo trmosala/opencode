@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+. "$(/usr/bin/dirname "$0")/cli-link.sh"
+register_cookiemonster_cli "/Applications/CookieMonster.app/Contents/Resources/cli/opencode" "/usr/local/bin/opencode"

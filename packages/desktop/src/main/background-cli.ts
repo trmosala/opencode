@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { app } from "electron"
+import { logSystemCliDiagnostics } from "./system-cli"
 
 const execFileAsync = promisify(execFile)
 const root = dirname(fileURLToPath(import.meta.url))
@@ -23,6 +24,11 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
   logger.log("v2 CLI executable resolved", { bundled, packaged: app.isPackaged })
   const version = await run(bundled, ["--version"], logger)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
+  await logSystemCliDiagnostics(logger).catch((error) =>
+    logger.error("system CLI registration check failed", {
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  )
 
   const candidates = [
     ...new Set([stateHome, shellStateHome, ...desktopStateNames.map((name) => join(app.getPath("appData"), name))]),

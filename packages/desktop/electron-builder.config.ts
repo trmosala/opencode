@@ -12,6 +12,7 @@ import { CM_AE_FILES, stageCmAeBundle } from "./src/cm-ae"
 // absent credentials. Upstream release builds leave it unset and keep signing exactly as before.
 const unsigned = process.env.CM_UNSIGNED === "1"
 const branded = process.env.CM_BRAND === "1"
+const systemCli = branded && (process.platform === "win32" || process.platform === "darwin")
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -64,7 +65,13 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", "!resources/cm-ae{,/**/*}"],
+  files: [
+    "out/**/*",
+    "resources/**/*",
+    "!resources/opencode-cli*",
+    "!resources/cli{,/**/*}",
+    "!resources/cm-ae{,/**/*}",
+  ],
   extraResources: [
     ...(process.platform === "win32" ? [{ from: "resources/vault-auth", to: "vault-auth", filter: ["*.exe"] }] : []),
     {
@@ -78,6 +85,23 @@ const getBase = (appId: string): Configuration => ({
             to: "",
             filter: ["opencode-cli*"],
           },
+        ]
+      : []),
+    ...(systemCli
+      ? [
+          {
+            from: "resources/cli",
+            to: "cli",
+            filter: [process.platform === "win32" ? "opencode.exe" : "opencode"],
+          },
+          ...(process.platform === "win32"
+            ? [
+                {
+                  from: "resources/windows/cli-path.ps1",
+                  to: "cli/register-path.ps1",
+                },
+              ]
+            : []),
         ]
       : []),
     {
@@ -156,6 +180,17 @@ function applyBranding(cfg: Configuration): Configuration {
     appId: "com.ogilvy.cookiemonster",
     productName: "CookieMonster",
     extraMetadata: { ...cfg.extraMetadata, cmUserInstall: true },
+    mac: { ...cfg.mac, target: ["pkg", "dmg", "zip"] },
+    pkg: {
+      installLocation: "/Applications",
+      allowAnywhere: false,
+      allowCurrentUserHome: false,
+      allowRootDirectory: true,
+      isRelocatable: false,
+      scripts: "macos/pkg-scripts",
+      conclusion: "macos/pkg-conclusion.txt",
+    },
+    nsis: { ...cfg.nsis, include: "resources/windows/cli-install.nsh" },
     dmg: {
       ...cfg.dmg,
       backgroundColor: "#ffffff",

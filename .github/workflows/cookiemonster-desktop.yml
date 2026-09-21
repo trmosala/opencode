@@ -1,6 +1,6 @@
 name: cookiemonster-desktop
 
-# Builds unsigned CookieMonster desktop installers: Windows .exe, macOS .dmg, and Fedora .rpm.
+# Builds unsigned CookieMonster desktop installers: Windows .exe, macOS .pkg/.dmg, and Fedora .rpm.
 #
 # Native installers use their respective OS; the RPM is built on Ubuntu and tested in Fedora 44.
 # There is no Apple Developer certificate and no Azure Trusted Signing
@@ -55,9 +55,9 @@ jobs:
         env:
           PLATFORM: ${{ inputs.platform }}
         run: |
-          windows='{"name":"windows","host":"windows-latest","platform_flag":"--win","extension":"exe","config":"electron-builder.config.ts"}'
-          macos='{"name":"macos","host":"macos-latest","platform_flag":"--mac","extension":"dmg","config":"electron-builder.config.ts"}'
-          fedora='{"name":"fedora","host":"ubuntu-latest","platform_flag":"--linux rpm","extension":"rpm","config":"electron-builder.fedora.config.ts"}'
+          windows='{"name":"windows","host":"windows-latest","platform_flag":"--win","config":"electron-builder.config.ts"}'
+          macos='{"name":"macos","host":"macos-latest","platform_flag":"--mac","config":"electron-builder.config.ts"}'
+          fedora='{"name":"fedora","host":"ubuntu-latest","platform_flag":"--linux rpm","config":"electron-builder.fedora.config.ts"}'
           case "$PLATFORM" in
             windows) matrix="[$windows]" ;;
             macos)   matrix="[$macos]" ;;
@@ -110,6 +110,11 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Test Windows installer configuration
+        if: matrix.settings.name == 'windows'
+        run: bun test electron-builder.config.test.ts src/main/system-cli.test.ts
+        working-directory: packages/desktop
+
       - name: Package installer
         run: npx electron-builder ${{ matrix.settings.platform_flag }} --publish never --config ${{ matrix.settings.config }}
         working-directory: packages/desktop
@@ -121,11 +126,76 @@ jobs:
         if: matrix.settings.name == 'fedora'
         run: docker run --rm -v "$PWD/packages/desktop/dist:/dist:ro" fedora:44 sh -c 'dnf install -y /dist/*.rpm && rpm -q cookiemonster'
 
+      - name: Test Windows app and command installation
+        if: matrix.settings.name == 'windows'
+        shell: pwsh
+        run: |
+          $before = [Environment]::GetEnvironmentVariable("Path", "User")
+          $installer = Get-ChildItem packages/desktop/dist/cookiemonster-*.exe | Select-Object -First 1
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "CookieMonster installer failed: $($install.ExitCode)" }
+          $root = Join-Path $env:LOCALAPPDATA "Programs/@opencode-aidesktop"
+          $cli = Join-Path $root "resources/cli/opencode.exe"
+          if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw "Installed CLI is missing." }
+          & $cli --version
+          if ($LASTEXITCODE -ne 0) { throw "Installed CLI validation failed." }
+          $owned = (Join-Path $root "resources/cli").TrimEnd('\').ToUpperInvariant()
+          $registered = [Environment]::GetEnvironmentVariable("Path", "User").Split(';') | Where-Object {
+            $_.Trim().Trim('"').TrimEnd('\').ToUpperInvariant() -eq $owned
+          }
+          if (@($registered).Count -ne 1) { throw "CookieMonster CLI path was not registered exactly once." }
+          # The runner inherits its old environment. Validate registry-backed discovery here;
+          # Explorer/terminal environment refresh remains a native interactive acceptance check.
+          $resolved = pwsh -NoLogo -NoProfile -Command '$user = [Environment]::GetEnvironmentVariable("Path", "User"); $machine = [Environment]::GetEnvironmentVariable("Path", "Machine"); $env:Path = "$machine;$user"; (Get-Command opencode -CommandType Application).Source'
+          if ($LASTEXITCODE -ne 0 -or $resolved.Trim().ToUpperInvariant() -ne $cli.ToUpperInvariant()) {
+            throw "A fresh PowerShell process did not resolve the CookieMonster CLI."
+          }
+          $uninstaller = Get-ChildItem -LiteralPath $root -Filter "Uninstall*.exe" | Select-Object -First 1
+          $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList "/S" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "CookieMonster uninstaller failed: $($uninstall.ExitCode)" }
+          $after = [Environment]::GetEnvironmentVariable("Path", "User")
+          if ($after -ne $before) { throw "CookieMonster uninstall did not restore the original user PATH." }
+          $remaining = pwsh -NoLogo -NoProfile -Command '$user = [Environment]::GetEnvironmentVariable("Path", "User"); $machine = [Environment]::GetEnvironmentVariable("Path", "Machine"); $env:Path = "$machine;$user"; @(Get-Command opencode -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object Source) -join "`n"'
+          if ($remaining -split "`n" | Where-Object { $_.Trim().ToUpperInvariant() -eq $cli.ToUpperInvariant() }) {
+            throw "A fresh PowerShell process still resolves the removed CookieMonster CLI."
+          }
+
+      - name: Test macOS link ownership
+        if: matrix.settings.name == 'macos'
+        run: packages/desktop/scripts/test-macos-cli.sh
+
+      - name: Test macOS app and command installation
+        if: matrix.settings.name == 'macos'
+        run: |
+          if [[ -e /usr/local/bin/opencode || -L /usr/local/bin/opencode ]]; then
+            echo "/usr/local/bin/opencode already belongs to the runner; refusing to replace it." >&2
+            exit 1
+          fi
+          cleanup() {
+            sudo packages/desktop/scripts/uninstall-macos-cli.sh || true
+            sudo rm -rf /Applications/CookieMonster.app
+          }
+          trap cleanup EXIT
+          pkg=$(find packages/desktop/dist -maxdepth 1 -name 'cookiemonster-*.pkg' -print -quit)
+          sudo installer -pkg "$pkg" -target /
+          test -d /Applications/CookieMonster.app
+          test "$(readlink /usr/local/bin/opencode)" = "/Applications/CookieMonster.app/Contents/Resources/cli/opencode"
+          /usr/local/bin/opencode --version
+          sudo installer -pkg "$pkg" -target /
+          test "$(readlink /usr/local/bin/opencode)" = "/Applications/CookieMonster.app/Contents/Resources/cli/opencode"
+          sudo packages/desktop/scripts/uninstall-macos-cli.sh
+          test ! -e /usr/local/bin/opencode
+          test ! -L /usr/local/bin/opencode
+
       - name: Upload installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cookiemonster-${{ matrix.settings.name }}
-          path: packages/desktop/dist/*.${{ matrix.settings.extension }}
+          path: |
+            packages/desktop/dist/*.exe
+            packages/desktop/dist/*.dmg
+            packages/desktop/dist/*.pkg
+            packages/desktop/dist/*.rpm
           if-no-files-found: error
           retention-days: 7
 
@@ -167,7 +237,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           shopt -s nullglob
-          files=(release-assets/*.exe release-assets/*.dmg release-assets/*.rpm)
+          files=(release-assets/*.exe release-assets/*.dmg release-assets/*.pkg release-assets/*.rpm)
           if (( ${#files[@]} == 0 )); then
             echo "No CookieMonster installers found." >&2
             exit 1

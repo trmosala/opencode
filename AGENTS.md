@@ -189,7 +189,7 @@ bun run lint            # oxlint (root only)
 O1_CODE_SHOW_WORKERS=1 bun run dev:desktop            # same, with the hidden WPP worker tabs visible
 cd packages/desktop && bun test src/main/wpp-bridge/  # the WPP bridge test suite
 ```
-Desktop packaging (from `packages/desktop`): `bun run build` then `bun run package:win` / `package:mac` / `package:linux`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, `cookiemonster-<os>-<arch>.<ext>`, auto-update stripped) — without it you get an unbranded `OpenCode Dev` build that collides with a real OpenCode install. e.g. `CM_BRAND=1 bun run package:win`.
+Desktop packaging (from `packages/desktop`): `bun run build` then `bun run package:win` / `package:mac` / `package:linux`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, `cookiemonster-<os>-<arch>.<ext>`, auto-update stripped) — without it you get an unbranded `OpenCode Dev` build that collides with a real OpenCode install. e.g. `CM_BRAND=1 bun run package:win`. Branded Windows installers register the bundled CLI in the current user's `PATH`; branded macOS packaging emits a supported `.pkg` that owns `/usr/local/bin/opencode` plus an app-only `.dmg`. See `packages/desktop/SYSTEM_CLI.md`.
 
 ### First hour on this fork
 
@@ -202,7 +202,7 @@ Desktop packaging (from `packages/desktop`): `bun run build` then `bun run packa
 
 ### CI
 
-`.github/workflows/cookiemonster-desktop.yml` is the CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), a two-runner matrix because each installer format must be built on its own OS, with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`. Branded builds bundle the CLI sidecar into `resources/` independently of channel and disable upstream publishing. It publishes a `cookiemonster-v<version>_<revision>` release. Unsigned means SmartScreen (Windows) and Gatekeeper (macOS) warnings on install. Every other workflow is inherited from upstream and unmodified.
+`.github/workflows/cookiemonster-desktop.yml` is the CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), a native-runner matrix because installer ownership must be tested on its target OS, with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`. Branded builds bundle one CLI artifact as both the private desktop sidecar and installer-owned public command, run native install/uninstall smoke tests, disable upstream publishing, and publish a `cookiemonster-v<version>_<revision>` release. Unsigned means SmartScreen (Windows) and Gatekeeper (macOS) warnings on install. Every other workflow is inherited from upstream and unmodified.
 
 ### The WPP bridge (read multiple files to understand)
 

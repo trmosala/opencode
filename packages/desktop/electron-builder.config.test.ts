@@ -14,7 +14,13 @@ test("default packaging includes AE outside asar without an environment override
       to: "cm-ae",
       filter: ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"],
     })
-    for (const name of ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"]) {
+    for (const name of [
+      "plugin.mjs",
+      "render-worker.mjs",
+      "permissions.json",
+      "ZOD-LICENSE.txt",
+      "MARKED-LICENSE.txt",
+    ]) {
       expect(await Bun.file(`resources/cm-ae/${name}`).arrayBuffer()).toEqual(
         await Bun.file(`vendor/cm-ae/${name}`).arrayBuffer(),
       )
@@ -128,6 +134,33 @@ test("bundles the CLI in branded prod builds", async () => {
     to: "",
     filter: ["opencode-cli*"],
   })
+  expect(config.files).toContain("!resources/cli{,/**/*}")
+  if (process.platform === "win32" || process.platform === "darwin") {
+    expect(config.extraResources).toContainEqual({
+      from: "resources/cli",
+      to: "cli",
+      filter: [process.platform === "win32" ? "opencode.exe" : "opencode"],
+    })
+  } else {
+    expect(config.extraResources).not.toContainEqual(expect.objectContaining({ from: "resources/cli" }))
+  }
+  if (process.platform === "win32") {
+    expect(config.extraResources).toContainEqual({
+      from: "resources/windows/cli-path.ps1",
+      to: "cli/register-path.ps1",
+    })
+  }
+  expect(config.nsis?.include).toBe("resources/windows/cli-install.nsh")
+  expect(config.mac?.target).toEqual(["pkg", "dmg", "zip"])
+  expect(config.pkg).toEqual({
+    installLocation: "/Applications",
+    allowAnywhere: false,
+    allowCurrentUserHome: false,
+    allowRootDirectory: true,
+    isRelocatable: false,
+    scripts: "macos/pkg-scripts",
+    conclusion: "macos/pkg-conclusion.txt",
+  })
 })
 
 test("CM_UNSIGNED strips every signing and notarization step", async () => {
@@ -190,5 +223,9 @@ for (const channel of ["beta", "prod"] as const) {
       to: "",
       filter: ["opencode-cli*"],
     })
+    expect(config.extraResources).not.toContainEqual(expect.objectContaining({ from: "resources/cli" }))
+    expect(config.nsis?.include).toBeUndefined()
+    expect(config.mac?.target).not.toContain("pkg")
+    expect(config.pkg).toBeUndefined()
   })
 }

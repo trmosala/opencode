@@ -1,0 +1,3 @@
+CookieMonster and its opencode command-line tool are installed.
+
+Open CookieMonster and complete WPP sign-in before using a CM_* model. CookieMonster must remain running while Open Design sends WPP-backed requests.

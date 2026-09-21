@@ -1,5 +1,5 @@
 import { $ } from "bun"
-import { chmod, copyFile, mkdtemp, rm } from "node:fs/promises"
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -87,6 +87,16 @@ export async function downloadCliToResources() {
     await $`pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File ../../script/sign-windows.ps1 ${dest}`
   }
   if (process.platform === "darwin") await $`codesign --force --sign - ${dest}`
+
+  if (process.env.CM_BRAND === "1" && (process.platform === "win32" || process.platform === "darwin")) {
+    const command = windowsify("resources/cli/opencode")
+    await mkdir(join("resources", "cli"), { recursive: true })
+    await copyFile(dest, command)
+    if (process.platform !== "win32") await chmod(command, 0o755)
+    const [sidecar, publicCommand] = await Promise.all([readFile(dest), readFile(command)])
+    if (!sidecar.equals(publicCommand)) throw new Error("CookieMonster CLI resource copies differ")
+    console.log(`Copied ${cli.package} to ${command}`)
+  }
 
   console.log(`Copied ${cli.package} to ${dest}`)
 }
