@@ -46,7 +46,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
         const id = setTimeout(() => {
           const err = new ProviderError.ResponseStreamError("SSE read timed out")
           ctl.abort(err)
-          void reader.cancel(err)
+          reader.cancel(err).catch(() => {})
           reject(err)
         }, ms)
 
@@ -1792,8 +1792,8 @@ const layer = Layer.effect(
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        const chunkTimeout = options["chunkTimeout"]
-        const headerTimeout = options["headerTimeout"]
+        const chunkTimeout = options["chunkTimeout"] ?? 300_000
+        const headerTimeout = options["headerTimeout"] ?? 300_000
         delete options["chunkTimeout"]
         delete options["headerTimeout"]
 
@@ -2023,6 +2023,12 @@ const layer = Layer.effect(
         if (!provider) continue
         if (!provider.models[entry.modelID]) continue
         return { providerID: entry.providerID, modelID: entry.modelID }
+      }
+
+      const cookieMonsterProviderID = ProviderV2.ID.make("cookiemonster")
+      const cookieMonsterModelID = ModelV2.ID.make("CM_GPT-5.6 Sol - Medium")
+      if (s.providers[cookieMonsterProviderID]?.models[cookieMonsterModelID]) {
+        return { providerID: cookieMonsterProviderID, modelID: cookieMonsterModelID }
       }
 
       const configured = Object.keys(cfg.provider ?? {})

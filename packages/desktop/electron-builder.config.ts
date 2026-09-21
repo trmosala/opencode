@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { CM_AE_FILES, stageCmAeBundle } from "./src/cm-ae"
 
 // Fork CI has no Apple certificate and no Azure Trusted Signing account. CM_UNSIGNED=1 strips every
 // signing and notarization step so electron-builder emits unsigned installers instead of failing on
 // absent credentials. Upstream release builds leave it unset and keep signing exactly as before.
 const unsigned = process.env.CM_UNSIGNED === "1"
+const branded = process.env.CM_BRAND === "1"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -62,9 +64,13 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
-  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*"],
+  files: ["out/**/*", "resources/**/*", "!resources/opencode-cli*", "!resources/cm-ae{,/**/*}"],
   extraResources: [
-    ...(channel === "dev"
+    {
+      from: "resources/icons",
+      to: "icons",
+    },
+    ...(channel === "dev" || branded
       ? [
           {
             from: "resources/",
@@ -76,6 +82,11 @@ const getBase = (appId: string): Configuration => ({
     {
       from: "../cm-browser/dist/plugin.mjs",
       to: "cm-browser/plugin.mjs",
+    },
+    {
+      from: "resources/cm-ae",
+      to: "cm-ae",
+      filter: [...CM_AE_FILES],
     },
     // native/ is produced by `bun run native:build` and is not committed. electron-builder treats a
     // missing extraResources source as a hard error, so only declare it when it is actually present.
@@ -136,14 +147,23 @@ const getBase = (appId: string): Configuration => ({
 })
 
 // Optional fork branding (CM_BRAND=1): rename the app so it never collides with a real OpenCode
-// install and strip publish so a fork build can never auto-update to upstream. Channel stays "dev"
-// internally, keeping the icon/server prebuild pipeline and resolveChannel() unchanged.
+// install and strip publish so a fork build can never auto-update to upstream.
 function applyBranding(cfg: Configuration): Configuration {
-  if (!process.env.CM_BRAND) return cfg
+  if (!branded) return cfg
   return {
     ...cfg,
     appId: "com.ogilvy.cookiemonster",
     productName: "CookieMonster",
+    extraMetadata: { ...cfg.extraMetadata, cmUserInstall: true },
+    dmg: {
+      ...cfg.dmg,
+      backgroundColor: "#ffffff",
+      window: { width: 540, height: 360 },
+      contents: [
+        { x: 160, y: 160, type: "file" },
+        { x: 380, y: 160, type: "file", path: path.join(packageDir, "resources", "Install CookieMonster.txt") },
+      ],
+    },
     artifactName: "cookiemonster-${os}-${arch}.${ext}",
     publish: null,
   }
@@ -199,5 +219,8 @@ function getConfig() {
     }
   }
 }
+
+// Re-stage for direct package commands too; fail rather than package a stale or missing bundle.
+stageCmAeBundle(process.env.CM_AE_ARTIFACT_DIR, packageDir)
 
 export default applyUnsigned(applyBranding(getConfig() as Configuration))

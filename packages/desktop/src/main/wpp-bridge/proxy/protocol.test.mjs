@@ -19,7 +19,7 @@ describe("CookieMonster protocol capability", () => {
       payload: {
         prompt: "private conversation",
         images: [{ data: "private image" }],
-        model: "agent",
+        model: "CM_Opus 5 - Extra High",
         target: "coding-agent",
         url: "https://example.test",
         sessionKey: "private-session",
@@ -32,7 +32,7 @@ describe("CookieMonster protocol capability", () => {
       images: [],
       target: "coding-agent",
       url: "https://example.test",
-      model: "agent",
+      model: "CM_Opus 5 - Extra High",
       sessionKey: "",
       subagent: false,
       continueThread: false,
@@ -43,31 +43,37 @@ describe("CookieMonster protocol capability", () => {
     expect(JSON.stringify(probe)).not.toContain("must not leak")
   })
 
-  test("requests and requires phase support only for declared GPT-5.6 profiles", () => {
-    const model = "CM_GPT-5.6 Sol - High"
-    const probe = buildCapabilityProbeJob({ payload: { model } })
+  test("requests and requires phase support for declared GPT profiles", () => {
+    for (const model of ["CM_GPT-5.6 Sol - High", "CM_GPT6_Astra_High"]) {
+      const probe = buildCapabilityProbeJob({ payload: { model } })
 
-    expect(JSON.parse(probe.payload.prompt)).toEqual({
-      type: CM_CAPABILITY_PROBE_TYPE,
-      version: 1,
-      features: ["assistant_phase"],
-    })
-    expect(() => assertCapabilityResponse({ finalText: CM_PHASE_CAPABILITY_RESPONSE }, model)).not.toThrow()
-    expect(() => assertCapabilityResponse({ finalText: CM_CAPABILITY_RESPONSE }, model)).toThrow(
-      /does not advertise CM_REQUEST_V1 support/,
-    )
+      expect(JSON.parse(probe.payload.prompt)).toEqual({
+        type: CM_CAPABILITY_PROBE_TYPE,
+        version: 1,
+        features: ["assistant_phase"],
+      })
+      expect(() => assertCapabilityResponse({ finalText: CM_PHASE_CAPABILITY_RESPONSE }, model)).not.toThrow()
+      expect(() => assertCapabilityResponse({ finalText: CM_CAPABILITY_RESPONSE }, model)).toThrow(
+        /does not advertise CM_REQUEST_V1 support/,
+      )
+    }
   })
 
   test("accepts only the exact advertised capability", () => {
-    expect(() => assertCapabilityResponse({ finalText: ` ${CM_CAPABILITY_RESPONSE}\n` }, "agent")).not.toThrow()
-    expect(() => assertCapabilityResponse({ finalText: "I can help" }, "agent")).toThrow(
+    expect(() =>
+      assertCapabilityResponse({ finalText: ` ${CM_CAPABILITY_RESPONSE}\n` }, "CM_Opus 5 - Extra High"),
+    ).not.toThrow()
+    expect(() => assertCapabilityResponse({ finalText: "I can help" }, "CM_Opus 5 - Extra High")).toThrow(
       /does not advertise CM_REQUEST_V1 support/,
     )
   })
 
   test("reads the normal nested worker response shape", () => {
     expect(() =>
-      assertCapabilityResponse({ response: { finalText: CM_CAPABILITY_RESPONSE } }, "agent"),
+      assertCapabilityResponse(
+        { response: { finalText: CM_CAPABILITY_RESPONSE } },
+        "CM_Opus 5 - Extra High",
+      ),
     ).not.toThrow()
   })
 })

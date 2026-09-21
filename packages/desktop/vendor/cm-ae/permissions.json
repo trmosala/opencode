@@ -1,0 +1,22 @@
+{
+  "ae_pair": "ask",
+  "ae_connections": "allow",
+  "ae_bind": "ask",
+  "ae_release": "ask",
+  "ae_inspect": "allow",
+  "ae_execute": "allow",
+  "ae_grant": "ask",
+  "ae_capture": "ask",
+  "ae_checkpoints": "ask",
+  "ae_restore": "ask",
+  "ae_templates": "ask",
+  "ae_render_list": "allow",
+  "ae_render_recover": "ask",
+  "ae_render_submit": "ask",
+  "ae_render_status": "allow",
+  "ae_render_cancel": "ask",
+  "ae_render_retire": "ask",
+  "ae_render_result": "allow",
+  "ae_diagnostics": "allow",
+  "ae_reconcile": "ask"
+}

@@ -81,9 +81,9 @@ jobs:
       run:
         shell: bash
     env:
-      # dev is the only channel whose prebuild bundles the OpenCode CLI into resources/, which the
-      # packaged app needs in order to start its sidecar.
-      OPENCODE_CHANNEL: dev
+      # CookieMonster is branded independently, so prod behavior is safe while CM_BRAND keeps its
+      # identity, bundled CLI sidecar, and disabled upstream publishing.
+      OPENCODE_CHANNEL: prod
       CM_BRAND: "1"
       CM_UNSIGNED: "1"
     steps:

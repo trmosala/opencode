@@ -65,20 +65,17 @@ const it = testEffect(
     ],
     [
       Skill.node,
-      Layer.succeed(
-        Skill.Service,
-        Skill.Service.of({
-          get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
-          require: (name) => {
-            const info = skills.find((skill) => skill.name === name)
-            if (info) return Effect.succeed(info)
-            return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
-          },
-          all: () => Effect.succeed(skills),
-          dirs: () => Effect.succeed([]),
-          available: () => Effect.succeed(skills),
-        }),
-      ),
+      Layer.mock(Skill.Service, {
+        get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
+        require: (name) => {
+          const info = skills.find((skill) => skill.name === name)
+          if (info) return Effect.succeed(info)
+          return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
+        },
+        all: () => Effect.succeed(skills),
+        dirs: () => Effect.succeed([]),
+        available: () => Effect.succeed(skills),
+      }),
     ],
   ]),
 )
@@ -111,12 +108,12 @@ describe("session.system", () => {
 
   test("uses model-family prompts for CookieMonster models", () => {
     const gpt = SystemPrompt.provider({
-      api: { id: "CM_GPT-5.5 - High" },
+      api: { id: "CM_GPT-5.6 Sol - High" },
       family: "gpt-5",
       providerID: "cookiemonster",
     } as Provider.Model)
     const opus = SystemPrompt.provider({
-      api: { id: "CM_Opus 4.8 - Extra High" },
+      api: { id: "CM_Opus 5 - Extra High" },
       family: "claude",
       providerID: "cookiemonster",
     } as Provider.Model)

@@ -3,6 +3,31 @@ import type { Configuration } from "electron-builder"
 
 const legacyDesktopEntry = "resources/linux/opencode-desktop.desktop"
 
+test("default packaging includes AE outside asar without an environment override", async () => {
+  const previous = process.env.CM_AE_ARTIFACT_DIR
+  delete process.env.CM_AE_ARTIFACT_DIR
+  try {
+    const { default: config } = await import("./electron-builder.config.ts?default-ae")
+    expect(config.files).toContain("!resources/cm-ae{,/**/*}")
+    expect(config.extraResources).toContainEqual({
+      from: "resources/cm-ae",
+      to: "cm-ae",
+      filter: ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"],
+    })
+    for (const name of ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"]) {
+      expect(await Bun.file(`resources/cm-ae/${name}`).arrayBuffer()).toEqual(
+        await Bun.file(`vendor/cm-ae/${name}`).arrayBuffer(),
+      )
+    }
+    expect(config.extraResources).toContainEqual({
+      from: "../cm-browser/dist/plugin.mjs",
+      to: "cm-browser/plugin.mjs",
+    })
+  } finally {
+    if (previous !== undefined) process.env.CM_AE_ARTIFACT_DIR = previous
+  }
+})
+
 const channels = [
   { channel: "dev", appId: "ai.opencode.desktop.dev" },
   { channel: "beta", appId: "ai.opencode.desktop.beta" },
@@ -57,6 +82,16 @@ test("keeps a hidden prod launcher for old Linux pins", async () => {
   expect(desktop).toContain("NoDisplay=true")
 })
 
+test("copies runtime icons outside the app archive for windows and tray", async () => {
+  const module = await import("./electron-builder.config.ts?runtime-icons")
+  const config = module.default as Configuration
+
+  expect(config.extraResources).toContainEqual({
+    from: "resources/icons",
+    to: "icons",
+  })
+})
+
 test("bundles the CLI outside the dev app archive", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "dev"
@@ -66,6 +101,28 @@ test("bundles the CLI outside the dev app archive", async () => {
   else process.env.OPENCODE_CHANNEL = previous
 
   expect(config.files).toContain("!resources/opencode-cli*")
+  expect(config.extraResources).toContainEqual({
+    from: "resources/",
+    to: "",
+    filter: ["opencode-cli*"],
+  })
+})
+
+test("bundles the CLI in branded prod builds", async () => {
+  const previousChannel = process.env.OPENCODE_CHANNEL
+  const previousBrand = process.env.CM_BRAND
+  process.env.OPENCODE_CHANNEL = "prod"
+  process.env.CM_BRAND = "1"
+  const module = await import("./electron-builder.config.ts?branded-prod-cli-resource")
+  const config = module.default as Configuration
+  if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
+  else process.env.OPENCODE_CHANNEL = previousChannel
+  if (previousBrand === undefined) delete process.env.CM_BRAND
+  else process.env.CM_BRAND = previousBrand
+
+  expect(config.appId).toBe("com.ogilvy.cookiemonster")
+  expect(config.productName).toBe("CookieMonster")
+  expect(config.publish).toBeNull()
   expect(config.extraResources).toContainEqual({
     from: "resources/",
     to: "",
@@ -117,13 +174,16 @@ test("keeps signing enabled by default", async () => {
 })
 
 for (const channel of ["beta", "prod"] as const) {
-  test(`does not bundle the CLI in ${channel} builds`, async () => {
+  test(`does not bundle the CLI in unbranded ${channel} builds`, async () => {
     const previous = process.env.OPENCODE_CHANNEL
+    const previousBrand = process.env.CM_BRAND
     process.env.OPENCODE_CHANNEL = channel
+    delete process.env.CM_BRAND
     const module = await import(`./electron-builder.config.ts?no-cli-resource=${channel}`)
     const config = module.default as Configuration
     if (previous === undefined) delete process.env.OPENCODE_CHANNEL
     else process.env.OPENCODE_CHANNEL = previous
+    if (previousBrand !== undefined) process.env.CM_BRAND = previousBrand
 
     expect(config.extraResources).not.toContainEqual({
       from: "resources/",

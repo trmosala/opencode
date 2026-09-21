@@ -4,6 +4,7 @@ import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { Skill } from "../skill"
 import * as Tool from "./tool"
 import DESCRIPTION from "./skill.txt"
+import { ManagedSkill } from "../skill/managed"
 
 export const Parameters = Schema.Struct({
   name: Schema.String.annotate({ description: "The name of the skill from available_skills" }),
@@ -20,27 +21,44 @@ export const SkillTool = Tool.define(
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
-          const info = yield* skill
-            .require(params.name)
-            .pipe(Effect.catchTag("Skill.NotFoundError", (error) => Effect.die(new Error(error.message))))
+          const user = ctx.messages.findLast((message) => message.info.role === "user")
+          const selection = user?.parts.flatMap((part) =>
+            part.type === "text" && part.metadata?.cmSkill ? [part.metadata.cmSkill] : [],
+          )[0]
+          const selected =
+            selection === undefined
+              ? undefined
+              : yield* Schema.decodeUnknownEffect(ManagedSkill.Selection)(selection).pipe(Effect.orDie)
+          const pinned = selected?.name === params.name ? selected : undefined
+          const before = pinned
+            ? yield* skill.resolve(pinned).pipe(Effect.orDie)
+            : yield* skill
+                .require(params.name)
+                .pipe(Effect.catchTag("Skill.NotFoundError", (error) => Effect.die(new Error(error.message))))
 
           yield* ctx.ask({
             permission: "skill",
             patterns: [params.name],
             always: [params.name],
-            metadata: {},
+            metadata: { name: params.name, ...(pinned ? { source: pinned.source, revision: pinned.revision } : {}) },
           })
 
+          // Permission dialogs can stay open while files change. Validate again,
+          // then use these exact bytes rather than re-reading by name.
+          const info = pinned ? yield* skill.resolve(pinned).pipe(Effect.orDie) : before
           const dir = path.dirname(info.location)
           const base = dir
-          const files = yield* ripgrep.find({
-            cwd: dir,
-            pattern: "!**/SKILL.md",
-            hidden: true,
-            follow: false,
-            signal: ctx.abort,
-            limit: 10,
-          })
+          const files =
+            info.location === "<built-in>"
+              ? []
+              : yield* ripgrep.find({
+                  cwd: dir,
+                  pattern: "!**/SKILL.md",
+                  hidden: true,
+                  follow: false,
+                  signal: ctx.abort,
+                  limit: 10,
+                })
 
           return {
             title: `Loaded skill: ${info.name}`,
@@ -62,6 +80,7 @@ export const SkillTool = Tool.define(
             metadata: {
               name: info.name,
               dir,
+              ...(pinned ? { source: pinned.source, revision: pinned.revision } : {}),
             },
           }
         }).pipe(Effect.orDie),

@@ -202,7 +202,7 @@ Desktop packaging (from `packages/desktop`): `bun run build` then `bun run packa
 
 ### CI
 
-`.github/workflows/cookiemonster-desktop.yml` is the CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), a two-runner matrix because each installer format must be built on its own OS, with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=dev` — the only channel whose prebuild bundles the CLI sidecar into `resources/`. It publishes a `cookiemonster-v<version>_<revision>` release. Unsigned means SmartScreen (Windows) and Gatekeeper (macOS) warnings on install. Every other workflow is inherited from upstream and unmodified.
+`.github/workflows/cookiemonster-desktop.yml` is the CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), a two-runner matrix because each installer format must be built on its own OS, with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`. Branded builds bundle the CLI sidecar into `resources/` independently of channel and disable upstream publishing. It publishes a `cookiemonster-v<version>_<revision>` release. Unsigned means SmartScreen (Windows) and Gatekeeper (macOS) warnings on install. Every other workflow is inherited from upstream and unmodified.
 
 ### The WPP bridge (read multiple files to understand)
 

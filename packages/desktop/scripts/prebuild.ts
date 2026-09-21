@@ -2,9 +2,11 @@
 import { $ } from "bun"
 
 import { downloadCliToResources, resolveChannel } from "./utils"
+import "./stage-cm-ae"
 
 const channel = resolveChannel()
-await $`bun ./scripts/copy-icons.ts ${channel}`
+const assetChannel = process.env.CM_BRAND === "1" ? "dev" : channel
+await $`bun ./scripts/copy-icons.ts ${assetChannel}`
 await $`bun ./scripts/copy-metainfo.ts ${channel}`
 
 await $`cd ../opencode && bun script/build-node.ts`
@@ -13,4 +15,4 @@ await $`cd ../opencode && bun script/build-node.ts`
 // bundled .mjs. Without this the tools silently never register.
 await $`bun run --cwd ../cm-browser build`
 
-if (channel === "dev") await downloadCliToResources()
+if (channel === "dev" || process.env.CM_BRAND === "1") await downloadCliToResources()

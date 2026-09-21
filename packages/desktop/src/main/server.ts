@@ -10,6 +10,8 @@ import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
 import { o1CodeConfigContent } from "./wpp-bridge/proxy/providerConfig.mjs"
+import { resolveCmAePlugin } from "../cm-ae"
+import { createSidecarEnv } from "./sidecar-env"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -72,7 +74,7 @@ export async function spawnLocalServer(
   const sidecar = join(dirname(fileURLToPath(import.meta.url)), "sidecar.js")
   const child = utilityProcess.fork(sidecar, [], {
     cwd: process.cwd(),
-    env: createSidecarEnv(),
+    env: createSidecarEnv(bundledConfigContent),
     serviceName: SIDECAR_SERVICE_NAME,
     stdio: "pipe",
   })
@@ -228,15 +230,18 @@ export async function checkHealth(url: string, password?: string | null): Promis
   return false
 }
 
-function createSidecarEnv(): Record<string, string> {
-  const env = Object.fromEntries(
-    Object.entries(process.env).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
+function bundledConfigContent() {
+  // Bundled plugins are local to this utility process, never global OpenCode/WSL config.
+  return o1CodeConfigContent(
+    browserPluginEntry(),
+    resolveCmAePlugin({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appPath: app.getAppPath(),
+      version: app.getVersion(),
+      warn: (message) => getLogger().warn(message),
+    }),
   )
-  delete env.DEBUG
-  if (process.platform === "linux") delete env.LD_PRELOAD
-  // Browser control is a capability of this bundled utility process, never global OpenCode/WSL config.
-  env.OPENCODE_CONFIG_CONTENT = process.env.OPENCODE_CONFIG_CONTENT ?? o1CodeConfigContent(browserPluginEntry())
-  return env
 }
 
 function browserPluginEntry() {

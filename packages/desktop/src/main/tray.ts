@@ -11,6 +11,10 @@ function iconsDir() {
 }
 
 function trayImage() {
+  if (process.platform === "darwin") {
+    // Keep the colored icon at menu-bar logical size, not its source pixel size.
+    return nativeImage.createFromPath(join(iconsDir(), "32x32.png")).resize({ width: 16, height: 16 })
+  }
   const ext = process.platform === "win32" ? "ico" : "png"
   return nativeImage.createFromPath(join(iconsDir(), `icon.${ext}`))
 }

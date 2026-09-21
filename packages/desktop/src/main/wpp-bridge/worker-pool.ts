@@ -121,7 +121,7 @@ export class WorkerPool {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const worker = await this.acquire(
-      (job.payload?.model || "CM_Opus 4.8 - Extra High").trim(),
+      (job.payload?.model || "CM_GPT-5.6 Sol - Medium").trim(),
       (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
       signal,

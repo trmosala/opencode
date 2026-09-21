@@ -2,15 +2,19 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Effect, Exit } from "effect"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
-import type { Permission } from "../../src/permission"
 import type { Tool } from "@/tool/tool"
 import { SkillTool } from "../../src/tool/skill"
+import { Skill } from "../../src/skill"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ManagedSkill } from "../../src/skill/managed"
 import { ToolRegistry } from "@/tool/registry"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
-import { SessionID, MessageID } from "../../src/session/schema"
+import { SessionID, MessageID, PartID } from "../../src/session/schema"
 import { testEffect } from "../lib/effect"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
@@ -27,7 +31,9 @@ afterEach(async () => {
   await disposeAllInstances()
 })
 
-const it = testEffect(LayerNode.compile(LayerNode.group([ToolRegistry.node, CrossSpawnSpawner.node, Ripgrep.node])))
+const it = testEffect(
+  LayerNode.compile(LayerNode.group([ToolRegistry.node, CrossSpawnSpawner.node, Ripgrep.node, Skill.node])),
+)
 
 describe("tool.skill", () => {
   it.instance("execute returns skill content block with files", () =>
@@ -90,6 +96,82 @@ Use this skill.
       expect(result.output).toContain(`<skill_content name="tool-skill">`)
       expect(result.output).toContain(`Base directory for this skill: ${skill}`)
       expect(result.output).toContain(`<file>${file}</file>`)
+    }),
+  )
+
+  it.instance("selected skill loads exact bytes through native permission and rejects changes during approval", () =>
+    Effect.gen(function* () {
+      const service = yield* Skill.Service
+      const draft: ManagedSkill.Draft = {
+        name: "pinned-motion",
+        description: "Pinned motion",
+        instructions: "Keep logo fixed",
+        scope: "workspace",
+      }
+      const review = yield* service.review(draft)
+      const receipt = yield* service.create({ ...draft, token: review.token })
+      const registry = yield* ToolRegistry.Service
+      const tool = (yield* registry.tools({
+        providerID: "opencode" as any,
+        modelID: "gpt-5" as any,
+        agent: { name: "build", mode: "primary", permission: [], options: {} },
+      })).find((tool) => tool.id === SkillTool.id)
+      if (!tool) throw new Error("Skill tool not found")
+      const messages: SessionV1.WithParts[] = [
+        {
+          info: {
+            id: MessageID.make("msg_user"),
+            sessionID: baseCtx.sessionID,
+            role: "user",
+            time: { created: 1 },
+            agent: "build",
+            model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test") },
+          },
+          parts: [
+            {
+              id: PartID.make("prt_selection"),
+              messageID: MessageID.make("msg_user"),
+              sessionID: baseCtx.sessionID,
+              type: "text",
+              text: "Use this technique",
+              metadata: { cmSkill: { name: receipt.name, source: receipt.source, revision: receipt.revision } },
+            },
+          ],
+        },
+      ]
+      let asks = 0
+      const ctx: Tool.Context = {
+        ...baseCtx,
+        messages,
+        ask: (request) =>
+          Effect.sync(() => {
+            expect(request.permission).toBe("skill")
+            expect(request.patterns).toEqual([draft.name])
+            expect(request.metadata).toEqual({ name: draft.name, source: receipt.source, revision: receipt.revision })
+            asks++
+          }),
+      }
+      const result = yield* tool.execute({ name: draft.name }, ctx)
+      expect(result.output).toContain(draft.instructions)
+      expect(result.metadata).toMatchObject({ name: draft.name, source: receipt.source, revision: receipt.revision })
+      expect(asks).toBe(1)
+      const changed = yield* tool
+        .execute(
+          { name: draft.name },
+          {
+            ...ctx,
+            ask: () =>
+              Effect.promise(() =>
+                Bun.write(receipt.destination, ManagedSkill.validate({ ...draft, instructions: "Changed" })),
+              ).pipe(Effect.asVoid),
+          },
+        )
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(changed)).toBe(true)
+      if (Exit.isFailure(changed)) expect(String(Cause.squash(changed.cause))).toContain("changed")
+      const stale = yield* tool.execute({ name: draft.name }, ctx).pipe(Effect.exit)
+      expect(Exit.isFailure(stale)).toBe(true)
+      expect(asks).toBe(1)
     }),
   )
 

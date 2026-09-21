@@ -56,10 +56,14 @@ const GPT_COST = { input: 5, output: 30, cache_read: 0.5, cache_write: 0 }
 function projectModel(agentName) {
   return {
     name: agentName,
-    family: agentName.startsWith("CM_Opus") ? "claude" : "gpt-5",
+    family: agentName.startsWith("CM_Opus")
+      ? "claude"
+      : agentName.startsWith("CM_Gemini")
+        ? "gemini"
+        : "gpt-5",
     attachment: true,
-    // GPT Sol variants retain the previous builder accounting estimate until WPP exposes an
-    // authoritative rate for the project-agent route.
+    // Non-Opus variants retain the previous builder accounting estimate until WPP exposes an
+    // authoritative rate for each project-agent route.
     cost: agentName.startsWith("CM_Opus") ? OPUS_COST : GPT_COST,
     modalities: {
       input: ["text", "image"],
@@ -86,6 +90,16 @@ export const COOKIE_MONSTER_PROVIDER = {
 const SEED_PROVIDERS = { cookiemonster: COOKIE_MONSTER_PROVIDER }
 const SEED_MCP = O1_CODE_MCP
 const LEGACY_O1_CODE_MODELS = new Set(["o1-code", "o1-code-builder"])
+const RETIRED_COOKIE_MONSTER_MODELS = new Set([
+  "CM_GPT-5.5 - Low",
+  "CM_GPT-5.5 - Medium",
+  "CM_GPT-5.5 - High",
+  "CM_GPT-5.5 - Extra High",
+  "CM_Opus 4.8 - Low",
+  "CM_Opus 4.8 - Auto",
+  "CM_Opus 4.8 - High",
+  "CM_Opus 4.8 - Extra High",
+])
 
 function isLegacyO1CodeProvider(provider) {
   if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
@@ -117,13 +131,15 @@ export function o1CodeConfigFile() {
 // Self-contained config blob injected into the bundled OpenCode sidecar. A clean install must see
 // the project roster on its very first start even if the persistent opencode.json seed has not
 // completed yet. The disk seed remains useful for external OpenCode sessions and later launches.
-export function o1CodeConfigContent(browserPlugin) {
+export function o1CodeConfigContent(browserPlugin, aePlugin) {
+  const plugins = [browserPlugin, aePlugin].filter(Boolean)
   return JSON.stringify({
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
     mcp: O1_CODE_MCP,
-    ...(browserPlugin ? { plugin: [browserPlugin] } : {}),
+    ...(plugins.length ? { plugin: plugins } : {}),
+    // AE defaults belong to its config hook, below user policy, not this high-precedence blob.
     permission: {
       browser_read_state: "allow",
       browser_navigate: "ask",
@@ -182,6 +198,12 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
 
     const existingModels = config.provider[key]?.models
     if (!existingModels || typeof existingModels !== "object" || Array.isArray(existingModels)) continue
+
+    for (const modelKey of RETIRED_COOKIE_MONSTER_MODELS) {
+      if (!(modelKey in existingModels)) continue
+      delete existingModels[modelKey]
+      changed = true
+    }
 
     for (const [modelKey, seedModel] of Object.entries(value.models || {})) {
       const existingModel = existingModels[modelKey]

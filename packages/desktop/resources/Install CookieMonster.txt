@@ -1,0 +1,19 @@
+INSTALL COOKIEMONSTER FOR YOUR USER
+
+Open CookieMonster in this disk image, then choose "Install for My User".
+The app copies itself to ~/Applications/CookieMonster.app and opens that copy.
+No administrator access is required. Existing apps are never replaced.
+After the installed app opens, eject this disk image.
+
+If macOS relocates the launch for security, automatic installation cannot
+safely identify the original app. In Finder, choose Go > Go to Folder and
+enter ~/Applications. Create this folder in your home folder if needed.
+Copy CookieMonster.app from this disk image into that folder, without
+replacing an existing app. Open the copied app, then eject the disk image.
+
+If installation fails, inspect the destination in Finder. A partial copy
+may remain; remove it only after confirming it is the failed new copy.
+Do not remove or replace an existing installation automatically.
+
+Follow macOS security prompts and your organization's software policy.
+Contact your administrator if macOS prevents opening the app.

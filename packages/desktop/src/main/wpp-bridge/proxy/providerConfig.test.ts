@@ -37,6 +37,7 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.$schema).toBe("https://opencode.ai/config.json")
   expect(config.provider.cookiemonster).toEqual(COOKIE_MONSTER_PROVIDER)
   expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
+  expect(config.provider.cookiemonster.models["CM_Gemini-3.7-Flash_High"].family).toBe("gemini")
   expect(config.provider["o1-code"]).toBeUndefined()
   expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp).toEqual(O1_CODE_MCP)
@@ -110,6 +111,30 @@ test("fills missing project models and cost keys without overriding custom value
   await rm(dir, { recursive: true, force: true })
 })
 
+test("removes retired project models from the seeded CookieMonster provider", async () => {
+  const { dir, file } = await tmpFile()
+  await writeFile(
+    file,
+    JSON.stringify({
+      provider: {
+        cookiemonster: {
+          ...COOKIE_MONSTER_PROVIDER,
+          models: {
+            ...COOKIE_MONSTER_PROVIDER.models,
+            "CM_GPT-5.5 - High": { name: "CM_GPT-5.5 - High" },
+            "CM_Opus 4.8 - Extra High": { name: "CM_Opus 4.8 - Extra High" },
+          },
+        },
+      },
+    }),
+  )
+  await ensureO1CodeProvider(file)
+  const config = JSON.parse(await readFile(file, "utf8"))
+
+  expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
+  await rm(dir, { recursive: true, force: true })
+})
+
 test("preserves an explicit LSP setting", async () => {
   const { dir, file } = await tmpFile()
   await writeFile(file, JSON.stringify({ lsp: false }))
@@ -137,6 +162,57 @@ test("leaves an unparseable file untouched", async () => {
   await ensureO1CodeProvider(file)
   expect(await readFile(file, "utf8")).toBe(original)
   await rm(dir, { recursive: true, force: true })
+})
+
+for (const browser of [false, true]) {
+  for (const ae of [false, true]) {
+    test(`injected plugins browser=${browser} AE=${ae} never inject AE permissions`, () => {
+      const browserPlugin = "file:///resources/cm-browser/plugin.mjs"
+      const aePlugin = [
+        "file:///resources/cm-ae/plugin.mjs",
+        {
+          releaseMetadata: { cookieMonsterVersion: "1.18.27+cm.1" },
+        },
+      ]
+      const config = JSON.parse(o1CodeConfigContent(browser ? browserPlugin : undefined, ae ? aePlugin : undefined))
+      const plugins = [...(browser ? [browserPlugin] : []), ...(ae ? [aePlugin] : [])]
+      expect(config.plugin).toEqual(plugins.length ? plugins : undefined)
+      expect(config.permission).toEqual(JSON.parse(o1CodeConfigContent()).permission)
+      expect(Object.keys(config.permission).every((name) => name.startsWith("browser_"))).toBe(true)
+      // High-precedence injection cannot replace AE denies, wildcards or agent/mode policies.
+      const policy = {
+        permission: { ae_execute: "deny", "ae_*": "deny" },
+        agent: { restricted: { permission: { ae_execute: "deny" } } },
+        mode: { review: { permission: { "ae_*": "deny" } } },
+      }
+      expect({ ...policy.permission, ...config.permission }.ae_execute).toBe("deny")
+      expect(config.agent).toBeUndefined()
+      expect(config.mode).toBeUndefined()
+      expect(config.tools).toBeUndefined()
+    })
+  }
+}
+
+test("global seed preserves user plugins and all permission settings, and never seeds local AE paths", async () => {
+  const { dir, file } = await tmpFile()
+  try {
+    const user = {
+      plugin: ["user-plugin"],
+      permission: { "ae_*": "deny", browser_click: "deny" },
+      agent: { review: { permission: { ae_execute: "deny" } } },
+      tools: { ae_execute: false },
+    }
+    await writeFile(file, JSON.stringify(user))
+    await ensureO1CodeProvider(file)
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject(user)
+    await rm(file)
+    await ensureO1CodeProvider(file)
+    const fresh = JSON.parse(await readFile(file, "utf8"))
+    expect(fresh.plugin).toBeUndefined()
+    expect(fresh.permission).toBeUndefined()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test("injected config is self-contained for a clean bundled OpenCode install", () => {

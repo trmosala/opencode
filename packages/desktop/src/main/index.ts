@@ -211,6 +211,55 @@ const main = Effect.gen(function* () {
     return
   }
 
+  if (process.platform === "darwin" && app.isPackaged) {
+    const { readFile } = yield* Effect.promise(() => import("node:fs/promises"))
+    const metadata = JSON.parse(yield* Effect.promise(() => readFile(join(app.getAppPath(), "package.json"), "utf8")))
+    if (metadata.cmUserInstall === true) {
+      yield* Effect.promise(() => app.whenReady())
+      const { dialog } = yield* Effect.promise(() => import("electron"))
+      const { nativeT } = yield* Effect.promise(() => import("./native-translations"))
+      const { installFromDiskImage } = yield* Effect.promise(() => import("./macos-user-install"))
+      const handled = yield* Effect.promise(() =>
+        installFromDiskImage({
+          executable: app.getPath("exe"),
+          applications: join(app.getPath("home"), "Applications"),
+          confirm: async (destination) => {
+            const result = await dialog.showMessageBox({
+              type: "question",
+              title: nativeT("desktop.install.title"),
+              message: nativeT("desktop.install.title"),
+              detail: nativeT("desktop.install.detail", { destination }),
+              buttons: [nativeT("desktop.install.confirm"), nativeT("desktop.recovery.action.quit")],
+              defaultId: 0,
+              cancelId: 1,
+              noLink: true,
+            })
+            return result.response === 0
+          },
+          manual: async () => {
+            await dialog.showMessageBox({
+              type: "warning",
+              message: nativeT("desktop.install.title"),
+              detail: nativeT("desktop.install.manual"),
+              buttons: [nativeT("desktop.recovery.action.quit")],
+            })
+          },
+          failed: async (destination) => {
+            await dialog.showMessageBox({
+              type: "error",
+              message: nativeT("desktop.install.title"),
+              detail: nativeT("desktop.install.failed", { destination }),
+              buttons: [nativeT("desktop.recovery.action.quit")],
+            })
+          },
+          releaseLock: () => app.releaseSingleInstanceLock(),
+          quit: () => app.quit(),
+        }),
+      )
+      if (handled) return
+    }
+  }
+
   const shellEnv = preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {

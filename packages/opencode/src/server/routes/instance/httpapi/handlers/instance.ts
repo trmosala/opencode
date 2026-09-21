@@ -9,7 +9,8 @@ import { Skill } from "@/skill"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiVcsApplyError } from "../groups/instance"
+import { ApiVcsApplyError, ApiSkillError } from "../groups/instance"
+import { Permission } from "@/permission"
 import { markInstanceForDisposal } from "../lifecycle"
 
 export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance", (handlers) =>
@@ -104,6 +105,53 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("command", getCommand)
       .handle("agent", getAgent)
       .handle("skill", getSkill)
+      .handle("skillCatalog", () =>
+        Effect.gen(function* () {
+          const current = yield* agent.defaultInfo()
+          return (yield* skill.catalog()).filter(
+            (item) => Permission.evaluate("skill", item.name, current.permission).action !== "deny",
+          )
+        }).pipe(
+          Effect.mapError((error) => new ApiSkillError({ name: "SkillError", data: { message: error.message } })),
+        ),
+      )
+      .handle("skillValidate", ({ payload }) =>
+        Effect.gen(function* () {
+          const current = yield* agent.defaultInfo()
+          if (Permission.evaluate("skill", payload.name, current.permission).action === "deny")
+            return yield* new ApiSkillError({
+              name: "SkillError",
+              data: { message: "Skill is denied by CM permissions." },
+            })
+          const info = yield* skill
+            .resolve(payload)
+            .pipe(
+              Effect.mapError((error) => new ApiSkillError({ name: "SkillError", data: { message: error.message } })),
+            )
+          return { name: info.name, description: info.description, source: info.source, revision: info.revision }
+        }),
+      )
+      .handle("skillManage", ({ payload }) =>
+        skill
+          .manage(payload)
+          .pipe(
+            Effect.mapError((error) => new ApiSkillError({ name: "SkillError", data: { message: error.message } })),
+          ),
+      )
+      .handle("skillReview", ({ payload }) =>
+        skill
+          .review(payload)
+          .pipe(
+            Effect.mapError((error) => new ApiSkillError({ name: "SkillError", data: { message: error.message } })),
+          ),
+      )
+      .handle("skillCreate", ({ payload }) =>
+        skill
+          .create(payload)
+          .pipe(
+            Effect.mapError((error) => new ApiSkillError({ name: "SkillError", data: { message: error.message } })),
+          ),
+      )
       .handle("lsp", getLsp)
       .handle("formatter", getFormatter)
   }),

@@ -3,8 +3,8 @@
 Build the branded RPM on Linux:
 
 ```bash
-CM_BRAND=1 CM_UNSIGNED=1 OPENCODE_CHANNEL=dev bun run build
-CM_BRAND=1 CM_UNSIGNED=1 OPENCODE_CHANNEL=dev bun x electron-builder --linux rpm --publish never --config electron-builder.fedora.config.ts
+CM_BRAND=1 CM_UNSIGNED=1 OPENCODE_CHANNEL=prod bun run build
+CM_BRAND=1 CM_UNSIGNED=1 OPENCODE_CHANNEL=prod bun x electron-builder --linux rpm --publish never --config electron-builder.fedora.config.ts
 ```
 
 Install the resulting package:
