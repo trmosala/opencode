@@ -1,39 +1,40 @@
 import { execFile } from "node:child_process"
-import { existsSync } from "node:fs"
-import { join } from "node:path"
-import { app, type BrowserWindow } from "electron"
+import { type BrowserWindow } from "electron"
 import { nativeT } from "../native-translations"
 import { loginOrigin, requireLogin } from "./import-data"
+import { nativeSecretEntryAvailable, nativeSecretEntryPath, nativeSecretEntryWindow } from "./native-secret-entry"
 import { vaultAccess } from "./vault-session"
 
-function helperPath() {
-  return app.isPackaged
-    ? join(process.resourcesPath, "vault-auth", `windows-entry-${process.arch}.exe`)
-    : join(app.getAppPath(), "resources", "vault-auth", `windows-entry-${process.arch}.exe`)
-}
-
 export function loginEntryAvailable() {
-  return process.platform === "win32" && existsSync(helperPath())
+  return nativeSecretEntryAvailable()
 }
 
 export const loginEntry = {
   async prompt(win: BrowserWindow, origin: string, username: string) {
     const ticket = vaultAccess.require()
-    if (!loginEntryAvailable() || loginOrigin(origin) !== origin || username.length > 4096 || username.includes("\0"))
+    const helper = nativeSecretEntryPath()
+    if (
+      !helper ||
+      !loginEntryAvailable() ||
+      loginOrigin(origin) !== origin ||
+      username.length > 4096 ||
+      username.includes("\0")
+    )
       throw new Error("Native account entry unavailable")
     if (win.isDestroyed() || !win.isVisible() || win.isMinimized()) throw new Error("Account window unavailable")
-    const handle = win.getNativeWindowHandle()
-    const hwnd = handle.length === 8 ? handle.readBigUInt64LE().toString(16) : handle.readUInt32LE().toString(16)
     return new Promise<ReturnType<typeof requireLogin> | undefined>((resolve, reject) => {
       const child = execFile(
-        helperPath(),
+        helper,
         [
-          hwnd,
+          nativeSecretEntryWindow(win),
           origin,
           nativeT("desktop.browser.account.title"),
           nativeT("desktop.browser.account.entry", { origin }),
-          // CredUI cannot represent longer imported usernames. Allow explicit replacement, never truncate.
+          // Native entry fields are bounded. Allow explicit replacement, never truncate imported usernames.
           username.length <= 513 ? username : "",
+          ...(process.platform === "darwin"
+            ? [nativeT("desktop.browser.save"), nativeT("desktop.browser.cancel")]
+            : []),
         ],
         {
           encoding: "buffer",

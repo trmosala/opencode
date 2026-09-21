@@ -34,6 +34,7 @@ type Session = {
   listening: boolean
   revision: number
   mainFrameID?: string
+  loaderID?: string
   origin?: string
   tools: Map<string, NativeTool>
   pending: Map<string, Pending>
@@ -43,6 +44,7 @@ export type PreparedSiteTool = {
   readonly ref: string
   readonly name: string
   readonly frameID: string
+  readonly loaderID: string
   readonly origin: string
   readonly revision: number
   readonly argumentHash: string
@@ -118,11 +120,20 @@ function key(frameID: string, name: string) {
 
 function message(session: Session, method: string, value: unknown) {
   const params = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  if (method === "Page.frameNavigated") {
+    const frame = params.frame as { parentId?: unknown; loaderId?: unknown } | undefined
+    if (frame && !frame.parentId && frame.loaderId !== session.loaderID) invalidate(session)
+    return
+  }
+  if (!session.enabled) return
   if (method === "WebMCP.toolsAdded" && Array.isArray(params.tools)) {
     params.tools.forEach((value) => {
       const tool = nativeTool(value)
       if (!tool) return
-      session.tools.set(key(tool.frameID, tool.name), tool)
+      const id = key(tool.frameID, tool.name)
+      const retained = [...session.tools.values()].filter((entry) => entry.frameID === tool.frameID).length
+      if (!session.tools.has(id) && retained >= MAX_SITE_TOOLS) return
+      session.tools.set(id, tool)
       session.revision++
     })
     return
@@ -142,11 +153,20 @@ function message(session: Session, method: string, value: unknown) {
   pending.resolve(params)
 }
 
-async function enabled(contents: SiteToolContents, check: () => void) {
+function invalidate(session: Session) {
+  session.enabled = false
+  session.loaderID = undefined
+  session.revision++
+  session.tools.clear()
+  session.pending.forEach((pending) => pending.reject(new Error("WebMCP document changed")))
+  session.pending.clear()
+}
+
+async function connected(contents: SiteToolContents, check: () => void) {
   check()
   if (contents.isDestroyed() || contents.isLoadingMainFrame()) throw new Error("Browser page is unavailable")
   const existing = sessions.get(contents)
-  if (existing?.enabled) return existing
+  if (existing && contents.debugger.isAttached()) return existing
   if (!contents.debugger.on) throw new Error("WebMCP is unavailable in this browser runtime")
   if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
   const session: Session = existing ?? {
@@ -160,39 +180,68 @@ async function enabled(contents: SiteToolContents, check: () => void) {
   if (!session.listening) {
     contents.debugger.on("message", (_event, method, params) => message(session, method, params))
     contents.debugger.on("detach", () => {
-      session.enabled = false
-      session.revision++
-      session.tools.clear()
-      session.pending.forEach((pending) => pending.reject(new Error("WebMCP debugger detached")))
-      session.pending.clear()
+      invalidate(session)
     })
     session.listening = true
   }
-  await contents.debugger.sendCommand("WebMCP.enable")
-  session.enabled = true
+  await contents.debugger.sendCommand("Page.enable")
   check()
   return session
 }
 
 async function refresh(contents: SiteToolContents, check: () => void) {
-  const session = await enabled(contents, check)
+  const session = await connected(contents, check)
+  const frame = await documentFrame(contents, check)
+  if (
+    session.enabled &&
+    session.mainFrameID === frame.id &&
+    session.loaderID === frame.loaderId &&
+    session.origin === frame.securityOrigin
+  )
+    return session
+  invalidate(session)
+  // Re-enable the domain to enumerate the current document, discarding events from the old one.
+  await contents.debugger.sendCommand("WebMCP.disable")
+  check()
+  session.mainFrameID = frame.id
+  session.loaderID = frame.loaderId
+  session.origin = frame.securityOrigin
+  session.enabled = true
+  await contents.debugger.sendCommand("WebMCP.enable").catch((error) => {
+    invalidate(session)
+    throw error
+  })
+  const current = await documentFrame(contents, check)
+  if (
+    !session.enabled ||
+    current.id !== frame.id ||
+    current.loaderId !== frame.loaderId ||
+    current.securityOrigin !== frame.securityOrigin
+  ) {
+    invalidate(session)
+    throw new Error("WebMCP document changed")
+  }
+  return session
+}
+
+async function documentFrame(contents: SiteToolContents, check: () => void) {
   const result = (await contents.debugger.sendCommand("Page.getFrameTree")) as {
-    frameTree?: { frame?: { id?: unknown; url?: unknown; securityOrigin?: unknown } }
+    frameTree?: { frame?: { id?: unknown; loaderId?: unknown; url?: unknown; securityOrigin?: unknown } }
   }
   check()
   const frame = result.frameTree?.frame
   if (
     typeof frame?.id !== "string" ||
     !frame.id ||
+    typeof frame.loaderId !== "string" ||
+    !frame.loaderId ||
     typeof frame.url !== "string" ||
     frame.url !== contents.getURL() ||
     typeof frame.securityOrigin !== "string" ||
     new URL(frame.url).origin !== frame.securityOrigin
   )
     throw new Error("WebMCP document identity is unavailable")
-  session.mainFrameID = frame.id
-  session.origin = frame.securityOrigin
-  return session
+  return { id: frame.id, loaderId: frame.loaderId, securityOrigin: frame.securityOrigin }
 }
 
 export async function discoverSiteTools(contents: SiteToolContents, check: () => void) {
@@ -226,6 +275,7 @@ export async function prepareSiteTool(
     ref,
     name: tool.name,
     frameID,
+    loaderID: session.loaderID!,
     origin: session.origin!,
     revision: session.revision,
     argumentHash: createHash("sha256").update(argumentsJSON).digest("hex"),
@@ -250,6 +300,7 @@ export async function invokeSiteTool(
     current.ref !== prepared.ref ||
     session.revision !== prepared.revision ||
     session.mainFrameID !== prepared.frameID ||
+    session.loaderID !== prepared.loaderID ||
     session.origin !== prepared.origin
   )
     throw new Error("Site tool changed")
@@ -262,6 +313,10 @@ export async function invokeSiteTool(
   if (typeof response.invocationId !== "string" || !response.invocationId)
     throw new Error("WebMCP invocation was not admitted")
   const invocationID = response.invocationId
+  if (!session.enabled || session.loaderID !== prepared.loaderID) {
+    void contents.debugger.sendCommand("WebMCP.cancelInvocation", { invocationId: invocationID }).catch(() => {})
+    throw new Error("WebMCP document changed")
+  }
   const settled = new Promise<Record<string, unknown>>((resolve, reject) =>
     session.pending.set(invocationID, { resolve, reject }),
   )
@@ -285,7 +340,15 @@ export async function invokeSiteTool(
         ),
       ),
     ])
-    check()
+    const frame = await documentFrame(contents, check)
+    if (
+      !session.enabled ||
+      session.loaderID !== prepared.loaderID ||
+      frame.id !== prepared.frameID ||
+      frame.loaderId !== prepared.loaderID ||
+      frame.securityOrigin !== prepared.origin
+    )
+      throw new Error("WebMCP document changed")
     // Chromium 152 reports Success; the current CDP draft renamed that terminal state to Completed.
     if (result.status !== "Success" && result.status !== "Completed")
       throw new Error("Site tool execution failed or was cancelled")

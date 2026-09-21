@@ -298,6 +298,50 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
         )
       }
     }
+    const viewports: Parameters<BrowserPanelPlatform["viewport"]>[0][] = []
+    browser.viewport = async (input) => {
+      viewports.push(input)
+    }
+    window.dispatchEvent(new Event("resize"))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(viewports.at(-1)?.bounds).not.toBeNull()
+    const before = viewports.length
+    // Main can discard an acknowledged viewport after the renderer's resize notification.
+    // With unchanged geometry, the renderer must renew it without another UI action.
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(viewports.length).toBeGreaterThan(before)
+    expect(viewports.at(-1)?.bounds).toEqual(viewports[0].bounds)
+    const overlay = document.createElement("div")
+    overlay.setAttribute("role", "dialog")
+    host.append(overlay)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(viewports.at(-1)?.bounds).toBeNull()
+    const hidden = viewports.length
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(viewports.length).toBe(hidden)
+    overlay.remove()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(viewports.at(-1)?.bounds).not.toBeNull()
+    const held = Promise.withResolvers<void>()
+    browser.viewport = async (input) => {
+      viewports.push(input)
+      if (input.bounds) await held.promise
+    }
+    window.dispatchEvent(new Event("resize"))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const waiting = viewports.length
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(viewports.length).toBe(waiting)
+    host.append(overlay)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(viewports.at(-1)?.bounds).toBeNull()
+    held.resolve()
+    overlay.remove()
+    dispose?.()
+    dispose = undefined
+    const closed = viewports.length
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(viewports.length).toBe(closed)
   } finally {
     dispose?.()
     host.remove()

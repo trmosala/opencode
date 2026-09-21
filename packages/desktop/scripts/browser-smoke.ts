@@ -5,7 +5,7 @@ import electron from "electron"
 
 const directory = await mkdtemp(join(tmpdir(), "cm-browser-smoke-"))
 try {
-  if (process.argv.includes("--account-fill")) {
+  if (process.argv.includes("--account-fill") || process.argv.includes("--rendering")) {
     const { build } = await import("vite")
     const { createRequire } = await import("node:module")
     const require = createRequire(resolve("../app/package.json"))
@@ -60,31 +60,41 @@ try {
   await Bun.write(entry, build.outputs[0])
   const env = { ...process.env, CM_BROWSER_STATE_DIR: directory, CM_BROWSER_SMOKE_PROFILE: directory }
   delete env.ELECTRON_RUN_AS_NODE
-  if (process.argv.includes("--persistence-reopen") || process.argv.includes("--recovery")) {
+  if (
+    process.argv.includes("--persistence-reopen") ||
+    process.argv.includes("--recovery") ||
+    process.argv.includes("--download-recovery")
+  ) {
     const recovery = process.argv.includes("--recovery")
-    for (const phase of recovery
-      ? ["interrupt-recovery", "reopen-recovery"]
-      : [
-          "seed",
-          "faults",
-          "interrupt-before",
-          "reopen-old",
-          "interrupt-after",
-          "reopen-new",
-          "seed-legacy",
-          "migration-fail",
-          "reopen-legacy",
-          "migrate",
-          "reopen-migrated",
-        ]) {
+    const downloads = process.argv.includes("--download-recovery")
+    for (const phase of downloads
+      ? ["interrupt-download", "reopen-download"]
+      : recovery
+        ? ["interrupt-recovery", "reopen-recovery"]
+        : [
+            "seed",
+            "faults",
+            "interrupt-before",
+            "reopen-old",
+            "interrupt-after",
+            "reopen-new",
+            "seed-legacy",
+            "migration-fail",
+            "reopen-legacy",
+            "migrate",
+            "reopen-migrated",
+          ]) {
       const checkpoint = join(directory, "checkpoint.json")
       await rm(checkpoint, { force: true })
       await rm(join(directory, "result.txt"), { force: true })
-      const child = Bun.spawn([electron, entry, recovery ? "--recovery" : "--persistence-reopen"], {
-        env: { ...env, CM_BROWSER_PERSISTENCE_PHASE: phase },
-        stdout: "inherit",
-        stderr: "inherit",
-      })
+      const child = Bun.spawn(
+        [electron, entry, downloads ? "--download-recovery" : recovery ? "--recovery" : "--persistence-reopen"],
+        {
+          env: { ...env, CM_BROWSER_PERSISTENCE_PHASE: phase },
+          stdout: "inherit",
+          stderr: "inherit",
+        },
+      )
       const timeout = setTimeout(() => child.kill("SIGKILL"), 20_000)
       try {
         if (phase.startsWith("interrupt-")) {
@@ -99,7 +109,7 @@ try {
           await child.exited
           if (await Bun.file(join(directory, "result.txt")).exists()) throw new Error("Interrupted child cleaned up")
           console.log(
-            `PASS ${phase}: killed owned child PID ${child.pid} at ${recovery ? "recovery" : "rename"} checkpoint`,
+            `PASS ${phase}: killed owned child PID ${child.pid} at ${downloads ? "download" : recovery ? "recovery" : "rename"} checkpoint`,
           )
         } else {
           const code = await child.exited
@@ -115,7 +125,11 @@ try {
       }
     }
     console.log(
-      recovery ? "PASS native recovery crash/relaunch" : "PASS native persistence interruption/reopen/migration",
+      downloads
+        ? "PASS native download recovery crash/relaunch"
+        : recovery
+          ? "PASS native recovery crash/relaunch"
+          : "PASS native persistence interruption/reopen/migration",
     )
   } else {
     const child = Bun.spawn([electron, entry, ...process.argv.slice(2)], { env, stdout: "inherit", stderr: "inherit" })

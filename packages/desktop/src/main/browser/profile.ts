@@ -32,6 +32,7 @@ import { bookmarks, validateBookmarks, writeBookmarks } from "./bookmarks"
 import { loginEntry, loginEntryAvailable } from "./login-entry"
 import { contactSummary } from "./contacts"
 import { vaultBackupAvailable } from "./vault-backup-passphrase"
+import { clearCookies } from "./browser-storage"
 
 let editingLogin = false
 
@@ -516,6 +517,5 @@ export async function clearBrowserData(profile: Session, kind: BrowserClearKind,
   if (kind === "passwords") return clearLogins()
   if (kind === "cache") return profile.clearCache()
   if (kind !== "cookies") throw new Error("Invalid data type")
-  await profile.clearStorageData()
-  await profile.clearAuthCache()
+  await clearCookies(profile)
 }

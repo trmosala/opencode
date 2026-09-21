@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto"
 import type { EventEmitter } from "node:events"
 import { trackDownload } from "./download-records"
+import {
+  stagedDownload,
+  recoverDownload,
+  recoveringDownloads,
+  cancelRecoveredDownload,
+  pruneDownloadRecovery,
+} from "./download-recovery"
 import { basename, join } from "node:path"
 import { app, BrowserWindow, WebContentsView, dialog, session, shell, Notification } from "electron"
 import contextMenu from "electron-context-menu"
@@ -360,6 +367,7 @@ function persistGroup(owner: Owner, group: Group) {
 
 async function clearData(kind: BrowserClearKind, range: BrowserClearRange = "all") {
   await clearBrowserData(session.fromPartition(BROWSER_PARTITION), kind, range)
+  if (kind === "downloads") await pruneDownloadRecovery()
   if (kind !== "history") return
   const since = clearSince(range)
   owners.forEach((owner) =>
@@ -418,7 +426,7 @@ function state(group: Group): BrowserTabs {
     recentlyClosed: group.closed,
     downloads: [
       ...(group.downloads ?? []).filter((entry) => entry.state === "saving"),
-      ...downloadHistory().filter((entry) => !transfers.has(entry.id)),
+      ...downloadHistory().filter((entry) => !transfers.has(entry.id) && !recoveringDownloads().has(entry.id)),
     ],
     profile,
     tabs: group.tabs
@@ -489,7 +497,9 @@ function layout(owner: Owner) {
   if (owner.attached && (owner.attached !== tab || !visible)) {
     owner.attached.cancelLoginOffer?.()
     cancelPicker(owner.attached.view.webContents)
-    owner.win.contentView.removeChildView(owner.attached.view)
+    // Retain the native parent while hidden. Removing a WebContentsView during a
+    // resize can strand its drawing surface when the window changes display scale.
+    owner.attached.view.setVisible(false)
     owner.attached = undefined
     owner.captureChecks?.forEach((check) => check())
   }
@@ -502,7 +512,7 @@ function layout(owner: Owner) {
   const height = Math.max(0, Math.min(Math.round(viewport.bounds.height * zoom), size.height - y))
   if (!width || !height) {
     owner.attached?.cancelLoginOffer?.()
-    if (owner.attached) owner.win.contentView.removeChildView(owner.attached.view)
+    owner.attached?.view.setVisible(false)
     owner.attached = undefined
     owner.captureChecks?.forEach((check) => check())
     return
@@ -510,7 +520,8 @@ function layout(owner: Owner) {
   tab.view.setBounds({ x, y, width, height })
   if (tab.device) contentsDevice(tab, width, height)
   if (owner.attached !== tab) {
-    owner.win.contentView.addChildView(tab.view)
+    if (!owner.win.contentView.children.includes(tab.view)) owner.win.contentView.addChildView(tab.view)
+    tab.view.setVisible(true)
     owner.attached = tab
   }
 }
@@ -541,8 +552,8 @@ function updateBrowserZoom(contents: WebContents, factor: number) {
 
 const notificationPrompts = new WeakSet<Owner>()
 
-function notificationTarget(contents: WebContents | null, requested: string, main: boolean) {
-  if (!contents || contents.isDestroyed() || main !== true || !Notification.isSupported()) return
+function permissionTarget(contents: WebContents | null, requested: string, main: boolean) {
+  if (!contents || contents.isDestroyed() || !main) return
   const url = contents.getURL()
   const origin = siteOrigin(url)
   if (!origin || siteOrigin(requested) !== origin || contents.mainFrame.url !== url || contents.mainFrame.detached)
@@ -583,6 +594,11 @@ function notificationTarget(contents: WebContents | null, requested: string, mai
   )
     return
   return { owner, tab, group, origin, url }
+}
+
+function notificationTarget(contents: WebContents | null, requested: string, main: boolean) {
+  if (!Notification.isSupported()) return
+  return permissionTarget(contents, requested, main)
 }
 
 function requestNotification(
@@ -789,15 +805,25 @@ function createTab(
         paused: false,
         canControl: true,
       }
+      const staged = stagedDownload(
+        target.owner.win,
+        item,
+        download,
+        URL.canParse(tab.contents.getURL()) ? new URL(tab.contents.getURL()).origin : "",
+      )
       trackDownload(event, item, download, {
-        save: (row, path) => recordDownload(row, new Set(transfers.keys()), path),
+        save: (row, path) => recordDownload(row, new Set([...transfers.keys(), ...recoveringDownloads()]), path),
+        checkpoint: staged?.checkpoint,
+        finish: staged?.finish,
+        preserveOnNativeCancel: !!staged,
         start: () => {
           // Admission is durable before any destination is reserved or configured.
           item.setSaveDialogOptions({
             title: nativeT("desktop.browser.saveDownload"),
             defaultPath: join(downloadDirectory(), download.filename),
           })
-          if (!browserPreferencesState().askDownloadLocation) {
+          if (staged) staged.start()
+          if (!staged && !browserPreferencesState().askDownloadLocation) {
             try {
               item.setSavePath(reserveDownload(downloadDirectory(), download.filename))
             } catch {
@@ -814,11 +840,16 @@ function createTab(
           ]
           transfers.set(download.id, { item, ...target, download })
         },
-        release: () => transfers.delete(download.id),
+        release: () => {
+          transfers.delete(download.id)
+          staged?.release()
+          void pruneDownloadRecovery().catch(() => undefined)
+        },
         publish: () => publish(target.owner, target.group),
       })
     })
     profileReady = true
+    void pruneDownloadRecovery().catch(() => undefined)
   }
   // Keep Electron's popup plumbing, but never inherit a preload or privileged preferences.
   const view = new WebContentsView({
@@ -1307,9 +1338,10 @@ function createTab(
     tab.recovery = undefined
     unregister()
     if (owner.attached === tab) {
-      if (!owner.win.isDestroyed()) owner.win.contentView.removeChildView(view)
       owner.attached = undefined
     }
+    if (!owner.win.isDestroyed() && owner.win.contentView.children.includes(view))
+      owner.win.contentView.removeChildView(view)
     const index = group.tabs.indexOf(tab)
     if (!owner.shutting && !owner.win.isDestroyed())
       group.closed = [{ ...tab.saved, id: randomUUID(), time: Date.now() }, ...group.closed].slice(0, 20)
@@ -1405,6 +1437,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     return state(group)
   }
   if (command.op === "download-control") {
+    if (command.action === "cancel" && cancelRecoveredDownload(owner.win, sessionID, command.id)) return state(group)
     const transfer = transfers.get(command.id)
     if (
       !transfer ||
@@ -1415,7 +1448,10 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       throw new Error("Download is not active in this session")
     if (command.action === "pause") transfer.item.pause()
     if (command.action === "resume") transfer.item.resume()
-    if (command.action === "cancel") transfer.item.cancel()
+    if (command.action === "cancel") {
+      transfer.download.state = "cancelled"
+      transfer.item.cancel()
+    }
     if (transfers.has(command.id)) transfer.download.paused = transfer.item.isPaused()
     publish(owner, group)
     return state(group)
@@ -1436,6 +1472,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "preferences",
       "download-directory",
       "reveal-download",
+      "recover-download",
       "site-permission",
       "agent-host",
       "transfer-rule",
@@ -1532,6 +1569,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
           key,
           rows.filter((row) => row.id !== command.id),
         )
+        if (command.op === "forget-download") await pruneDownloadRecovery()
       }
       if (command.op === "clear-selected") {
         validateClear(command.kinds, command.range)
@@ -1550,6 +1588,18 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       }
       if (command.op === "download-directory") await chooseDownloadDirectory(owner.win, command.reset)
       if (command.op === "reveal-download") revealDownload(command.id)
+      if (command.op === "recover-download") {
+        await recoverDownload(
+          owner.win,
+          sessionID,
+          command.id,
+          () => new Set([...transfers.keys(), ...recoveringDownloads()]),
+          (download) => {
+            group.downloads = [download, ...(group.downloads ?? []).filter((row) => row.id !== download.id)]
+            if (!owner.win.isDestroyed()) publish(owner, group)
+          },
+        )
+      }
       if (command.op === "site-permission") {
         const update = saveSitePermission(command.origin, command.camera, command.microphone, command.notifications)
         owners.forEach((entry) => entry.captureChecks?.forEach((check) => check()))

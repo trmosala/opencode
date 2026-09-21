@@ -37,13 +37,13 @@ const wait = async (check: () => boolean | Promise<boolean>) => {
 }
 
 export async function siteToolsSmoke() {
-  const server = createServer((_request, response) => {
+  const server = createServer((request, response) => {
     response.writeHead(200, {
       "Content-Type": "text/html",
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp",
     })
-    response.end(page)
+    response.end(request.url === "/empty" ? "<!doctype html><title>No tools</title>" : page)
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const address = server.address()
@@ -58,8 +58,12 @@ export async function siteToolsSmoke() {
     assert(!win.webContents.isDestroyed())
     assert(!win.webContents.isLoadingMainFrame())
   }
-  try {
+  const load = async (url: string) => {
     await win.loadURL(url)
+    await wait(() => !win.webContents.isLoadingMainFrame())
+  }
+  try {
+    await load(url)
     assert.equal(
       await win.webContents
         .executeJavaScript(
@@ -98,13 +102,26 @@ export async function siteToolsSmoke() {
     assert.equal(await win.webContents.executeJavaScript("Boolean(window.started)"), true)
 
     const stale = await prepareSiteTool(win.webContents, discovered.tools[0].ref, "{}", check)
-    await win.loadURL(`${url}next`)
+    await load(`${url}next`)
     await win.webContents.executeJavaScript("fixtureReady")
     await assert.rejects(invokeSiteTool(win.webContents, stale, "{}", check, new AbortController().signal))
     const current = await discoverSiteTools(win.webContents, check)
     assert.equal(current.tools.length, 1)
     await win.webContents.executeJavaScript("window.registration.abort()")
     await wait(async () => (await discoverSiteTools(win.webContents, check)).tools.length === 0)
+    await load(url)
+    await win.webContents.executeJavaScript("fixtureReady")
+    const beforeReload = await discoverSiteTools(win.webContents, check)
+    await load(url)
+    await win.webContents.executeJavaScript("fixtureReady")
+    const afterReload = await discoverSiteTools(win.webContents, check)
+    assert.equal(afterReload.tools.length, 1)
+    assert.notEqual(afterReload.tools[0].ref, beforeReload.tools[0].ref)
+    const otherOrigin = url.replace("127.0.0.1", "localhost")
+    await load(`${otherOrigin}empty`)
+    const empty = await discoverSiteTools(win.webContents, check)
+    assert.equal(empty.origin, new URL(otherOrigin).origin)
+    assert.equal(empty.tools.length, 0)
     console.log("PASS native WebMCP discovery, execution, cancellation, navigation and removal")
   } finally {
     if (win.webContents.debugger.isAttached()) win.webContents.debugger.detach()

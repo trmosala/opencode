@@ -1,0 +1,131 @@
+# Browser acceptance status
+
+Snapshot dated 2026-09-21. Branch `browser-tabs`, HEAD `1f50d9687`, plus local uncommitted browser and installer fixes. This records the 23 open GitHub issues in `trmosala/opencode`; it does not close issues or approve a release.
+
+Issue comments describe earlier checkpoints. The current source and local fixes take precedence where those comments are stale. A passing synthetic fixture is not evidence of real SSO, physical devices, native authentication, accessibility, or packaged Windows/macOS behavior.
+
+## Reconciliation
+
+| Issue                                                                             | Current state                                                                              | What remains                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#3 Token usage](https://github.com/trmosala/opencode/issues/3)                   | Investigation open                                                                         | Capture the actual WPP usage pill across two turns and distinguish conversation context from cumulative usage before changing accounting.                                                                                                                                                           |
+| [#4 Installer-owned CLI](https://github.com/trmosala/opencode/issues/4)           | Local implementation, not released                                                         | Native Windows install/upgrade/uninstall and fresh-shell PATH checks; macOS package ownership and permissions. Linux shell tests do not establish either platform's acceptance.                                                                                                                     |
+| [#5 Saved account CRUD](https://github.com/trmosala/opencode/issues/5)            | Windows-first implementation                                                               | macOS native credential entry is missing. Linux direct entry is unsupported. Real native authentication and packaged tests remain.                                                                                                                                                                  |
+| [#6 Contact autofill](https://github.com/trmosala/opencode/issues/6)              | Scoped implementation present                                                              | Native preview/fill usability, long and multiline values, RTL, keyboard/accessibility, platform tests, and #34.                                                                                                                                                                                     |
+| [#7 Registration/password changes](https://github.com/trmosala/opencode/issues/7) | Scoped implementation present                                                              | Real supported forms, native consent, keyboard/screen reader, translations, packaged platforms, and #34.                                                                                                                                                                                            |
+| [#8 Password generator](https://github.com/trmosala/opencode/issues/8)            | Scoped implementation present                                                              | Real OS authentication, native usability, packaged platforms, translations, and #34. No automatic submit or save.                                                                                                                                                                                   |
+| [#9 Save compatibility](https://github.com/trmosala/opencode/issues/9)            | Supported submission paths implemented                                                     | Real native/packaged testing. General fetch/XHR-only and formless change/registration flows remain unsupported, not completed acceptance.                                                                                                                                                           |
+| [#10 Account selection](https://github.com/trmosala/opencode/issues/10)           | Exact-origin selection implemented                                                         | Native timing, accessibility, packaged platforms, and #34. No inferred account sharing across origins.                                                                                                                                                                                              |
+| [#13 Browser interactions](https://github.com/trmosala/opencode/issues/13)        | Bounded hover/click/select/drag implemented                                                | Real input/accessibility and platform tests. Drag dispatch does not prove a site accepted a drop; universal HTML5/file drag is not supported.                                                                                                                                                       |
+| [#14 Rich snapshots](https://github.com/trmosala/opencode/issues/14)              | Scoped semantics implemented                                                               | Native accessibility/platform validation and translations. Not a complete ARIA implementation.                                                                                                                                                                                                      |
+| [#15 Agent screenshots](https://github.com/trmosala/opencode/issues/15)           | Opt-in viewport screenshots implemented                                                    | Real occlusion/accessibility/platform tests. Detached-background capture remains a documented timeout limitation. Screenshots can reveal secrets and are not redacted.                                                                                                                              |
+| [#16 Agent tab lifecycle](https://github.com/trmosala/opencode/issues/16)         | Explicit create/select/close implemented                                                   | Real consent, beforeunload, keyboard/accessibility, physical-device teardown and packaged tests. Revalidate close behavior on Electron upgrades.                                                                                                                                                    |
+| [#17 Frames](https://github.com/trmosala/opencode/issues/17)                      | Direct ordinary HTTP(S) child reads/selects/uploads implemented                            | Real same-origin/cross-origin workflows and platform tests. Nested/opaque/sandboxed frames, child password fill and child pointer/keyboard workflows remain unsupported.                                                                                                                            |
+| [#18 Cross-origin SSO](https://github.com/trmosala/opencode/issues/18)            | Explicit selection at each exact login origin, synthetic regression evidence               | Actual provider sign-in and popup/callback testing under #19. No automatic cross-origin credential sharing. One earlier fixture timeout has no established cause.                                                                                                                                   |
+| [#19 Real-site/platform matrix](https://github.com/trmosala/opencode/issues/19)   | Validation task                                                                            | User-controlled Teams/SSO accounts, actual meetings and native file pickers on supported Windows/macOS builds. Record PASS, FAIL, BLOCKED or NOT RUN.                                                                                                                                               |
+| [#20 Recovery](https://github.com/trmosala/opencode/issues/20)                    | Browser history/recovery slice implemented                                                 | Real crash/relaunch and migration validation. The separate stale-running task incident is not fixed; the concurrent-host ownership proposal is design only. Approve an isolated lock-feasibility experiment before any runtime migration or recovery activation. No automatic provider/tool replay. |
+| [#21 Restartable downloads](https://github.com/trmosala/opencode/issues/21)       | Bounded restart recovery implemented and Linux native-tested                               | Explicit consent, private checkpoints, authenticated conditional ranges and non-overwriting publication implemented. Packaged Windows/macOS, physical chooser checks and reviewed translations remain.                                                                                              |
+| [#22 Guided imports](https://github.com/trmosala/opencode/issues/22)              | Selected CSV/JSON/HTML import implemented                                                  | Actual picker/authentication/platform tests. Cookie imports are sequential and non-atomic. No direct profile scraping or unsupported format claims.                                                                                                                                                 |
+| [#23 Site permissions](https://github.com/trmosala/opencode/issues/23)            | Camera/microphone plus notification controls                                               | Real OS delivery, revocation and device tests. Screen sharing, clipboard and geolocation remain unsupported. Decide whether to accept this narrower scope or implement the remaining categories.                                                                                                    |
+| [#24 Device previews](https://github.com/trmosala/opencode/issues/24)             | Scoped viewport/orientation/fit controls present; later work adds presentation persistence | Visual/platform validation. Touch/sensors are unsupported. Older comments saying presentation is only in memory do not describe the latest branch.                                                                                                                                                  |
+| [#34 Password-manager assurance](https://github.com/trmosala/opencode/issues/34)  | Release gate open                                                                          | Packaged Windows helper integrity and upgrades, real macOS authentication/keychain behavior, auth failure/key-loss cases, agreed same-user shell-agent threat model and independent security review. This Linux run cannot satisfy native-authentication gates.                                     |
+| [#35 Browser backlog](https://github.com/trmosala/opencode/issues/35)             | Tracking issue                                                                             | Reconcile scope and attach the remaining acceptance evidence. Its older progress comments are not the current implementation state.                                                                                                                                                                 |
+| [#36 Hidden WPP worker timeout](https://github.com/trmosala/opencode/issues/36)   | Unresolved                                                                                 | Reproduce cold/warm runs with hidden versus visible workers and record timing/resource evidence. Showing workers is a diagnostic aid, not a fix.                                                                                                                                                    |
+
+## Local fixes and evidence
+
+- WebMCP inventory and invocation now track top-level document loader identity. Reloads and cross-origin navigation invalidate old tools and pending calls.
+- The focused site-tool/router tests passed, 116 tests. The final site-tool-only run passed 10 tests, and the native `--site-tools` smoke passed on Electron 44.3.0.
+- Desktop typecheck passed. Scoped lint had zero errors, with warnings remaining.
+- The macOS CLI helper creates missing parent directories without inheriting a restrictive caller umask. Shell regression tests passed on Linux; a real macOS installer run remains necessary.
+- The Windows CLI helper now treats a failed environment-change broadcast as a failure. Windows-native tests are skipped on Linux. CI registry-derived PATH checks do not prove Explorer received the broadcast.
+
+These are local changes, not a published release or proof that every branch acceptance criterion passed.
+
+## Hands-on acceptance
+
+The local session started on 2026-09-21 as `OpenCode Dev`, using profile root `/tmp/cm-browser-acceptance-IZsztu`. Its WPP bridge is `http://127.0.0.1:8788`, its sidecar is `http://127.0.0.1:42951`, and its development renderer is `http://localhost:5173`. Use the Electron window for browser-panel tests; the renderer URL alone does not provide the native desktop bridge. Startup reported the sidecar ready, and bridge health and renderer HTTP checks returned 200. This is startup evidence, not a completed authenticated model turn. The installed app initially occupied port 8787; this task did not stop it, but the final listener check no longer showed that port. Workers are visible for this diagnostic session, so it does not reproduce the hidden-worker conditions in #36.
+
+Use the isolated development app, not the already installed CookieMonster. Use test accounts, a harmless upload file and a scratch download directory. Do not paste passwords or authentication tokens into chat or issue comments.
+
+1. Sign in to WPP yourself if prompted. Start a new test task and confirm a model response. Record visible-worker behavior separately from hidden-worker behavior.
+2. Open a test page in the browser panel. Confirm switching tabs, back/forward, zoom and viewport controls. Confirm that a tab starts private and agent access requires your explicit opt-in.
+3. Approve individual agent operations only when the requested tab and origin match the test. Exercise one denial before approving a retry. Screenshots need a page without private information, since capture is unredacted.
+4. Test actual SSO popups/redirects and a native file-picker upload using your own test account and dummy file. Select credentials separately at each receiving origin. Record unsupported frame workflows as limitations, not passes.
+5. If testing camera, microphone or notifications, approve only the test origin and any corresponding OS prompt. Revoke access afterward and verify behavior. Do not approve unrelated permissions.
+6. Download a harmless file, cancel a transfer and inspect history. Restart recovery is separately covered by the owned-process `--download-recovery` fixture; explicit cancellation intentionally discards resume metadata. Do not restart the user's running app for this test.
+7. After saving any work, close/relaunch this isolated app to check browser recovery and private grants. Do not crash or terminate the installed app. Any intentional crash test needs an idle disposable task.
+
+Record the build/commit, OS, exact workflow, expected result, actual result and PASS/FAIL/BLOCKED/NOT RUN. Windows/macOS packaging, native password-manager assurance, physical-device behavior and independent security review remain separate gates.
+
+## Manual results and added regression tests
+
+Reported by the user during this Linux development session:
+
+- PASS: page reads after adding the hostname and enabling tab access; revocation blocks reads and re-enabling restores access.
+- PARTIAL: click denial produced a failed tool result and the approved retry completed. A visible click effect was not confirmed, so end-to-end click behavior remains unverified.
+- FAIL: resizing the browser or opening Site controls causes a persistent black page. Reported on OpenAI and a Microsoft/Teams page. Reloading and switching Browser to Review and back did not recover rendering. Exact Microsoft URL and resize dimensions were not captured.
+- FAIL: a newly opened tab also renders black after the failure. The problem is not confined to the original tab.
+- PASS: new-tab privacy, reported by the user and supported by a screenshot showing one accessible OpenAI pricing tab before opt-in and two accessible tabs after enabling the new OpenAI homepage tab. This verifies inventory visibility, not page rendering or exact tab-ID reporting.
+- PASS: manual tab closure removes that tab from the agent's accessible inventory, reported by the user. The original pricing tab remained accessible. This does not verify agent-driven closure or beforeunload consent.
+- PASS: disabling the global browser-agent switch blocks tool access; access can be restored after re-enabling the switch and granting tab access if needed, reported by the user. Whether the global toggle preserved individual grants was not separately reported.
+- BLOCKED: remaining tests requiring visible page content, including navigation, SSO, uploads and visual permission effects, are blocked in this running instance.
+- Usability follow-ups: a disallowed host yields an empty tab list that the agent misdescribes as missing tab opt-in; entering a full URL in the hostname field yields only a generic browser-action failure.
+
+Added rendering regression, initially deferred and then authorized for repair:
+
+1. Record the exact URL, window/panel dimensions, display backend and Electron version. Test window resize, panel resize, and Site controls open/close separately.
+2. Expect the page to reflow and remain visible after each operation. If it goes black, check live renderer state, viewport bounds, attachment and graphics diagnostics before restarting.
+3. With separate approval to restart the development app, compare the same profile and steps under X11 versus the current Wayland session. The startup Wayland/Vulkan warning is a hypothesis, not an established cause or fix.
+4. Retest refresh and panel switching after any correction, preserving the rule that native pages must not cover app dialogs.
+
+### Rendering repair verification
+
+Implemented a renderer viewport-renewal fix without restarting the app or server. Native resize handling clears the stored viewport. Previously the renderer sent identical geometry only once, so a late native resize event could detach the page indefinitely. Visible bounds now renew at most once per second, with no renewal while a viewport request is pending. Bounds and overlay visibility are recomputed before every renewal. Hidden pages, dialogs and disposed panels do not renew.
+
+- The mounted-panel regression failed before the fix, with one viewport publication instead of a renewal. It passes afterward, including hiding behind a dialog, avoiding pending-request accumulation, immediate hiding while a request is pending, and stopping on disposal.
+- Added `bun scripts/browser-smoke.ts --rendering`, run from `packages/desktop`. It mounts the production browser panel in real Electron with a temporary profile and synthetic page. It exercises repeated detach/reattach, requested window size changes, Site controls reflow, dialog hiding and native page pixel capture.
+- The native regression deliberately emits a late native resize event after renderer acknowledgement without changing DOM geometry. A temporary test-build transform restoring the old send condition failed at recovery. The unmodified fixed build passed. The temporary transform was removed. This is deterministic event-ordering evidence, not reproduction of a physical drag or proof about the desktop compositor.
+- Final app mounted tests: 2 passed, 174 expectations. App and desktop package typechecks passed. Scoped lint: 6 warnings, zero errors. Native `--rendering` passed on Linux Wayland / Electron 44.3.0 despite the existing Vulkan warning.
+- Temporary live diagnostics showed valid unobstructed bounds, an attached tab and non-black page-capture pixels. They were removed. The diagnostics and tests do not establish that the initial Vulkan warning caused the user-visible failure.
+
+The development renderer received the change through Vite live reload. The user subsequently reproduced the black website area after moving the restarted development window from the ultrawide display to the 4K display under native Wayland. The X11 acceptance result below supersedes this failed run. No packaged-platform acceptance, commit or release was performed.
+
+Follow-up mixed-display investigation on 2026-09-21:
+
+- The running app uses native Wayland. The ultrawide has scale 1.0 and the 4K display has scale 1.5. Only the website area becomes black; app controls remain visible.
+- Live diagnostics found an attached, visible native view with nonzero bounds. One page capture failed with `UnknownVizError`; a later capture returned non-black pixels while the user still saw black. This does not establish a specific GPU or compositor cause.
+- The source now keeps temporarily hidden browser views parented and uses `setVisible` instead of removing and re-adding them. Inactive tab destruction still removes its native child. The extended native rendering fixture and desktop typecheck pass, including overlay hiding and inactive-tab cleanup.
+- Applying equivalent keep-attached behavior to the running window did not recover rendering. The user explicitly reported "Still black". This change is not a verified fix for the reported failure.
+- The user approved a restart. The development instance was restarted with `--ozone-platform=x11` using the same isolated profile. This launch also includes the keep-attached source change, so improvement alone does not isolate Wayland as the cause.
+- User-reported system: Fedora 44 Workstation, GNOME 50, Wayland, Linux 7.2.5-200.fc44.x86_64, Ryzen 9 5950X, 64 GiB RAM, RTX 4080 SUPER. `nvidia-smi` reports driver 610.57.04.
+
+### Rendering acceptance closed with X11 workaround, 2026-09-21
+
+The user confirmed the requested monitor-move test worked after the X11 restart and explicitly confirmed resizing works: "Sweet, that works. Even resizing works. I think we can close this one."
+
+- PASS: user-visible rendering across monitor moves and resizing in the X11 development instance. The rendering blocker for this acceptance session is closed at the user's request.
+- Automated checks for the source changes: native rendering fixture and desktop typecheck passed; browser unit suite passed 253 tests with 3,081 expectations.
+- Preserve the launch workaround on this setup: from `packages/desktop`, run `bun run dev -- --ozone-platform=x11`. The flag was supplied for the current launch only; the default backend and packaged builds have not been changed.
+- Native Wayland recovery remains unverified. This closes the local acceptance blocker with a tested workaround, not an upstream graphics defect or a claim of a universal fix. No separate open GitHub issue matched this rendering report; unrelated browser issues remain open.
+
+## Decisions still needed
+
+### #21 implementation evidence, 2026-09-21
+
+Restart recovery now uses private bounded checkpoints, fresh native consent, actual authenticated range-response validation and exclusive publication to a numbered file in the originally chosen folder. No recovery request runs automatically on launch. Unsupported transfers retain the retry-from-page message. Source URLs and partial bytes are main-only plaintext and may contain sensitive data; the renderer receives no recovery metadata. See the README and password-security notes for limits.
+
+- Desktop browser unit suite: 253 tests, 3,081 expectations passed.
+- App browser/i18n unit checks: 31 tests, 555 expectations passed. Mounted settings/download controls: 1 test, 104 expectations passed.
+- App and desktop package typechecks passed. Scoped lint across 16 touched TypeScript files reported 107 warnings and zero errors; this is not a warning-free or root-wide lint result. Whitespace checks passed.
+- The isolated `--download-recovery` fixture killed its owned Electron child during a real page-initiated download, reopened the same temporary profile and resumed exact nonuniform bytes using persisted authentication. Consent denial made no request. Original-path replacements and sibling collisions remained unchanged. No-range, changed validator, redirect, corrupt partial, expired login and blocked-policy cases failed safely. Normal staged completion, native chooser acceptance/cancellation and private-file cleanup passed.
+- Native dialogs were driven by the synthetic fixture, not physically operated. Packaged Windows/macOS and reviewed translations remain unverified. The running development app/server were not restarted; no commit, issue closure or release was performed.
+
+### Outstanding decisions
+
+- #20: approve only an isolated concurrent-host lock-feasibility experiment first. Runtime activation, compatibility changes and migrations need a later decision backed by evidence.
+- #21: review the implemented bounded recovery scope and complete packaged-platform/physical-picker acceptance before closure. New main-process code takes effect on the next user-managed launch; this task did not restart the running app.
+- #23: keep screen sharing/clipboard/location open, or explicitly narrow the accepted scope.
+- #34: agree the threat model and review owner before password-manager release approval.
+
+No installer elevation, blanket tool approval, GitHub issue closure or release approval is required to run this local acceptance session.

@@ -3,9 +3,10 @@ import { basename, isAbsolute } from "node:path"
 import type { DownloadItem } from "electron"
 import type { BrowserDownload } from "@opencode-ai/app/browser-panel"
 import type { BrowserStore } from "./store"
+import { recoveryData, type DownloadRecovery } from "./download-recovery-data"
 
 type FileIdentity = { dev: number; ino: number; size: number; mtimeMs: number; birthtimeMs: number }
-type SavedDownload = BrowserDownload & { path?: string; file?: FileIdentity }
+type SavedDownload = BrowserDownload & { path?: string; file?: FileIdentity; recovery?: DownloadRecovery }
 
 export function downloadFile(path: string): FileIdentity | undefined {
   try {
@@ -55,6 +56,7 @@ export function savedDownloads(value: unknown): SavedDownload[] {
       time: entry.time,
       received: entry.received,
       total: entry.total,
+      ...(recoveryData(entry.recovery) ? { recovery: recoveryData(entry.recovery) } : {}),
       path: entry.path,
       file:
         entry.file === undefined
@@ -71,10 +73,11 @@ export function savedDownloads(value: unknown): SavedDownload[] {
 }
 
 export function downloadHistoryRows(value: unknown): BrowserDownload[] {
-  return savedDownloads(value).map(({ path, file, ...entry }) => {
+  return savedDownloads(value).map(({ path, file, recovery, ...entry }) => {
     const current = entry.state === "completed" && path ? downloadFile(path) : undefined
     return {
       ...entry,
+      ...(entry.state === "interrupted" && recovery ? { canResume: true } : {}),
       canReveal:
         !!current &&
         (entry.received === undefined || current.size === entry.received) &&
@@ -109,6 +112,8 @@ export function saveDownloadRecord(
       state: download.state === "completed" && !file ? "interrupted" : download.state,
       path: file ? path : undefined,
       file,
+      recovery:
+        !file && download.state !== "cancelled" ? rows.find((row) => row.id === download.id)?.recovery : undefined,
     },
   ])[0]
   const retained = rows.filter((row) => row.id !== entry.id)
@@ -131,6 +136,9 @@ export function trackDownload(
     start(): void
     release(): void
     publish(): void
+    checkpoint?(interrupted: boolean): Promise<void>
+    finish?(path: string): Promise<string>
+    preserveOnNativeCancel?: boolean
   },
 ) {
   try {
@@ -152,13 +160,51 @@ export function trackDownload(
     download.total = item.getTotalBytes()
     download.paused = item.isPaused()
     notify()
-    if (state !== "interrupted") return
+    if (state !== "interrupted") {
+      void hooks.checkpoint?.(false).catch(() => undefined)
+      return
+    }
     download.state = "interrupted"
-    item.cancel()
+    if (!hooks.checkpoint) {
+      item.cancel()
+      return
+    }
+    void hooks
+      .checkpoint(true)
+      .catch(() => undefined)
+      .finally(() => {
+        if (download.canControl) item.cancel()
+      })
   })
   item.once("done", (_event, state) => {
+    if (state === "cancelled" && hooks.preserveOnNativeCancel && download.state !== "cancelled")
+      download.state = "interrupted"
     download.canControl = false
     download.paused = false
+    if (state === "completed" && hooks.finish) {
+      download.received = item.getReceivedBytes()
+      download.total = item.getTotalBytes()
+      if (completedDownload(item.getSavePath(), download.received, download.total)) {
+        notify()
+        void hooks
+          .finish(item.getSavePath())
+          .then((path) => {
+            download.state = "completed"
+            download.filename = basename(path)
+            hooks.save(download, path)
+          })
+          .catch(() => {
+            download.state = "interrupted"
+            hooks.save(download)
+          })
+          .finally(() => {
+            hooks.release()
+            notify()
+          })
+          .catch(() => undefined)
+        return
+      }
+    }
     // Never unlink a reservation here: stat-then-unlink can delete a user's replacement.
     // Chromium may independently remove its own transfer file on cancel.
     try {
@@ -166,7 +212,7 @@ export function trackDownload(
       download.total = item.getTotalBytes()
       if (download.state !== "interrupted") download.state = state
       if (state === "completed") {
-        download.filename = basename(item.getSavePath())
+        if (!hooks.finish) download.filename = basename(item.getSavePath())
         if (!completedDownload(item.getSavePath(), download.received, download.total)) download.state = "interrupted"
       }
       hooks.save(download, download.state === "completed" ? item.getSavePath() : undefined)

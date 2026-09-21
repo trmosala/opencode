@@ -7,7 +7,7 @@ import { build } from "vite"
 import solid from "vite-plugin-solid"
 import type { BrowserCommand, BrowserTabs } from "../src/browser-panel"
 
-test("mounted settings show main eligibility and allow revocation during pending consent", async () => {
+test("mounted settings show eligibility, allow revocation during consent and route download recovery", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cm-settings-test-"))
   const host = document.createElement("div")
   document.body.append(host)
@@ -245,6 +245,31 @@ test("mounted settings show main eligibility and allow revocation during pending
         await new Promise<void>((resolve) => setImmediate(resolve))
       }
     }
+    mounted.panel("downloads")
+    mounted.update({
+      ...tabs,
+      downloads: [{ id: "recoverable", filename: "file.bin", state: "interrupted", canResume: true }],
+    })
+    expect(host.textContent).toContain("Resume if the server still supports it")
+    button("Resume saved download").click()
+    expect(calls.at(-1)).toEqual({ op: "recover-download", id: "recoverable" })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    mounted.update({
+      ...tabs,
+      downloads: [{ id: "recoverable", filename: "file.bin", state: "saving", canControl: true, canPause: false }],
+    })
+    expect([...host.querySelectorAll("button")].some((entry) => entry.textContent?.trim() === "Pause")).toBe(false)
+    expect(
+      [...host.querySelectorAll("button")].some((entry) => entry.textContent?.trim() === "Resume saved download"),
+    ).toBe(false)
+    button("Cancel").click()
+    expect(calls.at(-1)).toEqual({ op: "download-control", id: "recoverable", action: "cancel" })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    mounted.update({ ...tabs, downloads: [{ id: "legacy", filename: "file.bin", state: "interrupted" }] })
+    expect(host.textContent).toContain("Try again from the page")
+    expect(
+      [...host.querySelectorAll("button")].some((entry) => entry.textContent?.trim() === "Resume saved download"),
+    ).toBe(false)
   } finally {
     dispose?.()
     host.remove()

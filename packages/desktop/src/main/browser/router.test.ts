@@ -64,7 +64,7 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
       if (method === "WebMCP.cancelInvocation") return {}
       if (method === "Page.getFrameTree")
         return {
-          frameTree: { frame: { id: "main", url, securityOrigin: new URL(url).origin } },
+          frameTree: { frame: { id: "main", loaderId: "document-one", url, securityOrigin: new URL(url).origin } },
         }
       if (method === "DOM.getNodeForLocation") return { frameId: "main", backendNodeId: 1 }
       if (method === "DOM.describeNode") return { node: { nodeName: "BUTTON" } }

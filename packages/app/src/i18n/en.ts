@@ -119,6 +119,9 @@ export const browser = {
   "browser.download.search": "Search downloads",
   "browser.download.pause": "Pause",
   "browser.download.resume": "Resume",
+  "browser.download.recover": "Resume saved download",
+  "browser.download.recoverable":
+    "Interrupted: {{filename}}. Resume if the server still supports it, or try again from the page.",
   "browser.download.cancel": "Cancel",
   "browser.download.paused": "Paused: {{filename}}",
   "browser.download.progress": "{{received}} / {{total}} MB",

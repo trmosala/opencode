@@ -21,6 +21,7 @@ if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
   const directory = mkdtempSync(join(tmpdir(), "cm-generation-feedback-"))
   const app = {
     getPath: () => directory,
+    getAppPath: () => directory,
     getVersion: () => "test",
     getName: () => "test",
     commandLine: { hasSwitch: () => false },
@@ -91,7 +92,14 @@ if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
         return true
       },
     })
-    const view = { webContents: contents, setBounds: () => {} }
+    const view = {
+      webContents: contents,
+      visible: true,
+      setBounds: () => {},
+      setVisible: (visible: boolean) => {
+        view.visible = visible
+      },
+    }
     const children = [view]
     const win = {
       isDestroyed: () => false,
@@ -134,6 +142,7 @@ if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
       dialogs.push(options)
       expect(owner.suspended).toBe(1)
       expect(owner.attached).toBeUndefined()
+      expect(view.visible).toBe(false)
       if (options.type === "warning") {
         expect(tab.loginBusy).toBe(false)
         expect(owner.generationCheck).toBeUndefined()

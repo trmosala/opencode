@@ -168,6 +168,8 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
       if (input.sessionID === props.sessionID) shortcut(input.shortcut)
     })
     let last = ""
+    let sentAt = 0
+    let pending = 0
     let frame = 0
     let previousSession = props.sessionID
     const lease = crypto.randomUUID()
@@ -185,11 +187,21 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
       }
       const bounds = landing() || state.tool === "settings" ? null : browserViewportBounds(viewport)
       const key = JSON.stringify({ sessionID, bounds })
-      if (key !== last) {
+      // Main clears its viewport on native resize, which can arrive after our last
+      // measurement. Renew visible bounds so unchanged geometry cannot strand a tab.
+      // Recompute visibility first: never renew a page behind a dialog or hidden panel.
+      if (key !== last || (bounds && !pending && performance.now() - sentAt >= 1000)) {
         last = key
-        void browser.viewport({ sessionID, lease, bounds }).catch(() => {
-          last = ""
-        })
+        sentAt = performance.now()
+        pending++
+        void browser
+          .viewport({ sessionID, lease, bounds })
+          .catch(() => {
+            last = ""
+          })
+          .finally(() => {
+            pending--
+          })
       }
       frame = requestAnimationFrame(update)
     }

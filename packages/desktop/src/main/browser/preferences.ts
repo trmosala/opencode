@@ -109,13 +109,17 @@ export async function chooseDownloadDirectory(win: BrowserWindow, reset = false)
   })
   if (!result.canceled && result.filePaths[0]) store().set("downloadDirectory", result.filePaths[0])
 }
-export function reserveDownload(directory: string, filename: string) {
+export function downloadFilename(filename: string) {
   const clean =
     basename(filename.replaceAll("\\", "/"))
       .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
       .replace(/[. ]+$/, "")
       .slice(0, 180) || "download"
   const safe = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(clean) ? `_${clean}` : clean
+  return safe
+}
+export function reserveDownload(directory: string, filename: string) {
+  const safe = downloadFilename(filename)
   const ext = extname(safe)
   for (let index = 0; index < 1000; index++) {
     const path = join(directory, index ? `${safe.slice(0, safe.length - ext.length)} (${index})${ext}` : safe)

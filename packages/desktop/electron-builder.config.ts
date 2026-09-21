@@ -74,6 +74,9 @@ const getBase = (appId: string): Configuration => ({
   ],
   extraResources: [
     ...(process.platform === "win32" ? [{ from: "resources/vault-auth", to: "vault-auth", filter: ["*.exe"] }] : []),
+    ...(process.platform === "darwin"
+      ? [{ from: "resources/vault-auth", to: "vault-auth", filter: ["macos-entry-*"] }]
+      : []),
     {
       from: "resources/icons",
       to: "icons",

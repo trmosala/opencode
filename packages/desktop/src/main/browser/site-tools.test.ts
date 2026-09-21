@@ -4,8 +4,12 @@ import { discoverSiteTools, invokeSiteTool, prepareSiteTool } from "./site-tools
 
 class DebuggerFixture extends EventEmitter {
   attached = true
+  enables = 0
   invocations = 0
   cancelled: string[] = []
+  loaderID = "document-one"
+  url = "https://example.com/page"
+  toolName = "search"
 
   isAttached() {
     return this.attached
@@ -16,22 +20,25 @@ class DebuggerFixture extends EventEmitter {
   }
 
   async sendCommand(method: string, params?: Record<string, unknown>) {
+    if (method === "Page.enable" || method === "WebMCP.disable") return {}
     if (method === "Page.getFrameTree")
       return {
         frameTree: {
           frame: {
             id: "main",
-            url: "https://example.com/page",
-            securityOrigin: "https://example.com",
+            loaderId: this.loaderID,
+            url: this.url,
+            securityOrigin: new URL(this.url).origin,
           },
         },
       }
     if (method === "WebMCP.enable") {
+      this.enables++
       queueMicrotask(() =>
         this.emit("message", {}, "WebMCP.toolsAdded", {
           tools: [
             {
-              name: "search",
+              name: this.toolName,
               description: `Search\u0000${"x".repeat(2_000)}`,
               frameId: "main",
               inputSchema: { type: "object", properties: { query: { type: "string" } } },
@@ -70,10 +77,23 @@ function fixture(debuggerFixture = new DebuggerFixture()) {
     debugger: debuggerFixture,
     isDestroyed: () => false,
     isLoadingMainFrame: () => false,
-    getURL: () => "https://example.com/page",
+    getURL: () => debuggerFixture.url,
   }
   return { contents, debuggerFixture }
 }
+
+test("reattaches and enables WebMCP after debugger detachment", async () => {
+  const { contents, debuggerFixture } = fixture()
+  await discoverSiteTools(contents, () => {})
+  debuggerFixture.attached = false
+  debuggerFixture.emit("detach")
+
+  const discovered = await discoverSiteTools(contents, () => {})
+
+  expect(debuggerFixture.attached).toBe(true)
+  expect(debuggerFixture.enables).toBe(2)
+  expect(discovered.tools.map((tool) => tool.name)).toEqual(["search"])
+})
 
 test("discovers only bounded top-document metadata and returns opaque refs", async () => {
   const { contents } = fixture()
@@ -92,6 +112,52 @@ test("discovers only bounded top-document metadata and returns opaque refs", asy
   expect(result.tools[0]?.inputSchema).toBe('{"type":"object","properties":{"query":{"type":"string"}}}')
   expect(result.tools[0]).not.toHaveProperty("frameId")
   expect(result.tools[0]).not.toHaveProperty("stackTrace")
+})
+
+for (const url of ["https://example.com/page", "https://public.test/"]) {
+  test(`replaces the inventory after a new document at ${url} without removal events`, async () => {
+    const { contents, debuggerFixture } = fixture()
+    const before = await discoverSiteTools(contents, () => {})
+    const prepared = await prepareSiteTool(contents, before.tools[0].ref, "{}", () => {})
+    debuggerFixture.loaderID = "document-two"
+    debuggerFixture.url = url
+    debuggerFixture.toolName = "replacement"
+
+    const after = await discoverSiteTools(contents, () => {})
+    expect(after.origin).toBe(new URL(url).origin)
+    expect(after.tools.map((tool) => tool.name)).toEqual(["replacement"])
+    expect(after.tools[0].ref).not.toBe(before.tools[0].ref)
+    await expect(prepareSiteTool(contents, before.tools[0].ref, "{}", () => {})).rejects.toThrow("changed")
+    await expect(invokeSiteTool(contents, prepared, "{}", () => {}, new AbortController().signal)).rejects.toThrow(
+      "changed",
+    )
+    expect(debuggerFixture.invocations).toBe(0)
+  })
+}
+
+test("rejects navigation during tool enumeration", async () => {
+  const { contents, debuggerFixture } = fixture()
+  debuggerFixture.sendCommand = async (method, params) => {
+    const result = await DebuggerFixture.prototype.sendCommand.call(debuggerFixture, method, params)
+    if (method === "WebMCP.enable") debuggerFixture.loaderID = "changed-during-enable"
+    return result
+  }
+  await expect(discoverSiteTools(contents, () => {})).rejects.toThrow("document changed")
+})
+
+test("navigation rejects a pending result before its old document can respond", async () => {
+  const { contents, debuggerFixture } = fixture()
+  const discovered = await discoverSiteTools(contents, () => {})
+  const prepared = await prepareSiteTool(contents, discovered.tools[0].ref, "{}", () => {})
+  debuggerFixture.sendCommand = async (method, params) => {
+    if (method === "WebMCP.invokeTool") return { invocationId: "held" }
+    return DebuggerFixture.prototype.sendCommand.call(debuggerFixture, method, params)
+  }
+  const pending = invokeSiteTool(contents, prepared, "{}", () => {}, new AbortController().signal)
+  const rejected = pending.catch((error: unknown) => error)
+  await new Promise((resolve) => setTimeout(resolve))
+  debuggerFixture.emit("message", {}, "Page.frameNavigated", { frame: { id: "main", loaderId: "document-two" } })
+  expect(await rejected).toEqual(new Error("WebMCP document changed"))
 })
 
 test("truncates a malicious inventory before the sidecar response ceiling", async () => {
