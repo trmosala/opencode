@@ -1,3 +1,5 @@
+#define __STDC_WANT_LIB_EXT1__ 1
+#import <string.h>
 #import <AppKit/AppKit.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <sys/stat.h>
@@ -96,8 +98,9 @@ int main(int argc, const char *argv[]) {
     const BOOL wrote = valid && writeAll(STDOUT_FILENO, lengths, sizeof(lengths)) &&
       writeAll(STDOUT_FILENO, usernameBytes.bytes, usernameBytes.length) &&
       writeAll(STDOUT_FILENO, passwordBytes.bytes, passwordBytes.length);
-    explicit_bzero(usernameBytes.mutableBytes, usernameBytes.length);
-    explicit_bzero(passwordBytes.mutableBytes, passwordBytes.length);
+    // Darwin provides memset_s for clearing that cannot be optimized away.
+    if (usernameBytes.length) memset_s(usernameBytes.mutableBytes, usernameBytes.length, 0, usernameBytes.length);
+    if (passwordBytes.length) memset_s(passwordBytes.mutableBytes, passwordBytes.length, 0, passwordBytes.length);
     return wrote ? 0 : 3;
   }
 }
