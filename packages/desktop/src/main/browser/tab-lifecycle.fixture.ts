@@ -407,7 +407,10 @@ export async function tabLifecycleSmoke() {
           browserLinkContext(owner, task, "A")
         }
         if (change === "hide") {
+          // macOS delivers hide asynchronously; observe it before restoring the window.
+          const hidden = once(win, "hide")
           win.hide()
+          await hidden
           win.showInactive()
         }
         if (change === "viewport") {
@@ -1088,7 +1091,7 @@ export async function tabLifecycleSmoke() {
     assert.equal(requests.length, requestCount)
     console.log("PASS lifecycle empty recovery creates one private blank without requests")
     console.log(
-      `PASS tab lifecycle Electron ${process.versions.electron} Chromium ${process.versions.chrome}; no physical/macOS/packaged assurance`,
+      `PASS tab lifecycle ${process.platform} Electron ${process.versions.electron} Chromium ${process.versions.chrome}; no physical/packaged assurance`,
     )
   } finally {
     Date.now = clock

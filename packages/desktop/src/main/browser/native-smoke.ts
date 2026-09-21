@@ -1,6 +1,7 @@
 import { persistenceRenameFault } from "./persistence-fault.fixture"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
+import { once } from "node:events"
 import { join } from "node:path"
 import fs, { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { syncBuiltinESMExports } from "node:module"
@@ -937,7 +938,9 @@ async function run() {
           }
           if (change === "navigation") await command({ op: "navigate", tabID: target, url: `${url}?cancel` })
           if (change === "hide") {
+            const hidden = once(win, "hide")
             win.hide()
+            await hidden
             win.showInactive()
           }
           if (change === "owner navigation") await win.loadURL(`${url}?owner`)
@@ -4095,7 +4098,9 @@ async function run() {
   assert.equal(owner.attached, one)
 
   stage("window hide and restore")
+  const detached = once(win, "hide")
   win.hide()
+  await detached
   assert.equal(owner.attached, undefined)
   win.showInactive()
   await wait(() => owner.attached === one)
@@ -4824,7 +4829,9 @@ async function run() {
   powerMonitor.emit("suspend")
   assert.equal(browserProfile().vaultStatus, "locked")
   await command({ op: "unlock-vault" })
+  const hidden = once(win, "hide")
   win.hide()
+  await hidden
   assert.equal(browserProfile().vaultStatus, "locked")
   win.showInactive()
   await command({ op: "unlock-vault" })
