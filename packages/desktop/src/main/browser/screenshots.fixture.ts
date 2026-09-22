@@ -14,7 +14,7 @@ import {
 } from "@cookiemonster/cm-browser/protocol"
 import { browserTools } from "@cookiemonster/cm-browser/tools"
 import { browserCommand, browserViewport, registerBrowserOwner } from "./tabs"
-import { browserRegistration, registerBrowserTab, setBrowserAgentEnabled } from "./registry"
+import { browserOperationBusy, browserRegistration, registerBrowserTab, setBrowserAgentEnabled } from "./registry"
 import { routeBrowserRequest } from "./router"
 import { attachBrowserBridge } from "./bridge"
 
@@ -263,19 +263,19 @@ canvas{left:180px}iframe{left:340px}</style>
       const focus = BrowserWindow.getFocusedWindow()?.id
       const before = await geometry()
       const attempts = captures
+      const confirmations = prompts
       timeout = 1500
       const response = await shot()
-      assert.equal(captures, attempts + 1)
+      noImage(response)
+      assert.equal(captures, attempts, "Detached tabs must fail before native capture")
+      assert.equal(prompts, confirmations, "Detached tabs must fail before consent")
+      await settled
+      assert.equal(browserOperationBusy.has(id), false, "Detached rejection releases the tab without reattachment")
       assert.equal(await geometry(), before)
       assert.equal(BrowserWindow.getFocusedWindow()?.id, focus)
       assert.equal(owner.groups.get("screenshots")!.activeID, other)
       assert.notEqual(owner.attached, tab)
-      if (response.ok) await pixels(response, "background-covered")
-      else {
-        noImage(response)
-        console.log("LIMIT detached background capture:", response.code, "commands:", methods.slice(-2).join(","))
-      }
-      // Settle a stalled native capture by restoring its existing view, never by retrying capture.
+      console.log("PASS detached screenshot rejection: zero consent/capture and native settlement without reattachment")
       await command({ op: "select", tabID: id })
       layout()
       await settled
@@ -377,6 +377,8 @@ canvas{left:180px}iframe{left:340px}</style>
         "owner-hide",
         "owner-navigation",
         "owner-crash",
+        "selection",
+        "detached",
         "revoke",
         "regrant",
         "aba",
@@ -388,7 +390,9 @@ canvas{left:180px}iframe{left:340px}</style>
       ] as const) {
         const entered = Promise.withResolvers<void>()
         const release = Promise.withResolvers<void>()
+        let held = false
         const hold = async () => {
+          held = true
           entered.resolve()
           await release.promise
         }
@@ -411,14 +415,21 @@ canvas{left:180px}iframe{left:340px}</style>
         const attempts = captures
         const pending = dispatch(request, "screenshots", requestID)
         try {
-          await entered.promise
+          await Promise.race([
+            entered.promise,
+            pending.then((response) => {
+              throw new Error(`${phase} ${reason}: completed before hold (${response.ok ? "image" : response.code})`)
+            }),
+          ])
           assert.equal(tab.navigationAllowed, undefined)
           if (reason === "revoke" || reason === "regrant") {
             await command({ op: "access", tabID: id, enabled: false })
             if (reason === "regrant") await command({ op: "access", tabID: id, enabled: true })
           }
           if (reason === "owner-hide") {
+            const hidden = once(win, "hide")
             win.hide()
+            await hidden
             win.showInactive()
             layout()
             assert(win.isVisible(), "Restored visibility must not revive approval")
@@ -427,6 +438,8 @@ canvas{left:180px}iframe{left:340px}</style>
           if (reason === "owner-navigation") win.webContents.emit("did-start-navigation", {}, url, false, true)
           if (reason === "owner-crash")
             win.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 1 })
+          if (reason === "selection") await command({ op: "select", tabID: other })
+          if (reason === "detached") win.contentView.removeChildView(tab.view)
           if (reason === "aba") {
             await contents.loadURL(url + "?b")
             await contents.loadURL(url)
@@ -474,6 +487,8 @@ canvas{left:180px}iframe{left:340px}</style>
           console.log(`PASS ${phase} ${reason}: zero delivered images`)
         } finally {
           release.resolve()
+          // A failed setup must fail the fixture, not wait forever for a hold it never reached.
+          if (!held) win.destroy()
           await pending
           await settled
           captureHook = undefined
@@ -482,9 +497,13 @@ canvas{left:180px}iframe{left:340px}</style>
           allowed = true
           removeRegistration?.()
           setBrowserAgentEnabled(true)
-          while (contents.isLoadingMainFrame()) await setTimeout(10)
-          layout()
-          if (!tab.agentAccess) await command({ op: "access", tabID: id, enabled: true })
+          if (!contents.isDestroyed()) {
+            while (contents.isLoadingMainFrame()) await setTimeout(10)
+            if (reason === "selection") await command({ op: "select", tabID: id })
+            if (reason === "detached") win.contentView.addChildView(tab.view)
+            layout()
+            if (!tab.agentAccess) await command({ op: "access", tabID: id, enabled: true })
+          }
         }
       }
     }
@@ -518,7 +537,7 @@ canvas{left:180px}iframe{left:340px}</style>
   } finally {
     stop()
     dialog.showMessageBox = nativeDialog
-    win.destroy()
+    if (!win.isDestroyed()) win.destroy()
     server.closeAllConnections()
     frame.closeAllConnections()
     await Promise.all([

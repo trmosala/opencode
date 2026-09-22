@@ -229,7 +229,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
     }),
     browser_screenshot: tool({
       description:
-        "Share one viewport JPEG from an opted-in task tab. Requires separate screenshot approval and native per-capture consent, even when tool permission allows. All visible pixels, including passwords, editable values, canvas and cross-origin frames, are disclosed without redaction. No full-page capture, resizing or retry. Returns an image attachment, not DOM refs.",
+        "Share one viewport JPEG from an opted-in task tab selected and visible in the browser panel. Select background tabs before requesting a screenshot. Requires separate screenshot approval and native per-capture consent, even when tool permission allows. All visible pixels, including passwords, editable values, canvas and cross-origin frames, are disclosed without redaction. No full-page capture, resizing or retry. Returns an image attachment, not DOM refs.",
       args: { tabID },
       async execute(args, context) {
         const request = { op: "screenshot", tabID: args.tabID } as const

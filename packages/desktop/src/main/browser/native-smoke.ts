@@ -49,6 +49,8 @@ app.setPath("userData", join(profile, "profile"))
 app.setPath("sessionData", join(profile, "session"))
 app.on("window-all-closed", () => {})
 app.commandLine.appendSwitch("use-fake-device-for-media-stream")
+// Synthetic screenshot swatches must not depend on the host monitor's color profile.
+if (process.argv.includes("--screenshots")) app.commandLine.appendSwitch("force-color-profile", "srgb")
 app.commandLine.appendSwitch("enable-blink-features", "WebMCP")
 if (process.argv.includes("--snapshots") || process.argv.length === 2)
   app.commandLine.appendSwitch("host-resolver-rules", "MAP snapshots-http.test 127.0.0.1")

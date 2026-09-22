@@ -881,13 +881,17 @@ function createTab(
   }
   tab.ownerContext = () => `${owner.authorityID}_${owner.taskEpoch}`
   tab.confirmScreenshot = async (url, signal) => {
+    // Detached views may never settle CDP capture; require the currently presented tab.
+    const attached = () =>
+      group.activeID === tab.id && owner.attached === tab && owner.win.contentView.children.includes(tab.view)
     if (
       owner.suspended ||
       owner.shutting ||
       owner.win.isDestroyed() ||
       !owner.win.isVisible() ||
       owner.win.isMinimized() ||
-      !group.tabs.includes(tab)
+      !group.tabs.includes(tab) ||
+      !attached()
     )
       return false
     const consent = tab.screenshotConsent
@@ -939,7 +943,8 @@ function createTab(
           owner.win.isMinimized() ||
           owners.get(tab.ownerID) !== owner ||
           owner.groups.get(tab.sessionID) !== group ||
-          !group.tabs.includes(tab)
+          !group.tabs.includes(tab) ||
+          !attached()
         )
           throw new Error("Screenshot owner changed")
       }
