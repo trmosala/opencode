@@ -512,7 +512,8 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       },
     }),
     browser_navigate: tool({
-      description: "Navigate an explicitly opted-in browser tab to an allowlisted HTTP(S) URL.",
+      description:
+        "Navigate an explicitly opted-in browser tab within its approved website. A different website requires the user to open it and allow agent access again.",
       args: { tabID, url: tool.schema.string().url().max(2048).describe("HTTP(S) destination") },
       async execute(args, context) {
         const request = { op: "navigate", tabID: args.tabID, url: args.url } as const

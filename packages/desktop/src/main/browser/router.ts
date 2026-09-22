@@ -10,10 +10,11 @@ import {
   type BrowserState,
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
-import { allowed, hostPolicyRevision } from "./allowlist"
+import { hostPolicyRevision } from "./allowlist"
 import { browserInputFailure, execute } from "./driver"
 import {
   browserTabs,
+  browserAccessAllowed,
   browserRegistration,
   browserAgentEnabled,
   routeBrowserHistory,
@@ -110,7 +111,7 @@ export function browserDeliveryError(
 
 export async function routeBrowserRequest(
   message: BrowserIpcRequest,
-  isAllowed: (url: string) => boolean = allowed,
+  policy?: (url: string) => boolean,
   control: BrowserOperation = {},
 ): Promise<Response<BrowserState>> {
   const validated = parseRequest(message.request)
@@ -139,7 +140,7 @@ export async function routeBrowserRequest(
     controller.signal.addEventListener("abort", interrupted, { once: true })
   })
   let deliveryCheck: (() => void) | undefined
-  const operation = route(message, isAllowed, controller.signal, deadline, (check) => {
+  const operation = route(message, policy, controller.signal, deadline, (check) => {
     deliveryCheck = () => {
       control.signal?.throwIfAborted()
       check()
@@ -181,7 +182,7 @@ export async function routeBrowserRequest(
 
 async function route(
   message: BrowserIpcRequest,
-  isAllowed: (url: string) => boolean,
+  policy: ((url: string) => boolean) | undefined,
   signal: AbortSignal,
   deadline: number,
   onScreenshotDelivery: (check: () => void) => void,
@@ -207,7 +208,8 @@ async function route(
           (tab) =>
             tab.agentAccess &&
             (tab.contents.getURL() === "about:blank" ||
-              (browserPageURL(tab.contents.getURL()) && isAllowed(tab.contents.getURL()))),
+              (browserPageURL(tab.contents.getURL()) &&
+                (policy ? policy(tab.contents.getURL()) : browserAccessAllowed(tab, tab.contents.getURL())))),
         )
         .map((tab) => ({ tabID: tab.id, url: tab.contents.getURL(), title: "" })),
     })
@@ -215,6 +217,7 @@ async function route(
   const tab = browserRegistration(message.sessionID, request.tabID)
   if (!tab) return failure("no_target", "Browser tab not found in this session.")
   if (!tab.agentAccess) return failure("access_denied", "Enable agent access for this tab in the browser panel.")
+  const isAllowed = policy ?? ((url: string) => browserAccessAllowed(tab, url))
   const contents = tab.contents
   const url = contents.getURL()
   const observing = request.op === "wait_for_navigation" || request.op === "wait_for_element"
@@ -222,9 +225,9 @@ async function route(
   const siteRequest =
     request.op === "list_site_tools" || request.op === "prepare_site_tool" || request.op === "execute_site_tool"
   if (navigating && (!browserURL(request.url) || !isAllowed(request.url)))
-    return failure("blocked_host", "Browser host is not allowlisted.")
+    return failure("blocked_host", nativeT("desktop.browser.websiteAccessRequired"))
   if (!(request.op === "navigate" && url === "about:blank") && (!browserPageURL(url) || !isAllowed(url)))
-    return failure("blocked_host", "Browser host is not allowlisted.")
+    return failure("blocked_host", nativeT("desktop.browser.websiteAccessRequired"))
   if (busy.has(tab.id)) return failure("unavailable", "Another operation is running on this tab.")
   const blocked = browserInputFailure(contents)
   if (blocked) return blocked
@@ -293,9 +296,9 @@ async function route(
       throw new Error("Browser access changed")
     const current = contents.getURL()
     if (!(request.op === "navigate" && current === "about:blank") && (!browserPageURL(current) || !isAllowed(current)))
-      throw new Error("Browser host is not allowlisted")
+      throw new Error(nativeT("desktop.browser.websiteAccessRequired"))
     if (navigating && (!browserURL(request.url) || !isAllowed(request.url)))
-      throw new Error("Browser host is not allowlisted")
+      throw new Error(nativeT("desktop.browser.websiteAccessRequired"))
     if (source && request.op === "wait_for_navigation") {
       if (current !== request.url || contents.isLoadingMainFrame()) throw new Error("Browser destination changed")
       destination = { revision: tab.revision, url: current }

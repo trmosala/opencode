@@ -810,7 +810,7 @@ async function run() {
       const destination = url.replace("127.0.0.1", "localhost") + "access-destination"
       const request: WriteRequest = { op: "navigate", tabID: first, url: destination }
       const policyRoute = (request: Request) =>
-        routeBrowserRequest({ type: "browser_request", id: "destination-race", sessionID: "smoke", request })
+        routeBrowserRequest({ type: "browser_request", id: "destination-race", sessionID: "smoke", request }, allowed)
       const binding = await policyRoute({ op: "prepare_write", request })
       assert(binding.ok && binding.result.context)
       const sourceRevision = one.revision
@@ -1052,6 +1052,65 @@ async function run() {
   const first = (await command({ op: "new" })).activeID!
   await command({ op: "navigate", tabID: first, url })
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
+  if (process.argv.includes("--site-access")) {
+    const consent = dialog.showMessageBox
+    const request = (request: Request) =>
+      routeBrowserRequest({
+        type: "browser_request",
+        id: "site-access",
+        sessionID: "smoke",
+        request,
+      })
+    try {
+      // A legacy empty allowlist must no longer require a second user grant.
+      writeFileSync(join(profile!, "cm-browser-allowlist.json"), "[]")
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      await wait(() => !one.contents.isLoadingMainFrame())
+      await command({ op: "access", tabID: first, enabled: true })
+      assert.equal(one.agentOrigin, new URL(url).origin)
+      assert((await request({ op: "read_state", tabID: first })).ok)
+      const other = (await command({ op: "new" })).activeID!
+      await command({ op: "access", tabID: other, enabled: true })
+      assert.equal(owner.groups.get("smoke")!.tabs.find((tab) => tab.id === other)!.agentAccess, false)
+      await command({ op: "navigate", tabID: other, url })
+      const privateRead = await request({ op: "read_state", tabID: other })
+      assert(!privateRead.ok && privateRead.code === "access_denied")
+      await command({ op: "select", tabID: first })
+      await command({ op: "navigate", tabID: first, url: url + "same-site" })
+      await wait(() => !one.contents.isLoadingMainFrame())
+      assert(one.agentAccess)
+      assert((await request({ op: "read_state", tabID: first })).ok)
+      const destination = url.replace("127.0.0.1", "localhost")
+      const blocked = await request({
+        op: "prepare_write",
+        request: { op: "navigate", tabID: first, url: destination },
+      })
+      assert(!blocked.ok && blocked.code === "blocked_host")
+      await command({ op: "navigate", tabID: first, url: destination })
+      await wait(() => !one.contents.isLoadingMainFrame())
+      assert.equal(one.agentAccess, false)
+      assert.equal(one.agentOrigin, undefined)
+      await command({ op: "navigate", tabID: first, url })
+      await wait(() => !one.contents.isLoadingMainFrame())
+      assert.equal(one.agentAccess, false, "Returning does not restore consent")
+      await command({ op: "access", tabID: first, enabled: true })
+      assert((await request({ op: "read_state", tabID: first })).ok)
+      const redirect = { op: "navigate", tabID: first, url: url + "redirect" } as const
+      const prepared = await request({ op: "prepare_write", request: redirect })
+      assert(prepared.ok && prepared.result.context)
+      const redirected = await request({ ...redirect, context: prepared.result.context })
+      assert(!redirected.ok)
+      assert.equal(one.agentAccess, false, "Cross-site redirect revokes consent")
+      assert.notEqual(one.contents.getURL(), "http://blocked.invalid/")
+      stage(
+        "PASS site access: no host setup, private siblings, same-site navigation, cross-site revoke, redirects and reconsent",
+      )
+    } finally {
+      dialog.showMessageBox = consent
+      win.destroy()
+    }
+    return
+  }
   if (process.argv.includes("--access-review")) {
     try {
       await accessReview()
@@ -4535,11 +4594,10 @@ async function run() {
   const originalHosts = readFileSync(allowlistFile, "utf8")
   try {
     writeFileSync(allowlistFile, '["localhost"]')
-    assert.equal((await command({ op: "state" })).tabs.find((tab) => tab.id === first)?.access?.hostAllowed, false)
+    assert.equal((await command({ op: "state" })).tabs.find((tab) => tab.id === first)?.access?.hostAllowed, true)
     writeFileSync(allowlistFile, "[]")
     const denied = await command({ op: "state" })
-    assert.deepEqual(denied.profile?.agentHosts, [])
-    assert.equal(denied.tabs.find((tab) => tab.id === first)?.access?.hostAllowed, false)
+    assert.equal(denied.tabs.find((tab) => tab.id === first)?.access?.hostAllowed, true)
   } finally {
     writeFileSync(allowlistFile, originalHosts)
   }

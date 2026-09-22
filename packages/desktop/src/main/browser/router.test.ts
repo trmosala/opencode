@@ -14,6 +14,8 @@ import {
 import { browserTools } from "@cookiemonster/cm-browser/tools"
 import {
   registerBrowserTab,
+  browserAccessAllowed,
+  revokeBrowserAccessOnNavigation,
   setBrowserAgentEnabled,
   setBrowserTabHandler,
   browserOperationBusy,
@@ -98,6 +100,7 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
     ownerID: 1,
     revision: 0,
     agentAccess: true,
+    agentOrigin: "http://localhost",
     transferGuarded: true,
     contents: Object.assign(new EventEmitter(), {
       mainFrame: { detached: false },
@@ -2214,3 +2217,78 @@ test.each(["A to B", "A to B to A", "reload", "tab regrant", "global regrant"])(
     }
   },
 )
+
+test("website consent admits an unlisted site only in its granted tab and exact origin", async () => {
+  const { tab, remove } = fixture()
+  const second = { ...tab, id: "private-site-tab", agentAccess: false }
+  const removeSecond = registerBrowserTab(second)
+  const request = (request: Request) =>
+    routeBrowserRequest({
+      type: "browser_request",
+      id: "site-consent",
+      sessionID: tab.sessionID,
+      request,
+    })
+  try {
+    await tab.contents.loadURL("https://unlisted.example/work")
+    tab.agentOrigin = "https://unlisted.example"
+    expect((await request({ op: "read_state", tabID: tab.id })).ok).toBe(true)
+    expect(await request({ op: "read_state", tabID: second.id })).toMatchObject({ code: "access_denied" })
+    const listing = await request({ op: "list_tabs" })
+    expect(listing.ok && listing.result.tabs?.map((entry) => entry.tabID)).toEqual([tab.id])
+    for (const url of [
+      "https://other.example/",
+      "https://sub.unlisted.example/",
+      "http://unlisted.example/",
+      "https://unlisted.example:8443/",
+    ]) {
+      expect(await request({ op: "prepare_write", request: { op: "navigate", tabID: tab.id, url } })).toMatchObject({
+        code: "blocked_host",
+      })
+    }
+    const next = { op: "navigate", tabID: tab.id, url: "https://unlisted.example/next" } as const
+    const prepared = await request({ op: "prepare_write", request: next })
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok || !prepared.result.context) throw new Error("Missing context")
+    expect((await request({ ...next, context: prepared.result.context })).ok).toBe(true)
+    revokeBrowserAccessOnNavigation(tab, next.url)
+    expect(tab.agentAccess).toBe(true)
+    tab.accessConsent = new AbortController()
+    tab.screenshotConsent = new AbortController()
+    revokeBrowserAccessOnNavigation(tab, "https://other.example/")
+    expect(tab.accessConsent.signal.aborted).toBe(true)
+    expect(tab.screenshotConsent.signal.aborted).toBe(true)
+    expect(tab.agentAccess).toBe(false)
+    expect(tab.agentOrigin).toBeUndefined()
+    revokeBrowserAccessOnNavigation(tab, next.url)
+    expect(await request({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "access_denied" })
+    expect(browserAccessAllowed(tab, next.url)).toBe(false)
+  } finally {
+    removeSecond()
+    remove()
+  }
+})
+
+test("missing website consent and a changed live origin fail closed", async () => {
+  const { tab, remove } = fixture()
+  const request = () =>
+    routeBrowserRequest({
+      type: "browser_request",
+      id: "site-consent",
+      sessionID: tab.sessionID,
+      request: { op: "read_state", tabID: tab.id },
+    })
+  try {
+    tab.agentOrigin = undefined
+    expect(await request()).toMatchObject({ code: "blocked_host" })
+    tab.agentOrigin = "http://localhost"
+    expect((await request()).ok).toBe(true)
+    await tab.contents.loadURL("https://other.example/")
+    expect(await request()).toMatchObject({ code: "blocked_host" })
+    expect(browserAccessAllowed(tab, "about:blank")).toBe(false)
+    expect(browserAccessAllowed(tab, "file:///tmp/example")).toBe(false)
+    expect(browserAccessAllowed(tab, "http://user:pass@localhost/")).toBe(false)
+  } finally {
+    remove()
+  }
+})

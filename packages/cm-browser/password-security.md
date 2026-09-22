@@ -535,3 +535,10 @@ Final cumulative correctness/spec review by `ses_f545addcaffeXBHrzbO2nV33Ge` and
 ## Multi-step filling
 
 Explicit username-only and password-only actions retain the same exact-origin, vault-grant, visible-field and document-ticket checks. Native consent names the selected field and account. Only the requested field is serialized into the delivery script; username-only filling never sends the saved password. Cross-origin steps and iframe filling remain unsupported. The native fixture verifies both steps, missing-field rejection, and cross-origin form action rejection with synthetic credentials.
+
+
+### Website consent update
+
+The normal browser workflow now uses **Allow agent access** plus its native confirmation to grant the current exact origin in one tab. The Add Host settings and IPC command are removed; legacy host-list files no longer gate access. Main checks this origin for page tools, navigation, embedded frames and frame uploads. Cross-origin navigation/redirects revoke the grant and invalidate snapshots and pending consent; returning to a former origin does not restore access. Blank tabs must first load a website. Global disable, tool approvals and lifetime transfer guarding remain in force. This supersedes the host-allowlist descriptions in earlier verification notes above.
+
+Verification: `bun scripts/browser-smoke.ts --site-access` exercises production tab commands and routing in real Chromium with simulated native-dialog acceptance, including an empty legacy host list. The mounted settings regression verifies that Add Host is absent and grants/revocation still work. Native dialog appearance and a packaged build are outside these checks.

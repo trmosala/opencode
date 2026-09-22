@@ -1,9 +1,15 @@
 import { dialog } from "electron"
 import type { BrowserWindow, WebContents } from "electron"
 import type { BrowserTransferRule } from "@opencode-ai/app/browser-panel"
-import { browserAgentEnabled, browserRegistration, browserOperationBusy, type BrowserRegistration } from "./registry"
+import {
+  browserAccessAllowed,
+  browserAgentEnabled,
+  browserRegistration,
+  browserOperationBusy,
+  type BrowserRegistration,
+} from "./registry"
 import { bindFrameUpload } from "./frames"
-import { allowed, hostPolicyRevision } from "./allowlist"
+import { hostPolicyRevision } from "./allowlist"
 import { browserInputFailure } from "./driver"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
@@ -162,12 +168,12 @@ export async function guardUploads(win: BrowserWindow, tab: BrowserRegistration,
           owner !== win.webContents.id ||
           browserRegistration(task, tab.id) !== tab ||
           browserInputFailure(contents) ||
-          !allowed(url) ||
-          !allowed(new URL(url).origin) ||
+          !browserAccessAllowed(tab, url) ||
+          !browserAccessAllowed(tab, new URL(url).origin) ||
           transferRule(transferRules(), url).uploads === "block" ||
           (receiver &&
-            (!allowed(receiver) ||
-              !allowed(new URL(receiver).origin) ||
+            (!browserAccessAllowed(tab, receiver) ||
+              !browserAccessAllowed(tab, new URL(receiver).origin) ||
               transferRule(transferRules(), receiver).uploads === "block"))
         )
           throw new Error("Upload authority changed")

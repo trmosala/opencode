@@ -91,7 +91,6 @@ test("mounted settings show eligibility, allow revocation during consent and rou
         credentials: [],
         rememberHistory: true,
         vaultAvailable: false,
-        agentHosts: ["display.example"],
         transferRules: [{ origin: "*", uploads: "ask", downloads: "ask" }],
         preferences: {
           agentEnabled: true,
@@ -123,8 +122,9 @@ test("mounted settings show eligibility, allow revocation during consent and rou
       expect(element).toBeDefined()
       return element!
     }
+    expect(host.textContent).not.toContain("Add host")
     expect(calls).toEqual([])
-    expect(row().textContent).toContain("loaded host is not allowed")
+    expect(row().textContent).toContain("Open a website in this tab")
     expect(row().textContent).not.toContain("Page tools eligible")
     expect(row().textContent).toContain("Resolved transfer policy: default")
     const uploads = [...host.querySelectorAll("label")]
@@ -185,7 +185,7 @@ test("mounted settings show eligibility, allow revocation during consent and rou
     })
     expect(row().textContent).toContain("main page is loading")
     expect(row().textContent).not.toContain("Page tools eligible")
-    expect(row().textContent).not.toContain("loaded host is not allowed")
+    expect(row().textContent).not.toContain("Open a website in this tab")
     mounted.update({
       ...tabs,
       profile: { ...tabs.profile!, preferences: { ...tabs.profile!.preferences!, agentEnabled: false } },

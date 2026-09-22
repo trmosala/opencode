@@ -607,7 +607,10 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                 <input
                   type="checkbox"
                   checked={tab().agentAccess}
-                  disabled={state.tabs.profile?.preferences?.agentEnabled === false}
+                  disabled={
+                    state.tabs.profile?.preferences?.agentEnabled === false ||
+                    (!tab().agentAccess && (tab().loading || !tab().access?.hostAllowed))
+                  }
                   onChange={(event) => {
                     const enabled = event.currentTarget.checked
                     event.currentTarget.checked = tab().agentAccess

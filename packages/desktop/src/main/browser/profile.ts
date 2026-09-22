@@ -20,7 +20,6 @@ import {
   downloadDirectory,
   sitePermissions,
 } from "./preferences"
-import { loadAllowlist } from "./allowlist"
 import { clearLogins, readLogins, vaultAvailable, writeLogins } from "./vault"
 import { prepareLoginScript, completeLoginScript } from "./login-form"
 import { vaultAccess } from "./vault-session"
@@ -70,7 +69,6 @@ export function browserProfile(): BrowserProfile {
     notificationsSupported: Notification.isSupported(),
     displayCaptureSupported: displayCaptureSupported(),
     clipboardSupported: true,
-    agentHosts: loadAllowlist(),
     zoomRules: browserZoomRules(),
     devicePresets: browserDevicePresets(),
     loginEntryAvailable: loginEntryAvailable(),

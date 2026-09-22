@@ -17,7 +17,6 @@ export function BrowserSettings(props: {
   const language = useLanguage()
   const [state, setState] = createStore({
     origin: "",
-    host: "",
     camera: "block" as BrowserPermission,
     microphone: "block" as BrowserPermission,
     notifications: "block" as BrowserPermission,
@@ -141,7 +140,7 @@ export function BrowserSettings(props: {
                         !tab.access ||
                         tab.access.loading !== false ||
                         props.profile.preferences?.agentEnabled !== true ||
-                        (!tab.access.hostAllowed && !tab.access.blank)
+                        !tab.access.hostAllowed
                       }
                       onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: true })}
                     >
@@ -162,48 +161,6 @@ export function BrowserSettings(props: {
           </For>
         </section>
         <fieldset disabled={props.busy} class="min-w-0 space-y-4">
-          <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-            <h4 class="text-14-medium">{language.t("browser.settings.agentHosts")}</h4>
-            <p class="text-text-weak">{language.t("browser.settings.agentHosts.help")}</p>
-            <Show
-              when={props.profile.agentHosts}
-              fallback={<p role="status">{language.t("browser.access.unknown")}</p>}
-            >
-              <form
-                class="flex flex-wrap gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  void props.command({ op: "agent-host", host: state.host })
-                }}
-              >
-                <input
-                  class="min-w-0 flex-1 border border-border-weak-base rounded p-2"
-                  value={state.host}
-                  onInput={(event) => setState("host", event.currentTarget.value)}
-                  aria-label={language.t("browser.settings.agentHosts.host")}
-                  placeholder="example.com"
-                  required
-                />
-                <Button size="small" type="submit">
-                  {language.t("browser.settings.agentHosts.add")}
-                </Button>
-              </form>
-              <For each={props.profile.agentHosts} fallback={<p>{language.t("browser.access.hostsEmpty")}</p>}>
-                {(host) => (
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="min-w-0 break-all">{host}</span>
-                    <Button
-                      size="small"
-                      variant="ghost"
-                      onClick={() => void props.command({ op: "agent-host", host, remove: true })}
-                    >
-                      {language.t("browser.settings.agentHosts.remove")}
-                    </Button>
-                  </div>
-                )}
-              </For>
-            </Show>
-          </section>
           <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
             <label class="flex flex-wrap items-center justify-between gap-4">
               <span class="min-w-0 flex-1">

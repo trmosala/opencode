@@ -361,6 +361,10 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.screenshotDenied": "Browser screenshot consent was not granted.",
   "desktop.browser.screenshotDeliveryUnavailable": "Browser screenshot delivery unavailable.",
   "desktop.browser.access": "Allow agent access to this tab?",
+  "desktop.browser.websiteAccessRequired":
+    "Open the website in this tab and allow agent access before using page tools.",
+  "desktop.browser.accessSiteDetail":
+    "Allow the agent to read and interact with {{origin}} in this tab? Visiting a different website turns access off. Tool approvals and file transfer controls still apply.",
   "desktop.browser.accessDetail":
     "The agent may read and interact with signed-in pages in this tab on allowed hosts. Other tabs remain private. Browser cookies are stored in a separate persistent profile.",
   "desktop.browser.allow": "Allow",

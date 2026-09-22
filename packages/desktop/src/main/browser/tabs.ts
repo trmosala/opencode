@@ -28,6 +28,8 @@ import { observeNetwork } from "./network-diagnostics"
 import { browserPreferences, browserURL, browserPageURL, BROWSER_PARTITION } from "./policy"
 import {
   registerBrowserTab,
+  revokeBrowserAccess,
+  revokeBrowserAccessOnNavigation,
   setBrowserAgentEnabled,
   browserAgentEnabled,
   browserOperationBusy,
@@ -57,7 +59,6 @@ import {
 } from "./preferences"
 import { presentationOrigin } from "./presentation-preferences"
 import { displayCaptureSupported, siteOrigin } from "./site-permissions"
-import { updateAgentHost, allowed } from "./allowlist"
 import { transferRule } from "./transfer-policy"
 import { browserInputFailure, invalidateSnapshots, shouldShowBrowserContextMenu } from "./driver"
 import { deviceEmulation } from "./device-preview"
@@ -448,7 +449,7 @@ function state(group: Group): BrowserTabs {
           // ponytail: report main's policy for the live URL, never the saved/display fallback.
           access: {
             loading: contents.isLoadingMainFrame(),
-            hostAllowed: browserPageURL(url) && allowed(url),
+            hostAllowed: browserPageURL(url) && url !== "about:blank",
             blank: url === "about:blank",
             transferGuarded: tab.transferGuarded === true,
             transferRule: rule,
@@ -1229,10 +1230,12 @@ function createTab(
       event.preventDefault()
   })
   contents.on("will-redirect", (event, url, _inPlace, main) => {
+    if (main) revokeBrowserAccessOnNavigation(tab, url)
     if (main && (!browserURL(url) || tab.navigationAllowed?.(url) === false)) event.preventDefault()
   })
-  contents.on("did-start-navigation", (_event, _url, inPlace, main) => {
+  contents.on("did-start-navigation", (_event, url, inPlace, main) => {
     if (!main) return
+    revokeBrowserAccessOnNavigation(tab, url)
     // Supersede the callback, not the last recoverable snapshot; a retry may fail or stop.
     if (tab.recovery?.started) tab.recovery = undefined
     if (tab.recovery) tab.recovery.started = true
@@ -1259,6 +1262,7 @@ function createTab(
     changed()
   })
   const navigated = () => {
+    revokeBrowserAccessOnNavigation(tab, contents.getURL())
     if (!tab.recovery && !tab.loadFailed) {
       const navigation = recoveryNavigation({
         entries: contents.navigationHistory.getAllEntries(),
@@ -1536,7 +1540,6 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       "reveal-download",
       "recover-download",
       "site-permission",
-      "agent-host",
       "transfer-rule",
       "bookmark-save",
       "bookmark-delete",
@@ -1597,24 +1600,6 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         })
       }
       if (command.op === "settings") browserSettings(command.rememberHistory)
-      if (command.op === "agent-host") {
-        updateAgentHost(command.host, command.remove)
-        owners.forEach((entry) =>
-          entry.groups.forEach((group) =>
-            group.tabs.forEach((tab) => {
-              if (allowed(tab.contents.getURL())) return
-              tab.accessConsent?.abort()
-              tab.screenshotConsent?.abort()
-              tab.diagnosticConsent?.abort()
-              tab.siteToolConsent?.abort()
-              tab.agentAccess = false
-              tab.accessRevision = (tab.accessRevision ?? 0) + 1
-              tab.revision++
-              invalidateSnapshots(tab.contents)
-            }),
-          ),
-        )
-      }
       if (command.op === "preferences") {
         saveBrowserPreferences(command.values)
         setBrowserAgentEnabled(browserPreferencesState().agentEnabled)
@@ -2327,20 +2312,14 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     if (command.enabled && !browserAgentEnabled()) throw new Error("Browser agent access is disabled")
     if (typeof command.enabled !== "boolean") throw new Error("Invalid browser access")
     if (!command.enabled) {
-      tab.accessConsent?.abort()
-      tab.screenshotConsent?.abort()
-      tab.diagnosticConsent?.abort()
-      tab.siteToolConsent?.abort()
-      tab.agentAccess = false
-      tab.accessRevision = (tab.accessRevision ?? 0) + 1
-      tab.revision++
-      invalidateSnapshots(contents)
+      revokeBrowserAccess(tab)
     } else if (!tab.agentAccess) {
       if (owner.suspended || tab.accessConsent) throw new Error("Browser consent already pending")
       const consent = new AbortController()
       const accessRevision = tab.accessRevision
       const revision = tab.revision
       const url = contents.getURL()
+      if (!browserPageURL(url) || url === "about:blank") return state(group)
       const valid = () =>
         !consent.signal.aborted &&
         !contents.isDestroyed() &&
@@ -2388,7 +2367,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         const options = {
           type: "warning" as const,
           message: nativeT("desktop.browser.access"),
-          detail: nativeT("desktop.browser.accessDetail"),
+          detail: nativeT("desktop.browser.accessSiteDetail", { origin: new URL(url).origin }),
           buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
           defaultId: 0,
           cancelId: 0,
@@ -2414,7 +2393,11 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
                 return entry.uploadGuard
               }),
           )
-          if (valid()) tab.agentAccess = true
+          if (valid()) {
+            tab.agentOrigin = new URL(url).origin
+            tab.agentAccess = true
+            tab.accessRevision = (tab.accessRevision ?? 0) + 1
+          }
         }
       } finally {
         owner.win.removeListener("close", revoke)

@@ -96,7 +96,6 @@ export type BrowserProfile = {
     displayCapture?: BrowserPermission
     clipboard?: BrowserPermission
   }[]
-  agentHosts?: readonly string[]
   zoomRules?: BrowserZoomRule[]
   devicePresets?: BrowserDevicePreset[]
 }
@@ -246,7 +245,6 @@ export type BrowserCommand =
   | { op: "open-history"; id: string }
   | { op: "reopen"; id?: string }
   | { op: "clear-selected"; kinds: BrowserClearKind[]; range: BrowserClearRange }
-  | { op: "agent-host"; host: string; remove?: boolean }
   | {
       op: "site-permission"
       origin: string

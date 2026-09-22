@@ -8,6 +8,7 @@ import {
   type SiteTool,
   type NetworkObservation,
 } from "@cookiemonster/cm-browser/protocol"
+import { browserPageURL } from "./policy"
 import { nativeT } from "../native-translations"
 import type { createFrameSessions } from "./frame-sessions"
 
@@ -56,6 +57,7 @@ export type BrowserRegistration = {
   contents: DriverContents
   transferGuarded?: boolean
   frameSessions?: ReturnType<typeof createFrameSessions>
+  agentOrigin?: string
   agentAccess: boolean
   revision: number
   accessRevision?: number
@@ -80,6 +82,33 @@ export type BrowserRegistration = {
   ) => Promise<false | (() => void)>
   navigationAllowed?: (url: string) => boolean
 }
+// Consent belongs to one tab and exact origin, never to every tab on a hostname.
+export function browserAccessAllowed(tab: BrowserRegistration, url: string) {
+  return (
+    tab.agentAccess &&
+    !!tab.agentOrigin &&
+    browserPageURL(url) &&
+    url !== "about:blank" &&
+    new URL(url).origin === tab.agentOrigin
+  )
+}
+
+export function revokeBrowserAccess(tab: BrowserRegistration) {
+  tab.accessConsent?.abort()
+  tab.screenshotConsent?.abort()
+  tab.diagnosticConsent?.abort()
+  tab.siteToolConsent?.abort()
+  tab.agentAccess = false
+  tab.agentOrigin = undefined
+  tab.accessRevision = (tab.accessRevision ?? 0) + 1
+  tab.revision++
+  invalidateSnapshots(tab.contents)
+}
+
+export function revokeBrowserAccessOnNavigation(tab: BrowserRegistration, url: string) {
+  if (tab.agentAccess && !browserAccessAllowed(tab, url)) revokeBrowserAccess(tab)
+}
+
 const tabs = new Map<string, BrowserRegistration>()
 let agentEnabled = true
 let agentEpoch = 0
@@ -90,14 +119,7 @@ export function setBrowserAgentEnabled(enabled: boolean) {
   agentEnabled = enabled
   if (enabled) return
   tabs.forEach((tab) => {
-    tab.accessConsent?.abort()
-    tab.screenshotConsent?.abort()
-    tab.diagnosticConsent?.abort()
-    tab.siteToolConsent?.abort()
-    tab.agentAccess = false
-    tab.accessRevision = (tab.accessRevision ?? 0) + 1
-    tab.revision++
-    invalidateSnapshots(tab.contents)
+    revokeBrowserAccess(tab)
   })
 }
 

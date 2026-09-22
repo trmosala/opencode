@@ -113,9 +113,9 @@ export async function framesSmoke() {
       let holdTree: (() => Promise<void>) | undefined
       let holdResult: (() => Promise<void>) | undefined
       const revokeReceiver = async () => {
-        await browserCommand(owner, "policy", { op: "agent-host", host: "localhost", remove: true })
+        updateAgentHost("localhost", true)
         assert(allowed(url) && !allowed(url.replace("127.0.0.1", "localhost")), "receiver only removed")
-        await browserCommand(owner, "policy", { op: "agent-host", host: "localhost" })
+        updateAgentHost("localhost")
         assert(allowed(url.replace("127.0.0.1", "localhost")), "receiver restored")
       }
       let childReads = 0
@@ -234,7 +234,7 @@ export async function framesSmoke() {
           )
           for (let i = 0; contents.isLoading() && i < 200; i++) await setTimeout(10)
           const request = (request: Request) =>
-            routeBrowserRequest({ type: "browser_request", id: "policy", sessionID: tab.sessionID, request })
+            routeBrowserRequest({ type: "browser_request", id: "policy", sessionID: tab.sessionID, request }, allowed)
           const inventory = await request({ op: "read_state", tabID: tab.id })
           assert(inventory.ok && inventory.result.frames?.length === 1)
           const frameRef = inventory.result.frames[0].frameRef
