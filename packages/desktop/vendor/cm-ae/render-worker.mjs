@@ -67,7 +67,8 @@ async function withJobLock(jobDir, operation) {
     fail("render_busy", "Legacy ownerless gate requires manual recovery");
   const canonical2 = path.join(await fs.realpath(path.dirname(jobDir)), path.basename(jobDir));
   const key = canonical2.toLowerCase();
-  const port = 49152 + parseInt(hash(key).slice(0, 8), 16) % 16384;
+  const basePort = path.basename(jobDir).toLowerCase().startsWith("g2-") ? 16384 : 49152;
+  const port = basePort + parseInt(hash(key).slice(0, 8), 16) % 16384;
   const deadline = Date.now() + 30000;
   let server;
   for (;; ) {
@@ -81,9 +82,9 @@ async function withJobLock(jobDir, operation) {
     } catch (error) {
       server.close();
       if (error.code !== "EADDRINUSE")
-        fail("render_busy", "Exclusive job gate unavailable");
+        fail("render_busy", "Exclusive job gate unavailable", { cause: error.code, port });
       if (Date.now() >= deadline)
-        fail("render_busy", "Exclusive job gate is occupied; holder left untouched");
+        fail("render_busy", "Exclusive job gate is occupied; holder left untouched", { cause: error.code, port });
       await delay(25);
     }
   }
@@ -218,7 +219,7 @@ async function readJob(jobDir) {
     fail("render_corrupt", "Job directory is not canonical");
   const job = await load(path.join(jobDir, "manifest.json"));
   const id = path.basename(jobDir);
-  if (![1, 2].includes(job.version) || job.jobId !== id || !/^[0-9a-f-]{36}$/.test(id) || job.version === 2 && (job.checkpoint?.id !== id || job.checkpoint?.storageMode !== "render-private" || ![".aep", ".aepx"].includes(path.extname(job.sourceCheckpoint?.path || "").toLowerCase()) || job.checkpoint.path !== path.join(jobDir, "checkpoint" + path.extname(job.sourceCheckpoint.path).toLowerCase()) || job.sourceCheckpoint.hash !== job.checkpoint.hash || job.sourceCheckpoint.size !== job.checkpoint.size || job.checkpointSignature?.hash !== job.checkpoint.hash || job.checkpointSignature?.size !== job.checkpoint.size || !/^\d+$/.test(job.checkpointSignature?.ino) || !/^\d+$/.test(job.checkpointSignature?.dev)) || !path.isAbsolute(job.outputPath) || !path.isAbsolute(job.aerenderPath) || job.destinationDir !== path.dirname(job.outputPath) || job.stageDir !== path.join(job.destinationDir, ".cm-ae-stage-" + id) || job.quarantineDir !== path.join(job.destinationDir, ".cm-ae-quarantine-" + id) || job.logPath !== path.join(jobDir, "aerender.log") || job.reservationPath !== path.join(job.destinationDir, ".cm-ae-render-reservation") || !Number.isSafeInteger(job.startFrame) || !Number.isSafeInteger(job.endFrame) || job.startFrame < 0 || job.endFrame < job.startFrame || job.endFrame - job.startFrame >= 1e5 || !job.checkpoint?.verified || !job.checkpoint?.pinned || !path.isAbsolute(job.checkpoint.path) || !/^[0-9a-f]{64}$/.test(job.checkpoint.hash) || hash(job.expectedOutputs) !== hash(outputSpec(job.outputPath, job.startFrame, job.endFrame)) || hash(job.command) !== hash(commandFor(job)) || job.commandHash !== hash(job.command)) {
+  if (![1, 2].includes(job.version) || job.jobId !== id || !/^(?:g2-)?[0-9a-f-]{36}$/.test(id) || job.version === 2 && (job.checkpoint?.id !== id || job.checkpoint?.storageMode !== "render-private" || ![".aep", ".aepx"].includes(path.extname(job.sourceCheckpoint?.path || "").toLowerCase()) || job.checkpoint.path !== path.join(jobDir, "checkpoint" + path.extname(job.sourceCheckpoint.path).toLowerCase()) || job.sourceCheckpoint.hash !== job.checkpoint.hash || job.sourceCheckpoint.size !== job.checkpoint.size || job.checkpointSignature?.hash !== job.checkpoint.hash || job.checkpointSignature?.size !== job.checkpoint.size || !/^\d+$/.test(job.checkpointSignature?.ino) || !/^\d+$/.test(job.checkpointSignature?.dev)) || !path.isAbsolute(job.outputPath) || !path.isAbsolute(job.aerenderPath) || job.destinationDir !== path.dirname(job.outputPath) || job.stageDir !== path.join(job.destinationDir, ".cm-ae-stage-" + id) || job.quarantineDir !== path.join(job.destinationDir, ".cm-ae-quarantine-" + id) || job.logPath !== path.join(jobDir, "aerender.log") || job.reservationPath !== path.join(job.destinationDir, ".cm-ae-render-reservation") || !Number.isSafeInteger(job.startFrame) || !Number.isSafeInteger(job.endFrame) || job.startFrame < 0 || job.endFrame < job.startFrame || job.endFrame - job.startFrame >= 1e5 || !job.checkpoint?.verified || !job.checkpoint?.pinned || !path.isAbsolute(job.checkpoint.path) || !/^[0-9a-f]{64}$/.test(job.checkpoint.hash) || hash(job.expectedOutputs) !== hash(outputSpec(job.outputPath, job.startFrame, job.endFrame)) || hash(job.command) !== hash(commandFor(job)) || job.commandHash !== hash(job.command)) {
     fail("render_corrupt", "Invalid job manifest");
   }
   return job;
@@ -493,7 +494,8 @@ function run(args) {
         detached: true,
         windowsHide: true,
         stdio: "ignore",
-        shell: false
+        shell: false,
+        env: { ...process.env, NODE_OPTIONS: "", ELECTRON_RUN_AS_NODE: "1" }
       });
       await new Promise((resolve, reject) => {
         child.once("spawn", resolve);
