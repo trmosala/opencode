@@ -1,35 +1,38 @@
 import { execFile } from "node:child_process"
-import { existsSync } from "node:fs"
-import { join } from "node:path"
-import { app, type BrowserWindow } from "electron"
+import { type BrowserWindow } from "electron"
 import { nativeT } from "../native-translations"
+import { nativeSecretEntryAvailable, nativeSecretEntryPath, nativeSecretEntryWindow } from "./native-secret-entry"
 import { vaultAccess } from "./vault-session"
 
-function helperPath() {
-  return app.isPackaged
-    ? join(process.resourcesPath, "vault-auth", `windows-entry-${process.arch}.exe`)
-    : join(app.getAppPath(), "resources", "vault-auth", `windows-entry-${process.arch}.exe`)
-}
-
 export function vaultBackupAvailable() {
-  return process.platform === "win32" && existsSync(helperPath())
+  return nativeSecretEntryAvailable()
 }
 
 export async function promptVaultBackupPassphrase(win: BrowserWindow, confirmation = false) {
   const ticket = vaultAccess.require()
-  if (!vaultBackupAvailable()) throw new Error("Native backup passphrase entry unavailable")
+  const helper = nativeSecretEntryPath()
+  if (!helper || !vaultBackupAvailable()) throw new Error("Native backup passphrase entry unavailable")
   if (win.isDestroyed() || !win.isVisible() || win.isMinimized()) throw new Error("Backup window unavailable")
-  const handle = win.getNativeWindowHandle()
-  const hwnd = handle.length === 8 ? handle.readBigUInt64LE().toString(16) : handle.readUInt32LE().toString(16)
   return new Promise<string | undefined>((resolve, reject) => {
     const child = execFile(
-      helperPath(),
+      helper,
       [
-        hwnd,
+        nativeSecretEntryWindow(win),
         "CookieMonster password backup",
         nativeT("desktop.browser.backup.passphraseTitle"),
-        nativeT(confirmation ? "desktop.browser.backup.passphraseConfirm" : "desktop.browser.backup.passphrasePrompt"),
+        nativeT(
+          process.platform === "darwin"
+            ? confirmation
+              ? "desktop.browser.backup.passphraseConfirmMac"
+              : "desktop.browser.backup.passphrasePromptMac"
+            : confirmation
+              ? "desktop.browser.backup.passphraseConfirm"
+              : "desktop.browser.backup.passphrasePrompt",
+        ),
         "",
+        ...(process.platform === "darwin"
+          ? [nativeT("desktop.browser.save"), nativeT("desktop.browser.cancel"), "passphrase"]
+          : []),
       ],
       {
         encoding: "buffer",

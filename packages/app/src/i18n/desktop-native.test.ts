@@ -14,7 +14,7 @@ import {
 
 describe("desktop native translations", () => {
   test("network consent appends distinct keys without changing console disclosure", () => {
-    expect(DESKTOP_NATIVE_KEYS.slice(-8, -4)).toEqual([
+    expect(DESKTOP_NATIVE_KEYS.slice(265, 269)).toEqual([
       "desktop.browser.networkConsent",
       "desktop.browser.networkDetail",
       "desktop.browser.networkNativeOnly",
@@ -46,7 +46,7 @@ describe("desktop native translations", () => {
       expect(detail).toContain(text)
   })
   test("download recovery appends consent keys and interpolates source and destination", () => {
-    expect(DESKTOP_NATIVE_KEYS.slice(-4, -1)).toEqual([
+    expect(DESKTOP_NATIVE_KEYS.slice(269, 272)).toEqual([
       "desktop.browser.downloadRecovery.title",
       "desktop.browser.downloadRecovery.detail",
       "desktop.browser.downloadRecovery.unavailable",
@@ -183,7 +183,7 @@ describe("desktop native translations", () => {
   })
 
   test("generation recovery appends bounded length guidance without shifting existing keys", () => {
-    expect(DESKTOP_NATIVE_KEYS.at(-1)).toBe("desktop.browser.generation.length")
+    expect(DESKTOP_NATIVE_KEYS[272]).toBe("desktop.browser.generation.length")
     expect(
       formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.browser.generation.length"], {
         length: 20,
@@ -193,6 +193,16 @@ describe("desktop native translations", () => {
     ).toBe(
       "The selected length is 20, but this form supports 24-24 characters. Choose a length in that range and try again. No password was generated or filled; your settings were not changed.",
     )
+  })
+  test("macOS backup prompts append without shifting existing locale indices", () => {
+    expect(new Bun.CryptoHasher("sha256").update(JSON.stringify(DESKTOP_NATIVE_KEYS.slice(0, 273))).digest("hex")).toBe(
+      "cb199920498683911bd2b3b91bc2c4b2ceca533acabae32a72e3f99aeb0bd82d",
+    )
+    expect(DESKTOP_NATIVE_KEYS.slice(273, 275)).toEqual([
+      "desktop.browser.backup.passphrasePromptMac",
+      "desktop.browser.backup.passphraseConfirmMac",
+    ])
+    expect(DESKTOP_NATIVE_ENGLISH["desktop.browser.backup.passphrasePromptMac"]).not.toContain("User name")
   })
 })
 

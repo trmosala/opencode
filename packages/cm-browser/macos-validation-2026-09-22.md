@@ -1,0 +1,50 @@
+# macOS browser validation, 2026-09-22
+
+Scope: issues #22–#35 on macOS arm64, Electron 44.3.0 / Chromium 152.0.7977.78. macOS is the sole release target. These checks use disposable profiles, synthetic files/accounts/servers and owned child processes. Installed CookieMonster/WPP sessions were not restarted or modified. This is agent implementation review and automated fixture evidence, not external security assurance.
+
+## Changes
+
+- #22: the imports fixture now explicitly unlocks after restoring intentionally disabled encryption. Restored capability must not restore authority. It waits for the actual macOS hide event, and installs the renderer-reload listener before reloading. The earlier run failed at a locked-vault read; an intermediate run timed out on a missed lifecycle event. The corrected run passes all 43 production import cases without changing production guards.
+- #23: the notification fixture waits for native hide before asserting invalidation. It previously observed no callback immediately after the asynchronous hide request. The corrected run verifies actual permission request/check paths, revocation, stale Ask rejection, cross-owner rules and corrupt storage. No OS notification was posted.
+- #32: encrypted backup now uses the existing platform/architecture secure-entry boundary on macOS. AppKit has an explicit passphrase-only mode: no plaintext username field, initial focus on the secure field. Account-entry mode is preserved. New copy is appended to typed native i18n, with English fallback and unchanged prior locale indices. Translations are not claimed reviewed.
+- #33: discovery proposals now identify macOS as the sole target. Payment vaults, managed passkeys and sync remain absent; no new implementation is authorized by those proposals.
+
+## Automated results
+
+| Issue | Evidence                                                                                                                                                                                                 | Result                                     |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| #22   | `--imports`: source selection, review/cancel, deduplication, stable IDs, locked/unavailable/malformed inputs, partial cookie writes, stale destination and listener cleanup                              | 43 native cases passed                     |
+| #23   | `--site-permissions`: actual Chromium notification permission paths with synthetic dialog answers                                                                                                        | Passed for implemented notification scope  |
+| #24   | `--capture-selection`: unchanged capture succeeds; tab, viewport and task round trips reject stale results                                                                                               | Passed                                     |
+| #25   | `--diagnostics`: bounded console/network counts, permission, cancellation, isolation, changed source                                                                                                     | Passed                                     |
+| #26   | `--site-tools`: discovery/execution, malformed metadata, changed tool/navigation, cancellation/revocation                                                                                                | Passed                                     |
+| #27   | `--site-data`: site selection, actual clearing boundaries, unrelated/app/WPP preservation                                                                                                                | Passed                                     |
+| #28   | Bookmark format/import unit coverage plus guided native import                                                                                                                                           | Passed in desktop suite/import fixture     |
+| #29   | `--tab-organisation`: pin/reorder/duplicate/bulk close, private grants and beforeunload                                                                                                                  | Passed                                     |
+| #30   | `--presentation-preferences`: zoom/presets, navigation, recovery and preview exit                                                                                                                        | Passed                                     |
+| #31   | Search/history/presentation unit coverage                                                                                                                                                                | Passed in desktop suite                    |
+| #32   | `--vault-backup`: real subprocess adapter with a synthetic helper; authenticated export/import, exact collision handling, cancellation, lock termination, wrong passphrase, tampering and missing helper | Passed                                     |
+| #34   | `--accounts`, `--persistence-exdev`, `--persistence-reopen`: capability loss, atomic failure, owned-process crashes, real encrypted storage and migration                                                | Passed; physical authentication is stubbed |
+
+The backup fixture validates exact helper arguments and reply framing. A first wrong-key fixture used a mismatched reply length and therefore tested parsing, not decryption; the corrected test explicitly verifies successful decoding of the wrong passphrase before checking authenticated decryption refusal. The production AppKit helper compiles, but the synthetic child does not prove physical focus, screen-reader behavior or user interaction with AppKit/Touch ID.
+
+Desktop units passed 569 tests with 4 skips and 4,003 expectations. Browser-plugin units passed 91 tests / 3,653 expectations. Mounted app browser tests passed 43 / 283. Desktop and app typechecks passed. Native-i18n tests passed 13 with one pre-existing `pa-PK` detection failure; new append-only key checks pass. Scoped oxlint reported 83 warnings and zero errors across seven TS files. Source review caught the plaintext initial-focus problem; passphrase-only mode resolves it.
+
+A default full-native attempt timed out at the consent-lifecycle stage without a completion result. This is not a passing run. The focused rerun witnessed `isVisible=false` while no new hide event arrived and consent was not yet aborted. Electron documents historical [macOS occlusion-driven show/hide events](https://github.com/electron/electron/issues/8664). The fixture now establishes a focused foreground baseline before this hide test, labels each lifecycle case and bounds its event wait. The focused access-review rerun passes. This fixture correction does not establish that arbitrary macOS hide/show sequences always deliver events or change production guards; native visibility checks at consent completion remain necessary. The subsequent default full-native run passed through link destinations, including custom device dimensions, rotation and disable/restoration. It retained the expected local `/fail` `ERR_EMPTY_RESPONSE` and Chromium ObserverList diagnostic. The original failures remain recorded above; the passing run does not erase them.
+
+## Outstanding gates
+
+#23 remains partial: screen-sharing source selection and active-capture shutdown are not implemented or validated, clipboard permission controls and geolocation remain blocked, and OS notification delivery/consent has not been physically tested. There are no placeholder controls or silent permission upgrades.
+
+#34 remains a release gate:
+
+| Required evidence                                                          | Current state                                                                                         |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Actual macOS Touch ID success/cancel and Keychain behavior                 | Not established by the synthetic authentication fixtures                                              |
+| Packaged helper integrity, upgrade and supported-build acceptance          | Pending; GitHub installer run 35688756323 was blocked before start by account billing/spending limits |
+| Same-user-process threat model, including shell-capable agents             | Documented limitation; owner/security acceptance remains outstanding                                  |
+| External security review and finding resolution                            | Not supplied; agent source reviews are not external review                                            |
+| Physical native entry, accessibility and verified translations             | Pending                                                                                               |
+| OS-key loss, first-key initialization interruption and power-loss recovery | Beyond current process-crash/migration evidence                                                       |
+
+A shell-capable same-user process remains outside the browser permission/vault-authentication boundary. Do not claim Chromium-equivalent protection. Unsupported or unavailable authentication/storage configurations remain locked. #35 must continue tracking these unresolved gates even when bounded feature issues are closed.

@@ -178,7 +178,9 @@ export async function notificationPermissionsSmoke() {
         await rule("ask")
       },
       async () => {
+        const hidden = once(win, "hide", { signal: AbortSignal.timeout(5000) })
         win.hide()
+        await hidden
         win.showInactive()
         viewport()
       },
@@ -190,7 +192,7 @@ export async function notificationPermissionsSmoke() {
       request(contents, "notifications", (allowed) => answers.push(allowed), details())
       assert.equal(answers.length, 0, `Ask waits for native consent: case ${++mutation}`)
       await mutate()
-      assert.deepEqual(answers, [false], "Invalidation settles immediately, exactly once")
+      assert.deepEqual(answers, [false], `Invalidation settles immediately, exactly once: case ${mutation}`)
       assert.deepEqual(baseline(), before, "Invalidation removes listeners")
       pending.resolve({ response: 1, checkboxChecked: false })
       await pending.promise

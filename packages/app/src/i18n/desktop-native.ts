@@ -561,6 +561,9 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "This download cannot be resumed. Its partial file, destination, permission, or server response is unavailable or changed. Try again from the page.",
   "desktop.browser.generation.length":
     "The selected length is {{length}}, but this form supports {{min}}-{{max}} characters. Choose a length in that range and try again. No password was generated or filled; your settings were not changed.",
+  "desktop.browser.backup.passphrasePromptMac":
+    "Enter a backup passphrase of at least 12 characters. This passphrase cannot be recovered or reset.",
+  "desktop.browser.backup.passphraseConfirmMac": "Enter the same backup passphrase again.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

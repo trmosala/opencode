@@ -39,7 +39,9 @@ static BOOL writeAll(int descriptor, const void *bytes, size_t length) {
 
 int main(int argc, const char *argv[]) {
   @autoreleasepool {
-    if (argc != 8) return 3;
+    if (argc != 8 && argc != 9) return 3;
+    const BOOL passphraseOnly = argc == 9 && strcmp(argv[8], "passphrase") == 0;
+    if (argc == 9 && !passphraseOnly) return 3;
     struct stat outputStat = {};
     if (fstat(STDOUT_FILENO, &outputStat) || (!S_ISFIFO(outputStat.st_mode) && !S_ISSOCK(outputStat.st_mode))) return 3;
 
@@ -66,8 +68,8 @@ int main(int argc, const char *argv[]) {
     passwordFormatter.maximumUnits = 256;
     password.formatter = passwordFormatter;
 
-    NSView *accessory = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 58)];
-    [accessory addSubview:username];
+    NSView *accessory = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, passphraseOnly ? 24 : 58)];
+    if (!passphraseOnly) [accessory addSubview:username];
     [accessory addSubview:password];
 
     NSAlert *alert = [NSAlert new];
@@ -80,7 +82,7 @@ int main(int argc, const char *argv[]) {
     alert.buttons[1].keyEquivalent = @"\e";
 
     [NSApp activateIgnoringOtherApps:YES];
-    [alert.window makeFirstResponder:username];
+    [alert.window makeFirstResponder:passphraseOnly ? password : username];
     const NSModalResponse response = [alert runModal];
     if (response != NSAlertFirstButtonReturn) return 1;
 

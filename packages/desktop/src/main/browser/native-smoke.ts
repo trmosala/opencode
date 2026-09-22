@@ -283,6 +283,12 @@ async function run() {
     stage("PASS download recovery")
     return
   }
+  if (process.argv.includes("--vault-backup")) {
+    const { vaultBackupSmoke } = await import("./vault-backup.fixture")
+    await vaultBackupSmoke()
+    stage("PASS vault backup")
+    return
+  }
   if (process.argv.includes("--rendering")) {
     const { renderingSmoke } = await import("./rendering.fixture")
     await renderingSmoke()
@@ -912,6 +918,7 @@ async function run() {
 
       stage("access review: consent lifecycle")
       for (const change of ["tab", "global", "navigation", "hide", "owner navigation", "tab close", "owner close"]) {
+        stage(`access review: consent lifecycle ${change}`)
         const target = change.endsWith("close") ? (await command({ op: "new" })).activeID! : first
         const tab = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === target)!
         if (target !== first) await command({ op: "navigate", tabID: target, url })
@@ -928,6 +935,12 @@ async function run() {
           return answer.promise
         }) as typeof dialog.showMessageBox
         await wait(() => !tab.contents.isLoadingMainFrame())
+        // macOS derives hide events from occlusion. Establish a foreground baseline
+        // before testing a native hide; an already covered window may emit no transition.
+        if (change === "hide") {
+          win.show()
+          await wait(() => win.isFocused())
+        }
         const pending = command({ op: "access", tabID: target, enabled: true })
         try {
           assert(signal && !signal.aborted)
@@ -940,9 +953,18 @@ async function run() {
           }
           if (change === "navigation") await command({ op: "navigate", tabID: target, url: `${url}?cancel` })
           if (change === "hide") {
-            const hidden = once(win, "hide")
+            assert(win.isVisible(), "Consent hide test requires a visible window")
+            const hidden = once(win, "hide", { signal: AbortSignal.timeout(5000) })
             win.hide()
-            await hidden
+            await hidden.catch((error) => {
+              console.error("Consent hide witness", {
+                visible: win.isVisible(),
+                minimized: win.isMinimized(),
+                aborted: signal?.aborted,
+                windows: BrowserWindow.getAllWindows().map((entry) => ({ id: entry.id, visible: entry.isVisible() })),
+              })
+              throw error
+            })
             win.showInactive()
           }
           if (change === "owner navigation") await win.loadURL(`${url}?owner`)

@@ -1,6 +1,6 @@
 # Future credential and sync proposals
 
-Status: discovery only, 2026-09-18. Payment autofill, CookieMonster-managed passkeys and cross-device sync are absent. This document does not authorize implementation and there are no disabled controls implying support. Each proposal needs separate product acceptance, platform validation and security review before engineering starts.
+Status: discovery only, 2026-09-18; target updated 2026-09-22. macOS is now the sole CookieMonster target. Windows API references below are historical background, not an implementation or validation requirement. Platform acceptance gates apply to supported macOS builds. Payment autofill, CookieMonster-managed passkeys and cross-device sync are absent. This document does not authorize implementation and there are no disabled controls implying support. Each proposal needs separate product acceptance, platform validation and security review before engineering starts.
 
 ## 1. Payment autofill
 

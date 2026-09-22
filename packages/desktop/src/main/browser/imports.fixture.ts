@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { once } from "node:events"
 import fs from "node:fs"
 import { join } from "node:path"
 import { syncBuiltinESMExports } from "node:module"
@@ -194,19 +195,25 @@ export async function importsSmoke(
     safeStorage.isEncryptionAvailable = () => false
     await run("passwords", true)
     safeStorage.isEncryptionAvailable = originals.encryption
+    assert.equal(vaultAccess.status(), "locked", "Restoring encryption must not restore vault authority")
+    await vaultAccess.unlock(win)
     for (const change of [
       async () => {
         browserLinkContext(owner, "other", "other")
         browserLinkContext(owner, "smoke", "imports")
       },
       async () => {
+        assert(win.isVisible(), "Hide invalidation starts from a visible window")
+        const hidden = once(win, "hide", { signal: AbortSignal.timeout(5000) })
         win.hide()
+        await hidden
         win.showInactive()
         await vaultAccess.unlock(win)
       },
       async () => {
-        await win.reload()
-        await new Promise<void>((resolve) => win.webContents.once("did-finish-load", () => resolve()))
+        const loaded = once(win.webContents, "did-finish-load", { signal: AbortSignal.timeout(5000) })
+        win.reload()
+        await loaded
         await vaultAccess.unlock(win)
       },
     ]) {
