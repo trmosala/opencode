@@ -32,6 +32,32 @@ Desktop units passed 569 tests with 4 skips and 4,003 expectations. Browser-plug
 
 The final #23 rerun passed 257 desktop browser tests / 3,089 expectations and 43 mounted app browser tests / 322 expectations, both package typechecks, the focused native Electron permission fixture and both independent source reviews. Scoped oxlint reported zero errors; its warnings are existing rules across the scoped browser files. Native i18n passed 14 checks with the same pre-existing `pa-PK` failure. A branded unsigned production build emitted `.pkg`, `.dmg` and `.zip` artifacts. The `.pkg` replaced `/Applications/CookieMonster.app`; installed and packaged `app.asar` SHA-256 values matched, receipt `com.ogilvy.cookiemonster` reported version `1.18.27`, `/usr/local/bin/opencode` resolved into the installed bundle and ran, and the restarted bridge returned healthy with the CookieMonster model roster. Signing and notarization were intentionally skipped for this local test build.
 
+### Password-assurance follow-up
+
+The final issue #3 rebuild retained the same macOS vault helper. Source, packaged,
+and installed copies are executable 54,256-byte arm64 Mach-O binaries with
+identical SHA-256 `4f51afc0b4f7c1be6f8ff8d817214435f45597ebf05c36ff5ba491bc13966a47`.
+The installed helper has its linker-generated ad-hoc signature; the surrounding
+test app remains intentionally unsigned and unnotarized. The installed receipt
+is still `com.ogilvy.cookiemonster` version `1.18.27`.
+
+`--persistence-reopen` passed again on this Mac. Eleven real Electron child
+phases decrypted the same encrypted vault through fresh processes, covered
+successful and failed migration, and preserved complete old-or-new state across
+owned `SIGKILL` interruption before and after rename. The login keychain contains
+the `Electron Safe Storage` generic-password item used by this isolated harness;
+the check inspected metadata only and did not request or expose its secret.
+`--accounts` and `--persistence-exdev` also passed capability-loss, EXDEV/SNAP,
+partial-write, fsync-failure, malformed-store, and corruption-preservation cases.
+Focused vault authentication/access/backup tests passed 9/9.
+
+The production-adapter Touch ID harness reached and waited in the real macOS
+`systemPreferences.promptTouchID` call, which establishes that Touch ID is
+available to Electron on this machine. Two 150-second attempts expired without
+a physical fingerprint touch and therefore produced no verification result.
+They are not success or cancellation evidence. The harness window now labels
+the platform correctly as Touch ID instead of Windows Hello.
+
 A default full-native attempt timed out at the consent-lifecycle stage without a completion result. This is not a passing run. The focused rerun witnessed `isVisible=false` while no new hide event arrived and consent was not yet aborted. Electron documents historical [macOS occlusion-driven show/hide events](https://github.com/electron/electron/issues/8664). The fixture now establishes a focused foreground baseline before this hide test, labels each lifecycle case and bounds its event wait. The focused access-review rerun passes. This fixture correction does not establish that arbitrary macOS hide/show sequences always deliver events or change production guards; native visibility checks at consent completion remain necessary. The subsequent default full-native run passed through link destinations, including custom device dimensions, rotation and disable/restoration. It retained the expected local `/fail` `ERR_EMPTY_RESPONSE` and Chromium ObserverList diagnostic. The original failures remain recorded above; the passing run does not erase them.
 
 ## Outstanding gates
@@ -40,13 +66,14 @@ A default full-native attempt timed out at the consent-lifecycle stage without a
 
 #34 remains a release gate:
 
-| Required evidence                                                          | Current state                                                                                         |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Actual macOS Touch ID success/cancel and Keychain behavior                 | Not established by the synthetic authentication fixtures                                              |
-| Packaged helper integrity, upgrade and supported-build acceptance          | Pending; GitHub installer run 35688756323 was blocked before start by account billing/spending limits |
-| Same-user-process threat model, including shell-capable agents             | Documented limitation; owner/security acceptance remains outstanding                                  |
-| External security review and finding resolution                            | Not supplied; agent source reviews are not external review                                            |
-| Physical native entry, accessibility and verified translations             | Pending                                                                                               |
-| OS-key loss, first-key initialization interruption and power-loss recovery | Beyond current process-crash/migration evidence                                                       |
+| Required evidence                                                          | Current state                                                                                             |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Actual macOS Touch ID success/cancel                                       | Real production adapter reached the native prompt; physical success/cancel remains pending                |
+| Actual macOS Keychain behavior                                             | Cross-process encrypted vault/reopen and keychain item metadata verified in the isolated Electron harness |
+| Packaged helper integrity, upgrade and supported-build acceptance          | Passed locally for the unsigned arm64 test build; source/package/install hashes match                     |
+| Same-user-process threat model, including shell-capable agents             | Documented limitation; owner/security acceptance remains outstanding                                      |
+| External security review and finding resolution                            | Not supplied; agent source reviews are not external review                                                |
+| Physical native entry, accessibility and verified translations             | Pending                                                                                                   |
+| OS-key loss, first-key initialization interruption and power-loss recovery | Beyond current process-crash/migration evidence                                                           |
 
 A shell-capable same-user process remains outside the browser permission/vault-authentication boundary. Do not claim Chromium-equivalent protection. Unsupported or unavailable authentication/storage configurations remain locked. #35 must continue tracking these unresolved gates even when bounded feature issues are closed.

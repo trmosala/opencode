@@ -218,6 +218,29 @@ On 2026-09-15, `bun scripts/vault-auth-smoke.ts` completed the actual Windows He
 
 Before production password-manager assurance: agree the supported local-process threat model; obtain external review where required; and exercise macOS authentication, packaged helper integrity, platform keychain failures and recovery. Do not describe this implementation as equivalent to Chromium or externally audited before that work is complete.
 
+### Current macOS internal-testing threat model
+
+The supported build is the internal macOS arm64 CookieMonster test build. It
+requires available Electron `safeStorage` encryption and Touch ID; unavailable
+authentication, unavailable encryption, remote-debugging ports/pipes, corrupt
+vault data, and unsupported platforms remain locked. The locally packaged and
+installed helper must match the repository artifact byte-for-byte.
+
+The browser permission boundary does not defend against another process already
+running as the same macOS user with shell, debugger, Accessibility, Keychain, or
+filesystem authority. A shell-capable agent is inside that trusted local-user
+boundary and can bypass application-level permission and lock controls. A
+compromised Electron main process, code injected into CookieMonster, or malware
+with equivalent user authority is likewise out of scope. Touch ID gates normal
+application use; it does not turn the vault key into a separately hardware-bound
+secret or protect values already delivered to an authorized website.
+
+This scope is suitable only for the current internal test distribution. It does
+not support a Chromium-equivalence, malware-resistance, independent-audit, or
+external-distribution claim. Broader distribution requires the written WPP Open
+owner sign-off already required by this repository and an external security
+review with tracked findings.
+
 Primary reference: [Electron safeStorage security semantics](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 ## Account management work (#5, #34)

@@ -7,6 +7,7 @@ import electron from "electron"
 const directory = await mkdtemp(join(tmpdir(), "cm-vault-auth-"))
 try {
   const entry = join(directory, "entry.ts")
+  const authenticationMethod = process.platform === "darwin" ? "Touch ID" : "Windows Hello"
   await Bun.write(
     entry,
     `
@@ -18,7 +19,7 @@ try {
     async function run() {
     await app.whenReady()
     const win = new BrowserWindow({width: 500, height: 180, webPreferences: {sandbox:true, contextIsolation:true, nodeIntegration:false}})
-    await win.loadURL("data:text/html,<title>CookieMonster authentication test</title><p>Verify with Windows Hello. This test does not access saved passwords.</p>")
+    await win.loadURL(${JSON.stringify("data:text/html,<title>CookieMonster authentication test</title><p>Verify with " + authenticationMethod + ". This test does not access saved passwords.</p>")})
     try {
       await vaultAuthentication.verify(win)
       writeFileSync(${JSON.stringify(join(directory, "result"))}, "VERIFIED")
