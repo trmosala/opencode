@@ -4,10 +4,60 @@ import {
   freshChatInShellExpression,
   rejectPendingRequests,
   routeOutboundFrame,
+  snapshotClipboard,
   type ProgressFrame,
 } from "./controller-injection"
 
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
+
+describe("snapshotClipboard", () => {
+  test("materializes all formats before the clipboard is overwritten", async () => {
+    const original = {
+      "text/plain": new Blob(["original text"]),
+      "text/html": new Blob(["<b>original text</b>"]),
+      "image/png": new Blob([new Uint8Array([137, 80, 78, 71])]),
+      "web application/x-custom": new Blob([new Uint8Array([0, 255, 1])]),
+      "electron application/bookmark": { title: "Example", url: "https://example.com" },
+    }
+    const live = new Map<string, Blob | Electron.ClipboardBookmark>(Object.entries(original))
+    const saved = await snapshotClipboard([
+      {
+        types: [...live.keys()],
+        async getType(type) {
+          await Promise.resolve()
+          const value = live.get(type)
+          if (!value) throw new Error("clipboard was overwritten")
+          return value
+        },
+      },
+    ])
+    live.clear()
+
+    expect(saved).toEqual([original])
+    const text = saved[0]["text/plain"]
+    const custom = saved[0]["web application/x-custom"]
+    if (!(text instanceof Blob) || !(custom instanceof Blob)) throw new Error("expected blob payloads")
+    expect(await text.text()).toBe("original text")
+    expect(await custom.bytes()).toEqual(new Uint8Array([0, 255, 1]))
+  })
+
+  test("preserves an empty clipboard", async () => {
+    expect(await snapshotClipboard([])).toEqual([])
+  })
+
+  test("propagates read failures before the paste can overwrite the clipboard", async () => {
+    await expect(
+      snapshotClipboard([
+        {
+          types: ["text/plain"],
+          async getType() {
+            throw new Error("clipboard read failed")
+          },
+        },
+      ]),
+    ).rejects.toThrow("clipboard read failed")
+  })
+})
 
 describe("routeOutboundFrame", () => {
   test("resolves and clears the awaiting request when a job result matches by requestId", () => {

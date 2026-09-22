@@ -293,7 +293,7 @@ async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage
   try {
     // Electron 44's W3C clipboard API preserves every format it can read, including custom MIME
     // entries, so the user's clipboard can be restored atomically after the trusted paste.
-    const saved = await clipboard.read()
+    const saved = await snapshotClipboard(await clipboard.read())
     const pasted: { name: string; ok: boolean; reason?: string }[] = []
     try {
       for (const image of images) {
@@ -315,7 +315,8 @@ async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage
         pasted.push({ name, ok: true })
       }
     } finally {
-      await restoreClipboard(clipboard, saved)
+      if (saved.length === 0) clipboard.clear()
+      if (saved.length > 0) await clipboard.write(saved.map((item) => new ClipboardItem(item)))
     }
     return { requested: images.length, pasted }
   } finally {
@@ -323,13 +324,16 @@ async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage
   }
 }
 
-// Restore the saved clipboard formats in one atomic write.
-async function restoreClipboard(clipboard: Electron.Clipboard, saved: Electron.ClipboardItem[]) {
-  if (saved.length === 0) {
-    clipboard.clear()
-    return
-  }
-  await clipboard.write(saved)
+// Read-side items cannot be written back, and getType reads the live clipboard. Resolve every
+// payload before overwriting it so restoration can construct new items from the original bytes.
+export async function snapshotClipboard(
+  items: { types: readonly string[]; getType(type: string): Promise<Blob | Electron.ClipboardBookmark> }[],
+) {
+  return Promise.all(
+    items.map(async (item) =>
+      Object.fromEntries(await Promise.all(item.types.map(async (type) => [type, await item.getType(type)] as const))),
+    ),
+  )
 }
 
 // Fire-and-forget post of a CONTROLLER_SOURCE frame into the page's main world (top frame + every
