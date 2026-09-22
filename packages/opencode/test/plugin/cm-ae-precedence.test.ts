@@ -25,6 +25,8 @@ import { o1CodeConfigContent } from "../../../desktop/src/main/wpp-bridge/proxy/
 // Explicit external input: current AE source or a refreshed bundle, never a developer path in production.
 const entry = process.env.CM_AE_TEST_ENTRY
 if (entry && !isAbsolute(entry)) throw new Error("CM_AE_TEST_ENTRY must be an absolute plugin.mjs path")
+const permissions = entry ? Bun.file(new URL("./permissions.json", pathToFileURL(entry))) : undefined
+const executeDefault = permissions && (await permissions.exists()) ? (await permissions.json()).ae_execute : "allow"
 const it = testEffect(
   LayerNode.compile(LayerNode.group([Plugin.node, Config.node, FSUtil.node, CrossSpawnSpawner.node]), [
     [Auth.node, AuthTest.empty],
@@ -247,7 +249,7 @@ export default {
         expect(Permission.evaluate("browser_read_state", "*", rules).action).toBe("allow")
         expect(Permission.evaluate("browser_click", "*", rules).action).toBe("ask")
         expect(tools.ae_raw_execute).toBeUndefined()
-        if (scenario.name === "default ask") expect(merged.permission?.ae_execute).toBe("allow")
+        if (scenario.name === "default ask") expect(merged.permission?.ae_execute).toBe(executeDefault)
         if (scenario.name === "exact deny") expect(merged.permission?.ae_execute).toBe("deny")
 
         expect(Permission.visibleTools(tools, Permission.merge(rules, agentRules)).ae_bind === undefined).toBe(
@@ -280,6 +282,7 @@ export default {
               {},
               {
                 sessionID: "precedence",
+                abort: new AbortController().signal,
                 ask: async (request: { permission: string; patterns: string[] }) => {
                   expect(request.permission).toBe("browser_read_state")
                   expect(Permission.evaluate(request.permission, request.patterns[0], rules).action).toBe("allow")

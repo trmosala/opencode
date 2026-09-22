@@ -159,7 +159,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
     : { mode: "fresh", sinceIndex: 0 };
   const continueThread = thread.mode === "continue";
-  const retainedContext = continueThread ? threadContextUsage(sessionKey) : undefined;
+  let retainedContext = continueThread ? threadContextUsage(sessionKey) : undefined;
   const purpose = isCompaction ? "compaction" : "chat";
   let prompt = serializeChatCompletionRequest(body, { purpose, sinceIndex: thread.sinceIndex });
   // The full conversation is replayed, but images are only attached for the
@@ -239,7 +239,19 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       }
       : undefined
   });
+  const resolveRunUsage = (run, completionText = run.response?.finalText || "") => resolveUsage({
+    measurement: run.response?.usage ? {
+      ...run.response.usage,
+      ...(run.response.usageObservation ? { observation: run.response.usageObservation } : {})
+    } : undefined,
+    promptTokens: context.input.estimatedTokens,
+    completionText,
+    retainedContextTokens: retainedContext?.totalTokens,
+    continued: finalTurnContinued
+  });
   const runBridgeTurn = async (runPrompt, runContinueThread) => {
+    // A fresh replay replaces the physical thread, including any intermediate recovery context.
+    if (!runContinueThread) retainedContext = undefined;
     const attempt = { streamed: false };
     try {
       const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread, attempt));
@@ -286,6 +298,8 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     if (completionRecoveryCount > 0) throw taskIncompleteError();
     completionRecoveryCount = 1;
     streamProgressEnabled = false;
+    // The continuation retains this response, but the session mirror is still uncommitted.
+    if (continuity) retainedContext = resolveRunUsage(run).context;
     prompt = continuity
       ? serializeIncompleteTaskContinuationRequest(body, { purpose })
       : freshRetryPrompt();
@@ -433,17 +447,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     normalizedContent: normalized.content || "",
     toolCalls: normalized.tool_calls || []
   });
-  const usageMeasurement = o1CodeRun.response?.usage ? {
-    ...o1CodeRun.response.usage,
-    ...(o1CodeRun.response.usageObservation ? { observation: o1CodeRun.response.usageObservation } : {})
-  } : undefined;
-  const resolvedUsage = resolveUsage({
-    measurement: usageMeasurement,
-    promptTokens: context.input.estimatedTokens,
-    completionText: assistantOutputForUsage(normalized),
-    retainedContextTokens: retainedContext?.totalTokens,
-    continued: finalTurnContinued
-  });
+  const resolvedUsage = resolveRunUsage(o1CodeRun, assistantOutputForUsage(normalized));
   const usage = resolvedUsage.usage;
 
   // Commit transcript and usage only after the provider turn and every recovery path succeeded.

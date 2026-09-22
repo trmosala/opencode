@@ -3,7 +3,7 @@ import type { BrowserWindow, DownloadItem } from "electron"
 import type { BrowserDownload } from "@opencode-ai/app/browser-panel"
 import { dirname, basename, join, resolve } from "node:path"
 import { realpath, stat, unlink, readdir } from "node:fs/promises"
-import { mkdirSync, realpathSync, statSync } from "node:fs"
+import { accessSync, constants, mkdirSync, realpathSync, statSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
@@ -69,7 +69,16 @@ export function stagedDownload(win: BrowserWindow, item: DownloadItem, download:
   return {
     start() {
       const defaultPath = join(downloadDirectory(), downloadFilename(download.filename))
-      const available = statSync(dirname(defaultPath), { throwIfNoEntry: false })?.isDirectory()
+      const available = (() => {
+        try {
+          if (!statSync(dirname(defaultPath)).isDirectory()) return false
+          // Preflight without a public reservation; publication still checks identity and creates exclusively.
+          accessSync(dirname(defaultPath), constants.W_OK | constants.X_OK)
+          return true
+        } catch {
+          return false
+        }
+      })()
       const selected =
         browserPreferencesState().askDownloadLocation || !available
           ? dialog.showSaveDialogSync(win, {

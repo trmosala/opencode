@@ -110,10 +110,11 @@ test("missing or invalid required default fails and clears stale output", () => 
   }
 })
 
-test("vendored inventory preserves pinned CookieJar 0.2.3 bytes and the Marked license", () => {
+test("vendored inventory preserves pinned CookieJar 0.2.3 cancellation fix and the Marked license", () => {
   const vendor = fileURLToPath(new URL("../vendor/cm-ae", import.meta.url))
+  // CookieJar 3c666e3 + pre-submit cancellation fix, built with node scripts/build.mjs --client.
   const hashes = {
-    "plugin.mjs": "784f398bf375622f12e1b5fbdc5dfff8a84378f227218d697f39c3a7043dfdb3",
+    "plugin.mjs": "3c6e25a0d55489eec2d001252aa856bd3b0de8697feb5d4cbfc5dbd1c7d9618d",
     "render-worker.mjs": "93e847a93868eace9618e8ee98003aa05377944167a382a990561ea39b553a1f",
     "permissions.json": "af8b258ad2c703f6dee904b580d9410e98163a1a9d2232c9b1f798c4f41188b4",
     "ZOD-LICENSE.txt": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",

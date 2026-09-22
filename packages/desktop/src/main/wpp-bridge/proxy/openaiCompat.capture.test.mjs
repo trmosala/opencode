@@ -9,7 +9,8 @@ const {
   shouldRecoverIncompleteTask,
   shouldRecoverMissingRequiredToolCall,
 } = await import("./openaiCompat.mjs");
-const { commitThread, resetThread } = await import("./sessionThreads.mjs");
+const { commitThread, resetThread, threadContextUsage } = await import("./sessionThreads.mjs");
+const { estimateTokens } = await import("./tokenEstimate.mjs");
 
 const KEY = "sess-A::CM_Opus 5 - Extra High";
 
@@ -741,6 +742,91 @@ describe("handleChatCompletions token usage", () => {
     )
 
     expect(JSON.parse(response.body).usage.prompt_tokens).toBeLessThan(400)
+  })
+
+  for (const stream of [false, true]) {
+    for (const mode of ["continue", "fresh", "replay", "measured-replay"]) {
+      test(`incomplete recovery accounts for the current thread: ${mode}, stream=${stream}`, async () => {
+        const prior = toolBody(user("hello"))
+        commitThread(KEY, prior, assistant("previous"), {
+          totalTokens: 200000,
+          source: "dom-pill",
+          fidelity: "confirmed",
+        })
+        const calls = []
+        const incomplete = "The answer is ready."
+        const final = "The result is verified."
+        const replay = mode.endsWith("replay")
+        const response = fakeResponse()
+        const requestBody = {
+          ...toolBody(user("hello"), assistant("previous"), user("Summarize the result.")),
+          stream,
+          stream_options: { include_usage: true },
+        }
+        const bridge = {
+          hasSession: () => mode !== "fresh",
+          run: async (prompt, options) => {
+            calls.push({ prompt, continued: options.continueThread })
+            if (replay && calls.length === 1) throw captureError("recorder_parser_miss")
+            if (JSON.parse(prompt).resumeIncomplete) return bridgeRun(`${final}\nCM_TASK_COMPLETE_V1`)
+            return bridgeRun(incomplete, mode === "measured-replay" ? {
+              usage: { scope: "context", source: "dom-pill", fidelity: "confirmed", totalTokens: 4000 },
+            } : {})
+          },
+        }
+
+        await withNoRunLogs(() => handleChatCompletions(
+          { headers: { "x-session-affinity": "sess-A" } },
+          response,
+          requestBody,
+          { bridge },
+        ))
+
+        expect(response.statusCode).toBe(200)
+        expect(calls.map((call) => call.continued)).toEqual(
+          replay ? [true, false, true] : [mode === "continue", true],
+        )
+        const usage = stream
+          ? response.body.split("\n")
+              .filter((line) => line.startsWith("data: {"))
+              .map((line) => JSON.parse(line.slice(6)))
+              .find((chunk) => chunk.usage)?.usage
+          : JSON.parse(response.body).usage
+        const baseline = mode === "measured-replay"
+          ? 4000
+          : (mode === "continue" ? 200000 : 0)
+            + estimateTokens(calls[replay ? 1 : 0].prompt) + estimateTokens(incomplete)
+        expect(usage.prompt_tokens).toBe(baseline + estimateTokens(calls.at(-1).prompt))
+        expect(usage.completion_tokens).toBe(estimateTokens(final))
+        expect(usage.total_tokens).toBe(usage.prompt_tokens + usage.completion_tokens)
+        expect(threadContextUsage(KEY)?.totalTokens).toBe(usage.total_tokens)
+      })
+    }
+  }
+
+  test("failed recovery clears retained usage instead of committing its intermediate result", async () => {
+    commitThread(KEY, toolBody(user("hello")), assistant("previous"), {
+      totalTokens: 200000,
+      source: "dom-pill",
+      fidelity: "confirmed",
+    })
+    const response = fakeResponse()
+    const bridge = {
+      hasSession: () => true,
+      run: async () => bridgeRun("The answer is ready.", {
+        usage: { scope: "context", source: "dom-pill", fidelity: "confirmed", totalTokens: 210000 },
+      }),
+    }
+
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { "x-session-affinity": "sess-A" } },
+      response,
+      toolBody(user("hello"), assistant("previous"), user("Summarize the result.")),
+      { bridge },
+    ))
+
+    expect(response.statusCode).toBe(502)
+    expect(threadContextUsage(KEY)).toBeUndefined()
   })
 
   test("worker replacement does not reuse retained context from the missing pinned tab", async () => {

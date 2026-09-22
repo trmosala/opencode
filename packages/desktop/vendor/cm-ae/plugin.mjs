@@ -18883,7 +18883,8 @@ ${draft.instructions}`)).digest("hex"))
         permissions: [...permissions2.get(r.sessionID)?.values() || []].slice(0, 1),
         status: statuses2?.[r.sessionID]?.type || "idle",
         error: errors4.get(r.sessionID) || null,
-        delivery: r.requests.at(-1)?.status || null
+        delivery: r.requests.at(-1)?.status || null,
+        deliveryID: r.requests.at(-1)?.id || null
       };
     }
     if (body.action === "stop") {
@@ -19034,8 +19035,14 @@ ${draft.instructions}`)).digest("hex"))
     r.connectionId = connectionId;
     r.targetCompId = body.compId;
     r.requests = [...r.requests.slice(-99), request];
-    await save2();
-    check2();
+    try {
+      await save2();
+      check2();
+    } catch (e) {
+      request.status = "not_submitted";
+      await save2();
+      throw e;
+    }
     errors4.delete(r.sessionID);
     try {
       await result(client.session.promptAsync({ ...options(r), body: {

@@ -21,8 +21,9 @@ export default {
       ...config.linux?.desktop,
       entry: { ...config.linux?.desktop?.entry, StartupWMClass: appId },
     },
-    target: ["rpm"],
+    target: ["rpm", "deb"],
   },
+  deb: { ...config.deb, packageName: "cookiemonster", fpm: [metainfo] },
   rpm: { ...config.rpm, packageName: "cookiemonster", fpm: [metainfo] },
   publish: null,
 } satisfies Configuration

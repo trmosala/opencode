@@ -9,7 +9,10 @@ test("builds an installable CookieMonster RPM", async () => {
   expect(config.extraMetadata?.desktopName).toBe("com.ogilvy.cookiemonster.desktop")
   expect(config.linux?.executableName).toBe("com.ogilvy.cookiemonster")
   expect(config.linux?.desktop?.entry?.StartupWMClass).toBe("com.ogilvy.cookiemonster")
-  expect(config.linux?.target).toEqual(["rpm"])
+  expect(config.linux?.target).toEqual(["rpm", "deb"])
+  expect(config.deb?.packageName).toBe("cookiemonster")
+  expect(config.deb?.fpm).toEqual(config.rpm?.fpm)
+  expect(config.publish).toBeNull()
   expect(config.rpm?.packageName).toBe("cookiemonster")
   expect(config.rpm?.fpm).toContainEqual(
     expect.stringContaining("/usr/share/metainfo/com.ogilvy.cookiemonster.metainfo.xml"),
