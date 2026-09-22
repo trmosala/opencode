@@ -24,6 +24,7 @@ export class Local extends Schema.Class<Local>("ConfigV2.MCP.Local")({
 }) {}
 
 export class OAuth extends Schema.Class<OAuth>("ConfigV2.MCP.OAuth")({
+  client_name: Schema.String.pipe(Schema.optional),
   client_id: Schema.String.pipe(Schema.optional),
   client_secret: Schema.String.pipe(Schema.optional),
   scope: Schema.String.pipe(Schema.optional),

@@ -565,7 +565,7 @@ describe("Config", () => {
                   remote: {
                     type: "remote",
                     url: "https://mcp.example.com",
-                    oauth: { clientId: "client", callbackPort: 19876 },
+                    oauth: { clientName: "Approved MCP Client", clientId: "client", callbackPort: 19876 },
                     timeout: 20000,
                   },
                 },
@@ -655,7 +655,11 @@ describe("Config", () => {
                 remote: {
                   type: "remote",
                   url: "https://mcp.example.com",
-                  oauth: { client_id: "client", callback_port: 19876 },
+                  oauth: {
+                    client_name: "Approved MCP Client",
+                    client_id: "client",
+                    callback_port: 19876,
+                  },
                   timeout: { request: 20000 },
                 },
               },

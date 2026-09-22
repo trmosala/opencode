@@ -151,6 +151,7 @@ function migrateMcp(info: ConfigMCPV1.Info) {
     url: info.url,
     headers: info.headers,
     oauth: info.oauth && {
+      client_name: info.oauth.clientName,
       client_id: info.oauth.clientId,
       client_secret: info.oauth.clientSecret,
       scope: info.oauth.scope,

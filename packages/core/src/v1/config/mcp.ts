@@ -24,6 +24,9 @@ export const Local = Schema.Struct({
 export type Local = Schema.Schema.Type<typeof Local>
 
 export const OAuth = Schema.Struct({
+  clientName: Schema.optional(Schema.String).annotate({
+    description: "OAuth client name used during dynamic client registration.",
+  }),
   clientId: Schema.optional(Schema.String).annotate({
     description: "OAuth client ID. If not provided, dynamic client registration (RFC 7591) will be attempted.",
   }),
