@@ -1,9 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import electron from "electron"
 
-const directory = await mkdtemp(join(tmpdir(), "cm-browser-smoke-"))
+// macOS exposes temporary directories through /var; exercise production's canonical-path checks.
+const directory = await realpath(await mkdtemp(join(tmpdir(), "cm-browser-smoke-")))
 try {
   if (process.argv.includes("--account-fill") || process.argv.includes("--rendering")) {
     const { build } = await import("vite")
@@ -157,7 +158,7 @@ try {
     console.log("PASS native browser smoke")
   }
 } finally {
-  if (dirname(resolve(directory)) !== resolve(tmpdir()) || !basename(directory).startsWith("cm-browser-smoke-"))
+  if (dirname(directory) !== (await realpath(tmpdir())) || !basename(directory).startsWith("cm-browser-smoke-"))
     throw new Error("Unexpected browser smoke directory")
   await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 }

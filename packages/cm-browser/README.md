@@ -26,7 +26,7 @@ Initial eligibility requires a single HTTPS URL, or loopback HTTP for local deve
 
 Checkpoints retain a SHA-256-validated copy of at most the first 64 MiB. They are refreshed at most every 30 seconds during progress, with a final attempt before cancelling an interrupted native transfer. A restart can therefore resume from an older prefix, not necessarily the last displayed byte count. Recovery streams the missing range into a separate private working file and publishes a new numbered file in the original folder without overwriting existing files. Recovered transfers have Cancel but no Pause control; cancelling explicitly discards their recovery record. Another crash retains the previous checkpoint. Private staging/working files and the final destination temporarily require extra disk space. Unreferenced private files are collected after transfers settle, history removal/clearing, or the next browser initialization.
 
-Run `bun scripts/browser-smoke.ts --download-recovery` from `packages/desktop` for the isolated crash/relaunch fixture. It uses only its own temporary profile, local server and child processes. See [download persistence safeguards](password-security.md#download-persistence-safeguards-21) for privacy and platform limits.
+The supported target is macOS. Run `bun scripts/browser-smoke.ts --download-recovery` from `packages/desktop` for the isolated crash/relaunch fixture. It uses only its own temporary profile, local server and child processes. See [download persistence safeguards](password-security.md#download-persistence-safeguards-21) for privacy and platform limits.
 
 ## Browser recovery (#20)
 
