@@ -34,9 +34,29 @@ register_cookiemonster_cli() (
     fi
   fi
 
-  temporary="$directory/.opencode.cookiemonster.$$"
-  trap '/bin/rm -f "$temporary"' EXIT HUP INT TERM
-  /bin/ln -s "$cli" "$temporary"
-  /bin/mv -f "$temporary" "$destination"
+  temporary=$(/usr/bin/mktemp -d "$directory/.opencode.cookiemonster.XXXXXX") || return 1
+  trap '/bin/rm -f "$temporary/opencode"; /bin/rmdir "$temporary"' EXIT HUP INT TERM
+  /bin/ln -s "$cli" "$temporary/opencode" || return 1
+  /bin/mv -f "$temporary/opencode" "$destination" || return 1
+  /bin/rmdir "$temporary"
   trap - EXIT HUP INT TERM
+)
+
+unregister_cookiemonster_cli() (
+  cli=$1
+  destination=$2
+  legacy=${cli%/cli/opencode}/opencode-cli
+  if [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
+    return 0
+  fi
+  if [ ! -L "$destination" ]; then
+    echo "$destination is not owned by CookieMonster; it was not removed." >&2
+    return 1
+  fi
+  target=$(/usr/bin/readlink "$destination")
+  if [ "$target" != "$cli" ] && [ "$target" != "$legacy" ]; then
+    echo "$destination is not owned by CookieMonster; it was not removed." >&2
+    return 1
+  fi
+  /bin/rm "$destination"
 )

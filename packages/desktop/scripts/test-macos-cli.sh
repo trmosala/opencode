@@ -60,3 +60,52 @@ case_root="$root/non-executable"
 make_cli "$case_root/CookieMonster.app"
 chmod 0644 "$case_root/CookieMonster.app/Contents/Resources/cli/opencode"
 if register_cookiemonster_cli "$case_root/CookieMonster.app/Contents/Resources/cli/opencode" "$case_root/bin/opencode"; then exit 1; fi
+
+case_root="$root/failed-version"
+make_cli "$case_root/CookieMonster.app"
+printf '#!/bin/sh\nexit 1\n' > "$case_root/CookieMonster.app/Contents/Resources/cli/opencode"
+if register_cookiemonster_cli "$case_root/CookieMonster.app/Contents/Resources/cli/opencode" "$case_root/bin/opencode"; then exit 1; fi
+test ! -e "$case_root/bin/opencode"
+test ! -L "$case_root/bin/opencode"
+
+# A predictable temporary-name collision must never be moved or removed by registration.
+case_root="$root/spaces and collision"
+make_cli "$case_root/CookieMonster.app"
+mkdir -p "$case_root/bin"
+printf 'unrelated temporary file' > "$case_root/bin/.opencode.cookiemonster.$$"
+register_cookiemonster_cli "$case_root/CookieMonster.app/Contents/Resources/cli/opencode" "$case_root/bin/opencode"
+grep -q 'unrelated temporary file' "$case_root/bin/.opencode.cookiemonster.$$"
+test "$(readlink "$case_root/bin/opencode")" = "$case_root/CookieMonster.app/Contents/Resources/cli/opencode"
+
+for kind in missing current legacy dangling unrelated regular directory; do
+  case_root="$root/removal-$kind"
+  cli="$case_root/CookieMonster.app/Contents/Resources/cli/opencode"
+  destination="$case_root/bin/opencode"
+  make_cli "$case_root/CookieMonster.app"
+  mkdir -p "$case_root/bin"
+  case "$kind" in
+    current) ln -s "$cli" "$destination" ;;
+    legacy) ln -s "${cli%/cli/opencode}/opencode-cli" "$destination" ;;
+    dangling) ln -s "$cli" "$destination"; rm "$cli" ;;
+    unrelated) ln -s "$case_root/other-cli" "$destination" ;;
+    regular) printf 'unrelated command' > "$destination" ;;
+    directory) mkdir "$destination" ;;
+  esac
+  case "$kind" in
+    unrelated|regular|directory)
+      if unregister_cookiemonster_cli "$cli" "$destination"; then exit 1; fi
+      case "$kind" in
+        unrelated) test "$(readlink "$destination")" = "$case_root/other-cli" ;;
+        regular) grep -q 'unrelated command' "$destination" ;;
+        directory) test -d "$destination" ;;
+      esac
+      ;;
+    *)
+      unregister_cookiemonster_cli "$cli" "$destination"
+      test ! -e "$destination"
+      test ! -L "$destination"
+      ;;
+  esac
+  if [ "$kind" != dangling ]; then test -x "$cli"; fi
+done
+printf 'PASS macOS CLI installation, validation, collisions and removal ownership\n'
