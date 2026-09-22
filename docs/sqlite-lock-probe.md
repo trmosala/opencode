@@ -27,10 +27,20 @@ Do not activate the current candidate as Session execution authority. A design m
 
 Remaining tests include bundled Electron Node, Windows/Linux, hard-link/raw aliases, independently loaded SQLite libraries, provisioning/replacement races, long-duration behavior and the complete publication/admission/reconciliation integration. SIGSTOP is requested by the existing probe but stopped process state is not independently witnessed. Busy classification still uses error text. Passing Bun cases are limited evidence, not a general immunity claim.
 
-The issue also leaves storage activation unresolved: a separate explicitly upgraded database namespace versus a coordinated upgrade of every writer. Old versions cannot be assumed to honor new ownership metadata. No existing storage has been migrated or activated, no transcript has been settled, and no tool/provider/publication has been replayed.
+The approved activation direction is a separate, opt-in upgraded database namespace, preserving the original database for rollback. Migration must classify unfinished work for review without automatically resuming it. Old versions cannot be assumed to honor new ownership metadata. No existing storage has been migrated or activated, no transcript has been settled, and no tool/provider/publication has been replayed.
 
 ## Browser recovery validation
 
 The independent `bun scripts/browser-smoke.ts --recovery` fixture passed from `packages/desktop` on macOS arm64 / Electron 44.3.0 / Chromium 152.0.7977.78. It killed its owned seed process and relaunched the disposable profile, verifying navigation history, selected index, Back/Forward, recently closed history, fresh private tab IDs, a locked vault, absent form/history state and zero POST requests. Failed restoration, redirects, HTTP 204, Stop, stale callbacks and malformed-store preservation passed. `bun test src/main/browser/tab-recovery.test.ts` passed 1 test / 26 expectations.
 
 These results validate the browser slice only. Issue #20 remains open for interrupted-task ownership, settlement-only recovery, explicit continuation and the other documented integration gates.
+
+## Dedicated holder experiment
+
+Run `node script/session-lock-holder-probe.mjs` from the root. This separate disposable-process experiment isolates the SQLite connection in a helper with a private parent pipe. It does not activate Session recovery.
+
+All 534 assertions passed on macOS arm64 on 2026-09-22. The macOS matrix covers Bun 1.3.14, Node 25.9.0 and Electron 44.3.0 (Node 24.20.0), both DELETE and WAL modes, and cross-runtime contention. It checks unrelated descriptor closure in the host, independent Sessions, graceful release, host/helper death, observed stopped hosts/helpers, inherited ordinary child stdio, late acquisition acknowledgements, namespace/Session mismatch, missing files, and reopening after witnessed teardown. Every host is external Node; Electron runs with `ELECTRON_RUN_AS_NODE`, not through the desktop utility-process lifecycle. Linux and Windows remain unvalidated.
+
+Two deliberately failing tests exposed mistakes in the experimental host protocol: a late acquisition acknowledgement could reactivate a released host, and a host with a delayed loss notification could dispatch after another process acquired the lock. Acquisition acknowledgements now activate only a starting host. Synthetic dispatch additionally requires a fresh nonce-bound acknowledgement from the helper; end-of-stream or a failed pipe write refuses it. The loss-window test suppresses the cached loss notification, kills the helper, confirms another contender acquired, then requires dispatch refusal.
+
+This preflight is not atomic with an external effect: helper death after acknowledgement remains possible. Dispatch here is only a counter, not a provider/tool call. Durable attempt intents, publication fencing, cancellation, idempotent explicit continuation and settlement-only recovery still require production implementation and validation. File identity checks likewise do not bind the opened SQLite descriptor to the pathname or prevent later replacement. Provisioning, alias handling, actual desktop teardown and supported-platform validation remain gates. The original in-process probe retains its six failures; this experiment does not erase that evidence.
