@@ -561,50 +561,212 @@ describe("incomplete task recovery", () => {
 });
 
 describe("handleChatCompletions token usage", () => {
-  test("uses WPP's cumulative token pill as the authoritative total", async () => {
-    commitThread(KEY, body(user("hello")), assistant("previous"));
-    const response = fakeResponse();
+  test("uses a confirmed changed WPP token pill as the context total", async () => {
+    commitThread(KEY, body(user("hello")), assistant("previous"))
+    const response = fakeResponse()
     const bridge = {
       hasSession: () => true,
-      run: async () => bridgeRun("done", { usage: { cumulativeTokens: 117219, source: "dom-pill", lowFidelity: true } }),
-    };
+      run: async () =>
+        bridgeRun("done", {
+          usage: {
+            scope: "context",
+            source: "dom-pill",
+            fidelity: "confirmed",
+            totalTokens: 117219,
+          },
+        }),
+    }
 
-    await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
-      response,
-      body(user("hello"), assistant("previous"), user("more")),
-      { bridge },
-    ));
+    await withNoRunLogs(() =>
+      handleChatCompletions(
+        { headers: { "x-session-affinity": "sess-A" } },
+        response,
+        body(user("hello"), assistant("previous"), user("more")),
+        { bridge },
+      ),
+    )
 
-    expect(response.statusCode).toBe(200);
-    const usage = JSON.parse(response.body).usage;
-    expect(usage.total_tokens).toBe(117219);
-    expect(usage.completion_tokens).toBeGreaterThan(0);
-    expect(usage.completion_tokens).toBeLessThanOrEqual(usage.total_tokens);
-    expect(usage.prompt_tokens + usage.completion_tokens).toBe(usage.total_tokens);
-  });
+    expect(response.statusCode).toBe(200)
+    const usage = JSON.parse(response.body).usage
+    expect(usage.total_tokens).toBe(117219)
+    expect(usage.completion_tokens).toBeGreaterThan(0)
+    expect(usage.completion_tokens).toBeLessThanOrEqual(usage.total_tokens)
+    expect(usage.prompt_tokens + usage.completion_tokens).toBe(usage.total_tokens)
+  })
 
   test("falls back to the heuristic prompt tokens when no pill is present", async () => {
-    commitThread(KEY, body(user("hello")), assistant("previous"));
-    const response = fakeResponse();
+    commitThread(KEY, body(user("hello")), assistant("previous"))
+    const response = fakeResponse()
     const bridge = {
       hasSession: () => true,
       run: async () => bridgeRun("done"),
-    };
+    }
 
-    await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
-      response,
-      body(user("hello"), assistant("previous"), user("more")),
-      { bridge },
-    ));
+    await withNoRunLogs(() =>
+      handleChatCompletions(
+        { headers: { "x-session-affinity": "sess-A" } },
+        response,
+        body(user("hello"), assistant("previous"), user("more")),
+        { bridge },
+      ),
+    )
 
-    const promptTokens = JSON.parse(response.body).usage.prompt_tokens;
-    expect(Number.isFinite(promptTokens)).toBe(true);
-    expect(promptTokens).toBeGreaterThan(0);
-    expect(promptTokens).not.toBe(117219);
-  });
-});
+    const promptTokens = JSON.parse(response.body).usage.prompt_tokens
+    expect(Number.isFinite(promptTokens)).toBe(true)
+    expect(promptTokens).toBeGreaterThan(0)
+    expect(promptTokens).not.toBe(117219)
+  })
+
+  test("prefers exact network usage for non-streaming responses", async () => {
+    const response = fakeResponse()
+    const bridge = {
+      hasSession: () => false,
+      run: async () =>
+        bridgeRun("done", {
+          usage: {
+            scope: "request",
+            source: "network",
+            fidelity: "exact",
+            promptTokens: 120,
+            completionTokens: 30,
+            totalTokens: 999,
+            cachedTokens: 40,
+            reasoningTokens: 12,
+          },
+        }),
+    }
+
+    await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, body(user("hello")), { bridge }))
+
+    expect(JSON.parse(response.body).usage).toEqual({
+      prompt_tokens: 120,
+      completion_tokens: 30,
+      total_tokens: 150,
+      prompt_tokens_details: { cached_tokens: 40 },
+      completion_tokens_details: { reasoning_tokens: 12 },
+    })
+  })
+
+  test("streams finish reason, exact usage-only chunk and DONE in order", async () => {
+    const response = fakeResponse()
+    const requestBody = body(user("hello"))
+    requestBody.stream = true
+    requestBody.stream_options = { include_usage: true }
+    const bridge = {
+      hasSession: () => false,
+      run: async () =>
+        bridgeRun("done", {
+          usage: {
+            scope: "request",
+            source: "network",
+            fidelity: "exact",
+            promptTokens: 120,
+            completionTokens: 30,
+            cachedTokens: 40,
+            reasoningTokens: 12,
+          },
+        }),
+    }
+
+    await withNoRunLogs(() => handleChatCompletions({ headers: {} }, response, requestBody, { bridge }))
+
+    const finish = response.body.indexOf('"finish_reason":"stop"')
+    const usage = response.body.indexOf('"choices":[],"usage"')
+    const done = response.body.indexOf("data: [DONE]")
+    expect(finish).toBeGreaterThanOrEqual(0)
+    expect(usage).toBeGreaterThan(finish)
+    expect(done).toBeGreaterThan(usage)
+    expect(response.body).toContain('"prompt_tokens_details":{"cached_tokens":40}')
+    expect(response.body).toContain('"completion_tokens_details":{"reasoning_tokens":12}')
+  })
+
+  test("continued fallback includes only the matching session's retained context", async () => {
+    const bridge = {
+      hasSession: () => true,
+      run: async (_prompt, options) =>
+        options.continueThread
+          ? bridgeRun("second")
+          : bridgeRun("first", {
+              usage: {
+                scope: "context",
+                source: "dom-pill",
+                fidelity: "confirmed",
+                totalTokens: 400,
+              },
+            }),
+    }
+    const firstResponse = fakeResponse()
+    await withNoRunLogs(() =>
+      handleChatCompletions({ headers: { "x-session-affinity": "sess-A" } }, firstResponse, body(user("hello")), {
+        bridge,
+      }),
+    )
+    const secondResponse = fakeResponse()
+    await withNoRunLogs(() =>
+      handleChatCompletions(
+        { headers: { "x-session-affinity": "sess-A" } },
+        secondResponse,
+        body(user("hello"), assistant("first"), user("more")),
+        { bridge },
+      ),
+    )
+
+    expect(JSON.parse(secondResponse.body).usage.prompt_tokens).toBeGreaterThanOrEqual(400)
+  })
+
+  test("fresh replay does not reuse retained context from the discarded worker", async () => {
+    commitThread(KEY, body(user("hello")), assistant("previous"), {
+      totalTokens: 400,
+      source: "dom-pill",
+      fidelity: "confirmed",
+    })
+    let calls = 0
+    const response = fakeResponse()
+    const bridge = {
+      hasSession: () => true,
+      run: async () => {
+        calls++
+        if (calls === 1) throw captureError("recorder_parser_miss")
+        return bridgeRun("done")
+      },
+    }
+
+    await withNoRunLogs(() =>
+      handleChatCompletions(
+        { headers: { "x-session-affinity": "sess-A" } },
+        response,
+        body(user("hello"), assistant("previous"), user("more")),
+        { bridge },
+      ),
+    )
+
+    expect(JSON.parse(response.body).usage.prompt_tokens).toBeLessThan(400)
+  })
+
+  test("worker replacement does not reuse retained context from the missing pinned tab", async () => {
+    commitThread(KEY, body(user("hello")), assistant("previous"), {
+      totalTokens: 400,
+      source: "dom-pill",
+      fidelity: "confirmed",
+    })
+    const response = fakeResponse()
+    const bridge = {
+      hasSession: () => false,
+      run: async () => bridgeRun("done"),
+    }
+
+    await withNoRunLogs(() =>
+      handleChatCompletions(
+        { headers: { "x-session-affinity": "sess-A" } },
+        response,
+        body(user("hello"), assistant("previous"), user("more")),
+        { bridge },
+      ),
+    )
+
+    expect(JSON.parse(response.body).usage.prompt_tokens).toBeLessThan(400)
+  })
+})
 
 describe("handleChatCompletions image inputs", () => {
   test("forwards images only from the latest user turn", async () => {

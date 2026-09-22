@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { acquireThreadTurn, decideThreadMode, commitThread, resetThread } from "./sessionThreads.mjs"
+import {
+  acquireThreadTurn,
+  decideThreadMode,
+  commitThread,
+  resetThread,
+  threadContextUsage,
+} from "./sessionThreads.mjs"
 
 const KEY = "sess-A::CM_Opus 5 - Extra High"
 const tool = (description = "run") => ({
@@ -95,6 +101,24 @@ describe("decideThreadMode", () => {
     resetThread(KEY)
     const next = body(sys(), user("hello"), assistant("answer"), user("more"))
     expect(decideThreadMode(KEY, next, true)).toEqual({ mode: "fresh", sinceIndex: 0 })
+  })
+
+  test("retains usage by exact session and clears it with the thread", () => {
+    const other = `${KEY}-child`
+    commitThread(KEY, body(user("hello")), assistant("answer"), {
+      totalTokens: 300,
+      source: "dom-pill",
+      fidelity: "confirmed",
+    })
+
+    expect(threadContextUsage(KEY)).toEqual({
+      totalTokens: 300,
+      source: "dom-pill",
+      fidelity: "confirmed",
+    })
+    expect(threadContextUsage(other)).toBeUndefined()
+    resetThread(KEY)
+    expect(threadContextUsage(KEY)).toBeUndefined()
   })
 })
 

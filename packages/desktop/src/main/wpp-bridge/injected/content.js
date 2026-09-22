@@ -266,6 +266,7 @@ async function runJobWithProgress(job, jobId) {
     await waitForAttachmentReady(textarea, 15000);
   }
   const beforeAssistantMessage = latestAssistantMessageSnapshot(textarea);
+  const beforeTokenPill = scrapeTokenPill();
   const beforeSubmitDiagnostics = buildBridgeDiagnostics({
     phase: "before-submit",
     runId: capture.runId,
@@ -339,6 +340,8 @@ async function runJobWithProgress(job, jobId) {
   const alternateAssistantTexts = Object.values(networkResponse.alternateAssistantTexts || {});
   const wireModel = networkResponse.model || null;
   const assistantUi = inspectAssistantUi();
+  const pill = await waitForUpdatedTokenPill(beforeTokenPill);
+  const usage = networkResponse.usage || pill.measurement;
 
   return {
     ok: true,
@@ -362,6 +365,10 @@ async function runJobWithProgress(job, jobId) {
     diagnostics: {
       beforeSubmit: beforeSubmitDiagnostics,
       afterSubmit: afterSubmitDiagnostics,
+      usage: {
+        measurement: usage,
+        observation: pill.observation
+      },
       completed: buildBridgeDiagnostics({
         phase: responseSource === "dom" ? "dom-fallback" : "completed",
         runId: capture.runId,
@@ -405,9 +412,8 @@ async function runJobWithProgress(job, jobId) {
       alternateAssistantTexts,
       finishReason: networkResponse.finishReason || null,
       responseStatus: networkResponse.responseStatus || null,
-      // WPP's real post-turn cumulative token count, scraped from the conversation pill, or null
-      // when the pill is absent/unparseable. The proxy uses it as the authoritative total_tokens.
-      usage: scrapeTokenPill(),
+      usage,
+      usageObservation: pill.observation,
       eventCount: Number(networkResponse.eventCount) || 0,
       byteCount: Number(networkResponse.byteCount) || 0,
       counts: networkResponse.counts || {
@@ -2755,43 +2761,74 @@ function inspectAssistantUi(root) {
   };
 }
 
-// Scrape WPP's conversation token-count pill (e.g. "19,547 tokens"). WPP's model-completion SSE
-// does NOT carry token usage (verified across many captured streams — the only fields are
-// model/content/messageId/toolCalls/finishReason), so this DOM pill is the only surface exposing
-// WPP's own count. It is a post-turn CUMULATIVE conversation total, not per-turn; the proxy uses it
-// unchanged as total_tokens and estimates only the OpenAI-required prompt/completion breakdown.
-// Whitespace/format-fragile by nature, so the result is marked lowFidelity and any miss falls back
-// to the chars/token heuristic upstream.
+// Scrape only WPP's precise conversation token-count pill. A whole-document scan can mistake
+// assistant prose for usage, so selector loss now degrades to the local estimate.
 //
 // Strictness is deliberate: we accept ONLY an element whose entire trimmed text is
 // "<number> tokens" with nothing else. This rejects used/limit displays like
 // "19,547 / 200,000 tokens" (we will not guess which half is the live count) and assistant reply
 // prose that merely mentions "tokens" — a miss is safe (heuristic fallback), a wrong number is not.
 //
-// The live pill is `<span class="cs-message-tokens" data-testid="message-tokens"><svg/>N tokens</span>`
-// (the SVG icon contributes no text, so textContent is exactly "N tokens"). We query that precise
-// hook first and only fall back to a generic strict scan if WPP drops the testid/class.
+// WPP has used both `message-tokens` and `response-type-tag` for this value. The latter renders only
+// the number as text and exposes "N tokens" through aria-label. We query those precise hooks
+// directly; if WPP drops them, usage falls back to the local estimate.
 const TOKEN_PILL_TEXT = /^([\d][\d,]*)\s*tokens?$/i;
-const TOKEN_PILL_SELECTOR = "[data-testid='message-tokens'], .cs-message-tokens";
+const TOKEN_PILL_SELECTOR = [
+  "[data-testid='message-tokens']",
+  ".cs-message-tokens",
+  "[data-testid='response-type-tag'][aria-label$=' token']",
+  "[data-testid='response-type-tag'][aria-label$=' tokens']",
+  ".cs-response-type-tag[aria-label$=' token']",
+  ".cs-response-type-tag[aria-label$=' tokens']"
+].join(", ");
 
 function scrapeTokenPill(root = document) {
   if (typeof document === "undefined") {
     return null;
   }
 
-  const best = pickTokenPill(deepQueryAll(TOKEN_PILL_SELECTOR, root))
-    || pickTokenPill(deepQueryAll("*", root));
+  const best = pickTokenPill(deepQueryAll(TOKEN_PILL_SELECTOR, root));
 
   if (!best) {
     return null;
   }
 
   return {
-    cumulativeTokens: best.value,
+    totalTokens: best.value,
     raw: best.text,
+    scope: "context",
     source: "dom-pill",
-    lowFidelity: true
+    fidelity: "confirmed"
   };
+}
+
+async function waitForUpdatedTokenPill(before, options = {}) {
+  const read = options.read || scrapeTokenPill;
+  const sleep = options.sleep || wait;
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(0, options.timeoutMs) : 3000;
+  const pollMs = Number.isFinite(options.pollMs) ? Math.max(1, options.pollMs) : 100;
+  const started = Date.now();
+  const networkComplete = read();
+  let settled = networkComplete;
+
+  while (!tokenPillChanged(before, settled) && Date.now() - started < timeoutMs) {
+    await sleep(pollMs);
+    settled = read();
+  }
+
+  const observation = {
+    before: before?.totalTokens ?? null,
+    networkComplete: networkComplete?.totalTokens ?? null,
+    settled: settled?.totalTokens ?? null,
+    waitMs: Date.now() - started
+  };
+  if (!tokenPillChanged(before, settled)) return { measurement: null, observation };
+  return { measurement: { ...settled, observation }, observation };
+}
+
+function tokenPillChanged(before, after) {
+  if (!after) return false;
+  return !before || before.totalTokens !== after.totalTokens;
 }
 
 function pickTokenPill(elements) {
@@ -2800,7 +2837,7 @@ function pickTokenPill(elements) {
   for (const el of elements) {
     let text;
     try {
-      text = String(el.textContent || "").trim();
+      text = String(el.getAttribute?.("aria-label") || el.textContent || "").trim();
     } catch {
       continue;
     }
@@ -2814,11 +2851,6 @@ function pickTokenPill(elements) {
       continue;
     }
 
-    // Ignore numbers rendered inside the message transcript (assistant prose / code blocks).
-    if (el.closest?.(MESSAGE_BUBBLE_SELECTOR)) {
-      continue;
-    }
-
     if (!isVisible(el)) {
       continue;
     }
@@ -2828,12 +2860,9 @@ function pickTokenPill(elements) {
       continue;
     }
 
-    // Prefer the deepest/most-specific match: the pill's leaf element over any wrapper that
-    // happens to contain only the pill, so `raw` reflects the actual pill node.
-    const depth = el.querySelectorAll ? el.querySelectorAll("*").length : 0;
-    if (!best || depth < best.depth) {
-      best = { value, text, depth };
-    }
+    // The precise selector returns pills in DOM order and completed assistant messages retain
+    // their old pills, so the last valid element is the current turn.
+    best = { value, text };
   }
 
   return best;
@@ -3085,6 +3114,7 @@ if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.no
     inspectChatState,
     inspectAssistantUi,
     scrapeTokenPill,
+    waitForUpdatedTokenPill,
     pickTokenPill,
     findAssistantUiError,
     findAssistantUiWarning,

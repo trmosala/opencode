@@ -2,9 +2,8 @@
 
 Repo: `E:\Work\Development\CookieMonster`
 
-Status: **implemented**. This handover was reconciled with the live code on
-2026-08-18. The exact-total mapping currently in the bridge landed in commit
-`666c5a8dc` (`fix(desktop): trust WPP token totals`).
+Status: **implemented**. This handover was reconciled with the live code and WPP
+UI on 2026-09-22 while resolving issue #3.
 
 ## What a new user needs to know
 
@@ -35,25 +34,60 @@ Together these are strong confirmation that the intended total context is about
 250K. They do not prove the backend's exact hard-rejection boundary; WPP can
 change its model or warning policy independently of this repository.
 
+### 2026-09-22 live acceptance evidence
+
+A branded unsigned macOS build was installed locally and exercised against the
+real WPP project with visible worker windows:
+
+- The first turn settled at `3,869` tokens.
+- On the consecutive continued turn, the pre-submit and network-complete values
+  were both the stale `3,869`; the pill changed to `3,890` after 202 ms, and the
+  OpenAI-compatible response reported `3,883 + 7 = 3,890`.
+- A 24,275-character continued request reached `9,970`. Replacing its history
+  with a one-message fresh replay dropped the counter to `3,827`. This proves
+  the pill is current-context usage (`scope: "context"`), not process or account
+  lifetime usage, and that it can decrease after history truncation.
+- Closing the app and continuing the logical conversation after restart forced
+  a fresh worker/thread. It reported `3,888` rather than adding the previous
+  retained total, confirming replacement does not double-count usage state.
+- A live stream with `stream_options.include_usage: true` emitted the stop chunk,
+  then the usage-only chunk (`3,876 + 6 = 3,882`), then `[DONE]`.
+
+Every accepted turn used page-recorder network response capture, had no recovery
+or capture retry, and maintained `prompt_tokens + completion_tokens === total_tokens`.
+
 ## Current implementation
 
-WPP's model-completion SSE does not expose token usage. The only known WPP-owned
-count is the post-turn token pill in the conversation DOM.
+WPP's model-completion SSE did not expose token usage in the 2026-09-22 live
+captures. The recorder nevertheless parses a standard OpenAI `usage` object if
+WPP starts sending one. The current WPP-owned count is the post-turn token pill
+in the conversation DOM.
 
 The current flow is:
 
 `WPP token pill` → `injected/content.js` → `proxy/extensionBridge.mjs` →
 `proxy/openaiCompat.mjs` → OpenAI-compatible `usage` → OpenCode context handling
 
-1. `injected/content.js` calls `scrapeTokenPill()` after the turn and attaches
-   the result as `response.usage`.
-2. `proxy/extensionBridge.mjs` carries that object through the run envelope.
-3. `proxy/openaiCompat.mjs` treats the cumulative WPP value as authoritative
-   `total_tokens` and estimates only the OpenAI-required prompt/completion split.
-4. `proxy/streamAdapter.mjs` preserves the finite usage fields in both streamed
-   and non-streamed OpenAI-compatible responses.
-5. If the pill is absent or cannot be parsed, the bridge falls back to the local
-   conservative heuristic in `proxy/tokenEstimate.mjs` (`CHARS_PER_TOKEN = 3`).
+1. `injected/pageRecorder.js` retains exact request-scoped network usage when it
+   exists.
+2. `injected/content.js` records the pill before submit, again when the network
+   response completes, and waits up to three seconds for a changed post-turn
+   value. An unchanged stale pill is unavailable rather than authoritative.
+   Exact network usage takes priority over this DOM measurement.
+3. `proxy/extensionBridge.mjs` carries the measurement and before/network/settled
+   observation through the run envelope.
+4. `proxy/usage.mjs` resolves usage in this order: exact request-scoped network
+   usage, confirmed changed context pill, then the conservative local estimate.
+   A continued-thread estimate includes that session's retained context; a
+   fresh replay does not.
+5. `proxy/openaiCompat.mjs` commits transcript and usage state only after every
+   recovery path succeeds. Reset, failed replay, and worker replacement clear or
+   bypass retained state so retries cannot double-count it.
+6. `proxy/streamAdapter.mjs` preserves finite usage in normal responses and emits
+   the optional streaming usage-only chunk after `finish_reason` and before
+   `[DONE]` when `stream_options.include_usage` is true.
+7. If neither network nor DOM usage is available, the bridge uses
+   `proxy/tokenEstimate.mjs` (`CHARS_PER_TOKEN = 3`).
 
 Token counting is separate from model-response capture. A turn can have a
 byte-exact `network` response source while its usage still comes from the DOM
@@ -173,14 +207,16 @@ When syncing upstream OpenCode:
 
 ## Usage-field contract
 
-| Field               | With a valid WPP pill                                            | Without a valid pill          |
-| ------------------- | ---------------------------------------------------------------- | ----------------------------- |
-| `total_tokens`      | Exact cumulative WPP pill value                                  | Heuristic prompt + completion |
-| `completion_tokens` | Estimated from the current assistant output, capped at the total | Estimated                     |
-| `prompt_tokens`     | Derived as total minus estimated completion                      | Estimated                     |
+| Field               | Exact network usage                       | Confirmed WPP pill                                            | Heuristic fallback           |
+| ------------------- | ----------------------------------------- | ------------------------------------------------------------- | ---------------------------- |
+| `total_tokens`      | Network prompt + completion                | Current WPP context pill                                      | Estimated prompt + completion |
+| `completion_tokens` | Exact network value                        | Estimated from current output, capped at total                | Estimated                    |
+| `prompt_tokens`     | Exact network value                        | Derived as total minus estimated completion                   | Estimated                    |
 
-The exact field is therefore `total_tokens`. The prompt/completion breakdown is
-still an estimate because WPP exposes only one cumulative number.
+For the current WPP response shape, only the DOM `total_tokens` is WPP-owned;
+the prompt/completion split remains estimated. If structured network usage is
+present, all three values are exact and optional cached/reasoning details are
+preserved.
 
 OpenCode's overflow logic reads the latest assistant message's `tokens.total`
 rather than summing every message, so the cumulative WPP total is the correct
@@ -190,21 +226,25 @@ shape. Do not convert it into a per-turn delta.
 
 The scraper deliberately prefers a missed count over a wrong count:
 
-- It first queries `[data-testid='message-tokens']` and `.cs-message-tokens`.
-- It can fall back to a deep scan if WPP removes those hooks.
+- It queries the legacy `[data-testid='message-tokens']` / `.cs-message-tokens`
+  hooks and the current `[data-testid='response-type-tag']` /
+  `.cs-response-type-tag` hooks. The current UI exposes `N tokens` in
+  `aria-label` while its text content contains only `N`.
+- It does not scan arbitrary document prose. Losing all precise hooks safely
+  activates the heuristic fallback.
 - It accepts only an element whose complete trimmed text matches
   `<positive number> token` or `<positive number> tokens`, with comma separators
   allowed.
-- It rejects invisible nodes, values inside message bubbles, prose mentioning
-  tokens, and ambiguous used/limit strings such as
+- It rejects invisible nodes, prose mentioning tokens, and ambiguous used/limit strings such as
   `19,547 / 250,000 tokens`.
-- It marks a successful scrape as `{ source: "dom-pill", lowFidelity: true }`
-  because DOM structure and formatting can change.
+- It selects the newest equally specific assistant pill, since older assistant
+  messages retain their counters in the DOM.
+- It marks a successful settled scrape as
+  `{ scope: "context", source: "dom-pill", fidelity: "confirmed" }`.
 - A miss is non-fatal and activates the heuristic fallback.
 
-Do not add SSE usage parsing unless a fresh network capture shows that WPP has
-started sending usage. Repeated captures previously showed only model, content,
-message ID, tool calls, and finish reason.
+Keep the existing SSE usage parser even while live WPP omits the field: it is
+the highest-fidelity path and is covered by recorder and adapter regressions.
 
 ## Configuration and compaction
 
@@ -240,12 +280,16 @@ observation.
 
 ## Verification
 
-Existing regression coverage in
-`proxy/openaiCompat.capture.test.mjs` verifies both important downstream paths:
+Regression coverage verifies the full priority and lifecycle contract:
 
-- a WPP cumulative pill value becomes authoritative `total_tokens`, with
+- exact network usage wins and preserves optional details;
+- a changed WPP context pill becomes authoritative `total_tokens`, with
   `prompt_tokens + completion_tokens === total_tokens`;
-- a missing pill falls back to finite heuristic prompt usage.
+- an unchanged stale pill becomes unavailable;
+- a missing pill falls back to finite heuristic prompt usage;
+- continuation retains context for fallback estimates, while fresh replay,
+  worker replacement, reset, and different sessions do not share it;
+- streamed usage appears after the finish chunk and before `[DONE]`.
 
 Run the focused regression from the desktop package, never the repository root:
 
@@ -268,16 +312,16 @@ For live verification:
 3. Inspect the corresponding proxy run JSON (default `logs/`); normal logs retain
    `o1Code.response.usage` and the final OpenAI-compatible `response.usage` even
    when transcript payloads are omitted.
-4. Confirm the pill's `cumulativeTokens` equals final `usage.total_tokens`.
+4. Confirm the observation records `before`, `networkComplete`, and `settled`,
+   and final `usage.total_tokens` equals the changed settled value.
 5. Confirm a turn with no pill still returns finite heuristic usage.
 
 ## Known limitations and change triggers
 
 - The DOM scraper is necessarily format-fragile. If WPP renames the selector or
   changes the pill text, token reporting safely becomes heuristic until repaired.
-- The downstream exact-total and fallback behavior has regression coverage. No
-  direct unit regression for the DOM selector/parser was found during the
-  2026-08-18 reconciliation; add one when changing the scraper.
+- The current and legacy DOM selector shapes, delayed settlement, exact network
+  usage, fallback, streaming order, and state reset paths have direct regressions.
 - Reverify the assumptions in this handover if WPP exposes structured usage in
   the network response, changes the warning threshold, displays separate used and
   maximum values, or changes the routed models.
@@ -290,6 +334,8 @@ For live verification:
   passthrough in the bridge envelope.
 - **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.mjs` — authoritative
   total and estimated breakdown.
+- **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/usage.mjs` — usage priority,
+  normalization, and continued-context fallback.
 - **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/streamAdapter.mjs` — OpenAI response
   usage normalization.
 - **CookieMonster:** `packages/desktop/src/main/wpp-bridge/proxy/tokenEstimate.mjs` — heuristic

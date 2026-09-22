@@ -272,6 +272,7 @@ function createRecord(requestInfo, extra = {}) {
     finalText: "",
     alternateAssistantTexts: {},
     finishReason: null,
+    usage: null,
     events: [],
     chunks: [],
     toolCallParts: {},
@@ -358,6 +359,10 @@ function parseDataLine(record, data) {
     }
 
     const choices = primaryChoices(parsed.choices);
+    const usage = networkUsage(parsed.usage);
+    if (usage) {
+      record.usage = usage;
+    }
     event.messageId = event.messageId || choices
       .map((choice) => choice?.delta?.messageId || choice?.delta?.message_id || choice?.message?.id || null)
       .find(Boolean) || null;
@@ -445,6 +450,35 @@ function parseDataLine(record, data) {
       record.unparsed.splice(0, record.unparsed.length - 50);
     }
   }
+}
+
+function networkUsage(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const promptTokens = finiteToken(value.prompt_tokens);
+  const completionTokens = finiteToken(value.completion_tokens);
+  if (promptTokens === null || completionTokens === null) {
+    return null;
+  }
+
+  const cachedTokens = finiteToken(value.prompt_tokens_details?.cached_tokens);
+  const reasoningTokens = finiteToken(value.completion_tokens_details?.reasoning_tokens);
+  return {
+    scope: "request",
+    source: "network",
+    fidelity: "exact",
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    ...(cachedTokens === null ? {} : { cachedTokens: Math.min(cachedTokens, promptTokens) }),
+    ...(reasoningTokens === null ? {} : { reasoningTokens: Math.min(reasoningTokens, completionTokens) })
+  };
+}
+
+function finiteToken(value) {
+  return Number.isFinite(value) && value >= 0 ? Math.ceil(value) : null;
 }
 
 // OpenAI-compatible responses define choice index 0 as the selected completion. WPP can include
@@ -626,6 +660,7 @@ function serializeRecord(record, verbose = false) {
     finalText: record.finalText || "",
     alternateAssistantTexts: record.alternateAssistantTexts || {},
     finishReason: record.finishReason || null,
+    usage: record.usage || null,
     toolCallParts: record.toolCallParts || {},
     eventCount: counts.eventCount,
     byteCount: counts.byteCount,
@@ -661,6 +696,7 @@ if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.no
     emitObservedRequest,
     parseChunk,
     parseDataLine,
+    networkUsage,
     accumulateToolCall,
     postRecord,
     appendChunk,

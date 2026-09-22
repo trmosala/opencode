@@ -415,6 +415,12 @@ function compactDiagnostics(diagnostics) {
     assistantUi: diagnostics.assistantUi ? {
       error: diagnostics.assistantUi.error || null,
       warning: diagnostics.assistantUi.warning || null
+    } : null,
+    usage: diagnostics.usage ? {
+      scope: diagnostics.usage.measurement?.scope || null,
+      source: diagnostics.usage.measurement?.source || "estimate",
+      fidelity: diagnostics.usage.measurement?.fidelity || "estimated",
+      observation: diagnostics.usage.observation || null
     } : null
   };
 }
@@ -439,6 +445,12 @@ function summarizeResult(result) {
     toolCallCount: Object.values(toolCallParts || {}).filter((part) => part?.name).length,
     recorder: result.recorder || null,
     capture: result.capture || null,
+    usage: response.usage ? {
+      scope: response.usage.scope || null,
+      source: response.usage.source || null,
+      fidelity: response.usage.fidelity || null,
+      totalTokens: Number(response.usage.totalTokens) || null
+    } : null,
     counts: responseCounts(result.response)
   };
 }
@@ -492,9 +504,8 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
         result.alternateAssistantTexts || result.response?.alternateAssistantTexts || [],
       source: result.responseSource || null,
       capture: result.capture || null,
-      // WPP's real post-turn cumulative token count scraped from the conversation pill, or null.
-      // The proxy uses it as authoritative total_tokens; null falls back to the local heuristic.
       usage: result.response?.usage || null,
+      usageObservation: result.response?.usageObservation || null,
       chunks: result.response?.chunks || [],
       events: result.response?.events || [],
       unparsed: result.response?.unparsed || []

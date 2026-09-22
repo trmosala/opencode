@@ -128,13 +128,27 @@ export function decideThreadMode(sessionKey, body, tabAlive) {
 
 // Record both sides of the mirror after a successful turn: the OpenCode messages submitted to the
 // model and the assistant message now present in the WPP tab but not yet in that request body.
-export function commitThread(sessionKey, body, assistant) {
+export function commitThread(sessionKey, body, assistant, usage) {
   if (!sessionKey) return
   threads.set(sessionKey, {
     requestHashes: hashesFor(body),
     assistantHash: hashMessage({ role: "assistant", ...assistant }),
     contextHash: contextHash(body),
+    usage: validContextUsage(usage),
   })
+}
+
+export function threadContextUsage(sessionKey) {
+  return threads.get(sessionKey)?.usage
+}
+
+function validContextUsage(usage) {
+  if (!usage || !Number.isFinite(usage.totalTokens) || usage.totalTokens < 0) return undefined
+  return {
+    totalTokens: Math.ceil(usage.totalTokens),
+    source: usage.source,
+    fidelity: usage.fidelity,
+  }
 }
 
 // Drop the watermark so the next turn replays fresh — used when a turn fails (the tab may be in an

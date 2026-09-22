@@ -1,6 +1,6 @@
 import { serializeChatCompletionRequest, serializeIncompleteTaskContinuationRequest, serializeToolRecoveryRequest, serializableMessagesForRequest } from "./messageSerializer.mjs";
 import { CM_TASK_COMPLETE_PROTOCOL } from "./protocol.mjs";
-import { acquireThreadTurn, decideThreadMode, commitThread, resetThread, threadContinuityEnabled } from "./sessionThreads.mjs";
+import { acquireThreadTurn, decideThreadMode, commitThread, resetThread, threadContinuityEnabled, threadContextUsage } from "./sessionThreads.mjs";
 import { extensionBridge } from "./extensionBridge.mjs";
 import { chooseAssistantResponse } from "./toolCallNormalizer.mjs";
 import { StreamGate } from "./streamGate.mjs";
@@ -21,6 +21,7 @@ import { redact } from "./policy.mjs";
 import { collectImageInputs } from "./imageInputs.mjs";
 import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs";
 import { estimateTokens } from "./tokenEstimate.mjs";
+import { resolveUsage } from "./usage.mjs";
 import { DEFAULT_MODEL_ID, MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs";
 const DEFAULT_MAX_PROMPT_CHARS = 600000;
 const STREAM_KEEP_ALIVE_MS = 10000;
@@ -102,10 +103,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       tool_calls: undefined,
       finish_reason: "stop"
     };
-    const usage = buildUsage({
+    const usage = resolveUsage({
       promptTokens: estimateTokens(prompt),
       completionText: message.content
-    });
+    }).usage;
 
     if (body.stream) {
       await writeChatCompletionStream(response, {
@@ -158,6 +159,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
     : { mode: "fresh", sinceIndex: 0 };
   const continueThread = thread.mode === "continue";
+  const retainedContext = continueThread ? threadContextUsage(sessionKey) : undefined;
   const purpose = isCompaction ? "compaction" : "chat";
   let prompt = serializeChatCompletionRequest(body, { purpose, sinceIndex: thread.sinceIndex });
   // The full conversation is replayed, but images are only attached for the
@@ -212,6 +214,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   // preamble and tool call belong to the same assistant response. Preserve the established live
   // progress path for profiles that do not opt into commentary-phase recovery.
   let streamProgressEnabled = Boolean(streamSession) && (!hasTools || !commentaryPhase);
+  let finalTurnContinued = continueThread;
 
   const bridgeOptionsFor = (runContinueThread, attempt) => ({
     timeoutMs: body.o1_code_timeout_ms,
@@ -240,7 +243,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     const attempt = { streamed: false };
     try {
       const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread, attempt));
-      return await (body.stream ? waitForBridgeWithKeepAlive(run, response) : run);
+      const result = await (body.stream ? waitForBridgeWithKeepAlive(run, response) : run);
+      finalTurnContinued = runContinueThread;
+      return result;
     } catch (error) {
       if (error && typeof error === "object" && error.attemptStreamed === undefined) {
         error.attemptStreamed = attempt.streamed;
@@ -422,24 +427,28 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   if (!isCompaction) {
     normalizeToolCallArguments(normalized.tool_calls, body.tools);
   }
-  // Record the logical request and the assistant response physically present in the WPP tab. The
-  // next OpenCode request echoes this assistant message; sessionThreads validates and consumes it
-  // before serializing the true delta. Skipped for compaction/no-session.
-  if (continuity) commitThread(sessionKey, body, normalized);
   const finishReason = normalized.finish_reason || o1CodeRun.request?.finishReason || "stop";
   const responseMetrics = buildResponseMetrics({
     finalText,
     normalizedContent: normalized.content || "",
     toolCalls: normalized.tool_calls || []
   });
-  // WPP's post-turn conversation count is authoritative. The OpenAI-compatible response still
-  // requires a prompt/completion split, so only that breakdown remains estimated.
-  const tokenPill = o1CodeRun.response?.usage;
-  const usage = buildUsage({
+  const usageMeasurement = o1CodeRun.response?.usage ? {
+    ...o1CodeRun.response.usage,
+    ...(o1CodeRun.response.usageObservation ? { observation: o1CodeRun.response.usageObservation } : {})
+  } : undefined;
+  const resolvedUsage = resolveUsage({
+    measurement: usageMeasurement,
     promptTokens: context.input.estimatedTokens,
     completionText: assistantOutputForUsage(normalized),
-    realTotalTokens: Number.isFinite(tokenPill?.cumulativeTokens) ? tokenPill.cumulativeTokens : undefined
+    retainedContextTokens: retainedContext?.totalTokens,
+    continued: finalTurnContinued
   });
+  const usage = resolvedUsage.usage;
+
+  // Commit transcript and usage only after the provider turn and every recovery path succeeded.
+  // Failed attempts reset the mirror and can never add to the next turn's retained context.
+  if (continuity) commitThread(sessionKey, body, normalized, resolvedUsage.context);
 
   // Per-turn capture path: "network" = byte-exact recorder, "dom" = innerText DOM fallback, which is
   // whitespace-lossy and thus unreliable for byte-sensitive tool-call output. Promoted to a top-level
@@ -467,7 +476,8 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       content: normalized.content,
       tool_calls: normalized.tool_calls,
       finishReason,
-      usage
+      usage,
+      usageEvidence: resolvedUsage.evidence
     }
   };
   const logPath = body.stream
@@ -785,24 +795,6 @@ function finalizeStreamedCompletion(response, streamBase, {
     content,
     tool_calls
   });
-}
-
-// `realTotalTokens`, when finite, is WPP's own post-turn cumulative conversation count scraped from
-// the DOM pill. Keep it unchanged as total_tokens and estimate only the OpenAI-required breakdown.
-// Without the pill, preserve the existing local prompt/completion heuristic.
-function buildUsage({ promptTokens, completionText, realTotalTokens }) {
-  const estimatedCompletion = estimateTokens(completionText || "");
-  const total = Number.isFinite(realTotalTokens) ? Math.max(0, Math.ceil(realTotalTokens)) : undefined;
-  const completion = total === undefined ? estimatedCompletion : Math.min(estimatedCompletion, total);
-  const prompt = total === undefined
-    ? Math.max(0, Math.ceil(Number(promptTokens) || 0))
-    : total - completion;
-
-  return {
-    prompt_tokens: prompt,
-    completion_tokens: completion,
-    total_tokens: total ?? prompt + completion
-  };
 }
 
 function assistantOutputForUsage(message = {}) {

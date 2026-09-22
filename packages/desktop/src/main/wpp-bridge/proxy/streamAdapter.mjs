@@ -200,15 +200,22 @@ function normalizeUsage(usage, message = {}) {
   if (usage && Number.isFinite(usage.prompt_tokens) && Number.isFinite(usage.completion_tokens)) {
     const promptTokens = Math.max(0, Math.ceil(usage.prompt_tokens));
     const completionTokens = Math.max(0, Math.ceil(usage.completion_tokens));
-    const totalTokens = Number.isFinite(usage.total_tokens)
-      ? Math.max(0, Math.ceil(usage.total_tokens))
-      : promptTokens + completionTokens;
-
-    return {
+    const normalized = {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
-      total_tokens: totalTokens
+      total_tokens: promptTokens + completionTokens
     };
+    const cachedTokens = usage.prompt_tokens_details?.cached_tokens;
+    const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens;
+    if (Number.isFinite(cachedTokens) && cachedTokens >= 0) {
+      normalized.prompt_tokens_details = { cached_tokens: Math.min(Math.ceil(cachedTokens), promptTokens) };
+    }
+    if (Number.isFinite(reasoningTokens) && reasoningTokens >= 0) {
+      normalized.completion_tokens_details = {
+        reasoning_tokens: Math.min(Math.ceil(reasoningTokens), completionTokens)
+      };
+    }
+    return normalized;
   }
 
   const completionTokens = estimateTokens(message.content || toolCallsForUsage(message.tool_calls));

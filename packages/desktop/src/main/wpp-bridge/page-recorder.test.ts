@@ -7,12 +7,14 @@ type Recorder = {
   primaryMessageId: string | null
   alternateAssistantTexts: Record<string, string>
   toolCallParts: Record<string, { name?: string; arguments?: string }>
+  usage?: Record<string, unknown> | null
 }
 
 type RecorderHarness = {
   createRecord: (request: Record<string, unknown>) => Recorder
   parseDataLine: (record: Recorder, data: string) => void
   serializeRecord: (record: Recorder) => Record<string, unknown>
+  networkUsage: (value: unknown) => Record<string, unknown> | null
 }
 
 const harness = await loadRecorderHarness()
@@ -146,6 +148,33 @@ describe("WPP page recorder", () => {
       arguments: '{"command":"git status"}',
     })
   })
+
+  test("preserves exact OpenAI usage and clamps optional details", () => {
+    const record = harness.createRecord({})
+
+    parse(record, {
+      usage: {
+        prompt_tokens: 120,
+        completion_tokens: 30,
+        total_tokens: 999,
+        prompt_tokens_details: { cached_tokens: 140 },
+        completion_tokens_details: { reasoning_tokens: 12 },
+      },
+    })
+
+    expect(record.usage).toEqual({
+      scope: "request",
+      source: "network",
+      fidelity: "exact",
+      promptTokens: 120,
+      completionTokens: 30,
+      totalTokens: 150,
+      cachedTokens: 120,
+      reasoningTokens: 12,
+    })
+    expect(harness.serializeRecord(record).usage).toEqual(record.usage)
+    expect(harness.networkUsage({ prompt_tokens: -1, completion_tokens: 2 })).toBeNull()
+  })
 })
 
 function parse(record: Recorder, payload: unknown) {
@@ -156,9 +185,10 @@ async function loadRecorderHarness(): Promise<RecorderHarness> {
   const path = join(import.meta.dir, "injected", "pageRecorder.js")
   const source = await Bun.file(path).text()
   const instrumented = source.replace(
-    /\}\)\(\);\s*$/u,
-    "globalThis.__recorderHarness = { createRecord, parseDataLine, serializeRecord };\n})();",
+    /\}\)\(\);?\s*$/u,
+    "globalThis.__recorderHarness = { createRecord, parseDataLine, serializeRecord, networkUsage };\n})()",
   )
+  if (instrumented === source) throw new Error("Page recorder test instrumentation did not match the source")
   const window = {
     addEventListener() {},
     postMessage() {},
@@ -183,6 +213,7 @@ function isRecorderHarness(value: unknown): value is RecorderHarness {
   return (
     typeof Reflect.get(value, "createRecord") === "function" &&
     typeof Reflect.get(value, "parseDataLine") === "function" &&
-    typeof Reflect.get(value, "serializeRecord") === "function"
+    typeof Reflect.get(value, "serializeRecord") === "function" &&
+    typeof Reflect.get(value, "networkUsage") === "function"
   )
 }
