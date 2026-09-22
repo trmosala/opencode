@@ -204,11 +204,13 @@ export const browser = {
   "browser.settings.downloads.manage": "Manage download history",
   "browser.settings.sites": "Site permissions",
   "browser.settings.sites.help":
-    "Camera and microphone access is blocked unless configured below. Ask prompts for each request; Allow uses the OS permissions too. Changes reload matching open tabs to stop existing capture. Applies to main-page HTTPS sites and local development sites.",
+    "Camera and microphone access is blocked unless configured below. Ask prompts for each request; Allow uses the OS permissions too. Camera and microphone changes reload matching tabs; screen-sharing revocation replaces the active document. Applies to main-page HTTPS sites and local development sites.",
   "browser.settings.origin": "Website",
   "browser.settings.camera": "Camera",
   "browser.settings.microphone": "Microphone",
   "browser.settings.notifications": "Notifications",
+  "browser.settings.displayCapture": "Screen sharing",
+  "browser.settings.clipboard": "Clipboard",
   "browser.notifications.help":
     "Notifications default to Block. Ask requires native consent to save Allow for this exact website. Even Allow requires a selected, visible private main page, with no agent control or pending operation. Blocking prevents new notifications, not those already delivered. Notification-only changes do not reload pages.",
   "browser.notifications.os":
@@ -216,6 +218,12 @@ export const browser = {
   "browser.notifications.unavailable": "Native notifications are unavailable in this running app.",
   "browser.notifications.nextLaunch":
     "Notification controls require a supported main process. Launch the updated app to use them.",
+  "browser.displayCapture.help":
+    "Screen sharing requires macOS 15 or later. Ask saves consent for this exact website, then Apple still requires you to choose a screen or window for each capture. Revoking Allow replaces matching tabs before restoring their history, so network failures cannot keep capture alive.",
+  "browser.clipboard.help":
+    "Clipboard access defaults to Block. Ask saves consent for this exact website. Access is limited to its selected, visible private main page and is disabled while the agent or another browser operation controls the tab.",
+  "browser.location.unsupported":
+    "Location stays blocked because this build has no configured geolocation provider or macOS location usage declaration.",
   "browser.settings.site.save": "Save site permissions",
   "browser.permission.block": "Block",
   "browser.permission.ask": "Ask",

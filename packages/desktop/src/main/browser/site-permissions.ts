@@ -1,4 +1,9 @@
 import type { BrowserPermission } from "@opencode-ai/app/browser-panel"
+import { release } from "node:os"
+
+export const displayCaptureSupported = () =>
+  // Darwin 24 is macOS 15, the first release supported by Electron's native system picker.
+  process.platform === "darwin" && Number.parseInt(release().split(".")[0] ?? "0", 10) >= 24
 
 export function siteOrigin(value: unknown) {
   if (typeof value !== "string" || value.length > 2048 || !URL.canParse(value)) return
@@ -29,7 +34,9 @@ export function sitePermissionRows(value: unknown) {
       seen.has(origin) ||
       !permissionValue(entry.camera) ||
       !permissionValue(entry.microphone) ||
-      (entry.notifications !== undefined && !permissionValue(entry.notifications))
+      (entry.notifications !== undefined && !permissionValue(entry.notifications)) ||
+      (entry.displayCapture !== undefined && !permissionValue(entry.displayCapture)) ||
+      (entry.clipboard !== undefined && !permissionValue(entry.clipboard))
     )
       throw new Error("Invalid site permissions")
     seen.add(origin)
@@ -38,6 +45,8 @@ export function sitePermissionRows(value: unknown) {
       camera: entry.camera,
       microphone: entry.microphone,
       notifications: entry.notifications ?? ("block" as const),
+      displayCapture: entry.displayCapture ?? ("block" as const),
+      clipboard: entry.clipboard ?? ("block" as const),
     }
   })
 }

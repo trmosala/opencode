@@ -206,7 +206,13 @@ test("mounted settings show eligibility, allow revocation during consent and rou
         mounted.update({
           ...tabs,
           activeID: "one",
-          profile: { ...tabs.profile!, notificationsSupported, sites: [site] },
+          profile: {
+            ...tabs.profile!,
+            notificationsSupported,
+            displayCaptureSupported: true,
+            clipboardSupported: true,
+            sites: [site],
+          },
         })
         expect(selectors("Notifications")).toHaveLength(
           notificationsSupported === true ? (panel === "settings" ? 2 : 1) : 0,
@@ -227,6 +233,8 @@ test("mounted settings show eligibility, allow revocation during consent and rou
         ])
         for (const [label, field] of [
           ["Notifications", "notifications"],
+          ["Screen sharing", "displayCapture"],
+          ["Clipboard", "clipboard"],
           ["Camera", "camera"],
           ["Microphone", "microphone"],
         ]) {
@@ -245,6 +253,20 @@ test("mounted settings show eligibility, allow revocation during consent and rou
         await new Promise<void>((resolve) => setImmediate(resolve))
       }
     }
+    mounted.update({
+      ...tabs,
+      activeID: "one",
+      profile: {
+        ...tabs.profile!,
+        notificationsSupported: true,
+        displayCaptureSupported: false,
+        clipboardSupported: false,
+        sites: [site],
+      },
+    })
+    expect(selectors("Screen sharing")).toHaveLength(0)
+    expect(selectors("Clipboard")).toHaveLength(0)
+    expect(host.textContent).toContain("Location stays blocked")
     mounted.panel("downloads")
     mounted.update({
       ...tabs,

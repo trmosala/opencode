@@ -86,11 +86,15 @@ export type BrowserProfile = {
   preferences?: BrowserPreferences
   downloadDirectory?: string
   notificationsSupported?: boolean
+  displayCaptureSupported?: boolean
+  clipboardSupported?: boolean
   sites?: {
     origin: string
     camera: BrowserPermission
     microphone: BrowserPermission
     notifications?: BrowserPermission
+    displayCapture?: BrowserPermission
+    clipboard?: BrowserPermission
   }[]
   agentHosts?: readonly string[]
   zoomRules?: BrowserZoomRule[]
@@ -249,6 +253,8 @@ export type BrowserCommand =
       camera?: BrowserPermission
       microphone?: BrowserPermission
       notifications?: BrowserPermission
+      displayCapture?: BrowserPermission
+      clipboard?: BrowserPermission
     }
   | { op: "clear"; kind: "history" | "cache" | "cookies" | "passwords" | "downloads" }
 

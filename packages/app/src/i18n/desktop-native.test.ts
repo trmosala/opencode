@@ -204,6 +204,14 @@ describe("desktop native translations", () => {
     ])
     expect(DESKTOP_NATIVE_ENGLISH["desktop.browser.backup.passphrasePromptMac"]).not.toContain("User name")
   })
+  test("screen sharing and clipboard consent append after the validated native prefix", () => {
+    expect(DESKTOP_NATIVE_KEYS.slice(275, 279)).toEqual([
+      "desktop.browser.displayCapture.title",
+      "desktop.browser.displayCapture.detail",
+      "desktop.browser.clipboard.title",
+      "desktop.browser.clipboard.detail",
+    ])
+  })
 })
 
 describe("desktop native locale detection", () => {

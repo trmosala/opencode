@@ -152,9 +152,16 @@ export function sitePermissions() {
     return []
   }
 }
-export function saveSitePermission(origin: unknown, camera?: unknown, microphone?: unknown, notifications?: unknown) {
+export function saveSitePermission(
+  origin: unknown,
+  camera?: unknown,
+  microphone?: unknown,
+  notifications?: unknown,
+  displayCapture?: unknown,
+  clipboard?: unknown,
+) {
   const normalized = siteOrigin(origin)
-  const values = [camera, microphone, notifications]
+  const values = [camera, microphone, notifications, displayCapture, clipboard]
   if (
     !normalized ||
     !values.some((value) => value !== undefined) ||
@@ -175,6 +182,8 @@ export function saveSitePermission(origin: unknown, camera?: unknown, microphone
     camera: (camera ?? previous?.camera ?? "block") as BrowserPermission,
     microphone: (microphone ?? previous?.microphone ?? "block") as BrowserPermission,
     notifications: (notifications ?? previous?.notifications ?? "block") as BrowserPermission,
+    displayCapture: (displayCapture ?? previous?.displayCapture ?? "block") as BrowserPermission,
+    clipboard: (clipboard ?? previous?.clipboard ?? "block") as BrowserPermission,
   }
   store().set("sites", [next, ...rows])
   siteRevision++
@@ -182,11 +191,19 @@ export function saveSitePermission(origin: unknown, camera?: unknown, microphone
     origin: normalized,
     mediaChanged:
       next.camera !== (previous?.camera ?? "block") || next.microphone !== (previous?.microphone ?? "block"),
+    displayCaptureRevoked: (previous?.displayCapture ?? "block") === "allow" && next.displayCapture !== "allow",
   }
 }
 export function notificationPermission(origin: string): BrowserPermission {
   try {
     return sitePermissions().find((entry) => entry.origin === origin)?.notifications ?? "block"
+  } catch {
+    return "block"
+  }
+}
+export function practicalPermission(origin: string, field: "displayCapture" | "clipboard"): BrowserPermission {
+  try {
+    return sitePermissions().find((entry) => entry.origin === origin)?.[field] ?? "block"
   } catch {
     return "block"
   }

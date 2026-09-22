@@ -5,12 +5,18 @@ import { BrowserWindow, dialog, Notification, session } from "electron"
 import { browserCommand, browserLinkContext, browserViewport, registerBrowserOwner } from "./tabs"
 import { browserOperationBusy } from "./registry"
 import { BROWSER_PARTITION } from "./policy"
-import { mediaPermission, notificationPermission, sitePermissions } from "./preferences"
+import { mediaPermission, notificationPermission, practicalPermission, sitePermissions } from "./preferences"
 import { getStore } from "../store"
 
 export async function notificationPermissionsSmoke() {
   assert(process.env.CM_BROWSER_SMOKE_PROFILE, "Use the isolated native runner")
+  let responseStatus = 200
   const server = createServer((_request, response) => {
+    if (responseStatus === 204) {
+      response.writeHead(204)
+      response.end()
+      return
+    }
     response.writeHead(200, { "Content-Type": "text/html" })
     response.end("<!doctype html><title>Notification permission fixture</title><p>No notifications are posted.</p>")
   })
@@ -23,10 +29,13 @@ export async function notificationPermissionsSmoke() {
   const profile = session.fromPartition(BROWSER_PARTITION)
   const nativeRequest = profile.setPermissionRequestHandler
   const nativeCheck = profile.setPermissionCheckHandler
+  const nativeDisplay = profile.setDisplayMediaRequestHandler
   const setRequest = nativeRequest.bind(profile)
   const setCheck = nativeCheck.bind(profile)
+  const setDisplay = nativeDisplay.bind(profile)
   let request!: NonNullable<Parameters<typeof setRequest>[0]>
   let check!: NonNullable<Parameters<typeof setCheck>[0]>
+  let displayOptions: Electron.DisplayMediaRequestHandlerOpts | undefined
   profile.setPermissionRequestHandler = (handler) => {
     assert(handler)
     request = handler
@@ -36,6 +45,10 @@ export async function notificationPermissionsSmoke() {
     assert(handler)
     check = handler
     setCheck(handler)
+  }
+  profile.setDisplayMediaRequestHandler = (handler, options) => {
+    displayOptions = options
+    setDisplay(handler, options)
   }
   const win = new BrowserWindow({
     show: false,
@@ -74,6 +87,8 @@ export async function notificationPermissionsSmoke() {
     await contents.loadURL(url)
     viewport()
     const rule = (notifications: "block" | "ask" | "allow") => command({ op: "site-permission", origin, notifications })
+    const siteRule = (values: { displayCapture?: "block" | "ask" | "allow"; clipboard?: "block" | "ask" | "allow" }) =>
+      command({ op: "site-permission", origin, ...values })
     const details = () => ({ requestingUrl: contents.getURL(), isMainFrame: true })
     const checked = () => check(contents, "notifications", origin, details())
     const realRequest = () => contents.executeJavaScript("Notification.requestPermission()", true)
@@ -114,8 +129,78 @@ export async function notificationPermissionsSmoke() {
     assert.equal(check(contents, "notifications", origin, { ...details(), isMainFrame: false }), false)
     assert.equal(check(contents, "notifications", "https://different.invalid", details()), false)
     assert.equal(check(contents, "notifications", origin, { ...details(), requestingUrl: url + "other" }), false)
-    for (const permission of ["geolocation", "clipboard-read"] as const)
-      assert.equal(check(contents, permission, origin, details()), false)
+    assert.deepEqual(displayOptions, { useSystemPicker: true })
+    assert.equal(check(contents, "geolocation", origin, details()), false)
+
+    await siteRule({ clipboard: "ask" })
+    response = 1
+    let clipboardAllowed: boolean | undefined
+    request(
+      contents,
+      "clipboard-read",
+      (allowed) => {
+        clipboardAllowed = allowed
+      },
+      details(),
+    )
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(clipboardAllowed, true, "Clipboard Ask must save exact-origin consent")
+    assert.equal(practicalPermission(origin, "clipboard"), "allow")
+    assert.equal(check(contents, "clipboard-read", origin, details()), true)
+    assert.equal(check(contents, "clipboard-sanitized-write", origin, details()), true)
+    const clipboardRevision = tab.revision
+    await contents.executeJavaScript("window.clipboardSentinel = 42")
+    await siteRule({ clipboard: "block" })
+    assert.equal(tab.revision, clipboardRevision, "Clipboard revocation must not reload the page")
+    assert.equal(await contents.executeJavaScript("window.clipboardSentinel"), 42)
+    assert.equal(check(contents, "clipboard-read", origin, details()), false)
+
+    setDisplay((capture, callback) => {
+      assert(capture.userGesture)
+      assert(capture.frame)
+      callback({ video: capture.frame })
+    })
+    await siteRule({ displayCapture: "ask" })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    response = 1
+    let displayAllowed: boolean | undefined
+    request(
+      contents,
+      "media",
+      (allowed) => {
+        displayAllowed = allowed
+      },
+      { ...details(), mediaTypes: [] },
+    )
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(displayAllowed, true, "Screen-sharing Ask must save exact-origin consent")
+    assert.equal(practicalPermission(origin, "displayCapture"), "allow")
+    assert.equal(
+      check(contents, "display-capture", origin, details()),
+      true,
+      "Display capture check must allow the saved origin",
+    )
+    const displayResult = await contents.executeJavaScript(
+      "navigator.mediaDevices.getDisplayMedia({ video: true }).then((stream) => { window.displayCapture = stream; window.displayCaptureSentinel = 42; return { ready: stream.getVideoTracks()[0].readyState } }, (error) => ({ name: error.name, message: error.message }))",
+      true,
+    )
+    assert.deepEqual(displayResult, { ready: "live" })
+    const captureRevision = tab.revision
+    await contents.executeJavaScript("window.onbeforeunload = () => 'stay'; true", true)
+    responseStatus = 204
+    const revocation = siteRule({ displayCapture: "block" })
+    await assert.rejects(command({ op: "stop", tabID: id }), /busy|running/i)
+    await revocation
+    assert(tab.revision > captureRevision, "Screen-sharing revocation must replace the page")
+    assert.equal(await contents.executeJavaScript("window.displayCaptureSentinel"), undefined)
+    assert.equal(check(contents, "display-capture", origin, details()), false)
+    contents.stop()
+    responseStatus = 200
+    await contents.loadURL(url)
+    if (contents.isLoadingMainFrame()) await once(contents, "did-stop-loading", { signal: AbortSignal.timeout(5_000) })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    viewport()
+    setDisplay((_capture, callback) => callback({}), { useSystemPicker: true })
     let emptyMedia: boolean | undefined
     request(
       contents,
@@ -178,9 +263,9 @@ export async function notificationPermissionsSmoke() {
         await rule("ask")
       },
       async () => {
-        const hidden = once(win, "hide", { signal: AbortSignal.timeout(5000) })
         win.hide()
-        await hidden
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        assert.equal(win.isVisible(), false)
         win.showInactive()
         viewport()
       },
@@ -333,11 +418,25 @@ export async function notificationPermissionsSmoke() {
     assert.equal(notificationPermission(legacyOrigin), "block")
     await command({ op: "site-permission", origin: legacyOrigin, notifications: "allow" })
     assert.deepEqual(sitePermissions(), [
-      { origin: legacyOrigin, camera: "allow", microphone: "ask", notifications: "allow" },
+      {
+        origin: legacyOrigin,
+        camera: "allow",
+        microphone: "ask",
+        notifications: "allow",
+        displayCapture: "block",
+        clipboard: "block",
+      },
     ])
     await command({ op: "site-permission", origin: legacyOrigin, camera: "block" })
     assert.deepEqual(sitePermissions(), [
-      { origin: legacyOrigin, camera: "block", microphone: "ask", notifications: "allow" },
+      {
+        origin: legacyOrigin,
+        camera: "block",
+        microphone: "ask",
+        notifications: "allow",
+        displayCapture: "block",
+        clipboard: "block",
+      },
     ])
     const saved = storage.get("sites")
     const nativeSet = storage.set
@@ -347,7 +446,7 @@ export async function notificationPermissionsSmoke() {
       return nativeSet.apply(storage, args)
     }) as typeof nativeSet
     try {
-      for (const field of ["camera", "microphone", "notifications"])
+      for (const field of ["camera", "microphone", "notifications", "displayCapture", "clipboard"])
         for (const value of [null, true, 1, "yes", {}, []])
           await assert.rejects(command({ op: "site-permission", origin: legacyOrigin, [field]: value }))
       await assert.rejects(command({ op: "site-permission", origin: legacyOrigin }))
@@ -367,12 +466,13 @@ export async function notificationPermissionsSmoke() {
     await assert.rejects(rule("allow"))
     assert.deepEqual(getStore("cm-browser").get("sites"), corrupt, "Corruption is preserved, not repaired")
     assert.equal(owner.captureChecks?.size ?? 0, 0)
-    console.log("PASS notification permissions: native request/check, saved rules, revocation, stale Ask, corruption")
+    console.log("PASS site permissions: notification, clipboard and display capture lifecycle, saved rules, corruption")
   } finally {
     pending?.resolve({ response: 0, checkboxChecked: false })
     dialog.showMessageBox = nativeDialog
     profile.setPermissionRequestHandler = nativeRequest
     profile.setPermissionCheckHandler = nativeCheck
+    profile.setDisplayMediaRequestHandler = nativeDisplay
     try {
       await Promise.all(
         [...owner.groups.values()]

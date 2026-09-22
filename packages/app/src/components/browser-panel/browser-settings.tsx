@@ -21,7 +21,16 @@ export function BrowserSettings(props: {
     camera: "block" as BrowserPermission,
     microphone: "block" as BrowserPermission,
     notifications: "block" as BrowserPermission,
+    displayCapture: "block" as BrowserPermission,
+    clipboard: "block" as BrowserPermission,
   })
+  const siteControls = () => [
+    "camera" as const,
+    "microphone" as const,
+    ...(props.profile.notificationsSupported === true ? (["notifications"] as const) : []),
+    ...(props.profile.displayCaptureSupported === true ? (["displayCapture"] as const) : []),
+    ...(props.profile.clipboardSupported === true ? (["clipboard"] as const) : []),
+  ]
   const toggle = (key: keyof BrowserPreferences, value: boolean) =>
     void props.command({ op: "preferences", values: { [key]: value } })
   const permissions = ["block", "ask", "allow"] as const
@@ -400,6 +409,8 @@ export function BrowserSettings(props: {
                 camera: state.camera,
                 microphone: state.microphone,
                 ...(props.profile.notificationsSupported === true ? { notifications: state.notifications } : {}),
+                ...(props.profile.displayCaptureSupported === true ? { displayCapture: state.displayCapture } : {}),
+                ...(props.profile.clipboardSupported === true ? { clipboard: state.clipboard } : {}),
               })
             }}
           >
@@ -414,13 +425,7 @@ export function BrowserSettings(props: {
                 placeholder="https://example.com"
               />
             </label>
-            <For
-              each={
-                props.profile.notificationsSupported === true
-                  ? (["camera", "microphone", "notifications"] as const)
-                  : (["camera", "microphone"] as const)
-              }
-            >
+            <For each={siteControls()}>
               {(device) => (
                 <label>
                   {language.t(`browser.settings.${device}`)}
@@ -442,6 +447,13 @@ export function BrowserSettings(props: {
           </form>
           <p>{language.t("browser.notifications.help")}</p>
           <p>{language.t("browser.notifications.os")}</p>
+          <Show when={props.profile.displayCaptureSupported === true}>
+            <p>{language.t("browser.displayCapture.help")}</p>
+          </Show>
+          <Show when={props.profile.clipboardSupported === true}>
+            <p>{language.t("browser.clipboard.help")}</p>
+          </Show>
+          <p>{language.t("browser.location.unsupported")}</p>
           <Show when={props.profile.notificationsSupported !== true}>
             <p>
               {language.t(
@@ -455,13 +467,7 @@ export function BrowserSettings(props: {
             {(site) => (
               <div class="flex flex-wrap items-center gap-3 border-t border-border-weaker-base pt-3">
                 <strong class="flex-1 break-all">{site.origin}</strong>
-                <For
-                  each={
-                    props.profile.notificationsSupported === true
-                      ? (["camera", "microphone", "notifications"] as const)
-                      : (["camera", "microphone"] as const)
-                  }
-                >
+                <For each={siteControls()}>
                   {(device) => (
                     <label>
                       {language.t(`browser.settings.${device}`)}

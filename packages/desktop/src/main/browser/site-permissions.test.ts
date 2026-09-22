@@ -3,8 +3,12 @@ import { permissionValue, siteOrigin, sitePermissionRows } from "./site-permissi
 
 test("site rules validate exact origins and preserve legacy media settings", () => {
   const legacy = { origin: "https://example.com:8443", camera: "allow", microphone: "ask" }
-  expect(sitePermissionRows([legacy])).toEqual([{ ...legacy, notifications: "block" }])
-  expect(sitePermissionRows([{ ...legacy, notifications: "allow" }])[0].notifications).toBe("allow")
+  expect(sitePermissionRows([legacy])).toEqual([
+    { ...legacy, notifications: "block", displayCapture: "block", clipboard: "block" },
+  ])
+  expect(
+    sitePermissionRows([{ ...legacy, notifications: "allow", displayCapture: "ask", clipboard: "allow" }])[0],
+  ).toMatchObject({ notifications: "allow", displayCapture: "ask", clipboard: "allow" })
   for (const origin of ["http://localhost:4000", "http://127.0.0.1:4001", "http://[::1]:4002", "https://example.com"])
     expect(siteOrigin(origin)).toBe(origin)
   for (const value of [
@@ -24,6 +28,8 @@ test("site rules validate exact origins and preserve legacy media settings", () 
     {},
     [null],
     [{ ...legacy, notifications: true }],
+    [{ ...legacy, displayCapture: true }],
+    [{ ...legacy, clipboard: true }],
     [{ ...legacy, camera: "yes" }],
     [{ ...legacy, origin: legacy.origin + "/" }],
     [legacy, legacy],

@@ -48,6 +48,7 @@ import {
   mediaPermission,
   saveSitePermission,
   notificationPermission,
+  practicalPermission,
   sitePermissionsRevision,
   browserZoomFactor,
   saveBrowserZoom,
@@ -55,7 +56,7 @@ import {
   deleteBrowserDevicePreset,
 } from "./preferences"
 import { presentationOrigin } from "./presentation-preferences"
-import { siteOrigin } from "./site-permissions"
+import { displayCaptureSupported, siteOrigin } from "./site-permissions"
 import { updateAgentHost, allowed } from "./allowlist"
 import { transferRule } from "./transfer-policy"
 import { browserInputFailure, invalidateSnapshots, shouldShowBrowserContextMenu } from "./driver"
@@ -124,6 +125,8 @@ type Tab = BrowserRegistration & {
   permissionReload?: boolean
   permissionReloadQueued?: boolean
   permissionReloadPhase?: "dispatch" | "loading"
+  permissionReplaceQueued?: boolean
+  permissionReplacing?: boolean
   cancelLoginOffer?: () => void
   readyLoginOffers?: (check: () => void) => Promise<number>
   loginBusy?: boolean
@@ -550,7 +553,8 @@ function updateBrowserZoom(contents: WebContents, factor: number) {
   )
 }
 
-const notificationPrompts = new WeakSet<Owner>()
+const sitePermissionPrompts = new WeakSet<Owner>()
+type PracticalPermission = "notifications" | "displayCapture" | "clipboard"
 
 function permissionTarget(contents: WebContents | null, requested: string, main: boolean) {
   if (!contents || contents.isDestroyed() || !main) return
@@ -596,24 +600,42 @@ function permissionTarget(contents: WebContents | null, requested: string, main:
   return { owner, tab, group, origin, url }
 }
 
-function notificationTarget(contents: WebContents | null, requested: string, main: boolean) {
-  if (!Notification.isSupported()) return
+function practicalTarget(
+  contents: WebContents | null,
+  requested: string,
+  main: boolean,
+  permission: PracticalPermission,
+) {
+  if (permission === "notifications" && !Notification.isSupported()) return
+  if (permission === "displayCapture" && !displayCaptureSupported()) return
   return permissionTarget(contents, requested, main)
 }
 
-function requestNotification(
+function practicalPermissionValue(origin: string, permission: PracticalPermission) {
+  if (permission === "notifications") return notificationPermission(origin)
+  return practicalPermission(origin, permission)
+}
+
+function savePracticalPermission(origin: string, permission: PracticalPermission) {
+  if (permission === "notifications") return saveSitePermission(origin, undefined, undefined, "allow")
+  if (permission === "displayCapture") return saveSitePermission(origin, undefined, undefined, undefined, "allow")
+  return saveSitePermission(origin, undefined, undefined, undefined, undefined, "allow")
+}
+
+function requestPracticalPermission(
   contents: WebContents | null,
   callback: (allowed: boolean) => void,
   details: { requestingUrl: string; isMainFrame: boolean },
+  permission: PracticalPermission,
 ) {
-  const target = notificationTarget(contents, details.requestingUrl, details.isMainFrame)
-  if (!target || !contents || details.requestingUrl !== target.url || notificationPrompts.has(target.owner)) {
+  const target = practicalTarget(contents, details.requestingUrl, details.isMainFrame, permission)
+  if (!target || !contents || details.requestingUrl !== target.url || sitePermissionPrompts.has(target.owner)) {
     callback(false)
     return
   }
-  const permission = notificationPermission(target.origin)
-  if (permission !== "ask") {
-    callback(permission === "allow")
+  const value = practicalPermissionValue(target.origin, permission)
+  if (value !== "ask") {
+    callback(value === "allow")
     return
   }
   const { owner, tab, group, origin, url } = target
@@ -633,7 +655,7 @@ function requestNotification(
   ]
   let settled = false
   const valid = () => {
-    const current = notificationTarget(contents, url, true)
+    const current = practicalTarget(contents, url, true, permission)
     return (
       current?.owner === owner &&
       current.tab === tab &&
@@ -645,22 +667,23 @@ function requestNotification(
       tab.accessRevision === accessRevision &&
       owner.taskEpoch === taskEpoch &&
       sitePermissionsRevision() === policy &&
-      notificationPermission(origin) === "ask"
+      practicalPermissionValue(origin, permission) === "ask"
     )
   }
   const finish = (allow: boolean) => {
     if (settled) return
     settled = true
     clearTimeout(timer)
+    clearInterval(monitor)
     checks.delete(check)
     listeners.forEach(([emitter, event]) => emitter.removeListener(event, revoke))
-    notificationPrompts.delete(owner)
+    sitePermissionPrompts.delete(owner)
     consent.abort()
     let granted = false
     try {
       if (allow && valid()) {
         // Persist before granting: Electron rechecks permission on property/show paths.
-        saveSitePermission(origin, undefined, undefined, "allow")
+        savePracticalPermission(origin, permission)
         granted = true
       }
     } catch {
@@ -677,16 +700,18 @@ function requestNotification(
   const check = () => {
     if (!valid()) revoke()
   }
+  const monitor = setInterval(check, 100)
+  monitor.unref()
   const timer = setTimeout(revoke, 30_000)
-  notificationPrompts.add(owner)
+  sitePermissionPrompts.add(owner)
   checks.add(check)
   listeners.forEach(([emitter, event]) => emitter.on(event, revoke))
   try {
     void dialog
       .showMessageBox(owner.win, {
         type: "question",
-        message: nativeT("desktop.browser.notifications.title", { origin }),
-        detail: nativeT("desktop.browser.notifications.detail", { task: tab.sessionID, tab: tab.id }),
+        message: nativeT(`desktop.browser.${permission}.title`, { origin }),
+        detail: nativeT(`desktop.browser.${permission}.detail`, { task: tab.sessionID, tab: tab.id }),
         buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
         defaultId: 0,
         cancelId: 0,
@@ -713,9 +738,21 @@ function createTab(
     app.userAgentFallback = app.userAgentFallback.replace(/\s(?:Electron|OpenCodeDev|OpenCode|CookieMonster)\/\S+/g, "")
     profile.setUserAgent(app.userAgentFallback)
     profile.setPermissionCheckHandler((contents, permission, requested, details) => {
-      if (permission === "notifications") {
-        const target = notificationTarget(contents, requested, details.isMainFrame)
-        return !!target && details.requestingUrl === target.url && notificationPermission(target.origin) === "allow"
+      const practical =
+        permission === "notifications"
+          ? "notifications"
+          : permission === "display-capture"
+            ? "displayCapture"
+            : ["clipboard-read", "clipboard-sanitized-write", "deprecated-sync-clipboard-read"].includes(permission)
+              ? "clipboard"
+              : undefined
+      if (practical) {
+        const target = practicalTarget(contents, requested, details.isMainFrame, practical)
+        return (
+          !!target &&
+          details.requestingUrl === target.url &&
+          practicalPermissionValue(target.origin, practical) === "allow"
+        )
       }
       if (!contents || permission !== "media") return false
       const origin = mediaOrigin(contents.getURL(), requested, details.isMainFrame)
@@ -725,12 +762,25 @@ function createTab(
       return mediaPermission(origin, "audio") === "allow" && mediaPermission(origin, "video") === "allow"
     })
     profile.setPermissionRequestHandler((contents, permission, callback, details) => {
-      if (permission === "notifications") {
-        requestNotification(contents, callback, details)
+      const practical =
+        permission === "notifications"
+          ? "notifications"
+          : permission === "display-capture"
+            ? "displayCapture"
+            : ["clipboard-read", "clipboard-sanitized-write", "deprecated-sync-clipboard-read"].includes(permission)
+              ? "clipboard"
+              : undefined
+      if (practical) {
+        requestPracticalPermission(contents, callback, details, practical)
         return
       }
       const origin = contents && mediaOrigin(contents.getURL(), details.requestingUrl, details.isMainFrame)
       const media = "mediaTypes" in details ? details.mediaTypes : undefined
+      // Electron reports getDisplayMedia through this hook as media with no camera/microphone types.
+      if (permission === "media" && origin && media?.length === 0) {
+        requestPracticalPermission(contents, callback, details, "displayCapture")
+        return
+      }
       if (
         permission !== "media" ||
         !origin ||
@@ -847,6 +897,9 @@ function createTab(
         },
         publish: () => publish(target.owner, target.group),
       })
+    })
+    profile.setDisplayMediaRequestHandler((_request, callback) => callback({}), {
+      useSystemPicker: displayCaptureSupported(),
     })
     profileReady = true
     void pruneDownloadRecovery().catch(() => undefined)
@@ -1168,7 +1221,11 @@ function createTab(
     cancelPicker(contents)
   }
   contents.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame && (tab.agentClose || !browserURL(event.url) || tab.navigationAllowed?.(event.url) === false))
+    if (
+      event.isMainFrame &&
+      !(tab.permissionReplacing && event.url === "about:blank") &&
+      (tab.agentClose || !browserURL(event.url) || tab.navigationAllowed?.(event.url) === false)
+    )
       event.preventDefault()
   })
   contents.on("will-redirect", (event, url, _inPlace, main) => {
@@ -1260,8 +1317,8 @@ function createTab(
   })
   contents.on("will-prevent-unload", (event) => {
     const pending = tab.agentClose
-    // A site cannot keep capturing by vetoing the reload after its permission is revoked.
-    if (tab.permissionReloadPhase && !pending) {
+    // A site cannot keep capturing by vetoing the document replacement after its permission is revoked.
+    if (tab.permissionReplacing || (tab.permissionReloadPhase && !pending)) {
       event.preventDefault()
       return
     }
@@ -1606,18 +1663,24 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         )
       }
       if (command.op === "site-permission") {
-        const update = saveSitePermission(command.origin, command.camera, command.microphone, command.notifications)
+        const update = saveSitePermission(
+          command.origin,
+          command.camera,
+          command.microphone,
+          command.notifications,
+          command.displayCapture,
+          command.clipboard,
+        )
         owners.forEach((entry) => entry.captureChecks?.forEach((check) => check()))
-        if (update.mediaChanged)
-          owners.forEach((entry) =>
-            entry.groups.forEach((group) =>
-              group.tabs.forEach((tab) => {
-                if (!tab.contents.isDestroyed() && mediaOrigin(tab.contents.getURL(), update.origin, true)) {
-                  reloadForPermissions(tab)
-                }
-              }),
+        const matching = [...owners.values()].flatMap((entry) =>
+          [...entry.groups.values()].flatMap((group) =>
+            group.tabs.filter(
+              (tab) => !tab.contents.isDestroyed() && mediaOrigin(tab.contents.getURL(), update.origin, true),
             ),
-          )
+          ),
+        )
+        if (update.displayCaptureRevoked) await Promise.all(matching.map((tab) => replaceForPermissions(tab)))
+        else if (update.mediaChanged) matching.forEach((tab) => reloadForPermissions(tab))
       }
       if (command.op === "edit-login") await editLogin(owner.win, command)
       if (command.op === "forget-login") forgetLogin(command.id)
@@ -1665,7 +1728,8 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   if (!tab || tab.view.webContents.isDestroyed()) throw new Error("Browser tab not found")
   const contents = tab.view.webContents
   if (
-    (tab.agentClose ||
+    (tab.permissionReplacing ||
+      tab.agentClose ||
       (tab.permissionReloadPhase &&
         !(command.op === "stop" && tab.permissionReloadPhase === "loading" && contents.isLoadingMainFrame()))) &&
     ["close", "close-tabs", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
@@ -2409,6 +2473,10 @@ function reloadForPermissions(tab: Tab, request = true) {
     tab.permissionReload = true
     tab.permissionReloadQueued = true
   }
+  if (tab.permissionReplaceQueued) {
+    void replaceForPermissions(tab, false).catch(() => undefined)
+    return
+  }
   // ponytail: coalesce fresh requests, never replay an attempted obligation after 204/Stop.
   if (!tab.permissionReloadQueued || tab.agentClose || tab.permissionReloadPhase) return
   tab.permissionReloadQueued = false
@@ -2419,6 +2487,40 @@ function reloadForPermissions(tab: Tab, request = true) {
     tab.permissionReloadPhase = undefined
     throw error
   }
+}
+
+async function replaceForPermissions(tab: Tab, request = true) {
+  const contents = tab.view.webContents
+  if (contents.isDestroyed()) return
+  if (request) tab.permissionReplaceQueued = true
+  if (!tab.permissionReplaceQueued || tab.permissionReplacing) return
+  const history = {
+    entries: contents.navigationHistory.getAllEntries(),
+    index: contents.navigationHistory.getActiveIndex(),
+  }
+  tab.permissionReload = true
+  tab.permissionReloadQueued = false
+  tab.permissionReloadPhase = "dispatch"
+  tab.permissionReplacing = true
+  contents.stop()
+  try {
+    await contents.loadURL("about:blank")
+  } catch (error) {
+    tab.permissionReloadPhase = undefined
+    tab.permissionReplacing = false
+    if (contents.isDestroyed()) tab.permissionReplaceQueued = false
+    throw error
+  }
+  tab.permissionReplaceQueued = false
+  tab.permissionReplacing = false
+  if (contents.isDestroyed() || !history.entries.length || history.index < 0) return
+  tab.permissionReload = true
+  tab.permissionReloadPhase = "dispatch"
+  void contents.navigationHistory.restore(history).catch(() => {
+    if (contents.isDestroyed()) return
+    tab.permissionReload = false
+    tab.permissionReloadPhase = undefined
+  })
 }
 
 function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeTabAction | undefined {

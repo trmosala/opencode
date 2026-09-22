@@ -564,6 +564,12 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.backup.passphrasePromptMac":
     "Enter a backup passphrase of at least 12 characters. This passphrase cannot be recovered or reset.",
   "desktop.browser.backup.passphraseConfirmMac": "Enter the same backup passphrase again.",
+  "desktop.browser.displayCapture.title": "Allow screen sharing for {{origin}}?",
+  "desktop.browser.displayCapture.detail":
+    "Task: {{task}}\nTab: {{tab}}\n\nAllow is saved for this exact website. Apple still asks you to choose a screen or window for each capture. Revoking Allow replaces matching pages to stop active capture before restoring their history.",
+  "desktop.browser.clipboard.title": "Allow clipboard access for {{origin}}?",
+  "desktop.browser.clipboard.detail":
+    "Task: {{task}}\nTab: {{tab}}\n\nAllow is saved for this exact website. Clipboard access is permitted only while its private main page is selected and visible in CookieMonster, with no agent control or pending operation.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

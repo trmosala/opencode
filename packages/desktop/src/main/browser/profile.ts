@@ -33,6 +33,7 @@ import { loginEntry, loginEntryAvailable } from "./login-entry"
 import { contactSummary } from "./contacts"
 import { vaultBackupAvailable } from "./vault-backup-passphrase"
 import { clearCookies } from "./browser-storage"
+import { displayCaptureSupported } from "./site-permissions"
 
 let editingLogin = false
 
@@ -67,6 +68,8 @@ export function browserProfile(): BrowserProfile {
     downloadDirectory: downloadDirectory(),
     sites: sitePermissions(),
     notificationsSupported: Notification.isSupported(),
+    displayCaptureSupported: displayCaptureSupported(),
+    clipboardSupported: true,
     agentHosts: loadAllowlist(),
     zoomRules: browserZoomRules(),
     devicePresets: browserDevicePresets(),
