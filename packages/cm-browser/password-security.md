@@ -216,6 +216,14 @@ Automated tests simulate native dialog choices and the authentication ceremony i
 
 On 2026-09-15, `bun scripts/vault-auth-smoke.ts` completed the actual Windows Hello flow through the compiled helper and production authentication adapter and returned `VERIFIED`. It uses a separate window and never accesses saved passwords. macOS Touch ID, Linux keychain recovery and packaged installer execution have not been validated in this Windows session. These checks do not establish resistance to a compromised renderer/main process, local malware, screen capture, all form variations or physical authentication attacks.
 
+On 2026-09-22, the same production-adapter harness completed actual macOS Touch
+ID approval (`VERIFIED`) and an independent native cancellation (`CANCELLED`).
+The cancellation mode expects rejection and fails if authentication succeeds.
+The harness never opens or decrypts the password vault. Separate macOS
+cross-process persistence fixtures decrypted the encrypted vault through fresh
+Electron processes and confirmed the isolated harness's Safe Storage keychain
+item metadata without requesting its secret.
+
 Before production password-manager assurance: agree the supported local-process threat model; obtain external review where required; and exercise macOS authentication, packaged helper integrity, platform keychain failures and recovery. Do not describe this implementation as equivalent to Chromium or externally audited before that work is complete.
 
 ### Current macOS internal-testing threat model

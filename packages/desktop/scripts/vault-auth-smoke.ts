@@ -8,6 +8,10 @@ const directory = await mkdtemp(join(tmpdir(), "cm-vault-auth-"))
 try {
   const entry = join(directory, "entry.ts")
   const authenticationMethod = process.platform === "darwin" ? "Touch ID" : "Windows Hello"
+  const expectedCancellation = process.env.CM_VAULT_AUTH_EXPECT === "cancelled"
+  const instruction = expectedCancellation
+    ? `When ${authenticationMethod} prompts, click Cancel without authenticating.`
+    : `Verify with ${authenticationMethod}.`
   await Bun.write(
     entry,
     `
@@ -19,7 +23,8 @@ try {
     async function run() {
     await app.whenReady()
     const win = new BrowserWindow({width: 500, height: 180, webPreferences: {sandbox:true, contextIsolation:true, nodeIntegration:false}})
-    await win.loadURL(${JSON.stringify("data:text/html,<title>CookieMonster authentication test</title><p>Verify with " + authenticationMethod + ". This test does not access saved passwords.</p>")})
+    await win.loadURL(${JSON.stringify("data:text/html,<title>CookieMonster authentication test</title><p>" + instruction + " This test does not access saved passwords.</p>")})
+    await new Promise((resolve) => setTimeout(resolve, ${expectedCancellation ? 2000 : 0}))
     try {
       await vaultAuthentication.verify(win)
       writeFileSync(${JSON.stringify(join(directory, "result"))}, "VERIFIED")
@@ -43,8 +48,9 @@ try {
   const result = await Bun.file(join(directory, "result"))
     .text()
     .catch(() => "NO RESULT")
-  console.log(result)
-  if (result !== "VERIFIED") throw new Error("Device authentication was not verified")
+  const expected = expectedCancellation ? "NOT VERIFIED" : "VERIFIED"
+  if (result !== expected) throw new Error("Device authentication did not match the expected result")
+  console.log(expected === "VERIFIED" ? "VERIFIED" : "CANCELLED")
 } finally {
   if (dirname(resolve(directory)) !== resolve(tmpdir()) || !basename(directory).startsWith("cm-vault-auth-"))
     throw new Error("Unexpected test directory")

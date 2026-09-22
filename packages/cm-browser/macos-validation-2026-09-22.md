@@ -51,12 +51,13 @@ the check inspected metadata only and did not request or expose its secret.
 partial-write, fsync-failure, malformed-store, and corruption-preservation cases.
 Focused vault authentication/access/backup tests passed 9/9.
 
-The production-adapter Touch ID harness reached and waited in the real macOS
-`systemPreferences.promptTouchID` call, which establishes that Touch ID is
-available to Electron on this machine. Two 150-second attempts expired without
-a physical fingerprint touch and therefore produced no verification result.
-They are not success or cancellation evidence. The harness window now labels
-the platform correctly as Touch ID instead of Windows Hello.
+The production-adapter Touch ID harness completed both physical paths through
+the real macOS `systemPreferences.promptTouchID` call. Fingerprint approval
+returned `VERIFIED`; a separate run that selected Cancel returned `CANCELLED`
+and did not unlock. The harness never opened or decrypted the password vault.
+It now labels the platform correctly as Touch ID, supports an explicit expected
+cancellation mode, and shows cancellation instructions before opening the
+native prompt.
 
 A default full-native attempt timed out at the consent-lifecycle stage without a completion result. This is not a passing run. The focused rerun witnessed `isVisible=false` while no new hide event arrived and consent was not yet aborted. Electron documents historical [macOS occlusion-driven show/hide events](https://github.com/electron/electron/issues/8664). The fixture now establishes a focused foreground baseline before this hide test, labels each lifecycle case and bounds its event wait. The focused access-review rerun passes. This fixture correction does not establish that arbitrary macOS hide/show sequences always deliver events or change production guards; native visibility checks at consent completion remain necessary. The subsequent default full-native run passed through link destinations, including custom device dimensions, rotation and disable/restoration. It retained the expected local `/fail` `ERR_EMPTY_RESPONSE` and Chromium ObserverList diagnostic. The original failures remain recorded above; the passing run does not erase them.
 
@@ -68,7 +69,7 @@ A default full-native attempt timed out at the consent-lifecycle stage without a
 
 | Required evidence                                                          | Current state                                                                                             |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Actual macOS Touch ID success/cancel                                       | Real production adapter reached the native prompt; physical success/cancel remains pending                |
+| Actual macOS Touch ID success/cancel                                       | Passed through the production adapter: `VERIFIED` and `CANCELLED`                                         |
 | Actual macOS Keychain behavior                                             | Cross-process encrypted vault/reopen and keychain item metadata verified in the isolated Electron harness |
 | Packaged helper integrity, upgrade and supported-build acceptance          | Passed locally for the unsigned arm64 test build; source/package/install hashes match                     |
 | Same-user-process threat model, including shell-capable agents             | Documented limitation; owner/security acceptance remains outstanding                                      |
