@@ -249,6 +249,13 @@ external-distribution claim. Broader distribution requires the written WPP Open
 owner sign-off already required by this repository and an external security
 review with tracked findings.
 
+On 2026-09-22, the repository owner explicitly accepted this same-user boundary
+and the documented first-key, power-loss, key-loss, rollback, and recovery limits
+for the internal macOS test build. External security review was waived for that
+test-only scope. This acceptance does not waive the repository's written WPP Open
+owner sign-off or external security review requirements for broader distribution,
+and it does not change any of the security claims excluded above.
+
 Primary reference: [Electron safeStorage security semantics](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 ## Account management work (#5, #34)

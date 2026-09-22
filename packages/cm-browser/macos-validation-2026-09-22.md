@@ -61,20 +61,23 @@ native prompt.
 
 A default full-native attempt timed out at the consent-lifecycle stage without a completion result. This is not a passing run. The focused rerun witnessed `isVisible=false` while no new hide event arrived and consent was not yet aborted. Electron documents historical [macOS occlusion-driven show/hide events](https://github.com/electron/electron/issues/8664). The fixture now establishes a focused foreground baseline before this hide test, labels each lifecycle case and bounds its event wait. The focused access-review rerun passes. This fixture correction does not establish that arbitrary macOS hide/show sequences always deliver events or change production guards; native visibility checks at consent completion remain necessary. The subsequent default full-native run passed through link destinations, including custom device dimensions, rotation and disable/restoration. It retained the expected local `/fail` `ERR_EMPTY_RESPONSE` and Chromium ObserverList diagnostic. The original failures remain recorded above; the passing run does not erase them.
 
-## Outstanding gates
+## Accepted internal-test limits and external release gates
 
 #23 implements the demanded categories supported by the target build. Screen sharing requires macOS 15+ and Apple's picker/OS recording consent; clipboard and notifications retain exact-origin consent and revocation. Geolocation remains blocked because no provider/API key or macOS usage declaration is configured. Physical OS notification delivery, physical desktop selection, accessibility and reviewed translations remain outside the automated evidence.
 
-#34 remains a release gate:
+#34's internal macOS test-build gate was accepted by the repository owner on
+2026-09-22. The acceptance covers the documented same-user shell-capable-agent
+boundary and the first-key, power-loss, key-loss, rollback, and recovery limits;
+external security review was waived only for this internal test scope.
 
 | Required evidence                                                          | Current state                                                                                             |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Actual macOS Touch ID success/cancel                                       | Passed through the production adapter: `VERIFIED` and `CANCELLED`                                         |
 | Actual macOS Keychain behavior                                             | Cross-process encrypted vault/reopen and keychain item metadata verified in the isolated Electron harness |
 | Packaged helper integrity, upgrade and supported-build acceptance          | Passed locally for the unsigned arm64 test build; source/package/install hashes match                     |
-| Same-user-process threat model, including shell-capable agents             | Documented limitation; owner/security acceptance remains outstanding                                      |
-| External security review and finding resolution                            | Not supplied; agent source reviews are not external review                                                |
-| Physical native entry, accessibility and verified translations             | Pending                                                                                                   |
-| OS-key loss, first-key initialization interruption and power-loss recovery | Beyond current process-crash/migration evidence                                                           |
+| Same-user-process threat model, including shell-capable agents             | Explicitly accepted for the internal macOS test build                                                     |
+| External security review and finding resolution                            | Waived for internal testing; still required for broader distribution                                      |
+| Physical native entry, accessibility and verified translations             | Accepted as a documented internal-test limitation                                                         |
+| OS-key loss, first-key initialization interruption and power-loss recovery | Accepted as a documented internal-test limitation                                                         |
 
-A shell-capable same-user process remains outside the browser permission/vault-authentication boundary. Do not claim Chromium-equivalent protection. Unsupported or unavailable authentication/storage configurations remain locked. #35 must continue tracking these unresolved gates even when bounded feature issues are closed.
+A shell-capable same-user process remains outside the browser permission/vault-authentication boundary. Do not claim Chromium-equivalent protection. Unsupported or unavailable authentication/storage configurations remain locked. Broader distribution still requires the repository's written WPP Open owner sign-off and external security review.
