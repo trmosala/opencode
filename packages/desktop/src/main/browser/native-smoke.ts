@@ -4381,7 +4381,13 @@ async function run() {
   await one.view.webContents.executeJavaScript(
     `const frame = document.createElement('iframe'); frame.src = ${JSON.stringify(url.replace("127.0.0.1", "localhost"))}; document.body.append(frame)`,
   )
-  await wait(() => !!childSession)
+  // Attachment precedes the guarded child's default execution context on newer Chromium.
+  await wait(
+    () =>
+      !!childSession &&
+      !one.view.webContents.isLoading() &&
+      !!one.frameSessions?.list().some((context) => context.sessionID === childSession),
+  )
   await one.view.webContents.debugger.sendCommand(
     "Runtime.evaluate",
     {
@@ -4410,6 +4416,7 @@ async function run() {
     childSession,
   )
   assert.equal(iframeCancelled.result.value, true, "Chromium cancels iframe selection without a native picker")
+  console.log("PASS guarded OOPIF chooser: ready child context, zero pickers/files and native cancellation")
   assert(one.transferGuarded, "Revocation retains delayed-transfer protection")
   assert(popup.transferGuarded, "Pop-ups inherit transfer protection without agent access")
   await command({ op: "transfer-rule", rule: { origin: url, uploads: "ask", downloads: "ask" }, remove: true })
@@ -4750,8 +4757,10 @@ async function run() {
     await command({ op: "navigate", tabID: first, url: `${url}?private` })
     assert.deepEqual(await measure(), baseline)
     browserViewport(owner, { ...viewport, bounds: { ...viewport.bounds, width: 300, height: 250 } })
+    await wait(async () => (await measure()).slice(2, 4).join() === "300,250")
     assert.deepEqual((await measure()).slice(2, 4), [300, 250])
     browserViewport(owner, viewport)
+    await wait(async () => (await measure()).join() === baseline.join())
     assert.deepEqual(await measure(), baseline)
     await command({ op: "select", tabID: fresh })
     await command({ op: "device", tabID: fresh, enabled: true, size: { width: 500, height: 700 } })
