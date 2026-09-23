@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet("Install", "Uninstall", "Status", "TransformInstall", "TransformUninstall")]
+  [ValidateSet("Install", "Uninstall", "Status", "Validate", "TransformInstall", "TransformUninstall")]
   [string]$Action,
   [Parameter(Mandatory = $true)]
   [string]$OwnedPath,
@@ -98,16 +98,26 @@ if ($Action -eq "Status") {
   exit 0
 }
 
-if ($Action -eq "Install") {
+if ($Action -eq "Install" -or $Action -eq "Validate") {
   if ([string]::IsNullOrWhiteSpace($CliPath) -or -not (Test-Path -LiteralPath $CliPath -PathType Leaf)) {
     throw "The bundled CookieMonster CLI is missing."
   }
-  $process = Start-Process -FilePath $CliPath -ArgumentList "--version" -NoNewWindow -PassThru
-  if (-not $process.WaitForExit(30000)) {
-    $process.Kill()
-    throw "The bundled CookieMonster CLI validation timed out."
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start.FileName = $CliPath
+  $start.Arguments = "--version"
+  $start.UseShellExecute = $false
+  # Windows PowerShell 5.1's Start-Process -PassThru can return an unattached process with a null ExitCode.
+  $process = [System.Diagnostics.Process]::Start($start)
+  try {
+    if (-not $process.WaitForExit(30000)) {
+      $process.Kill()
+      throw "The bundled CookieMonster CLI validation timed out."
+    }
+    if ($process.ExitCode -ne 0) { throw "The bundled CookieMonster CLI failed validation." }
+  } finally {
+    $process.Dispose()
   }
-  if ($process.ExitCode -ne 0) { throw "The bundled CookieMonster CLI failed validation." }
+  if ($Action -eq "Validate") { exit 0 }
   Write-UserPath (Transform-Path $(if ($null -eq $current) { "" } else { [string]$current }) $OwnedPath $true)
   exit 0
 }

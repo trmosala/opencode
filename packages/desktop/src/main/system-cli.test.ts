@@ -7,6 +7,32 @@ const execFileAsync = promisify(execFile)
 const script = join(import.meta.dir, "../../resources/windows/cli-path.ps1")
 const owned = "C:\\Program Files\\CookieMonster\\resources\\cli"
 
+test.skipIf(process.platform !== "win32")("validates a command's real exit code without changing PATH", async () => {
+  const run = (command: string) =>
+    execFileAsync(
+      join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        script,
+        "-Action",
+        "Validate",
+        "-OwnedPath",
+        owned,
+        "-CliPath",
+        command,
+      ],
+      { windowsHide: true },
+    )
+
+  expect((await run(process.execPath)).stdout.trim().length).toBeGreaterThan(0)
+  await expect(run(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "where.exe"))).rejects.toThrow(
+    "The bundled CookieMonster CLI failed validation.",
+  )
+})
+
 test.skipIf(process.platform !== "win32")("environment notification propagates native broadcast failure", async () => {
   const result = await execFileAsync(
     "pwsh",
