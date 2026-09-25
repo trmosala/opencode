@@ -195,10 +195,15 @@ export function browserShortcut(input: {
   if (key === "p") return "print"
 }
 
-export function browserTabKeyIndex(key: string, index: number, length: number): number | undefined {
+export function browserTabKeyIndex(
+  key: string,
+  index: number,
+  length: number,
+  direction: "ltr" | "rtl" = "ltr",
+): number | undefined {
   if (!length || index < 0 || index >= length) return
-  if (key === "ArrowLeft") return (index - 1 + length) % length
-  if (key === "ArrowRight") return (index + 1) % length
+  if (key === "ArrowLeft") return (index + (direction === "rtl" ? 1 : -1) + length) % length
+  if (key === "ArrowRight") return (index + (direction === "rtl" ? -1 : 1) + length) % length
   if (key === "Home") return 0
   if (key === "End") return length - 1
 }

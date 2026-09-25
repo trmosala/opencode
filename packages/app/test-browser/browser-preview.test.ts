@@ -259,7 +259,9 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
             fixture.selectSession("task")
             accept(tabs)
           }
-          expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Preview")
+          expect(
+            host.querySelector('[role="tab"][aria-selected="true"] [data-slot=browser-tab-title]')?.textContent,
+          ).toBe("Preview")
           if (timing === "held") pending.resolve(value)
           await new Promise<void>((resolve) => setImmediate(resolve))
           roundTrips.push({

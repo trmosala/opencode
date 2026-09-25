@@ -15,13 +15,7 @@ import { createStore, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
-import {
-  browserShortcut,
-  browserTabKeyIndex,
-  type BrowserCommand,
-  type BrowserShortcut,
-  type BrowserTabs,
-} from "@/browser-panel"
+import { browserShortcut, type BrowserCommand, type BrowserShortcut, type BrowserTabs } from "@/browser-panel"
 import { showToast } from "@/utils/toast"
 import {
   formatBrowserElementContext,
@@ -35,11 +29,11 @@ import {
   BrowserAccounts,
   BrowserDeviceToolbar,
   BrowserMenu,
-  BrowserTabMenu,
   BrowserTools,
   type BrowserToolPanel,
 } from "./browser-tools"
 import { browserSuggestions } from "./browser-suggestions"
+import { BrowserTabStrip } from "./browser-tab-strip"
 
 export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
   const language = useLanguage()
@@ -364,68 +358,14 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
         shortcut(action)
       }}
     >
-      <div class="shrink-0 flex items-center border-b border-border-weaker-base bg-background-stronger px-1">
-        <div class="flex flex-1 min-w-0 overflow-x-auto" role="tablist" aria-label={language.t("browser.tabs.label")}>
-          <For each={state.tabs.tabs}>
-            {(tab) => (
-              <div
-                class="flex items-center min-w-0 shrink-0 max-w-48 border-r border-border-weaker-base"
-                classList={{ "bg-background-base": tab.id === state.tabs.activeID }}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab.id === state.tabs.activeID}
-                  aria-label={`${tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)}${tab.pinned ? `, ${language.t("browser.tabs.pinned")}` : ""}`}
-                  tabIndex={tab.id === state.tabs.activeID ? 0 : -1}
-                  class="truncate px-3 py-2 text-12-regular text-text-base"
-                  title={tab.url}
-                  onClick={() => void command({ op: "select", tabID: tab.id })}
-                  onKeyDown={(event) => {
-                    const index = state.tabs.tabs.findIndex((entry) => entry.id === tab.id)
-                    const next = browserTabKeyIndex(event.key, index, state.tabs.tabs.length)
-                    if (next === undefined) return
-                    event.preventDefault()
-                    const buttons = event.currentTarget
-                      .closest('[role="tablist"]')
-                      ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-                    buttons?.[next]?.focus()
-                    void command({ op: "select", tabID: state.tabs.tabs[next].id })
-                  }}
-                >
-                  <Show when={tab.pinned}>
-                    <span aria-hidden="true">● </span>
-                  </Show>
-                  {tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)}
-                </button>
-                <BrowserTabMenu tab={tab} tabs={state.tabs.tabs} command={command} />
-                <IconButton
-                  icon="close"
-                  variant="ghost"
-                  class="shrink-0 h-6 w-6"
-                  aria-label={language.t("browser.tabs.close")}
-                  title={language.t("browser.tabs.close")}
-                  onClick={() => void command({ op: "close", tabID: tab.id })}
-                />
-              </div>
-            )}
-          </For>
-        </div>
-        <IconButton
-          icon="plus"
-          variant="ghost"
-          class="shrink-0 h-7 w-7"
-          aria-label={language.t("browser.tabs.new")}
-          title={language.t("browser.tabs.new")}
-          onClick={() => void command({ op: "new" })}
-        />
+      <BrowserTabStrip tabs={state.tabs} command={command}>
         <BrowserMenu
           tab={active()}
           open={(tool) => setState("tool", tool)}
           command={command}
           screenshot={(closed) => void screenshot(closed)}
         />
-      </div>
+      </BrowserTabStrip>
       <form
         class="shrink-0 flex flex-wrap items-center gap-1 border-b border-border-weaker-base px-2 py-2"
         onSubmit={(event) => {
