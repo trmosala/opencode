@@ -147,9 +147,7 @@ export async function renderingSmoke() {
     await wait(() => owner.attached === tab)
     await paint()
     for (let cycle = 0; cycle < 3; cycle++) {
-      await win.webContents.executeJavaScript(
-        "[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Site controls').click(); true",
-      )
+      await win.webContents.executeJavaScript("document.querySelector('[data-browser-site]').click(); true")
       await new Promise((resolve) => setTimeout(resolve, 100))
       await wait(() => owner.attached === tab)
       await paint()

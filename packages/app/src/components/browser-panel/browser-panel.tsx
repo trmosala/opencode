@@ -15,7 +15,13 @@ import { createStore, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
-import { browserShortcut, type BrowserCommand, type BrowserShortcut, type BrowserTabs } from "@/browser-panel"
+import {
+  browserShortcut,
+  type BrowserCommand,
+  type BrowserShortcut,
+  type BrowserTab,
+  type BrowserTabs,
+} from "@/browser-panel"
 import { showToast } from "@/utils/toast"
 import {
   formatBrowserElementContext,
@@ -51,6 +57,24 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
   })
   const active = createMemo(() => state.tabs.tabs.find((tab) => tab.id === state.tabs.activeID))
   const landing = createMemo(() => !active() || active()?.url === "about:blank")
+  const bookmarked = () => !!active() && !!state.tabs.profile?.bookmarks?.some((row) => row.url === active()?.url)
+  // First blocking reason wins; mirrors the pill's disabled condition.
+  const agentHint = (tab: BrowserTab) =>
+    language.t(
+      state.tabs.profile?.preferences?.agentEnabled === false
+        ? "browser.access.off"
+        : tab.agentAccess
+          ? "browser.site.agentOn"
+          : !tab.access
+            ? "browser.access.unknown"
+            : tab.access.blank
+              ? "browser.access.blank"
+              : !tab.access.hostAllowed
+                ? "browser.access.blocked"
+                : tab.loading
+                  ? "browser.access.loading"
+                  : "browser.tabs.profile",
+    )
   const suggestions = createMemo(() => browserSuggestions(state.input, state.tabs))
   const suggestionsID = createUniqueId()
   const showSuggestions = () => state.addressFocused && !state.suggestionsClosed && !!suggestions().length
@@ -408,93 +432,164 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
             if (tab) void command({ op: tab.loading ? "stop" : "reload", tabID: tab.id })
           }}
         />
-        <input
-          ref={address}
-          role="combobox"
-          autocomplete="off"
-          aria-autocomplete="list"
-          aria-expanded={showSuggestions()}
-          aria-controls={suggestionsID}
-          aria-activedescendant={
-            showSuggestions() && state.suggestionIndex >= 0 ? `${suggestionsID}-${state.suggestionIndex}` : undefined
-          }
-          onKeyDown={(event) => {
-            if (event.isComposing) return
-            if (event.key === "Escape") {
-              event.preventDefault()
-              event.stopPropagation()
-              setState("suggestionsClosed", true)
-              return
+        <div class="min-w-20 flex-1 h-7 flex items-center gap-0.5 rounded-md border border-border-weak-base bg-background-base px-0.5 focus-within:border-text-interactive-base">
+          <IconButton
+            type="button"
+            icon={
+              active()?.connection === "https"
+                ? "lock"
+                : active()?.connection === "http" || active()?.connection === "error"
+                  ? "warning"
+                  : "globe"
             }
-            if (!showSuggestions()) return
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault()
-              setState("suggestionIndex", (index) =>
-                index < 0
-                  ? event.key === "ArrowDown"
-                    ? 0
-                    : suggestions().length - 1
-                  : (index + (event.key === "ArrowDown" ? 1 : -1) + suggestions().length) % suggestions().length,
-              )
+            variant="ghost"
+            class="shrink-0 h-6 w-6"
+            data-browser-site
+            disabled={landing() || !active()?.connection}
+            aria-label={language.t("browser.menu.site")}
+            aria-expanded={state.tool === "site"}
+            title={language.t("browser.menu.site")}
+            onClick={() => setState("tool", state.tool === "site" ? undefined : "site")}
+          />
+          <input
+            ref={address}
+            role="combobox"
+            autocomplete="off"
+            aria-autocomplete="list"
+            aria-expanded={showSuggestions()}
+            aria-controls={suggestionsID}
+            aria-activedescendant={
+              showSuggestions() && state.suggestionIndex >= 0 ? `${suggestionsID}-${state.suggestionIndex}` : undefined
             }
-            if (event.key === "Enter" && state.suggestionIndex >= 0) {
-              event.preventDefault()
-              chooseSuggestion(state.suggestionIndex)
+            onKeyDown={(event) => {
+              if (event.isComposing) return
+              if (event.key === "Escape") {
+                event.preventDefault()
+                event.stopPropagation()
+                setState("suggestionsClosed", true)
+                return
+              }
+              if (!showSuggestions()) return
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault()
+                setState("suggestionIndex", (index) =>
+                  index < 0
+                    ? event.key === "ArrowDown"
+                      ? 0
+                      : suggestions().length - 1
+                    : (index + (event.key === "ArrowDown" ? 1 : -1) + suggestions().length) % suggestions().length,
+                )
+              }
+              if (event.key === "Enter" && state.suggestionIndex >= 0) {
+                event.preventDefault()
+                chooseSuggestion(state.suggestionIndex)
+              }
+            }}
+            class="min-w-0 flex-1 h-full bg-transparent px-1 text-12-regular text-text-base outline-none"
+            value={
+              !state.addressFocused &&
+              state.tabs.profile?.preferences?.showFullURL === false &&
+              state.input === active()?.url &&
+              /^https?:/.test(state.input)
+                ? new URL(state.input).origin
+                : state.input
             }
-          }}
-          class="min-w-20 flex-1 h-7 rounded-md border border-border-weak-base bg-background-base px-2 text-12-regular text-text-base"
-          value={
-            !state.addressFocused &&
-            state.tabs.profile?.preferences?.showFullURL === false &&
-            state.input === active()?.url &&
-            /^https?:/.test(state.input)
-              ? new URL(state.input).origin
-              : state.input
-          }
-          onFocus={() => setState({ addressFocused: true, suggestionsClosed: false, suggestionIndex: -1 })}
-          onBlur={() => setState("addressFocused", false)}
-          onInput={(event) =>
-            setState({ input: event.currentTarget.value, suggestionsClosed: false, suggestionIndex: -1 })
-          }
-          placeholder={language.t("browser.address.searchPlaceholder", {
-            engine: language.t(`browser.search.${state.tabs.profile?.preferences?.searchEngine ?? "duckduckgo"}`),
-          })}
-          aria-label={language.t("browser.address.label")}
-        />
-        <BrowserAccounts tab={active()} tabs={state.tabs} command={fillAccount} />
-        <Button
-          type="button"
-          size="small"
-          variant="ghost"
-          disabled={landing() || !active()?.connection}
-          onClick={() => setState("tool", state.tool === "site" ? undefined : "site")}
-        >
-          {language.t("browser.menu.site")}
-        </Button>
-        <Button
-          type="button"
-          size="small"
-          variant="ghost"
-          disabled={landing() || !state.tabs.profile?.bookmarks}
-          onClick={() => {
-            const tab = active()
-            if (!tab) return
-            if (state.tabs.profile?.bookmarks?.some((row) => row.url === tab.url)) {
-              setState("tool", "bookmarks")
-              return
+            onFocus={() => setState({ addressFocused: true, suggestionsClosed: false, suggestionIndex: -1 })}
+            onBlur={() => setState("addressFocused", false)}
+            onInput={(event) =>
+              setState({ input: event.currentTarget.value, suggestionsClosed: false, suggestionIndex: -1 })
             }
-            void command({ op: "bookmark-save", url: tab.url, title: tab.title, pinned: false })
-          }}
-        >
-          {language.t(
-            state.tabs.profile?.bookmarks?.some((row) => row.url === active()?.url)
-              ? "browser.bookmarks.saved"
-              : "browser.bookmarks.add",
+            placeholder={language.t("browser.address.searchPlaceholder", {
+              engine: language.t(`browser.search.${state.tabs.profile?.preferences?.searchEngine ?? "duckduckgo"}`),
+            })}
+            aria-label={language.t("browser.address.label")}
+          />
+          <BrowserAccounts tab={active()} tabs={state.tabs} command={fillAccount} />
+          <Show when={state.addressFocused && !!state.input.trim()}>
+            <IconButton
+              type="submit"
+              icon="enter"
+              variant="ghost"
+              class="shrink-0 h-6 w-6"
+              disabled={state.opening}
+              aria-label={language.t("common.open")}
+              title={language.t("common.open")}
+              // Keep focus in the field so blur does not unmount the hint before the click lands.
+              onMouseDown={(event) => event.preventDefault()}
+            />
+          </Show>
+          <IconButton
+            type="button"
+            icon={bookmarked() ? "star-filled" : "star"}
+            variant="ghost"
+            class="shrink-0 h-6 w-6"
+            data-browser-bookmark
+            disabled={landing() || !state.tabs.profile?.bookmarks}
+            aria-pressed={bookmarked()}
+            aria-label={language.t(bookmarked() ? "browser.bookmarks.saved" : "browser.bookmarks.add")}
+            title={language.t(bookmarked() ? "browser.bookmarks.saved" : "browser.bookmarks.add")}
+            onClick={() => {
+              const tab = active()
+              if (!tab) return
+              if (bookmarked()) {
+                setState("tool", "bookmarks")
+                return
+              }
+              void command({ op: "bookmark-save", url: tab.url, title: tab.title, pinned: false })
+            }}
+          />
+        </div>
+        <Show when={!landing() && active()}>
+          {(tab) => (
+            <>
+              <IconButton
+                type="button"
+                icon="link"
+                variant="ghost"
+                class="shrink-0"
+                aria-label={language.t("browser.action.addUrl")}
+                title={language.t("browser.action.addUrl")}
+                onClick={() => appendText(prompt, formatBrowserUrlContext(tab()))}
+              />
+              <IconButton
+                type="button"
+                icon="window-cursor"
+                variant={state.selecting ? "secondary" : "ghost"}
+                class="shrink-0"
+                disabled={state.selecting}
+                aria-label={language.t("browser.action.addSelection")}
+                title={language.t("browser.action.addSelection")}
+                onClick={() => void selection()}
+              />
+              <IconButton
+                type="button"
+                icon="photo"
+                variant="ghost"
+                class="shrink-0"
+                aria-label={language.t("browser.action.addScreenshot")}
+                title={language.t("browser.action.addScreenshot")}
+                onClick={() => void screenshot()}
+              />
+              <Button
+                type="button"
+                size="small"
+                variant={tab().agentAccess ? "primary" : "ghost"}
+                class="shrink-0"
+                data-browser-agent
+                aria-pressed={tab().agentAccess}
+                disabled={
+                  state.tabs.profile?.preferences?.agentEnabled === false ||
+                  (!tab().agentAccess && (tab().loading || !tab().access?.hostAllowed))
+                }
+                title={agentHint(tab())}
+                aria-description={agentHint(tab())}
+                onClick={() => void command({ op: "access", tabID: tab().id, enabled: !tab().agentAccess })}
+              >
+                {language.t("browser.access.title")}
+              </Button>
+            </>
           )}
-        </Button>
-        <Button type="submit" size="small" variant="secondary" disabled={state.opening || !state.input.trim()}>
-          {language.t("common.open")}
-        </Button>
+        </Show>
       </form>
       <Show when={showSuggestions()}>
         <div
@@ -525,41 +620,27 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           </For>
         </div>
       </Show>
-      <Show when={!landing() && active()}>
+      <Show when={!landing() && active()?.agentAccess && active()}>
         {(tab) => (
-          <div class="contents">
-            <div class="shrink-0 flex flex-wrap items-center gap-1 border-b border-border-weaker-base px-2 py-1">
-              <Button size="small" variant="ghost" onClick={() => appendText(prompt, formatBrowserUrlContext(tab()))}>
-                {language.t("browser.action.addUrl")}
-              </Button>
-              <Button
-                size="small"
-                variant={state.selecting ? "secondary" : "ghost"}
-                disabled={state.selecting}
-                onClick={() => void selection()}
-              >
-                {language.t("browser.action.addSelection")}
-              </Button>
-              <Button size="small" variant="ghost" onClick={() => void screenshot()}>
-                {language.t("browser.action.addScreenshot")}
-              </Button>
-              <label class="flex items-center gap-1 text-12-regular text-text-base">
-                <input
-                  type="checkbox"
-                  checked={tab().agentAccess}
-                  disabled={
-                    state.tabs.profile?.preferences?.agentEnabled === false ||
-                    (!tab().agentAccess && (tab().loading || !tab().access?.hostAllowed))
-                  }
-                  onChange={(event) => {
-                    const enabled = event.currentTarget.checked
-                    event.currentTarget.checked = tab().agentAccess
-                    void command({ op: "access", tabID: tab().id, enabled })
-                  }}
-                />
-                {language.t("browser.tabs.access")}
-              </label>
-            </div>
+          <div
+            role="status"
+            data-browser-agent-strip
+            class="shrink-0 flex items-center gap-2 border-b border-border-weaker-base bg-surface-interactive-weak px-2 py-1 text-12-regular text-text-base"
+          >
+            <span class="size-1.5 shrink-0 rounded-full bg-icon-interactive-base" aria-hidden="true" />
+            <span class="min-w-0 truncate">{language.t("browser.site.agentOn")}</span>
+            <span class="min-w-0 flex-1 truncate text-text-weak" dir="ltr">
+              {URL.parse(tab().url)?.host}
+            </span>
+            <Button
+              type="button"
+              size="small"
+              variant="ghost"
+              class="shrink-0"
+              onClick={() => void command({ op: "access", tabID: tab().id, enabled: false })}
+            >
+              {language.t("browser.site.revoke")}
+            </Button>
           </div>
         )}
       </Show>
@@ -582,6 +663,10 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
       </Show>
       <Show when={active()?.device && active()}>
         {(tab) => <BrowserDeviceToolbar tab={tab()} presets={state.tabs.profile?.devicePresets} command={command} />}
+      </Show>
+      {/* The native page covers the viewport's own box, so the accent sits just outside it. */}
+      <Show when={!landing() && active()?.agentAccess && state.tool !== "settings"}>
+        <div aria-hidden="true" class="shrink-0 h-0.5 bg-icon-interactive-base" />
       </Show>
       <div
         ref={viewport}
@@ -633,7 +718,6 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           </div>
         </Show>
       </div>
-      <div class="shrink-0 px-2 py-1 text-12-regular text-text-weak">{language.t("browser.tabs.profile")}</div>
       <Show when={state.tabs.downloads?.length}>
         <div
           role="status"

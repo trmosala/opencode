@@ -105,6 +105,15 @@
     flex-shrink: 0;
   }
 
+  [data-slot="browser-tab-agent"] {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    margin-inline: 2px 4px;
+    border-radius: 50%;
+    background: var(--icon-interactive-base);
+  }
+
   [data-slot="browser-tab-close"] {
     flex-shrink: 0;
     width: 24px;

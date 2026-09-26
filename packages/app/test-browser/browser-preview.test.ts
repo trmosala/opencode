@@ -165,7 +165,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
     await Promise.resolve()
     const button = (text: string) => {
       const value = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-        (value) => value.textContent?.trim() === text,
+        (value) => value.textContent?.trim() === text || value.getAttribute("aria-label") === text,
       )
       expect(value).toBeDefined()
       return value!

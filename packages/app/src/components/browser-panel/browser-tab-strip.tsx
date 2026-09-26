@@ -115,6 +115,14 @@ export function BrowserTabStrip(props: {
                   <span class="sr-only">{language.t("browser.toast.loadFailed")}</span>
                 </Show>
               </button>
+              <Show when={tab.agentAccess}>
+                <span
+                  data-slot="browser-tab-agent"
+                  role="img"
+                  aria-label={language.t("browser.site.agentOn")}
+                  title={language.t("browser.site.agentOn")}
+                />
+              </Show>
               <div data-slot="browser-tab-actions">
                 <BrowserTabMenu tab={tab} tabs={props.tabs.tabs} command={props.command} />
               </div>

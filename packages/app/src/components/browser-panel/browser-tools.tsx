@@ -365,16 +365,19 @@ export function BrowserAccounts(props: {
   }
   return (
     <DropdownMenu open={state.open} onOpenChange={(open) => setState("open", open)}>
+      {/* Stays mounted while hidden: smoke tests read its disabled state. */}
       <DropdownMenu.Trigger
-        as={Button}
+        as={IconButton}
         type="button"
-        size="small"
+        icon="key"
         variant="ghost"
+        class="shrink-0 h-6 w-6"
+        classList={{ hidden: !accounts().length }}
         data-account-selector
         disabled={state.busy || !accounts().length}
-      >
-        {language.t("browser.menu.passwords")}
-      </DropdownMenu.Trigger>
+        aria-label={language.t("browser.menu.passwords")}
+        title={language.t("browser.menu.passwords")}
+      />
       <Show when={state.open}>
         <DropdownMenu.Portal>
           <DropdownMenu.Content class="max-h-80 max-w-[calc(100vw-16px)] overflow-y-auto">
