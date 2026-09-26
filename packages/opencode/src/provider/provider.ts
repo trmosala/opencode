@@ -2026,7 +2026,7 @@ const layer = Layer.effect(
       }
 
       const cookieMonsterProviderID = ProviderV2.ID.make("cookiemonster")
-      const cookieMonsterModelID = ModelV2.ID.make("CM_GPT-5.6 Sol - Medium")
+      const cookieMonsterModelID = ModelV2.ID.make("CM_GPT-5.6-Sol_High")
       if (s.providers[cookieMonsterProviderID]?.models[cookieMonsterModelID]) {
         return { providerID: cookieMonsterProviderID, modelID: cookieMonsterModelID }
       }

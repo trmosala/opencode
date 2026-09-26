@@ -368,11 +368,11 @@ it.instance(
 )
 
 it.instance(
-  "defaultModel uses Sol Medium for a fresh CookieMonster configuration",
+  "defaultModel uses Sol High for a fresh CookieMonster configuration",
   Effect.gen(function* () {
     const model = yield* Provider.use.defaultModel()
     expect(String(model.providerID)).toBe("cookiemonster")
-    expect(String(model.modelID)).toBe("CM_GPT-5.6 Sol - Medium")
+    expect(String(model.modelID)).toBe("CM_GPT-5.6-Sol_High")
   }),
   {
     config: {
@@ -384,6 +384,7 @@ it.instance(
           models: {
             "CM_GPT6_Astra_Max": { name: "Astra Max" },
             "CM_GPT-5.6 Sol - Medium": { name: "Sol Medium" },
+            "CM_GPT-5.6-Sol_High": { name: "Sol High" },
           },
           options: { apiKey: "test-key", baseURL: "http://127.0.0.1:8787/v1" },
         },

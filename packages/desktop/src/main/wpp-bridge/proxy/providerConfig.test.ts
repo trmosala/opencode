@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { MODEL_IDS } from "./modelProfiles.mjs"
+import { MODEL_IDS, RENAMED_MODEL_IDS } from "./modelProfiles.mjs"
 import {
   COOKIE_MONSTER_PROVIDER,
   ensureO1CodeProvider,
@@ -38,6 +38,11 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.provider.cookiemonster).toEqual(COOKIE_MONSTER_PROVIDER)
   expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
   expect(config.provider.cookiemonster.models["CM_Gemini-3.7-Flash_High"].family).toBe("gemini")
+  expect(config.provider.cookiemonster.models["CM_Opus5.5-High"]).toMatchObject({
+    name: "CM_Opus5.5-High",
+    family: "claude",
+  })
+  expect(config.provider.cookiemonster.models["CM_Opus 5 - High"]).toBeUndefined()
   expect(config.provider["o1-code"]).toBeUndefined()
   expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp).toEqual(O1_CODE_MCP)
@@ -135,6 +140,157 @@ test("removes retired project models from the seeded CookieMonster provider", as
   await rm(dir, { recursive: true, force: true })
 })
 
+for (const hasRenamedModel of [false, true]) {
+  test(`migrates the old Opus High seed with renamed model present=${hasRenamedModel}`, async () => {
+    const { dir, file } = await tmpFile()
+    try {
+      const renamed = {
+        name: "Custom Opus High",
+        family: "claude",
+        cost: { input: 9, output: 27, cache_read: 1, cache_write: 2 },
+        limit: { context: 100000, output: 16000 },
+      }
+      const other = { name: "Custom model", family: "custom", cost: { input: 1 } }
+      await writeFile(
+        file,
+        JSON.stringify({
+          provider: {
+            cookiemonster: {
+              ...COOKIE_MONSTER_PROVIDER,
+              models: {
+                ...Object.fromEntries(
+                  Object.entries(COOKIE_MONSTER_PROVIDER.models).filter(([id]) => id !== "CM_Opus5.5-High"),
+                ),
+                "CM_Opus 5 - High": { name: "CM_Opus 5 - High" },
+                ...(hasRenamedModel ? { "CM_Opus5.5-High": renamed } : {}),
+                custom: other,
+              },
+            },
+            other: { name: "Other", models: { "CM_Opus 5 - High": { name: "Keep this" } } },
+          },
+          model: "cookiemonster/CM_Opus5.5-XHigh",
+        }),
+      )
+      await ensureO1CodeProvider(file)
+      const first = await readFile(file, "utf8")
+      const config = JSON.parse(first)
+      const models = config.provider.cookiemonster.models
+
+      expect(models["CM_Opus 5 - High"]).toBeUndefined()
+      expect(models["CM_Opus5.5-High"]).toEqual(
+        hasRenamedModel ? renamed : COOKIE_MONSTER_PROVIDER.models["CM_Opus5.5-High"],
+      )
+      expect(Object.keys(models).sort()).toEqual([...MODEL_IDS, "custom"].sort())
+      expect(models.custom).toEqual(other)
+      for (const id of MODEL_IDS.filter((id) => id !== "CM_Opus5.5-High")) {
+        expect(models[id]).toEqual(COOKIE_MONSTER_PROVIDER.models[id])
+      }
+      expect(config.provider.other).toEqual({
+        name: "Other",
+        models: { "CM_Opus 5 - High": { name: "Keep this" } },
+      })
+      expect(config.model).toBe("cookiemonster/CM_Opus5.5-XHigh")
+      await ensureO1CodeProvider(file)
+      expect(await readFile(file, "utf8")).toBe(first)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const provider of [
+  undefined,
+  {
+    ...COOKIE_MONSTER_PROVIDER,
+    models: { "CM_Opus 5 - High": { name: "CM_Opus 5 - High" } },
+  },
+  COOKIE_MONSTER_PROVIDER,
+]) {
+  test(`migrates the retired global default with provider models=${Object.keys(provider?.models ?? {}).join(",")}`, async () => {
+    const { dir, file } = await tmpFile()
+    try {
+      const unrelated = {
+        small_model: "other/CM_Opus 5 - High",
+        agent: { review: { model: "other/CM_Opus 5 - High" } },
+        permission: { bash: "ask" },
+        plugin: ["user-plugin"],
+        lsp: false,
+      }
+      await writeFile(
+        file,
+        JSON.stringify({
+          ...unrelated,
+          model: "cookiemonster/CM_Opus 5 - High",
+          provider: { cookiemonster: provider, other: { name: "Keep this" } },
+        }),
+      )
+      await ensureO1CodeProvider(file)
+      const first = await readFile(file, "utf8")
+      const config = JSON.parse(first)
+
+      expect(config.model).toBe("cookiemonster/CM_Opus5.5-High")
+      expect(config).toMatchObject(unrelated)
+      expect(config.provider.other).toEqual({ name: "Keep this" })
+      expect(config.provider.cookiemonster.models["CM_Opus 5 - High"]).toBeUndefined()
+      expect(config.provider.cookiemonster.models["CM_Opus5.5-High"]).toBeDefined()
+      await ensureO1CodeProvider(file)
+      expect(await readFile(file, "utf8")).toBe(first)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const [retired, successor] of RENAMED_MODEL_IDS) {
+  test(`migrates the retired seed and global default ${retired} to ${successor}`, async () => {
+    const { dir, file } = await tmpFile()
+    try {
+      await writeFile(
+        file,
+        JSON.stringify({
+          model: `cookiemonster/${retired}`,
+          provider: {
+            cookiemonster: {
+              ...COOKIE_MONSTER_PROVIDER,
+              models: { ...COOKIE_MONSTER_PROVIDER.models, [retired]: { name: retired } },
+            },
+          },
+        }),
+      )
+      await ensureO1CodeProvider(file)
+      const first = await readFile(file, "utf8")
+      const config = JSON.parse(first)
+
+      expect(config.model).toBe(`cookiemonster/${successor}`)
+      expect(config.provider.cookiemonster.models[retired]).toBeUndefined()
+      expect(Object.keys(config.provider.cookiemonster.models)).toEqual(MODEL_IDS)
+      await ensureO1CodeProvider(file)
+      expect(await readFile(file, "utf8")).toBe(first)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const model of [
+  undefined,
+  "cookiemonster/CM_Opus5.5-High",
+  "cookiemonster/CM_Opus5.5-XHigh",
+  "other/CM_Opus 5 - High",
+  "CM_Opus 5 - High",
+]) {
+  test(`preserves unrelated global default ${model}`, async () => {
+    const { dir, file } = await tmpFile()
+    try {
+      await writeFile(file, JSON.stringify({ model, provider: { cookiemonster: COOKIE_MONSTER_PROVIDER } }))
+      await ensureO1CodeProvider(file)
+      expect(JSON.parse(await readFile(file, "utf8")).model).toBe(model)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
 test("preserves an explicit LSP setting", async () => {
   const { dir, file } = await tmpFile()
   await writeFile(file, JSON.stringify({ lsp: false }))
@@ -147,11 +303,19 @@ test("preserves an explicit LSP setting", async () => {
 
 test("leaves a custom provider under the CookieMonster key untouched", async () => {
   const { dir, file } = await tmpFile()
-  const custom = { name: "My provider", models: { custom: { name: "Custom" } } }
-  await writeFile(file, JSON.stringify({ provider: { cookiemonster: custom } }))
+  const custom = {
+    ...COOKIE_MONSTER_PROVIDER,
+    name: "My provider",
+    models: { custom: { name: "Custom" }, "CM_Opus 5 - High": { name: "Keep this" } },
+  }
+  await writeFile(
+    file,
+    JSON.stringify({ model: "cookiemonster/CM_Opus 5 - High", provider: { cookiemonster: custom } }),
+  )
   await ensureO1CodeProvider(file)
   const config = JSON.parse(await readFile(file, "utf8"))
   expect(config.provider.cookiemonster).toEqual(custom)
+  expect(config.model).toBe("cookiemonster/CM_Opus 5 - High")
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -255,6 +419,11 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
     browser_wait_for_navigation: "allow",
   })
   expect(Object.keys(models)).toEqual(MODEL_IDS)
+  expect(models["CM_Opus5.5-High"]).toMatchObject({
+    name: "CM_Opus5.5-High",
+    family: "claude",
+  })
+  expect(models["CM_Opus 5 - High"]).toBeUndefined()
   for (const agentName of MODEL_IDS) {
     expect(models[agentName]).toEqual(COOKIE_MONSTER_PROVIDER.models[agentName])
   }

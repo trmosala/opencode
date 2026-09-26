@@ -12,10 +12,44 @@ const {
 const { commitThread, resetThread, threadContextUsage } = await import("./sessionThreads.mjs");
 const { estimateTokens } = await import("./tokenEstimate.mjs");
 
-const KEY = "sess-A::CM_Opus 5 - Extra High";
+const KEY = "sess-A::CM_Opus5.5-XHigh";
 
 afterEach(() => {
   resetThread(KEY);
+});
+
+describe("Opus High routing compatibility", () => {
+  for (const model of ["CM_Opus 5 - High", "CM_Opus5.5-High"]) {
+    test(`routes ${model} to the renamed WPP agent`, async () => {
+      const calls = [];
+      const response = fakeResponse();
+      const bridge = {
+        hasSession: () => false,
+        run: async (prompt, options) => {
+          calls.push({ prompt: JSON.parse(prompt), options });
+          return bridgeRun("done");
+        },
+      };
+      try {
+        await withNoRunLogs(() => handleChatCompletions(
+          { headers: { "x-session-affinity": "sess-opus-high" } },
+          response,
+          { ...body(user("hello")), model },
+          { bridge },
+        ));
+
+        expect(response.statusCode).toBe(200);
+        expect(calls).toHaveLength(1);
+        expect(calls[0].options.model).toBe("CM_Opus5.5-High");
+        expect(calls[0].options.sessionKey).toBe("sess-opus-high::CM_Opus5.5-High");
+        expect(calls[0].prompt.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1");
+        expect(JSON.parse(response.body).model).toBe(model);
+      } finally {
+        resetThread("sess-opus-high::CM_Opus5.5-High");
+        resetThread("sess-opus-high::CM_GPT-5.6-Sol_High");
+      }
+    });
+  }
 });
 
 describe("handleChatCompletions capture retry", () => {
@@ -947,7 +981,7 @@ describe("handleChatCompletions session serialization", () => {
 });
 
 function body(...messages) {
-  return { model: "CM_Opus 5 - Extra High", stream: false, messages };
+  return { model: "CM_Opus5.5-XHigh", stream: false, messages };
 }
 
 function toolBody(...messages) {

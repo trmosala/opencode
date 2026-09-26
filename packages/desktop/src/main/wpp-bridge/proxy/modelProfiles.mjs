@@ -64,24 +64,24 @@ export const MODEL_PROFILES = {
     toolFormat: "xml",
     commentaryPhase: true,
   },
-  "CM_Opus 5 - Auto": {
-    agentName: "CM_Opus 5 - Auto",
+  "CM_Opus5.5-Auto": {
+    agentName: "CM_Opus5.5-Auto",
     toolFormat: "xml",
   },
-  "CM_Opus 5 - Medium": {
-    agentName: "CM_Opus 5 - Medium",
+  "CM_Opus5.5-Medium": {
+    agentName: "CM_Opus5.5-Medium",
     toolFormat: "xml",
   },
-  "CM_Opus 5 - High": {
-    agentName: "CM_Opus 5 - High",
+  "CM_Opus5.5-High": {
+    agentName: "CM_Opus5.5-High",
     toolFormat: "xml",
   },
-  "CM_Opus 5 - Extra High": {
-    agentName: "CM_Opus 5 - Extra High",
+  "CM_Opus5.5-XHigh": {
+    agentName: "CM_Opus5.5-XHigh",
     toolFormat: "xml",
   },
-  "CM_Opus 5 - Max": {
-    agentName: "CM_Opus 5 - Max",
+  "CM_Opus5.5-Max": {
+    agentName: "CM_Opus5.5-Max",
     toolFormat: "xml",
   },
   "CM_Gemini-3.7-Flash_Low": {
@@ -98,10 +98,22 @@ export const MODEL_PROFILES = {
   },
 }
 
-export const DEFAULT_MODEL_ID = "CM_GPT-5.6 Sol - Medium"
+export const DEFAULT_MODEL_ID = "CM_GPT-5.6-Sol_High"
+
+// Retired WPP agent names that still route to their successor, so in-flight sessions and saved
+// defaults keep working after a rename. Never advertised; providerConfig strips them from the seed.
+export const RENAMED_MODEL_IDS = new Map([
+  ["CM_Opus 5 - Auto", "CM_Opus5.5-Auto"],
+  ["CM_Opus 5 - Medium", "CM_Opus5.5-Medium"],
+  ["CM_Opus 5 - High", "CM_Opus5.5-High"],
+  ["CM_Opus 5 - Extra High", "CM_Opus5.5-XHigh"],
+  ["CM_Opus 5 - Max", "CM_Opus5.5-Max"],
+])
 
 export function resolveModelProfile(modelId) {
-  return MODEL_PROFILES[modelId] || MODEL_PROFILES[DEFAULT_MODEL_ID]
+  const id = RENAMED_MODEL_IDS.get(modelId) ?? modelId
+  // Own keys only: inherited names like "constructor" must fall back instead of resolving to a builtin.
+  return Object.hasOwn(MODEL_PROFILES, id) ? MODEL_PROFILES[id] : MODEL_PROFILES[DEFAULT_MODEL_ID]
 }
 
 export const MODEL_IDS = Object.keys(MODEL_PROFILES)

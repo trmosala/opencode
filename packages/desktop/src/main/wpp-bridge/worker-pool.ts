@@ -17,6 +17,7 @@ import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppProjectAccessS
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 import { SpawnGate } from "./spawn-gate"
 import { assertCapabilityResponse, buildCapabilityProbeJob } from "./proxy/protocol.mjs"
+import { DEFAULT_MODEL_ID } from "./proxy/modelProfiles.mjs"
 
 const IDLE_WORKER_TTL_MS = 10 * 60 * 1000
 // A session-pinned tab holds that session's WPP thread (browser-held context), so reaping it throws
@@ -121,7 +122,7 @@ export class WorkerPool {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const worker = await this.acquire(
-      (job.payload?.model || "CM_GPT-5.6 Sol - Medium").trim(),
+      (job.payload?.model || DEFAULT_MODEL_ID).trim(),
       (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
       signal,

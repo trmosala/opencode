@@ -1,7 +1,7 @@
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { MODEL_IDS } from "./modelProfiles.mjs"
+import { MODEL_IDS, RENAMED_MODEL_IDS } from "./modelProfiles.mjs"
 
 // Advertised model context/output limits. Context is kept below the proxy's O1_CODE_MAX_PROMPT_CHARS
 // (600k chars ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
@@ -95,6 +95,7 @@ const RETIRED_COOKIE_MONSTER_MODELS = new Set([
   "CM_Opus 4.8 - Auto",
   "CM_Opus 4.8 - High",
   "CM_Opus 4.8 - Extra High",
+  ...RENAMED_MODEL_IDS.keys(),
 ])
 
 function isLegacyO1CodeProvider(provider) {
@@ -237,6 +238,20 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
       existingModels[modelKey] = { ...existingModel, family, cost: mergedCost }
       changed = true
     }
+  }
+  // Point a saved global default at the successor of a renamed agent, but only when the seeded
+  // CookieMonster provider actually carries that successor.
+  const successor =
+    typeof config.model === "string" && config.model.startsWith("cookiemonster/")
+      ? RENAMED_MODEL_IDS.get(config.model.slice("cookiemonster/".length))
+      : undefined
+  if (
+    successor &&
+    isCookieMonsterProvider(config.provider?.cookiemonster) &&
+    config.provider.cookiemonster.models?.[successor]
+  ) {
+    config.model = `cookiemonster/${successor}`
+    changed = true
   }
   for (const [key, value] of Object.entries(SEED_MCP)) {
     if (config.mcp?.[key]) continue

@@ -186,7 +186,8 @@ async function runJobWithProgress(job, jobId) {
 
   const prompt = String(job?.payload?.prompt || "");
   const verboseRecorder = job?.payload?.verboseRecorder === true;
-  const expectedAgent = String(job?.payload?.model || "CM_GPT-5.6 Sol - Medium").trim();
+  // Injected into the page, so it cannot import DEFAULT_MODEL_ID; keep in sync with proxy/modelProfiles.mjs.
+  const expectedAgent = String(job?.payload?.model || "CM_GPT-5.6-Sol_High").trim();
   // Continue the pinned thread: the proxy sent only the delta turn and the tab already holds prior
   // context, so we must NOT click New Chat (that wipes it) nor reselect the agent (already set).
   const continueThread = job?.payload?.continueThread === true;
