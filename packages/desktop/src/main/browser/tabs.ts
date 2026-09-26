@@ -2202,11 +2202,15 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     const ticket = vaultAccess.require()
     const revision = tab.revision
     const viewport = owner.viewport
+    // A linked-task switch advances the epoch before any viewport update arrives, so the viewport lease alone cannot
+    // bind consent to the task that requested it.
+    const epoch = owner.taskEpoch
     let revoked = false
     const check = (attached = false) => {
       vaultAccess.require(ticket)
       if (
         revoked ||
+        owner.taskEpoch !== epoch ||
         contents.isDestroyed() ||
         contents.isLoadingMainFrame() ||
         tab.revision !== revision ||

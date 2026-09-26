@@ -46,6 +46,8 @@ try {
           formats: ["iife"],
           name: "AccountFillFixture",
           fileName: () => "account-fill.js",
+          // Components import their own stylesheets (e.g. browser-tab-strip.css); the fixture page links this asset.
+          cssFileName: "account-fill",
         },
       },
     })

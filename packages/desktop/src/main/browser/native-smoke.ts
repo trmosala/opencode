@@ -71,6 +71,11 @@ const server = createServer((request, response) => {
     response.end(readFileSync(join(profile!, "account-fill.js")))
     return
   }
+  if (request.url === "/account-fill.css" && process.argv.includes("--account-fill")) {
+    response.writeHead(200, { "Content-Type": "text/css" })
+    response.end(readFileSync(join(profile!, "account-fill.css")))
+    return
+  }
   if (request.url === "/access-stream" && holdStream) {
     streamed = response
     response.writeHead(200, { "Content-Type": "text/html" })
@@ -1477,7 +1482,8 @@ async function run() {
         }
       }) as typeof dialog.showMessageBox
       await chrome.executeJavaScript(
-        `document.body.innerHTML = ''; const script = document.createElement('script'); script.src = '/account-fill.js'; document.body.append(script); true`,
+        // Load component styles before mounting; without them the tab strip stacks and starves the viewport.
+        `document.body.innerHTML = ''; const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = '/account-fill.css'; link.onload = () => { const script = document.createElement('script'); script.src = '/account-fill.js'; document.body.append(script) }; document.head.append(link); true`,
       )
       stage("account fill: loading renderer fixture")
       await wait(() => chrome.executeJavaScript("!!window.fixture"))
@@ -1723,11 +1729,27 @@ async function run() {
       await publish()
       await reset()
       stage("account fill: authoritative consent and preparation races")
-      for (const change of ["lock", "tab", "tab-back", "viewport-back", "reload", "fields", "account"] as const) {
+      for (const change of [
+        "lock",
+        "tab",
+        "tab-back",
+        "viewport-back",
+        "context",
+        "context-back",
+        "reload",
+        "fields",
+        "account",
+      ] as const) {
         stage(`account fill: consent race ${change}`)
         await reset()
         const revision = one.revision
+        // A linked-task switch must revoke pending consent even when the viewport lease never changes.
+        const linked = owner.linkContext
+        const relink = () =>
+          linked ? browserLinkContext(owner, linked.sessionID, linked.lease) : browserLinkContext(owner, null, "other")
         answer = async () => {
+          if (change === "context" || change === "context-back") browserLinkContext(owner, "other", "other")
+          if (change === "context-back") relink()
           if (change === "lock") {
             await command({ op: "lock-vault" })
             await assert.rejects(command({ op: "unlock-vault" }), "No overlapping native authentication")
@@ -1761,6 +1783,7 @@ async function run() {
           true,
         )
         if (change === "tab") await command({ op: "select", tabID: first })
+        if (change === "context") relink()
         if (change === "account")
           writeLogins(
             readLogins().map((row) => (row.id === id ? { ...row, password: "fixture-selected-secret" } : row)),
