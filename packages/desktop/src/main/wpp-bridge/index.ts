@@ -10,7 +10,6 @@
 // worker pool. Only /bridge/health and /bridge/login remain, feeding the diagnostic status page.
 
 import { startServer } from "./proxy/server.mjs"
-import { ensureO1CodeProvider } from "./proxy/providerConfig.mjs"
 
 const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1"
 const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787)
@@ -31,10 +30,6 @@ export function startWppBridge(options: WppBridgeOptions = {}): Promise<void> {
 
   const host = options.host ?? DEFAULT_HOST
   const port = options.port ?? DEFAULT_PORT
-
-  // Persist the CookieMonster project roster to opencode.json on boot. A config write failure must
-  // not block the proxy (and thus the app) from starting because the sidecar also receives it inline.
-  void ensureO1CodeProvider().catch((error) => console.error("cookiemonster: failed to update opencode.json", error))
 
   starting = startServer({ host, port, openLogin: options.openLogin }).catch((error) => {
     // Reset so a later retry can re-attempt instead of being pinned to a rejected promise.

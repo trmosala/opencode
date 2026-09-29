@@ -51,6 +51,7 @@ import { migrate } from "./migrate"
 import { cleanupStoreFiles } from "./store-cleanup"
 import { createTray, destroyTray } from "./tray"
 import { startWppBridge } from "./wpp-bridge"
+import { ensureO1CodeProvider } from "./wpp-bridge/proxy/providerConfig.mjs"
 import { openWppLogin } from "./wpp-bridge/session"
 import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
@@ -420,6 +421,9 @@ const main = Effect.gen(function* () {
   const loadingTask = yield* Effect.gen(function* () {
     logger.log("sidecar connection started", { version: SIDECAR_VERSION })
 
+    yield* Effect.promise(() =>
+      ensureO1CodeProvider().catch((error) => logger.error("cookiemonster: failed to update opencode.json", error)),
+    )
     ensureLoopbackNoProxy()
     useEnvProxy()
 
