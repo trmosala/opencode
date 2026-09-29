@@ -1,23 +1,38 @@
-# CookieMonster system CLI
+# CookieMonster macOS installation
 
-macOS is the supported CookieMonster target. Branded installers include the same `opencode` binary used by the desktop sidecar. WPP credentials and browser profile data are never copied into the command installation. Legacy Windows implementation remains in source but is no longer built or validated by the CookieMonster release workflow.
+macOS is the supported CookieMonster release target. Branded builds ship an app-only DMG and ZIP, not a system-wide PKG. The desktop app retains its bundled internal sidecar but does not install a public `opencode` command or provide Open Design command discovery. Legacy Windows public CLI installation remains unchanged in source.
 
-## Installation
+## Per-user installation
 
-Open Design users must run the CookieMonster `.pkg`. It installs `/Applications/CookieMonster.app` and creates `/usr/local/bin/opencode` only when that destination is absent or already points to CookieMonster's current or legacy bundled CLI. It refuses regular files and links owned by another installation. The `.dmg` is app-only.
+Open CookieMonster in the DMG and choose **Install for My User**. The app copies itself to `~/Applications/CookieMonster.app`, opens the installed copy, and quits the disk-image copy. No administrator authorization, system-wide symlink, or shell-profile change is required. Eject the disk image after the installed app opens, then complete WPP SSO.
 
-If registration conflicts with another command, relocate that command yourself and rerun the PKG while administrator authorization is available. The installer never edits shell profiles. In a new terminal, use `which -a opencode` to inspect all discovered commands and `opencode --version` to check the selected CLI. An earlier user-level installation can shadow `/usr/local/bin/opencode`. Startup diagnostics also report command discovery, registration, shadowing and the bundled sidecar version. The app's **Install CLI** action verifies registration on macOS; missing registration requires rerunning the PKG, not first-launch elevation.
+If macOS uses App Translocation, the app asks for manual installation rather than guessing the original bundle location. In Finder, open your home folder, create `Applications` if needed, and copy `CookieMonster.app` there. Open that copy and eject the image. ZIP downloads also use this manual copy procedure.
 
-After the installer finishes, launch CookieMonster and complete WPP SSO. CookieMonster must remain running while `opencode` or Open Design sends requests through a `CM_*` model. The installer does not launch the app as root or perform SSO.
+Existing apps are never replaced automatically. To update, quit CookieMonster, move the existing user-owned app aside in Finder, then install the new copy. Keep the previous copy until the new version has been verified. A failed copy can leave a partial bundle; inspect it before removing it. Application settings and WPP browser data remain separate from the app bundle.
 
-## Removal
+Per-user installation does not bypass Gatekeeper or device-management policy. Follow macOS prompts and contact IT if the app is blocked.
 
-Run `sudo packages/desktop/scripts/uninstall-macos-cli.sh` from a trusted checkout, then remove `/Applications/CookieMonster.app`. A support bundle must preserve the relative layout of that script and `packages/desktop/resources/macos/pkg-scripts/cli-link.sh`. Cleanup removes only exact current or legacy CookieMonster symlink targets, including dangling links; unrelated links, regular files and directories remain untouched. Deleting only the app can leave a dangling command link, repaired by the next PKG installation. IT can optionally forget the package receipt according to its policy.
+## Signed builds
+
+From `packages/desktop` on a Mac with a Developer ID Application identity and notarization credentials configured for electron-builder:
+
+```sh
+CM_BRAND=1 CM_UNSIGNED=0 OPENCODE_CHANNEL=prod bun run build
+CM_BRAND=1 CM_UNSIGNED=0 OPENCODE_CHANNEL=prod bun run package:mac -- --publish never
+```
+
+To produce only the DMG, use `CM_BRAND=1 CM_UNSIGNED=0 OPENCODE_CHANNEL=prod bun run package -- --mac dmg --publish never` after building. Signing, hardened runtime, and notarization remain enabled when `CM_UNSIGNED` is not `1`. Credentials must stay in the local signing environment or keychain, never in the repository.
+
+## Removal and legacy installs
+
+For a new per-user installation, quit CookieMonster and remove `~/Applications/CookieMonster.app`. This leaves settings and WPP sign-in data intact and requires no privileged cleanup.
+
+An older PKG installation can still own `/Applications/CookieMonster.app` and `/usr/local/bin/opencode`. The new app neither updates nor removes those files. IT can run `sudo packages/desktop/scripts/uninstall-macos-cli.sh` from a trusted checkout before removing the old system app. The script requires the relative layout of `resources/macos/pkg-scripts/cli-link.sh`; it removes only exact CookieMonster symlink targets, including dangling links, and leaves unrelated commands untouched. IT can forget the old package receipt according to its policy. Legacy cleanup is not required to run the new per-user app.
 
 ## Validation and releases
 
-The manual release workflow now runs only on macOS. Its default `publish=false` builds and validates installers without creating or replacing a release. Set `publish=true` explicitly to publish after validation. Before artifact upload, it tests link ownership, installs the PKG twice, runs the installed command, checks fresh login-shell discovery and identical public/private CLI bytes, and verifies removal. It refuses a runner with a pre-existing app or command before arming cleanup. Unsigned internal builds still produce Gatekeeper warnings.
+Run `bun test electron-builder.config.test.ts src/main/macos-user-install.test.ts src/main/system-cli.test.ts --timeout 20000` from `packages/desktop` for packaging, user-install, and public CLI capability checks.
 
-Local macOS ownership tests run with `packages/desktop/scripts/test-macos-cli.sh`; packaging configuration tests run with `bun test electron-builder.config.test.ts` from `packages/desktop`. The shell tests use disposable directories and synthetic executables. They cover missing and legacy targets, repeat installation, modes, failed executable validation, spaces, staging-name collision and exact removal ownership. Production link registration now uses an exclusively created temporary directory; it no longer reuses or cleans up a predictable PID-named file. Check-then-change link ownership is not a guarantee against concurrent privileged filesystem mutation.
+The manual macOS workflow uses `CM_UNSIGNED=1`. It validates copying the DMG app into a disposable directory under the user's home, private executable availability, rejection of an existing destination, reinstallation after removal, and cleanup without system-wide installation. It uploads only the DMG. The default `publish=false` does not publish a release; `publish=true` explicitly publishes after validation.
 
-Live Open Design discovery and an end-to-end WPP-backed request remain manual acceptance, as agreed for issue #4. Perform this after one PKG installation and WPP sign-in under the intended user's account, with `/usr/local/bin` available to Open Design. Native packaged install/reinstall/removal evidence is separate from local shell/configuration tests; do not treat a blocked CI job as a pass.
+These checks do not prove Gatekeeper acceptance, Finder launch, or a WPP-backed request. Before distributing a signed build, test on the intended standard-user Mac: install into `~/Applications`, launch after ejecting the DMG, complete SSO, send a prompt, restart, and confirm no administrator installation prompt or public CLI dependency. Verify the signed app and notarization with macOS tooling. Native checks cannot run on a Windows development host.

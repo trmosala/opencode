@@ -189,7 +189,7 @@ bun run lint            # oxlint (root only)
 O1_CODE_SHOW_WORKERS=1 bun run dev:desktop            # same, with the hidden WPP worker tabs visible
 cd packages/desktop && bun test src/main/wpp-bridge/  # the WPP bridge test suite
 ```
-Desktop packaging targets macOS only (from `packages/desktop`): `CM_BRAND=1 bun run build` then `CM_BRAND=1 bun run package:mac`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, auto-update stripped) rather than an unbranded OpenCode build. Branded macOS packaging emits a supported `.pkg` that owns `/usr/local/bin/opencode` plus an app-only `.dmg`. Windows/Linux code remains for upstream compatibility but is no longer a CookieMonster release target. See `packages/desktop/SYSTEM_CLI.md`.
+Desktop packaging targets macOS only (from `packages/desktop`): `CM_BRAND=1 bun run build` then `CM_BRAND=1 bun run package:mac`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, auto-update stripped) rather than an unbranded OpenCode build. Branded macOS packaging emits app-only `.dmg` and `.zip` artifacts for `~/Applications/CookieMonster.app`, with no PKG or public CLI registration. The DMG uses the existing **Install for My User** flow; internal sidecars remain bundled. Set `CM_UNSIGNED=0` for signed local builds with Developer ID and notarization credentials configured. Windows/Linux code remains for upstream compatibility but is no longer a CookieMonster release target. See `packages/desktop/SYSTEM_CLI.md`.
 
 ### First hour on this fork
 
@@ -202,7 +202,7 @@ Desktop packaging targets macOS only (from `packages/desktop`): `CM_BRAND=1 bun 
 
 ### CI
 
-`.github/workflows/cookiemonster-desktop.yml` is the macOS-only CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`. Branded builds bundle one CLI artifact as both the private desktop sidecar and installer-owned public command, run native install/reinstall/removal smoke tests, and disable upstream publishing. The default `publish=false` validates and uploads private workflow artifacts only; explicit `publish=true` publishes a `cookiemonster-v<version>_<revision>` release. Unsigned builds trigger Gatekeeper warnings. Every other workflow is inherited from upstream and unmodified.
+`.github/workflows/cookiemonster-desktop.yml` is the macOS-only CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`. Branded builds retain the private desktop sidecar without a public CLI, run non-root DMG copy/reinstall/removal checks, upload only the validated DMG, and disable upstream publishing. These checks do not cover Electron startup or WPP authentication. The default `publish=false` validates and uploads private workflow artifacts only; explicit `publish=true` publishes a `cookiemonster-v<version>_<revision>` release. Unsigned builds trigger Gatekeeper warnings. Every other workflow is inherited from upstream and unmodified.
 
 ### The WPP bridge (read multiple files to understand)
 

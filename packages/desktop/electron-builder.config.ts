@@ -12,7 +12,7 @@ import { CM_AE_FILES, stageCmAeBundle } from "./src/cm-ae"
 // absent credentials. Upstream release builds leave it unset and keep signing exactly as before.
 const unsigned = process.env.CM_UNSIGNED === "1"
 const branded = process.env.CM_BRAND === "1"
-const systemCli = branded && (process.platform === "win32" || process.platform === "darwin")
+const systemCli = branded && process.platform === "win32"
 
 const execFileAsync = promisify(execFile)
 const packageDir = path.dirname(fileURLToPath(import.meta.url))
@@ -71,6 +71,9 @@ const getBase = (appId: string): Configuration => ({
     "!resources/opencode-cli*",
     "!resources/cli{,/**/*}",
     "!resources/cm-ae{,/**/*}",
+    ...(branded && process.platform === "darwin"
+      ? ["!resources/macos/pkg-scripts{,/**/*}", "!resources/macos/pkg-conclusion.txt"]
+      : []),
   ],
   extraResources: [
     ...(process.platform === "win32" ? [{ from: "resources/vault-auth", to: "vault-auth", filter: ["*.exe"] }] : []),
@@ -182,17 +185,7 @@ function applyBranding(cfg: Configuration): Configuration {
     ...cfg,
     appId: "com.ogilvy.cookiemonster",
     productName: "CookieMonster",
-    extraMetadata: { ...cfg.extraMetadata, cmUserInstall: true },
-    mac: { ...cfg.mac, target: ["pkg", "dmg", "zip"] },
-    pkg: {
-      installLocation: "/Applications",
-      allowAnywhere: false,
-      allowCurrentUserHome: false,
-      allowRootDirectory: true,
-      isRelocatable: false,
-      scripts: "macos/pkg-scripts",
-      conclusion: "macos/pkg-conclusion.txt",
-    },
+    extraMetadata: { ...cfg.extraMetadata, cmUserInstall: true, cmSystemCli: systemCli },
     nsis: { ...cfg.nsis, include: "resources/windows/cli-install.nsh" },
     dmg: {
       ...cfg.dmg,

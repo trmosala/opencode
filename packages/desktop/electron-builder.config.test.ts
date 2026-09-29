@@ -135,11 +135,13 @@ test("bundles the CLI in branded prod builds", async () => {
     filter: ["opencode-cli*"],
   })
   expect(config.files).toContain("!resources/cli{,/**/*}")
-  if (process.platform === "win32" || process.platform === "darwin") {
+  expect(config.extraMetadata?.cmUserInstall).toBe(true)
+  expect(config.extraMetadata?.cmSystemCli).toBe(process.platform === "win32")
+  if (process.platform === "win32") {
     expect(config.extraResources).toContainEqual({
       from: "resources/cli",
       to: "cli",
-      filter: [process.platform === "win32" ? "opencode.exe" : "opencode"],
+      filter: ["opencode.exe"],
     })
   } else {
     expect(config.extraResources).not.toContainEqual(expect.objectContaining({ from: "resources/cli" }))
@@ -151,16 +153,16 @@ test("bundles the CLI in branded prod builds", async () => {
     })
   }
   expect(config.nsis?.include).toBe("resources/windows/cli-install.nsh")
-  expect(config.mac?.target).toEqual(["pkg", "dmg", "zip"])
-  expect(config.pkg).toEqual({
-    installLocation: "/Applications",
-    allowAnywhere: false,
-    allowCurrentUserHome: false,
-    allowRootDirectory: true,
-    isRelocatable: false,
-    scripts: "macos/pkg-scripts",
-    conclusion: "macos/pkg-conclusion.txt",
-  })
+  expect(config.mac?.target).toEqual(["dmg", "zip"])
+  expect(config.pkg).toBeUndefined()
+  expect(config.dmg?.contents).toEqual([
+    { x: 160, y: 160, type: "file" },
+    { x: 380, y: 160, type: "file", path: expect.stringContaining("Install CookieMonster.txt") },
+  ])
+  if (process.platform === "darwin") {
+    expect(config.files).toContain("!resources/macos/pkg-scripts{,/**/*}")
+    expect(config.files).toContain("!resources/macos/pkg-conclusion.txt")
+  }
 })
 
 test("CM_UNSIGNED strips every signing and notarization step", async () => {

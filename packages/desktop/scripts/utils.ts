@@ -88,11 +88,10 @@ export async function downloadCliToResources() {
   }
   if (process.platform === "darwin") await $`codesign --force --sign - ${dest}`
 
-  if (process.env.CM_BRAND === "1" && (process.platform === "win32" || process.platform === "darwin")) {
+  if (process.env.CM_BRAND === "1" && process.platform === "win32") {
     const command = windowsify("resources/cli/opencode")
     await mkdir(join("resources", "cli"), { recursive: true })
     await copyFile(dest, command)
-    if (process.platform !== "win32") await chmod(command, 0o755)
     const [sidecar, publicCommand] = await Promise.all([readFile(dest), readFile(command)])
     if (!sidecar.equals(publicCommand)) throw new Error("CookieMonster CLI resource copies differ")
     console.log(`Copied ${cli.package} to ${command}`)

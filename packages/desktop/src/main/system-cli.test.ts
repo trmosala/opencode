@@ -1,7 +1,38 @@
-import { expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
+import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { hasSystemCli } from "./system-cli-capability"
+
+const roots: string[] = []
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+})
+
+test.each([
+  { name: "app-only package", metadata: { cmSystemCli: false }, expected: false },
+  { name: "Windows system CLI package", metadata: { cmSystemCli: true }, expected: true },
+  { name: "unbranded package without capability", metadata: {}, expected: true },
+])("reads system CLI capability for $name", async ({ metadata, expected }) => {
+  const root = await mkdtemp(join(tmpdir(), "cm-system-cli-"))
+  roots.push(root)
+  await writeFile(join(root, "package.json"), JSON.stringify(metadata))
+
+  expect(await hasSystemCli(root)).toBe(expected)
+})
+
+test("does not enable system CLI when the package manifest cannot be read or parsed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cm-system-cli-"))
+  roots.push(root)
+
+  await assert.rejects(hasSystemCli(root))
+  await writeFile(join(root, "package.json"), "{")
+  await assert.rejects(hasSystemCli(root), SyntaxError)
+})
 
 const execFileAsync = promisify(execFile)
 const script = join(import.meta.dir, "../../resources/windows/cli-path.ps1")

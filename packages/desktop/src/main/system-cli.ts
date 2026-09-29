@@ -4,6 +4,7 @@ import { readlink } from "node:fs/promises"
 import { join, normalize } from "node:path"
 import { promisify } from "node:util"
 import { app } from "electron"
+import { hasSystemCli } from "./system-cli-capability"
 
 const execFileAsync = promisify(execFile)
 
@@ -13,7 +14,7 @@ type Logger = {
 }
 
 export async function repairSystemCli() {
-  if (!app.isPackaged) throw new Error("system_cli_unavailable")
+  if (!app.isPackaged || !(await hasSystemCli(app.getAppPath()))) throw new Error("system_cli_unavailable")
 
   if (process.platform === "win32") {
     const directory = join(process.resourcesPath, "cli")
@@ -57,7 +58,7 @@ export async function repairSystemCli() {
 }
 
 export async function logSystemCliDiagnostics(logger: Logger) {
-  if (!app.isPackaged) return
+  if (!app.isPackaged || !(await hasSystemCli(app.getAppPath()))) return
   const expected =
     process.platform === "win32"
       ? join(process.resourcesPath, "cli", "opencode.exe")

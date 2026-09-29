@@ -1,6 +1,6 @@
 name: cookiemonster-desktop
 
-# Builds unsigned CookieMonster macOS .pkg/.dmg installers.
+# Builds unsigned CookieMonster macOS app-only DMG/zip artifacts; uploads only the validated DMG.
 #
 # macOS is the sole supported CookieMonster target.
 # There is no Apple Developer certificate for this fork, so CM_UNSIGNED=1 strips signing and notarization from
@@ -66,8 +66,8 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Test installer configuration
-        run: bun test electron-builder.config.test.ts
+      - name: Test installer configuration and capabilities
+        run: bun test --timeout 20000 electron-builder.config.test.ts src/main/macos-user-install.test.ts src/main/system-cli.test.ts
         working-directory: packages/desktop
         # The tests opt into each branding/signing variant themselves.
         env:
@@ -82,40 +82,16 @@ jobs:
       - name: List packaged output
         run: ls -la packages/desktop/dist
 
-      - name: Test macOS link ownership
-        run: packages/desktop/scripts/test-macos-cli.sh
-
-      - name: Test macOS app and command installation
-        run: |
-          if [[ -e /Applications/CookieMonster.app || -L /Applications/CookieMonster.app || -e /usr/local/bin/opencode || -L /usr/local/bin/opencode ]]; then
-            echo "A CookieMonster app or opencode command already belongs to the runner; refusing to replace it." >&2
-            exit 1
-          fi
-          cleanup() {
-            sudo packages/desktop/scripts/uninstall-macos-cli.sh || true
-            sudo rm -rf /Applications/CookieMonster.app
-          }
-          trap cleanup EXIT
-          pkg=$(find packages/desktop/dist -maxdepth 1 -name 'cookiemonster-*.pkg' -print -quit)
-          sudo installer -pkg "$pkg" -target /
-          test -d /Applications/CookieMonster.app
-          test "$(readlink /usr/local/bin/opencode)" = "/Applications/CookieMonster.app/Contents/Resources/cli/opencode"
-          /usr/local/bin/opencode --version
-          test "$(/bin/zsh -lc 'command -v opencode')" = "/usr/local/bin/opencode"
-          cmp /Applications/CookieMonster.app/Contents/Resources/opencode-cli /Applications/CookieMonster.app/Contents/Resources/cli/opencode
-          sudo installer -pkg "$pkg" -target /
-          test "$(readlink /usr/local/bin/opencode)" = "/Applications/CookieMonster.app/Contents/Resources/cli/opencode"
-          sudo packages/desktop/scripts/uninstall-macos-cli.sh
-          test ! -e /usr/local/bin/opencode
-          test ! -L /usr/local/bin/opencode
+      - name: Test non-root DMG app installation and removal
+        # Validates copying and the private binary, not Electron startup or WPP authentication.
+        run: bun scripts/smoke-macos-dmg.ts
+        working-directory: packages/desktop
 
       - name: Upload installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cookiemonster-macos
-          path: |
-            packages/desktop/dist/*.dmg
-            packages/desktop/dist/*.pkg
+          path: packages/desktop/dist/cookiemonster-mac-*.dmg
           if-no-files-found: error
           retention-days: 7
 
@@ -158,9 +134,9 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           shopt -s nullglob
-          files=(release-assets/*.dmg release-assets/*.pkg)
-          if (( ${#files[@]} == 0 )); then
-            echo "No CookieMonster installers found." >&2
+          files=(release-assets/cookiemonster-mac-*.dmg)
+          if (( ${#files[@]} != 1 )); then
+            echo "Expected exactly one validated CookieMonster DMG." >&2
             exit 1
           fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
