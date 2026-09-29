@@ -3,6 +3,10 @@ import { DEFAULT_MODEL_ID, MODEL_IDS, RENAMED_MODEL_IDS, resolveModelProfile } f
 import { listModels } from "./openaiCompat.mjs"
 
 const PROJECT_AGENTS = [
+  "CM_GPT6_Sol_Low",
+  "CM_GPT6_Sol_Medium",
+  "CM_GPT6_Sol_High",
+  "CM_GPT6_Sol_XHigh",
   "CM_GPT6_Astra_Low",
   "CM_GPT6_Astra_Medium",
   "CM_GPT6_Astra_High",
