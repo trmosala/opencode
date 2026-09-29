@@ -466,46 +466,101 @@ function attachCaptureVerdict(result: unknown, witness: ReturnType<NetworkWitnes
   }
 }
 
-async function openAssistantPopover(contents: BrowserWindow["webContents"]) {
-  const deadline = Date.now() + 30000
+type StartupContents = Pick<BrowserWindow["webContents"], "executeJavaScript" | "sendInputEvent" | "getURL"> & {
+  mainFrame: Pick<BrowserWindow["webContents"]["mainFrame"], "framesInSubtree">
+}
 
-  while (Date.now() < deadline) {
-    const state = await contents.executeJavaScript(`
+export async function openAssistantPopover(
+  contents: StartupContents,
+  { now = Date.now, sleep = wait } = {},
+) {
+  const startedAt = now()
+  const deadline = startedAt + 60000
+  let nextClickAt = startedAt
+  let clickCount = 0
+  let inspectionFailures = 0
+  let state: {
+    open?: boolean
+    click?: boolean
+    x?: number
+    y?: number
+    buttonFound?: boolean
+    expanded?: boolean | null
+    disabled?: boolean
+    unobscured?: boolean
+    iframePresent?: boolean
+  } | null = null
+
+  while (now() < deadline) {
+    state = await contents.executeJavaScript(`
       (() => {
         const iframe = document.querySelector("#assistant-iframe");
-        // NOTE: iframe.src is the element attribute and keeps its initial /external?target=/chat
-        // value even after the assistant SPA client-side-routes to /chat — so it is NOT a reliable
-        // "settled on chat" signal. Settledness is gated downstream by composer readiness inside the
-        // iframe (waitForAssistantBridge), which is the only cross-origin-safe truth.
+        // The src attribute does not follow SPA routing. Composer readiness is checked downstream.
         if (iframe && String(iframe.src || "").includes("open-web-assistant-cs.wpp.ai")) {
-          return { open: true, src: iframe.src };
+          return { open: true };
         }
 
-        const controls = Array.from(document.querySelectorAll('[data-testid="assistant-popover-button-new"], wpp-action-button-v2-22-2, button, [role="button"]'));
-        const control = controls.find((el) => /AI\\s*Assistant/i.test(el.innerText || el.textContent || el.getAttribute("aria-label") || ""));
-        if (!control) return { open: false };
+        const control = document.querySelector('[data-testid="assistant-popover-button-new"]')
+          || Array.from(document.querySelectorAll('wpp-action-button-v2-22-2, button, [role="button"]'))
+            .find((el) => [el.innerText, el.textContent, el.getAttribute("aria-label")]
+              .some((label) => /AI\\s*Assistant/i.test(label || "")));
+        if (!control) return { open: false, buttonFound: false, expanded: null, iframePresent: !!iframe };
 
+        const expanded = control.getAttribute("aria-expanded");
+        const disabled = control.matches(":disabled") || !!control.closest('[disabled], [aria-disabled="true"]');
         const rect = control.getBoundingClientRect();
+        const x = Math.round(rect.left + rect.width / 2);
+        const y = Math.round(rect.top + rect.height / 2);
+        const hit = document.elementFromPoint(x, y);
+        const unobscured = !!hit && (hit === control || control.contains(hit));
         return {
           open: false,
-          click: rect.width > 0 && rect.height > 0,
-          x: Math.round(rect.left + rect.width / 2),
-          y: Math.round(rect.top + rect.height / 2)
+          buttonFound: true,
+          expanded: expanded === null ? null : expanded === "true",
+          disabled,
+          unobscured,
+          iframePresent: !!iframe,
+          click: expanded !== "true" && !disabled && unobscured && rect.width > 0 && rect.height > 0,
+          x,
+          y
         };
       })()
-    `, true).catch(() => null) as { open?: boolean; click?: boolean; x?: number; y?: number } | null
+    `, true).catch(() => {
+      inspectionFailures += 1
+      return null
+    })
 
     if (state?.open) return
-    if (state?.click && typeof state.x === "number" && typeof state.y === "number") {
+    // Poll readiness frequently, but give a dispatched click time to open the panel.
+    if (state?.click && now() >= nextClickAt && typeof state.x === "number" && typeof state.y === "number") {
       contents.sendInputEvent({ type: "mouseMove", x: state.x, y: state.y })
       contents.sendInputEvent({ type: "mouseDown", button: "left", x: state.x, y: state.y, clickCount: 1 })
       contents.sendInputEvent({ type: "mouseUp", button: "left", x: state.x, y: state.y, clickCount: 1 })
+      clickCount += 1
+      nextClickAt = now() + 3000
     }
-    await wait(500)
+    await sleep(500)
   }
 
   await throwIfAuthRequired(contents)
-  throw new Error("Timed out opening WPP AI Assistant popover.")
+  // Explicitly select state fields so page content, URLs and evaluation errors never enter the log.
+  const diagnostics = {
+    phase: "assistant-popover",
+    elapsedMs: now() - startedAt,
+    clickCount,
+    inspectionFailures,
+    popover: state ? {
+      buttonFound: state.buttonFound === true,
+      expanded: state.expanded ?? null,
+      disabled: state.disabled === true,
+      unobscured: state.unobscured === true,
+      iframePresent: state.iframePresent === true,
+    } : null,
+  }
+  const error = new Error("Timed out opening WPP AI Assistant popover.")
+  Reflect.set(error, "diagnostics", diagnostics)
+  Reflect.set(error, "bridgeResult", { diagnostics })
+  throw error
 }
 
 async function waitForAssistantBridge(contents: BrowserWindow["webContents"], controller: Controller) {
@@ -530,7 +585,7 @@ async function waitForAssistantBridge(contents: BrowserWindow["webContents"], co
   throw new Error("Timed out waiting for WPP AI Assistant bridge readiness.")
 }
 
-async function throwIfAuthRequired(contents: BrowserWindow["webContents"]) {
+async function throwIfAuthRequired(contents: StartupContents) {
   const state = await readStartupAuthState(contents)
   const accessReason = classifyWppProjectAccessState(state)
   if (accessReason) throw wppProjectAccessError(accessReason, state)
@@ -538,7 +593,7 @@ async function throwIfAuthRequired(contents: BrowserWindow["webContents"]) {
   if (reason) throw wppAuthRequiredError(reason, state)
 }
 
-async function readStartupAuthState(contents: BrowserWindow["webContents"]) {
+async function readStartupAuthState(contents: StartupContents) {
   const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
   const texts = await Promise.all(frames.map((frame) => frame.executeJavaScript(`
     (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
