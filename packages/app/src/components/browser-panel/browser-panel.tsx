@@ -668,9 +668,10 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
       <Show when={!landing() && active()?.agentAccess && state.tool !== "settings"}>
         <div aria-hidden="true" class="shrink-0 h-0.5 bg-icon-interactive-base" />
       </Show>
+      {/* Keep the rectangular native view above the panel's 10px rounded bottom corners. */}
       <div
         ref={viewport}
-        class="min-h-0 flex-1"
+        class="min-h-0 flex-1 mb-2.5"
         classList={{ hidden: state.tool === "settings", "overflow-y-auto": landing() }}
       >
         <Show when={landing()}>

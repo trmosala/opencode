@@ -115,13 +115,19 @@ export async function renderingSmoke() {
     await wait(() => win.webContents.executeJavaScript("!!window.fixture"))
     // The shared mount fixture supplies only a small subset of Tailwind layout utilities.
     await win.webContents.executeJavaScript(
-      "const style = document.createElement('style'); style.textContent = '.max-h-64{max-height:16rem}.overflow-y-auto{overflow-y:auto}'; document.head.append(style); true",
+      "const style = document.createElement('style'); style.textContent = '.max-h-64{max-height:16rem}.overflow-y-auto{overflow-y:auto}[class~=\"mb-2.5\"]{margin-bottom:10px}'; document.head.append(style); true",
+    )
+    // Match the real session side panel: rounded overflow clips the viewport's bottom corners.
+    await win.webContents.executeJavaScript(
+      "document.body.lastElementChild.style.cssText += ';border-radius:10px;overflow:hidden'; true",
     )
     await win.webContents.executeJavaScript(
       `window.fixture.accept(${JSON.stringify(await command({ op: "state" }))}); true`,
     )
     console.log("Rendering stage: fixture attachment")
     await wait(() => owner.attached === tab && owner.viewport?.lease !== "rendering")
+    await paint()
+    console.log("PASS mounted browser paints inside the rounded session panel")
     const lease = owner.viewport!.lease
     // Reproduce late native invalidation after an acknowledged renderer viewport,
     // without changing DOM geometry or emitting a second renderer resize event.
