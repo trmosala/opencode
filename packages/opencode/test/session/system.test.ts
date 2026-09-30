@@ -7,6 +7,9 @@ import { Skill } from "../../src/skill"
 import { Permission } from "../../src/permission"
 import type { Provider } from "../../src/provider/provider"
 import { SystemPrompt } from "../../src/session/system"
+import PROMPT_GPT from "../../src/session/prompt/gpt.txt"
+import PROMPT_ASTRA from "../../src/session/prompt/gpt-astra.txt"
+import PROMPT_CODEX from "../../src/session/prompt/codex.txt"
 import { MCP } from "../../src/mcp"
 import { testEffect } from "../lib/effect"
 
@@ -103,6 +106,25 @@ describe("session.system", () => {
     for (const providerID of ["kimi-for-coding", "moonshotai", "moonshotai-cn"]) {
       const prompt = SystemPrompt.provider({ providerID, api: { id: "k3" } } as Provider.Model)[0]
       expect(prompt).toContain("# Prompt and Tool Use")
+    }
+  })
+
+  test("selects upstream GPT-6 prompts by model ID or family without changing older Codex routing", () => {
+    for (const model of [
+      { api: { id: "gpt-6" } },
+      { api: { id: "gpt-6-codex" } },
+      { api: { id: "custom-model" }, family: "GPT-6" },
+    ]) {
+      expect(SystemPrompt.provider(model as Provider.Model)).toEqual([PROMPT_ASTRA])
+    }
+    expect(SystemPrompt.provider({ api: { id: "gpt-5-codex" } } as Provider.Model)).toEqual([PROMPT_CODEX])
+  })
+
+  test("preserves CookieMonster GPT-6 prompt routing", () => {
+    for (const id of ["CM_GPT6_Astra_High", "CM_GPT-6 Sol - High"]) {
+      expect(
+        SystemPrompt.provider({ providerID: "cookiemonster", family: "gpt-6", api: { id } } as Provider.Model),
+      ).toEqual([PROMPT_GPT])
     }
   })
 

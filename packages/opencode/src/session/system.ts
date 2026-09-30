@@ -8,6 +8,7 @@ import PROMPT_DEFAULT from "./prompt/default.txt"
 import PROMPT_BEAST from "./prompt/beast.txt"
 import PROMPT_GEMINI from "./prompt/gemini.txt"
 import PROMPT_GPT from "./prompt/gpt.txt"
+import PROMPT_ASTRA from "./prompt/gpt-astra.txt"
 import PROMPT_KIMI from "./prompt/kimi.txt"
 import PROMPT_META from "./prompt/meta.txt"
 
@@ -32,9 +33,9 @@ export function provider(model: Provider.Model) {
     const name = family.includes("muse-glimmer") ? "Muse Glimmer" : "Muse Spark"
     return [PROMPT_META.replaceAll("{{MODEL_NAME}}", name)]
   }
-  if (family.includes("gpt-4") || family.includes("o1") || family.includes("o3"))
-    return [PROMPT_BEAST]
+  if (family.includes("gpt-4") || family.includes("o1") || family.includes("o3")) return [PROMPT_BEAST]
   if (family.includes("gpt")) {
+    if (family.includes("gpt-6")) return [PROMPT_ASTRA]
     if (family.includes("codex")) {
       return [PROMPT_CODEX]
     }
@@ -43,10 +44,7 @@ export function provider(model: Provider.Model) {
   if (family.includes("gemini-")) return [PROMPT_GEMINI]
   if (family.includes("claude") || family.includes("opus")) return [PROMPT_ANTHROPIC]
   if (family.includes("trinity")) return [PROMPT_TRINITY]
-  if (
-    family.includes("kimi") ||
-    ["kimi-for-coding", "moonshotai", "moonshotai-cn"].includes(model.providerID)
-  )
+  if (family.includes("kimi") || ["kimi-for-coding", "moonshotai", "moonshotai-cn"].includes(model.providerID))
     return [PROMPT_KIMI]
   return [PROMPT_DEFAULT]
 }
