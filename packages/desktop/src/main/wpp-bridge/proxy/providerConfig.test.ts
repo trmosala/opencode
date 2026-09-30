@@ -80,6 +80,31 @@ test("preserves customized providers that reuse legacy keys", async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+test("disables only Zen and Go in injected and fresh configs", async () => {
+  expect(JSON.parse(o1CodeConfigContent()).disabled_providers).toEqual(["opencode", "opencode-go"])
+  const { dir, file } = await tmpFile()
+  try {
+    await ensureO1CodeProvider(file)
+    expect(JSON.parse(await readFile(file, "utf8")).disabled_providers).toEqual(["opencode", "opencode-go"])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("preserves existing disabled providers without duplicating Zen or Go", async () => {
+  const { dir, file } = await tmpFile()
+  try {
+    await writeFile(file, JSON.stringify({ disabled_providers: ["openai", "opencode"] }))
+    await ensureO1CodeProvider(file)
+    const first = await readFile(file, "utf8")
+    expect(JSON.parse(first).disabled_providers).toEqual(["openai", "opencode", "opencode-go"])
+    await ensureO1CodeProvider(file)
+    expect(await readFile(file, "utf8")).toBe(first)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("fully seeded config is left byte-for-byte unchanged", async () => {
   const { dir, file } = await tmpFile()
   await ensureO1CodeProvider(file)

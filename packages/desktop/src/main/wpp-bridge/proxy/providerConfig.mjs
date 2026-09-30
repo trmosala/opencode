@@ -131,6 +131,7 @@ export function o1CodeConfigFile() {
 export function o1CodeConfigContent(browserPlugin, aePlugin) {
   const plugins = [browserPlugin, aePlugin].filter(Boolean)
   return JSON.stringify({
+    disabled_providers: ["opencode", "opencode-go"],
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
@@ -173,6 +174,7 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
     await mkdir(dirname(file), { recursive: true })
     const created = {
       $schema: "https://opencode.ai/config.json",
+      disabled_providers: ["opencode", "opencode-go"],
       provider: { ...SEED_PROVIDERS },
       mcp: { ...SEED_MCP },
       lsp: true,
@@ -189,6 +191,13 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
   if (!config || typeof config !== "object" || Array.isArray(config)) return
 
   let changed = false
+  if (config.disabled_providers === undefined || Array.isArray(config.disabled_providers)) {
+    const missing = ["opencode", "opencode-go"].filter((id) => !config.disabled_providers?.includes(id))
+    if (missing.length) {
+      config.disabled_providers = [...(config.disabled_providers ?? []), ...missing]
+      changed = true
+    }
+  }
   if (isLegacyO1CodeProvider(config.provider?.["o1-code"])) {
     const { ["o1-code"]: _legacyO1Code, ...providers } = config.provider
     config.provider = providers
