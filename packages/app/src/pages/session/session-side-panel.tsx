@@ -270,7 +270,7 @@ export function SessionSidePanel(props: {
         onMiddleClick={() => tabs().close("browser")}
       >
         <div class="flex items-center gap-2">
-          <Icon name="window-cursor" size="small" />
+          <Icon name="globe" size="small" />
           <div>{language.t("session.tab.browser")}</div>
         </div>
       </Tabs.Trigger>

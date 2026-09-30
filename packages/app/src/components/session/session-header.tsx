@@ -218,20 +218,15 @@ export function SessionHeader() {
     focusTerminalById(id)
   }
 
-  const browserOpen = createMemo(() => tabs().active() === "browser" || tabs().all().includes("browser"))
-  useBrowserLinks({
-    sessionID: () => params.id,
-    open: () => {
-      void tabs().open("browser")
-    },
-  })
-  const toggleBrowser = () => {
-    if (tabs().active() === "browser") {
-      tabs().close("browser")
-      return
-    }
+  const browserOpen = createMemo(() => view().reviewPanel.opened() && tabs().active() === "browser")
+  const openBrowser = () => {
+    view().reviewPanel.open()
     void tabs().open("browser")
   }
+  useBrowserLinks({
+    sessionID: () => params.id,
+    open: openBrowser,
+  })
 
   const [prefs, setPrefs] = persisted(Persist.global("open.app"), createStore({ app: "finder" as OpenApp }))
   const [menu, setMenu] = createStore({ open: false })
@@ -261,7 +256,7 @@ export function SessionHeader() {
     browserVisible: isDesktop() && !!platform.browserPanel && !!params.id,
     browserOpened: browserOpen(),
     browserLabel: language.t("command.browser.toggle"),
-    onBrowserToggle: toggleBrowser,
+    onBrowserToggle: openBrowser,
   }))
 
   const selectApp = (app: OpenApp) => {
@@ -487,14 +482,14 @@ export function SessionHeader() {
                           <Button
                             variant="ghost"
                             class="titlebar-icon w-8 h-6 p-0 box-border"
-                            onClick={toggleBrowser}
+                            onClick={openBrowser}
                             aria-label={language.t("command.browser.toggle")}
                             aria-expanded={browserOpen()}
                             aria-controls="review-panel"
                           >
                             <Icon
                               size="small"
-                              name="window-cursor"
+                              name="globe"
                               classList={{
                                 "text-icon-strong": browserOpen(),
                                 "text-icon-weak": !browserOpen(),
@@ -594,7 +589,7 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
             aria-label={props.state.browserLabel}
             aria-expanded={props.state.browserOpened}
             aria-controls="review-panel"
-            icon={<IconV2 name="monitor" />}
+            icon={<Icon name="globe" size="small" />}
           />
         </TooltipV2>
       </Show>
