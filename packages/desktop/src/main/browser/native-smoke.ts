@@ -282,6 +282,12 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--drag-regions")) {
+    const { dragRegionsSmoke } = await import("./drag-regions.fixture")
+    await dragRegionsSmoke()
+    stage("PASS browser drag regions")
+    return
+  }
   if (process.argv.includes("--download-recovery")) {
     const { downloadRecoverySmoke } = await import("./download-recovery.fixture")
     await downloadRecoverySmoke()

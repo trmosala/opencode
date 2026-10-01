@@ -1249,6 +1249,9 @@ function createTab(
   })
   contents.on("dom-ready", () => {
     invalidate()
+    // Embedded pages must never participate in the shell's native window drag regions.
+    // User-origin CSS also overrides a site's own !important drag rules; navigation removes it.
+    void contents.insertCSS("* { app-region: no-drag !important; }", { cssOrigin: "user" }).catch(() => undefined)
     if (tab.device) {
       // A new document can reset Chromium's emulation while the per-tab preview stays enabled.
       const bounds = tab.view.getBounds()
