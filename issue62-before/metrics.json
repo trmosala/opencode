@@ -1,0 +1,4398 @@
+{
+  "mode": "issue62-before",
+  "metrics": [
+    {
+      "tag": "classic-light-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(248, 248, 248)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(252, 252, 252)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-light-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 237,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 380,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 404,
+              "bottom": 106,
+              "left": 380
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-ltr-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 229,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 253,
+              "bottom": 106,
+              "left": 229
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 283,
+              "bottom": 106,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 310,
+              "bottom": 106,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 337,
+              "bottom": 106,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 434.453125,
+              "bottom": 106,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-ltr-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 229,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 253,
+              "bottom": 106,
+              "left": 229
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 283,
+              "bottom": 106,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 310,
+              "bottom": 106,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 337,
+              "bottom": 106,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 434.453125,
+              "bottom": 106,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-ltr-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 229,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 253,
+              "bottom": 106,
+              "left": 229
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 283,
+              "bottom": 106,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 310,
+              "bottom": 106,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 337,
+              "bottom": 106,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 434.453125,
+              "bottom": 106,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(248, 248, 248)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(252, 252, 252)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-light-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 237,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 36,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 60,
+              "bottom": 106,
+              "left": 36
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-rtl-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 211,
+              "bottom": 106,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 181,
+              "bottom": 106,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 154,
+              "bottom": 106,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 127,
+              "bottom": 106,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 100,
+              "bottom": 106,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-rtl-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 211,
+              "bottom": 106,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 181,
+              "bottom": 106,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 154,
+              "bottom": 106,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 127,
+              "bottom": 106,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 100,
+              "bottom": 106,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-rtl-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 211,
+              "bottom": 106,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 181,
+              "bottom": 106,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 154,
+              "bottom": 106,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 127,
+              "bottom": 106,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 100,
+              "bottom": 106,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(16, 16, 16)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(28, 28, 28)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(28, 28, 28)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-dark-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 237,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 380,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 404,
+              "bottom": 106,
+              "left": 380
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-ltr-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 229,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 253,
+              "bottom": 106,
+              "left": 229
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 283,
+              "bottom": 106,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 310,
+              "bottom": 106,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 337,
+              "bottom": 106,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 434.453125,
+              "bottom": 106,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-ltr-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 229,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 253,
+              "bottom": 106,
+              "left": 229
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 283,
+              "bottom": 106,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 310,
+              "bottom": 106,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 337,
+              "bottom": 106,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 434.453125,
+              "bottom": 106,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-ltr-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 55,
+              "bottom": 106,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 82,
+              "bottom": 106,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 109,
+              "bottom": 106,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 139,
+              "bottom": 106,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 229,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 253,
+              "bottom": 106,
+              "left": 229
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 283,
+              "bottom": 106,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 310,
+              "bottom": 106,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 337,
+              "bottom": 106,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 434.453125,
+              "bottom": 106,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(16, 16, 16)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(28, 28, 28)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(28, 28, 28)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-dark-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 237,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 36,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 60,
+              "bottom": 106,
+              "left": 36
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-rtl-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 211,
+              "bottom": 106,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 181,
+              "bottom": 106,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 154,
+              "bottom": 106,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 127,
+              "bottom": 106,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 100,
+              "bottom": 106,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-rtl-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 211,
+              "bottom": 106,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 181,
+              "bottom": 106,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 154,
+              "bottom": 106,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 127,
+              "bottom": 106,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 100,
+              "bottom": 106,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-rtl-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 86,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 409,
+              "bottom": 106,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 382,
+              "bottom": 106,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 355,
+              "bottom": 106,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 301,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 325,
+              "bottom": 106,
+              "left": 301
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 211,
+              "bottom": 106,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 181,
+              "bottom": 106,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 154,
+              "bottom": 106,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 82,
+              "width": 24,
+              "height": 24,
+              "top": 82,
+              "right": 127,
+              "bottom": 106,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 82,
+              "width": 94.453125,
+              "height": 24,
+              "top": 82,
+              "right": 100,
+              "bottom": 106,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(250, 250, 250)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-light-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 245,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 384,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 404,
+              "bottom": 105,
+              "left": 384
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-ltr-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 233,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 253,
+              "bottom": 105,
+              "left": 233
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 283,
+              "bottom": 107,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 310,
+              "bottom": 107,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 337,
+              "bottom": 107,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 434.453125,
+              "bottom": 107,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-ltr-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 233,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 253,
+              "bottom": 105,
+              "left": 233
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 283,
+              "bottom": 107,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 310,
+              "bottom": 107,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 337,
+              "bottom": 107,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 434.453125,
+              "bottom": 107,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-ltr-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 233,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 253,
+              "bottom": 105,
+              "left": 233
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 283,
+              "bottom": 107,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 310,
+              "bottom": 107,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 337,
+              "bottom": 107,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 434.453125,
+              "bottom": 107,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(250, 250, 250)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-light-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 245,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 36,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 56,
+              "bottom": 105,
+              "left": 36
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-rtl-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 207,
+              "bottom": 105,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 181,
+              "bottom": 107,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 154,
+              "bottom": 107,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 127,
+              "bottom": 107,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 100,
+              "bottom": 107,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-rtl-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 207,
+              "bottom": 105,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 181,
+              "bottom": 107,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 154,
+              "bottom": 107,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 127,
+              "bottom": 107,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 100,
+              "bottom": 107,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-rtl-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 207,
+              "bottom": 105,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 181,
+              "bottom": 107,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 154,
+              "bottom": 107,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 127,
+              "bottom": 107,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 100,
+              "bottom": 107,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(36, 36, 36)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-dark-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 245,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 384,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 404,
+              "bottom": 105,
+              "left": 384
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-ltr-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 233,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 253,
+              "bottom": 105,
+              "left": 233
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 283,
+              "bottom": 107,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 310,
+              "bottom": 107,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 337,
+              "bottom": 107,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 434.453125,
+              "bottom": 107,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-ltr-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 233,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 253,
+              "bottom": 105,
+              "left": 233
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 283,
+              "bottom": 107,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 310,
+              "bottom": 107,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 337,
+              "bottom": 107,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 434.453125,
+              "bottom": 107,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-ltr-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 31,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 55,
+              "bottom": 107,
+              "left": 31
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 58,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 82,
+              "bottom": 107,
+              "left": 58
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 85,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 109,
+              "bottom": 107,
+              "left": 85
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 115,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 135,
+              "bottom": 105,
+              "left": 115
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 233,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 253,
+              "bottom": 105,
+              "left": 233
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 259,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 283,
+              "bottom": 107,
+              "left": 259
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 286,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 310,
+              "bottom": 107,
+              "left": 286
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 313,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 337,
+              "bottom": 107,
+              "left": 313
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 340,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 434.453125,
+              "bottom": 107,
+              "left": 340
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(0, 0, 0, 0)",
+          "width": 665
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(36, 36, 36)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-dark-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 245,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 36,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 56,
+              "bottom": 105,
+              "left": 36
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-rtl-active-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 207,
+              "bottom": 105,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 181,
+              "bottom": 107,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 154,
+              "bottom": 107,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 127,
+              "bottom": 107,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 100,
+              "bottom": 107,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-rtl-active-320",
+      "geometry": {
+        "toolbarWidth": 318,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 207,
+              "bottom": 105,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 181,
+              "bottom": 107,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 154,
+              "bottom": 107,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 127,
+              "bottom": 107,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 100,
+              "bottom": 107,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-rtl-active-280",
+      "geometry": {
+        "toolbarWidth": 278,
+        "scrollWidth": 415,
+        "inputWidth": 94,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 385,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 409,
+              "bottom": 107,
+              "left": 385
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 358,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 382,
+              "bottom": 107,
+              "left": 358
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 331,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 355,
+              "bottom": 107,
+              "left": 331
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 305,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 325,
+              "bottom": 105,
+              "left": 305
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 187,
+              "y": 85,
+              "width": 20,
+              "height": 20,
+              "top": 85,
+              "right": 207,
+              "bottom": 105,
+              "left": 187
+            }
+          },
+          {
+            "name": "Add URL",
+            "rect": {
+              "x": 157,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 181,
+              "bottom": 107,
+              "left": 157
+            }
+          },
+          {
+            "name": "Add Selection",
+            "rect": {
+              "x": 130,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 154,
+              "bottom": 107,
+              "left": 130
+            }
+          },
+          {
+            "name": "Add Screenshot",
+            "rect": {
+              "x": 103,
+              "y": 83,
+              "width": 24,
+              "height": 24,
+              "top": 83,
+              "right": 127,
+              "bottom": 107,
+              "left": 103
+            }
+          },
+          {
+            "name": "Agent access",
+            "rect": {
+              "x": 5.546875,
+              "y": 83,
+              "width": 94.453125,
+              "height": 24,
+              "top": 83,
+              "right": 100,
+              "bottom": 107,
+              "left": 5.546875
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "errors": []
+}
