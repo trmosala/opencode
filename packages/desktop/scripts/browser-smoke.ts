@@ -19,7 +19,13 @@ try {
           name: "account-fill-fixture",
           enforce: "pre",
           resolveId(id) {
-            const name = ["@/context/language", "@/context/platform", "@/context/prompt", "@/utils/toast"].find(
+            const name = [
+              "@/context/language",
+              "@/context/platform",
+              "@/context/prompt",
+              "@/context/settings",
+              "@/utils/toast",
+            ].find(
               (name) =>
                 id === name || id.replaceAll("\\", "/") === resolve("../app/src", name.slice(2)).replaceAll("\\", "/"),
             )
@@ -31,6 +37,8 @@ try {
             if (id === "\0fixture:@/context/platform")
               return "export const usePlatform = () => ({ browserPanel: window.fixture.browser })"
             if (id === "\0fixture:@/context/prompt") return "export const usePrompt = () => ({})"
+            if (id === "\0fixture:@/context/settings")
+              return "export const useSettings = () => ({ general: { newLayoutDesigns: () => false } })"
             if (id === "\0fixture:@/utils/toast") return "export const showToast = () => window.fixture.errors++"
           },
         },

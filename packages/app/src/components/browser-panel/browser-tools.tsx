@@ -1,11 +1,12 @@
-import { Button } from "@opencode-ai/ui/button"
+import { BrowserButton, BrowserIconButton, BrowserDropdownMenu } from "./browser-native-controls"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+
 import { Icon } from "@opencode-ai/ui/icon"
 import { Progress } from "@opencode-ai/ui/progress"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { Keybind } from "@opencode-ai/ui/keybind"
 import { usePlatform } from "@/context/platform"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+
 import { Select } from "@opencode-ai/ui/select"
 import { createEffect, createUniqueId, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -64,59 +65,58 @@ export function BrowserMenu(props: {
   let finishScreenshot: (() => void) | undefined
   onCleanup(() => finishScreenshot?.())
   return (
-    <DropdownMenu>
+    <BrowserDropdownMenu>
       <Tooltip placement="top" flip={false} value={language.t("browser.menu.label")}>
-        <DropdownMenu.Trigger
+        <BrowserDropdownMenu.Trigger
           data-browser-menu-trigger
-          as={IconButton}
+          as={BrowserIconButton}
           type="button"
           icon="dot-grid"
           variant="ghost"
           aria-label={language.t("browser.menu.label")}
         />
       </Tooltip>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
+      <BrowserDropdownMenu.Portal>
+        <BrowserDropdownMenu.Content
           data-browser-menu="browser"
           onCloseAutoFocus={() => {
             finishScreenshot?.()
             finishScreenshot = undefined
           }}
         >
-          <DropdownMenu.Item disabled={!props.tab} onSelect={() => props.open("find")}>
+          <BrowserDropdownMenu.Item
+            disabled={!props.tab}
+            onSelect={() => props.open("find")}
+            shortcut={browserShortcutHint("find", platform.os === "macos", language.t)}
+          >
             <Icon name="magnifying-glass" size="small" data-slot="dropdown-menu-item-icon" />
-            <DropdownMenu.ItemLabel>{language.t("browser.menu.find")}</DropdownMenu.ItemLabel>
-            <DropdownMenu.ItemDescription dir="ltr">
-              <Keybind>{browserShortcutHint("find", platform.os === "macos", language.t)}</Keybind>
-            </DropdownMenu.ItemDescription>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
+            <BrowserDropdownMenu.ItemLabel>{language.t("browser.menu.find")}</BrowserDropdownMenu.ItemLabel>
+          </BrowserDropdownMenu.Item>
+          <BrowserDropdownMenu.Item
             disabled={!props.tab}
             onSelect={() => props.tab && void props.command({ op: "print", tabID: props.tab.id })}
+            shortcut={browserShortcutHint("print", platform.os === "macos", language.t)}
           >
             <Icon name="open-file" size="small" data-slot="dropdown-menu-item-icon" />
-            <DropdownMenu.ItemLabel>{language.t("browser.menu.print")}</DropdownMenu.ItemLabel>
-            <DropdownMenu.ItemDescription dir="ltr">
-              <Keybind>{browserShortcutHint("print", platform.os === "macos", language.t)}</Keybind>
-            </DropdownMenu.ItemDescription>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item disabled={!props.tab} onSelect={() => props.open("zoom")}>
+            <BrowserDropdownMenu.ItemLabel>{language.t("browser.menu.print")}</BrowserDropdownMenu.ItemLabel>
+          </BrowserDropdownMenu.Item>
+          <BrowserDropdownMenu.Item disabled={!props.tab} onSelect={() => props.open("zoom")}>
             <Icon name="expand" size="small" data-slot="dropdown-menu-item-icon" />
-            <DropdownMenu.ItemLabel>{language.t("browser.menu.zoom")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator />
-          <DropdownMenu.Item
+            <BrowserDropdownMenu.ItemLabel>{language.t("browser.menu.zoom")}</BrowserDropdownMenu.ItemLabel>
+          </BrowserDropdownMenu.Item>
+          <BrowserDropdownMenu.Separator />
+          <BrowserDropdownMenu.Item
             disabled={!props.tab}
             onSelect={() =>
               props.tab && void props.command({ op: "device", tabID: props.tab.id, enabled: !props.tab.device })
             }
           >
             <Icon name="window-cursor" size="small" data-slot="dropdown-menu-item-icon" />
-            <DropdownMenu.ItemLabel>
+            <BrowserDropdownMenu.ItemLabel>
               {language.t(props.tab?.device ? "browser.menu.deviceOff" : "browser.menu.device")}
-            </DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
+            </BrowserDropdownMenu.ItemLabel>
+          </BrowserDropdownMenu.Item>
+          <BrowserDropdownMenu.Item
             disabled={!props.tab}
             onSelect={() =>
               props.screenshot(
@@ -127,31 +127,31 @@ export function BrowserMenu(props: {
             }
           >
             <Icon name="photo" size="small" data-slot="dropdown-menu-item-icon" />
-            <DropdownMenu.ItemLabel>{language.t("browser.menu.screenshot")}</DropdownMenu.ItemLabel>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator />
-          <DropdownMenu.Item onSelect={() => void props.command({ op: "reopen" })}>
+            <BrowserDropdownMenu.ItemLabel>{language.t("browser.menu.screenshot")}</BrowserDropdownMenu.ItemLabel>
+          </BrowserDropdownMenu.Item>
+          <BrowserDropdownMenu.Separator />
+          <BrowserDropdownMenu.Item
+            onSelect={() => void props.command({ op: "reopen" })}
+            shortcut={browserShortcutHint("reopen", platform.os === "macos", language.t)}
+          >
             <Icon name="arrow-undo-down" size="small" data-slot="dropdown-menu-item-icon" />
-            <DropdownMenu.ItemLabel>{language.t("browser.tabs.reopen")}</DropdownMenu.ItemLabel>
-            <DropdownMenu.ItemDescription dir="ltr">
-              <Keybind>{browserShortcutHint("reopen", platform.os === "macos", language.t)}</Keybind>
-            </DropdownMenu.ItemDescription>
-          </DropdownMenu.Item>
+            <BrowserDropdownMenu.ItemLabel>{language.t("browser.tabs.reopen")}</BrowserDropdownMenu.ItemLabel>
+          </BrowserDropdownMenu.Item>
           <For
             each={
               ["import", "passwords", "contacts", "downloads", "history", "bookmarks", "clear", "settings"] as const
             }
           >
             {(panel) => (
-              <DropdownMenu.Item onSelect={() => props.open(panel)}>
+              <BrowserDropdownMenu.Item onSelect={() => props.open(panel)}>
                 <Icon name={icons[panel]} size="small" data-slot="dropdown-menu-item-icon" />
-                <DropdownMenu.ItemLabel>{language.t(`browser.menu.${panel}`)}</DropdownMenu.ItemLabel>
-              </DropdownMenu.Item>
+                <BrowserDropdownMenu.ItemLabel>{language.t(`browser.menu.${panel}`)}</BrowserDropdownMenu.ItemLabel>
+              </BrowserDropdownMenu.Item>
             )}
           </For>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu>
+        </BrowserDropdownMenu.Content>
+      </BrowserDropdownMenu.Portal>
+    </BrowserDropdownMenu>
   )
 }
 
@@ -318,12 +318,12 @@ export function BrowserDeviceToolbar(props: {
               </label>
             )}
           </For>
-          <Button type="submit" size="small" disabled={!size()}>
+          <BrowserButton type="submit" size="small" disabled={!size()}>
             {language.t("browser.device.apply")}
-          </Button>
-          <Button type="button" size="small" variant="ghost" disabled={!size()} onClick={() => void apply(true)}>
+          </BrowserButton>
+          <BrowserButton type="button" size="small" variant="ghost" disabled={!size()} onClick={() => void apply(true)}>
             {language.t("browser.device.rotate")}
-          </Button>
+          </BrowserButton>
           <label class="flex items-center gap-1">
             {language.t("browser.device.presetName")}
             <input
@@ -333,7 +333,7 @@ export function BrowserDeviceToolbar(props: {
               onInput={(event) => setState("name", event.currentTarget.value)}
             />
           </label>
-          <Button
+          <BrowserButton
             type="button"
             size="small"
             disabled={!size() || !state.name.trim()}
@@ -349,8 +349,8 @@ export function BrowserDeviceToolbar(props: {
             }}
           >
             {language.t(state.preset ? "browser.device.updatePreset" : "browser.device.savePreset")}
-          </Button>
-          <Button
+          </BrowserButton>
+          <BrowserButton
             type="button"
             size="small"
             variant="ghost"
@@ -362,15 +362,15 @@ export function BrowserDeviceToolbar(props: {
             }}
           >
             {language.t("browser.device.deletePreset")}
-          </Button>
-          <Button
+          </BrowserButton>
+          <BrowserButton
             type="button"
             size="small"
             variant="ghost"
             onClick={() => void props.command({ op: "device", tabID: props.tab.id, enabled: false })}
           >
             {language.t("browser.menu.deviceOff")}
-          </Button>
+          </BrowserButton>
         </fieldset>
         <p id={help} class="mt-1 text-text-weak">
           {language.t("browser.device.limits")}
@@ -418,7 +418,7 @@ export function BrowserAccounts(props: {
     }
   }
   return (
-    <DropdownMenu open={state.open} onOpenChange={(open) => setState("open", open)}>
+    <BrowserDropdownMenu open={state.open} onOpenChange={(open) => setState("open", open)}>
       {/* Stays mounted while hidden: smoke tests read its disabled state. */}
       <Tooltip
         inactive={!accounts().length}
@@ -427,8 +427,8 @@ export function BrowserAccounts(props: {
         class="shrink-0"
         value={language.t("browser.menu.passwords")}
       >
-        <DropdownMenu.Trigger
-          as={IconButton}
+        <BrowserDropdownMenu.Trigger
+          as={BrowserIconButton}
           type="button"
           icon="key"
           variant="ghost"
@@ -440,15 +440,18 @@ export function BrowserAccounts(props: {
         />
       </Tooltip>
       <Show when={state.open}>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content data-browser-menu="accounts" class="max-h-80 max-w-[calc(100vw-16px)] overflow-y-auto">
+        <BrowserDropdownMenu.Portal>
+          <BrowserDropdownMenu.Content
+            data-browser-menu="accounts"
+            class="max-h-80 max-w-[calc(100vw-16px)] overflow-y-auto"
+          >
             <For each={accounts()}>
               {(login) => (
-                <DropdownMenu.Group data-account-id={login.id}>
-                  <DropdownMenu.GroupLabel class="break-all">{login.username}</DropdownMenu.GroupLabel>
+                <BrowserDropdownMenu.Group data-account-id={login.id}>
+                  <BrowserDropdownMenu.GroupLabel class="break-all">{login.username}</BrowserDropdownMenu.GroupLabel>
                   <For each={["both", "username", "password"] as const}>
                     {(field) => (
-                      <DropdownMenu.Item
+                      <BrowserDropdownMenu.Item
                         data-field={field}
                         onSelect={() => void fill(login.id, field === "both" ? undefined : field)}
                       >
@@ -457,7 +460,7 @@ export function BrowserAccounts(props: {
                           size="small"
                           data-slot="dropdown-menu-item-icon"
                         />
-                        <DropdownMenu.ItemLabel>
+                        <BrowserDropdownMenu.ItemLabel>
                           {language.t(
                             field === "both"
                               ? "browser.passwords.fill"
@@ -465,17 +468,17 @@ export function BrowserAccounts(props: {
                                 ? "browser.passwords.fillUsername"
                                 : "browser.passwords.fillPassword",
                           )}
-                        </DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
+                        </BrowserDropdownMenu.ItemLabel>
+                      </BrowserDropdownMenu.Item>
                     )}
                   </For>
-                </DropdownMenu.Group>
+                </BrowserDropdownMenu.Group>
               )}
             </For>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
+          </BrowserDropdownMenu.Content>
+        </BrowserDropdownMenu.Portal>
       </Show>
-    </DropdownMenu>
+    </BrowserDropdownMenu>
   )
 }
 
@@ -546,7 +549,7 @@ export function BrowserTools(props: {
     >
       <div class="flex items-center justify-between mb-2">
         <h2 class="text-14-medium text-text-strong">{language.t(`browser.menu.${props.panel}`)}</h2>
-        <IconButton
+        <BrowserIconButton
           icon="close"
           size="small"
           variant="ghost"
@@ -579,17 +582,17 @@ export function BrowserTools(props: {
               matches: props.tab?.find?.matches ?? 0,
             })}
           </span>
-          <Button type="button" size="small" variant="ghost" onClick={() => find(true, false)}>
+          <BrowserButton type="button" size="small" variant="ghost" onClick={() => find(true, false)}>
             {language.t("browser.find.previous")}
-          </Button>
-          <Button type="submit" size="small" variant="ghost">
+          </BrowserButton>
+          <BrowserButton type="submit" size="small" variant="ghost">
             {language.t("browser.find.next")}
-          </Button>
+          </BrowserButton>
         </form>
       </Show>
       <Show when={props.panel === "zoom" && props.tab}>
         <div class="flex items-center gap-2">
-          <Button
+          <BrowserButton
             size="small"
             disabled={(props.tab?.zoom ?? 1) <= 0.5}
             onClick={() =>
@@ -598,9 +601,9 @@ export function BrowserTools(props: {
             }
           >
             {language.t("browser.zoom.out")}
-          </Button>
+          </BrowserButton>
           <span>{language.t("browser.zoom.percent", { percent: Math.round((props.tab?.zoom ?? 1) * 100) })}</span>
-          <Button
+          <BrowserButton
             size="small"
             disabled={(props.tab?.zoom ?? 1) >= 3}
             onClick={() =>
@@ -609,16 +612,19 @@ export function BrowserTools(props: {
             }
           >
             {language.t("browser.zoom.in")}
-          </Button>
-          <Button size="small" onClick={() => props.tab && void run({ op: "zoom", tabID: props.tab.id, factor: 1 })}>
+          </BrowserButton>
+          <BrowserButton
+            size="small"
+            onClick={() => props.tab && void run({ op: "zoom", tabID: props.tab.id, factor: 1 })}
+          >
             {language.t("browser.zoom.reset")}
-          </Button>
+          </BrowserButton>
         </div>
       </Show>
       <Show when={props.panel === "import"}>
         <p class="mb-2">{language.t("browser.import.help")}</p>
         <div class="flex flex-wrap gap-2">
-          <Button
+          <BrowserButton
             size="small"
             disabled={
               state.busy || !props.tabs.profile?.vaultAvailable || props.tabs.profile.vaultStatus !== "unlocked"
@@ -626,9 +632,9 @@ export function BrowserTools(props: {
             onClick={() => void run({ op: "import", kind: "passwords" })}
           >
             {language.t("browser.import.passwords")}
-          </Button>
+          </BrowserButton>
           <Show when={props.tabs.profile?.vaultStatus !== "unlocked"}>
-            <Button
+            <BrowserButton
               size="small"
               disabled={
                 state.busy || !props.tabs.profile?.vaultAvailable || props.tabs.profile?.vaultStatus !== "locked"
@@ -636,14 +642,14 @@ export function BrowserTools(props: {
               onClick={() => void run({ op: "unlock-vault" })}
             >
               {language.t("browser.passwords.unlock")}
-            </Button>
+            </BrowserButton>
           </Show>
-          <Button size="small" disabled={state.busy} onClick={() => void run({ op: "import", kind: "cookies" })}>
+          <BrowserButton size="small" disabled={state.busy} onClick={() => void run({ op: "import", kind: "cookies" })}>
             {language.t("browser.import.cookies")}
-          </Button>
-          <Button size="small" disabled={state.busy} onClick={() => void run({ op: "bookmark-import" })}>
+          </BrowserButton>
+          <BrowserButton size="small" disabled={state.busy} onClick={() => void run({ op: "bookmark-import" })}>
             {language.t("browser.bookmarks.import")}
-          </Button>
+          </BrowserButton>
         </div>
       </Show>
       <Show when={props.panel === "passwords"}>
@@ -663,7 +669,7 @@ export function BrowserTools(props: {
         <Show
           when={props.tabs.profile?.vaultStatus === "unlocked" || props.tabs.profile?.vaultStatus === "unlocking"}
           fallback={
-            <Button
+            <BrowserButton
               size="small"
               disabled={
                 state.busy || !props.tabs.profile?.vaultAvailable || props.tabs.profile?.vaultStatus !== "locked"
@@ -671,17 +677,17 @@ export function BrowserTools(props: {
               onClick={() => void run({ op: "unlock-vault" })}
             >
               {language.t("browser.passwords.unlock")}
-            </Button>
+            </BrowserButton>
           }
         >
-          <Button size="small" onClick={() => void props.command({ op: "lock-vault" })}>
+          <BrowserButton size="small" onClick={() => void props.command({ op: "lock-vault" })}>
             {language.t("browser.passwords.lock")}
-          </Button>
+          </BrowserButton>
         </Show>
         <Show when={props.tabs.profile && !props.tabs.profile.vaultAvailable}>
           <p role="status">{language.t("browser.passwords.locked")}</p>
         </Show>
-        <Button
+        <BrowserButton
           size="small"
           disabled={
             state.busy ||
@@ -693,9 +699,9 @@ export function BrowserTools(props: {
           onClick={() => props.tab && void run({ op: "save-login", tabID: props.tab.id })}
         >
           {language.t("browser.passwords.save")}
-        </Button>
+        </BrowserButton>
         <div class="flex flex-wrap gap-2 my-2">
-          <Button
+          <BrowserButton
             size="small"
             disabled={
               state.busy ||
@@ -706,8 +712,8 @@ export function BrowserTools(props: {
             onClick={() => void run({ op: "vault-backup", direction: "export" })}
           >
             {language.t("browser.passwords.backupExport")}
-          </Button>
-          <Button
+          </BrowserButton>
+          <BrowserButton
             size="small"
             disabled={
               state.busy ||
@@ -718,7 +724,7 @@ export function BrowserTools(props: {
             onClick={() => void run({ op: "vault-backup", direction: "import" })}
           >
             {language.t("browser.passwords.backupImport")}
-          </Button>
+          </BrowserButton>
           <p class="w-full text-text-weak">{language.t("browser.passwords.backupHelp")}</p>
         </div>
         <form
@@ -755,7 +761,7 @@ export function BrowserTools(props: {
             />
             {language.t("browser.passwords.generateSymbols")}
           </label>
-          <Button
+          <BrowserButton
             type="submit"
             size="small"
             disabled={
@@ -763,7 +769,7 @@ export function BrowserTools(props: {
             }
           >
             {language.t("browser.passwords.generate")}
-          </Button>
+          </BrowserButton>
           <p class="w-full text-text-weak">{language.t("browser.passwords.generateHelp")}</p>
         </form>
         <Show when={props.tabs.profile?.vaultStatus === "unlocked"}>
@@ -787,9 +793,9 @@ export function BrowserTools(props: {
                 class="min-w-0 flex-1 border border-border-weak-base rounded px-2 py-1"
                 onInput={(event) => setState("accountOrigin", event.currentTarget.value)}
               />
-              <Button type="submit" size="small" disabled={state.busy}>
+              <BrowserButton type="submit" size="small" disabled={state.busy}>
                 {language.t("browser.passwords.create")}
-              </Button>
+              </BrowserButton>
             </form>
           </Show>
           <div class="browser-record-search my-2">
@@ -827,7 +833,7 @@ export function BrowserTools(props: {
                 </div>
                 <div class="truncate">{login.username}</div>
               </div>
-              <Button
+              <BrowserButton
                 size="small"
                 disabled={
                   state.busy ||
@@ -839,10 +845,10 @@ export function BrowserTools(props: {
                 onClick={() => props.tab && void run({ op: "fill-login", tabID: props.tab.id, id: login.id })}
               >
                 {language.t("browser.passwords.fill")}
-              </Button>
+              </BrowserButton>
               <For each={["username", "password"] as const}>
                 {(field) => (
-                  <Button
+                  <BrowserButton
                     size="small"
                     variant="ghost"
                     disabled={
@@ -859,27 +865,27 @@ export function BrowserTools(props: {
                     {language.t(
                       field === "username" ? "browser.passwords.fillUsername" : "browser.passwords.fillPassword",
                     )}
-                  </Button>
+                  </BrowserButton>
                 )}
               </For>
               <Show when={props.tabs.profile?.loginEntryAvailable}>
-                <Button
+                <BrowserButton
                   size="small"
                   variant="ghost"
                   disabled={state.busy}
                   onClick={() => void run({ op: "edit-login", origin: login.origin, id: login.id })}
                 >
                   {language.t("browser.passwords.edit")}
-                </Button>
+                </BrowserButton>
               </Show>
-              <Button
+              <BrowserButton
                 size="small"
                 variant="ghost"
                 disabled={state.busy}
                 onClick={() => void run({ op: "forget-login", id: login.id })}
               >
                 {language.t("browser.passwords.delete")}
-              </Button>
+              </BrowserButton>
             </div>
           )}
         </For>
@@ -923,14 +929,14 @@ export function BrowserTools(props: {
                   {language.formatDate(entry.time)}
                 </time>
               </button>
-              <Button
+              <BrowserButton
                 size="small"
                 variant="ghost"
                 disabled={state.busy || !entry.id}
                 onClick={() => entry.id && void run({ op: "forget-history", id: entry.id })}
               >
                 {language.t("browser.records.remove")}
-              </Button>
+              </BrowserButton>
             </div>
           )}
         </For>
@@ -1012,7 +1018,7 @@ export function BrowserTools(props: {
               </div>
               <Show when={entry.canControl}>
                 <Show when={entry.canPause !== false}>
-                  <Button
+                  <BrowserButton
                     size="small"
                     disabled={state.busy}
                     onClick={() =>
@@ -1020,39 +1026,43 @@ export function BrowserTools(props: {
                     }
                   >
                     {language.t(entry.paused ? "browser.download.resume" : "browser.download.pause")}
-                  </Button>
+                  </BrowserButton>
                 </Show>
-                <Button
+                <BrowserButton
                   size="small"
                   disabled={state.busy}
                   onClick={() => void run({ op: "download-control", id: entry.id, action: "cancel" })}
                 >
                   {language.t("browser.download.cancel")}
-                </Button>
+                </BrowserButton>
               </Show>
               <Show when={entry.canResume}>
-                <Button
+                <BrowserButton
                   size="small"
                   disabled={state.busy}
                   onClick={() => void run({ op: "recover-download", id: entry.id })}
                 >
                   {language.t("browser.download.recover")}
-                </Button>
+                </BrowserButton>
               </Show>
               <Show when={entry.canReveal}>
-                <Button size="small" variant="ghost" onClick={() => void run({ op: "reveal-download", id: entry.id })}>
+                <BrowserButton
+                  size="small"
+                  variant="ghost"
+                  onClick={() => void run({ op: "reveal-download", id: entry.id })}
+                >
                   {language.t("browser.download.reveal")}
-                </Button>
+                </BrowserButton>
               </Show>
               <Show when={entry.state !== "saving"}>
-                <Button
+                <BrowserButton
                   size="small"
                   variant="ghost"
                   disabled={state.busy}
                   onClick={() => void run({ op: "forget-download", id: entry.id })}
                 >
                   {language.t("browser.records.remove")}
-                </Button>
+                </BrowserButton>
               </Show>
             </div>
           )}
@@ -1103,13 +1113,13 @@ export function BrowserTools(props: {
               </label>
             )}
           </For>
-          <Button
+          <BrowserButton
             size="small"
             disabled={!state.kinds.length}
             onClick={() => void run({ op: "clear-selected", kinds: [...state.kinds], range: state.range })}
           >
             {language.t("browser.clear.submit")}
-          </Button>
+          </BrowserButton>
         </fieldset>
       </Show>
       <Show when={props.panel === "contacts" && props.tabs.profile}>

@@ -1,5 +1,5 @@
-import { Button } from "@opencode-ai/ui/button"
-import { IconButton } from "@opencode-ai/ui/icon-button"
+import { BrowserButton, BrowserIconButton } from "./browser-native-controls"
+
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import {
@@ -495,7 +495,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
         }}
       >
         <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("browser.action.back")}>
-          <IconButton
+          <BrowserIconButton
             type="button"
             icon="arrow-left"
             variant="ghost"
@@ -508,7 +508,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           />
         </Tooltip>
         <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("browser.action.forward")}>
-          <IconButton
+          <BrowserIconButton
             type="button"
             icon="arrow-right"
             variant="ghost"
@@ -528,7 +528,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           title={language.t(active()?.loading ? "browser.action.stop" : "browser.action.reload")}
           keybind={active()?.loading ? "" : browserShortcutHint("reload", platform.os === "macos", language.t)}
         >
-          <IconButton
+          <BrowserIconButton
             type="button"
             icon={active()?.loading ? "stop" : "reset"}
             disabled={!active()}
@@ -545,7 +545,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           class="min-w-0 flex-1 h-7 flex items-center gap-0.5 rounded-md border border-border-weak-base bg-background-base px-0.5 focus-within:border-text-interactive-base"
         >
           <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("browser.menu.site")}>
-            <IconButton
+            <BrowserIconButton
               type="button"
               icon={
                 active()?.connection === "https"
@@ -620,7 +620,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           <BrowserAccounts tab={active()} tabs={state.tabs} command={fillAccount} />
           <Show when={state.addressFocused && !!state.input.trim()}>
             <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("common.open")}>
-              <IconButton
+              <BrowserIconButton
                 type="submit"
                 icon="enter"
                 variant="ghost"
@@ -637,7 +637,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
             class="shrink-0"
             value={language.t(bookmarked() ? "browser.bookmarks.saved" : "browser.bookmarks.add")}
           >
-            <IconButton
+            <BrowserIconButton
               type="button"
               icon={bookmarked() ? "star-filled" : "star"}
               variant="ghost"
@@ -662,7 +662,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           {(tab) => (
             <>
               <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("browser.action.addUrl")}>
-                <IconButton
+                <BrowserIconButton
                   type="button"
                   icon="link"
                   variant="ghost"
@@ -672,7 +672,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                 />
               </Tooltip>
               <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("browser.action.addSelection")}>
-                <IconButton
+                <BrowserIconButton
                   type="button"
                   icon="window-cursor"
                   variant="ghost"
@@ -684,7 +684,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                 />
               </Tooltip>
               <Tooltip placement="top" flip={false} class="shrink-0" value={language.t("browser.action.addScreenshot")}>
-                <IconButton
+                <BrowserIconButton
                   type="button"
                   icon="photo"
                   variant="ghost"
@@ -694,7 +694,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                 />
               </Tooltip>
               <Tooltip placement="top" flip={false} class="shrink-0" value={agentHint(tab())}>
-                <Button
+                <BrowserButton
                   type="button"
                   size="small"
                   variant={tab().agentAccess ? "primary" : "ghost"}
@@ -709,7 +709,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                   onClick={() => void command({ op: "access", tabID: tab().id, enabled: !tab().agentAccess })}
                 >
                   {language.t("browser.access.title")}
-                </Button>
+                </BrowserButton>
               </Tooltip>
             </>
           )}
@@ -760,7 +760,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
             <span class="min-w-0 flex-1 truncate text-text-weak" dir="ltr">
               {URL.parse(tab().url)?.host}
             </span>
-            <Button
+            <BrowserButton
               type="button"
               size="small"
               variant="ghost"
@@ -768,7 +768,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
               onClick={() => void command({ op: "access", tabID: tab().id, enabled: false })}
             >
               {language.t("browser.site.revoke")}
-            </Button>
+            </BrowserButton>
           </div>
         )}
       </Show>
@@ -818,7 +818,7 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
             <div class="flex flex-wrap justify-center gap-2 max-w-2xl">
               <For each={state.tabs.profile?.bookmarks?.filter((row) => row.pinned)}>
                 {(row) => (
-                  <Button
+                  <BrowserButton
                     size="small"
                     variant="secondary"
                     title={row.url}
@@ -828,13 +828,13 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
                     }}
                   >
                     {row.title}
-                  </Button>
+                  </BrowserButton>
                 )}
               </For>
             </div>
-            <Button size="small" variant="ghost" onClick={() => setState("tool", "bookmarks")}>
+            <BrowserButton size="small" variant="ghost" onClick={() => setState("tool", "bookmarks")}>
               {language.t("browser.menu.bookmarks")}
-            </Button>
+            </BrowserButton>
           </div>
         </Show>
       </div>

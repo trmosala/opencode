@@ -27,6 +27,7 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
               "@/context/language",
               "@/context/platform",
               "@/context/prompt",
+              "@/context/settings",
               "@/utils/toast",
             ]) {
               if (id === name || normalized === resolve(name.replace("@/", "src/")).replaceAll("\\", "/"))
@@ -39,6 +40,8 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
               return `export const useLanguage = () => ({ direction: () => document.documentElement.dir === "rtl" ? "rtl" : "ltr", t: key => key });`
             if (id === "\0@/context/platform")
               return `export let platform; export const usePlatform = () => platform; export const setup = value => platform = value;`
+            if (id === "\0@/context/settings")
+              return `export const useSettings = () => ({ general: { newLayoutDesigns: () => false } });`
             if (id === "\0@/context/prompt")
               return `export const parts = []; export const usePrompt = () => ({ capture: () => ({ current: () => parts, cursor: () => 0, set: next => parts.splice(0, parts.length, ...next) }) });`
             if (id === "\0@/utils/toast")
@@ -334,6 +337,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
               "@/context/language",
               "@/context/platform",
               "@/context/prompt",
+              "@/context/settings",
               "@/utils/toast",
             ]) {
               if (id === name || normalized === resolve(name.replace("@/", "src/")).replaceAll("\\", "/"))
@@ -346,6 +350,8 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
             export const useLanguage = () => ({ direction: () => document.documentElement.dir === "rtl" ? "rtl" : "ltr", t: (key, params = {}) => Object.entries(params).reduce((text, [key, value]) => text.replaceAll("{{" + key + "}}", String(value)), browser[key] ?? key) });`
             if (id === "\0@/context/platform")
               return `export let platform; export const usePlatform = () => platform; export const setup = value => platform = value;`
+            if (id === "\0@/context/settings")
+              return `export const useSettings = () => ({ general: { newLayoutDesigns: () => false } });`
             if (id === "\0@/context/prompt")
               return `export const parts = []; export const delivered = Promise.withResolvers(); export const usePrompt = () => ({ capture: () => ({ current: () => parts, cursor: () => 0, set: next => { parts.splice(0, parts.length, ...next); delivered.resolve(); } }) });`
             if (id === "\0@/utils/toast")

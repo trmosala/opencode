@@ -141,7 +141,7 @@ export async function renderingSmoke() {
     assert.equal(owner.viewport!.lease, lease)
     await paint()
     await win.webContents.executeJavaScript(
-      "document.body.insertAdjacentHTML('beforeend', '<div role=dialog id=cover>Fixture dialog</div>'); true",
+      "document.body.insertAdjacentHTML('beforeend', '<div role=dialog aria-modal=true id=cover>Fixture dialog</div>'); true",
     )
     console.log("Rendering stage: dialog hide")
     await wait(() => owner.attached === undefined)

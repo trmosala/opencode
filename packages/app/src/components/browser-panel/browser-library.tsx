@@ -1,4 +1,5 @@
-import { Button } from "@opencode-ai/ui/button"
+import { BrowserButton } from "./browser-native-controls"
+
 import { Icon } from "@opencode-ai/ui/icon"
 import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -45,7 +46,7 @@ export function BrowserLibrary(props: {
     <div class="space-y-3" data-slot="browser-record-list">
       <p class="text-text-weak">{language.t("browser.bookmarks.help")}</p>
       <div class="flex flex-wrap gap-2">
-        <Button
+        <BrowserButton
           size="small"
           disabled={props.busy}
           onClick={() =>
@@ -53,13 +54,13 @@ export function BrowserLibrary(props: {
           }
         >
           {language.t("browser.bookmarks.add")}
-        </Button>
-        <Button size="small" disabled={props.busy} onClick={() => void props.command({ op: "bookmark-import" })}>
+        </BrowserButton>
+        <BrowserButton size="small" disabled={props.busy} onClick={() => void props.command({ op: "bookmark-import" })}>
           {language.t("browser.bookmarks.import")}
-        </Button>
-        <Button size="small" disabled={props.busy} onClick={() => void props.command({ op: "bookmark-export" })}>
+        </BrowserButton>
+        <BrowserButton size="small" disabled={props.busy} onClick={() => void props.command({ op: "bookmark-export" })}>
           {language.t("browser.bookmarks.export")}
-        </Button>
+        </BrowserButton>
       </div>
       <Show when={state.editing}>
         <form
@@ -114,12 +115,12 @@ export function BrowserLibrary(props: {
             />
             {language.t("browser.bookmarks.pin")}
           </label>
-          <Button type="submit" size="small" disabled={props.busy}>
+          <BrowserButton type="submit" size="small" disabled={props.busy}>
             {language.t("browser.bookmarks.save")}
-          </Button>
-          <Button type="button" size="small" variant="ghost" onClick={() => setState("editing", false)}>
+          </BrowserButton>
+          <BrowserButton type="button" size="small" variant="ghost" onClick={() => setState("editing", false)}>
             {language.t("common.cancel")}
-          </Button>
+          </BrowserButton>
         </form>
       </Show>
       <label class="browser-record-search">
@@ -157,46 +158,46 @@ export function BrowserLibrary(props: {
                         {row.url}
                       </span>
                     </button>
-                    <Button
+                    <BrowserButton
                       size="small"
                       variant="ghost"
                       disabled={props.busy || order().index <= 0}
                       onClick={() => void props.command({ op: "bookmark-move", id: row.id, direction: "up" })}
                     >
                       {language.t("browser.bookmarks.up")}
-                    </Button>
-                    <Button
+                    </BrowserButton>
+                    <BrowserButton
                       size="small"
                       variant="ghost"
                       disabled={props.busy || order().index >= order().count - 1}
                       onClick={() => void props.command({ op: "bookmark-move", id: row.id, direction: "down" })}
                     >
                       {language.t("browser.bookmarks.down")}
-                    </Button>
-                    <Button
+                    </BrowserButton>
+                    <BrowserButton
                       size="small"
                       variant="ghost"
                       disabled={props.busy}
                       onClick={() => void props.command({ op: "bookmark-save", ...row, pinned: !row.pinned })}
                     >
                       {language.t(row.pinned ? "browser.bookmarks.unpin" : "browser.bookmarks.pin")}
-                    </Button>
-                    <Button
+                    </BrowserButton>
+                    <BrowserButton
                       size="small"
                       variant="ghost"
                       disabled={props.busy}
                       onClick={() => setState({ ...row, folder: folderLabel(row.folder), editing: true })}
                     >
                       {language.t("browser.bookmarks.edit")}
-                    </Button>
-                    <Button
+                    </BrowserButton>
+                    <BrowserButton
                       size="small"
                       variant="ghost"
                       disabled={props.busy}
                       onClick={() => void props.command({ op: "bookmark-delete", id: row.id })}
                     >
                       {language.t("browser.bookmarks.delete")}
-                    </Button>
+                    </BrowserButton>
                   </div>
                 )
               }}

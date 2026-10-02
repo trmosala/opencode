@@ -1,4 +1,5 @@
-import { Button } from "@opencode-ai/ui/button"
+import { BrowserButton } from "./browser-native-controls"
+
 import { createEffect, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import type { BrowserTab, BrowserProfile, BrowserCommand, BrowserPermission } from "@/browser-panel"
@@ -124,13 +125,13 @@ export function BrowserSite(props: {
         <p>{language.t("browser.site.mediaUnavailable")}</p>
       </Show>
       <p>{language.t(props.tab.agentAccess ? "browser.site.agentOn" : "browser.site.agentOff")}</p>
-      <Button
+      <BrowserButton
         size="small"
         disabled={props.busy || !props.tab.agentAccess}
         onClick={() => void props.command({ op: "access", tabID: props.tab.id, enabled: false })}
       >
         {language.t("browser.site.revoke")}
-      </Button>
+      </BrowserButton>
       <fieldset class="space-y-2 border-t border-border-weaker-base pt-2">
         <legend class="font-medium">{language.t("browser.site.data")}</legend>
         <Show when={data()} fallback={<p role="status">{language.t("browser.site.inspecting")}</p>}>
@@ -158,21 +159,21 @@ export function BrowserSite(props: {
           )}
         </Show>
         <p class="text-text-weak">{language.t("browser.site.clearScope")}</p>
-        <Button
+        <BrowserButton
           size="small"
           variant="ghost"
           disabled={props.busy || props.tab.access?.loading}
           onClick={() => void props.command({ op: "inspect-site", tabID: props.tab.id })}
         >
           {language.t("browser.site.refresh")}
-        </Button>
-        <Button
+        </BrowserButton>
+        <BrowserButton
           size="small"
           disabled={props.busy}
           onClick={() => void props.command({ op: "clear-site", tabID: props.tab.id })}
         >
           {language.t("browser.site.clear")}
-        </Button>
+        </BrowserButton>
       </fieldset>
     </div>
   )

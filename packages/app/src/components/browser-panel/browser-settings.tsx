@@ -1,4 +1,5 @@
-import { Button } from "@opencode-ai/ui/button"
+import { BrowserButton } from "./browser-native-controls"
+
 import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
 import { SettingsList } from "@/components/settings-list"
@@ -69,14 +70,14 @@ export function BrowserSettings(props: {
       <section aria-label={language.t("browser.access.title")} class="min-w-0 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h3 class="text-14-medium">{language.t("browser.access.title")}</h3>
-          <Button
+          <BrowserButton
             size="small"
             variant="secondary"
             disabled={props.busy}
             onClick={() => void props.command({ op: "state" })}
           >
             {language.t("browser.access.refresh")}
-          </Button>
+          </BrowserButton>
         </div>
         <p class="text-text-weak">{language.t("browser.access.tabGrantHelp")}</p>
         <SettingsRows>
@@ -159,7 +160,7 @@ export function BrowserSettings(props: {
                 </Show>
                 <div class="flex flex-wrap gap-2">
                   <Show when={!tab.agentAccess}>
-                    <Button
+                    <BrowserButton
                       size="small"
                       disabled={
                         props.busy ||
@@ -171,16 +172,16 @@ export function BrowserSettings(props: {
                       onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: true })}
                     >
                       {language.t("browser.access.grant")}
-                    </Button>
+                    </BrowserButton>
                   </Show>
-                  <Button
+                  <BrowserButton
                     size="small"
                     variant="secondary"
                     class="max-w-full whitespace-normal h-auto min-h-6"
                     onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: false })}
                   >
                     {language.t("browser.access.revoke")}
-                  </Button>
+                  </BrowserButton>
                 </div>
               </div>
             )}
@@ -304,9 +305,9 @@ export function BrowserSettings(props: {
           <div class="flex flex-wrap gap-2">
             <For each={["import", "history", "clear"] as const}>
               {(panel) => (
-                <Button size="small" variant="secondary" onClick={() => props.open(panel)}>
+                <BrowserButton size="small" variant="secondary" onClick={() => props.open(panel)}>
                   {language.t(`browser.menu.${panel}`)}
-                </Button>
+                </BrowserButton>
               )}
             </For>
           </div>
@@ -314,9 +315,9 @@ export function BrowserSettings(props: {
         <h3 class="text-14-medium">{language.t("browser.menu.passwords")}</h3>
         <SettingsRows>
           <SettingRow title={language.t("browser.menu.passwords")} description="">
-            <Button size="small" onClick={() => props.open("passwords")}>
+            <BrowserButton size="small" onClick={() => props.open("passwords")}>
               {language.t("browser.settings.passwords.manage")}
-            </Button>
+            </BrowserButton>
           </SettingRow>
         </SettingsRows>
         <SettingsRows>
@@ -339,13 +340,13 @@ export function BrowserSettings(props: {
                   <span dir="ltr" class="break-all text-start">
                     {origin}
                   </span>
-                  <Button
+                  <BrowserButton
                     size="small"
                     variant="ghost"
                     onClick={() => void props.command({ op: "allow-login-offers", origin })}
                   >
                     {language.t("browser.passwords.offers.allow")}
-                  </Button>
+                  </BrowserButton>
                 </div>
               )}
             </For>
@@ -358,21 +359,21 @@ export function BrowserSettings(props: {
             description={props.profile.downloadDirectory ?? ""}
           >
             <div class="flex gap-2">
-              <Button
+              <BrowserButton
                 size="small"
                 disabled={props.busy}
                 onClick={() => void props.command({ op: "download-directory" })}
               >
                 {language.t("browser.settings.change")}
-              </Button>
-              <Button
+              </BrowserButton>
+              <BrowserButton
                 size="small"
                 variant="ghost"
                 disabled={props.busy}
                 onClick={() => void props.command({ op: "download-directory", reset: true })}
               >
                 {language.t("browser.settings.resetLocation")}
-              </Button>
+              </BrowserButton>
             </div>
           </SettingRow>
           <SettingRow
@@ -387,9 +388,9 @@ export function BrowserSettings(props: {
             />
           </SettingRow>
           <SettingRow title={language.t("browser.settings.downloads.manage")} description="">
-            <Button size="small" onClick={() => props.open("downloads")}>
+            <BrowserButton size="small" onClick={() => props.open("downloads")}>
               {language.t("browser.settings.downloads.manage")}
-            </Button>
+            </BrowserButton>
           </SettingRow>
         </SettingsRows>
         <h3 class="text-14-medium">{language.t("browser.settings.sites")}</h3>
@@ -441,9 +442,9 @@ export function BrowserSettings(props: {
                 </label>
               )}
             </For>
-            <Button type="submit" size="small" disabled={props.busy}>
+            <BrowserButton type="submit" size="small" disabled={props.busy}>
               {language.t("browser.settings.site.save")}
-            </Button>
+            </BrowserButton>
           </form>
           <p>{language.t("browser.notifications.help")}</p>
           <p>{language.t("browser.notifications.os")}</p>

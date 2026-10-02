@@ -1,6 +1,7 @@
+import { BrowserButton } from "./browser-native-controls"
 import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Button } from "@opencode-ai/ui/button"
+
 import { useLanguage } from "@/context/language"
 import type { BrowserCommand, BrowserTransferRule } from "@/browser-panel"
 
@@ -51,13 +52,13 @@ export function BrowserTransfers(props: {
                 )}
               </For>
               <Show when={rule.origin !== "*"}>
-                <Button
+                <BrowserButton
                   size="small"
                   variant="ghost"
                   onClick={() => void props.command({ op: "transfer-rule", rule, remove: true })}
                 >
                   {language.t("browser.transfer.remove")}
-                </Button>
+                </BrowserButton>
               </Show>
             </div>
           )}
@@ -84,9 +85,9 @@ export function BrowserTransfers(props: {
               placeholder="https://example.com"
             />
           </label>
-          <Button size="small" type="submit">
+          <BrowserButton size="small" type="submit">
             {language.t("browser.settings.site.save")}
-          </Button>
+          </BrowserButton>
         </form>
       </Show>
     </section>

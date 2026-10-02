@@ -1,4 +1,5 @@
-import { Button } from "@opencode-ai/ui/button"
+import { BrowserButton } from "./browser-native-controls"
+
 import { Icon } from "@opencode-ai/ui/icon"
 import { For, Show, createEffect } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -35,16 +36,16 @@ export function BrowserContacts(props: {
       <Show
         when={props.profile.vaultStatus === "unlocked" && !props.profile.contactsUnavailable}
         fallback={
-          <Button
+          <BrowserButton
             size="small"
             disabled={props.busy || !props.profile.vaultAvailable || props.profile.vaultStatus !== "locked"}
             onClick={() => void props.command({ op: "unlock-vault" })}
           >
             {language.t("browser.passwords.unlock")}
-          </Button>
+          </BrowserButton>
         }
       >
-        <Button
+        <BrowserButton
           size="small"
           disabled={props.busy}
           onClick={() =>
@@ -55,7 +56,7 @@ export function BrowserContacts(props: {
           }
         >
           {language.t("browser.contacts.add")}
-        </Button>
+        </BrowserButton>
         <Show when={state.editing}>
           {(editing) => (
             <form
@@ -122,12 +123,12 @@ export function BrowserContacts(props: {
                   )}
                 </For>
               </div>
-              <Button type="submit" size="small" disabled={props.busy}>
+              <BrowserButton type="submit" size="small" disabled={props.busy}>
                 {language.t("browser.bookmarks.save")}
-              </Button>
-              <Button type="button" size="small" variant="ghost" onClick={() => setState("editing", undefined)}>
+              </BrowserButton>
+              <BrowserButton type="button" size="small" variant="ghost" onClick={() => setState("editing", undefined)}>
                 {language.t("common.cancel")}
-              </Button>
+              </BrowserButton>
             </form>
           )}
         </Show>
@@ -154,7 +155,7 @@ export function BrowserContacts(props: {
               data-slot="browser-record-row"
             >
               <span class="flex-1 break-words">{row.label}</span>
-              <Button
+              <BrowserButton
                 size="small"
                 disabled={props.busy || !props.tab || props.tab.agentAccess}
                 onClick={() =>
@@ -163,23 +164,23 @@ export function BrowserContacts(props: {
                 }
               >
                 {language.t("browser.contacts.fill")}
-              </Button>
-              <Button
+              </BrowserButton>
+              <BrowserButton
                 size="small"
                 variant="ghost"
                 disabled={props.busy}
                 onClick={() => setState({ creating: false, editing: { ...row, values: { ...row.values } } })}
               >
                 {language.t("browser.bookmarks.edit")}
-              </Button>
-              <Button
+              </BrowserButton>
+              <BrowserButton
                 size="small"
                 variant="ghost"
                 disabled={props.busy}
                 onClick={() => void props.command({ op: "contact-delete", id: row.id, revision: row.revision })}
               >
                 {language.t("browser.bookmarks.delete")}
-              </Button>
+              </BrowserButton>
             </div>
           )}
         </For>

@@ -151,7 +151,10 @@ body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-addre
     var(--browser-input-background);
 }
 
-body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-address"] [data-component="icon-button"] {
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-address"]
+  :is([data-component="icon-button"], [data-component="icon-button-v2"]) {
   width: 20px;
   height: 20px;
   border-radius: 4px;
@@ -190,4 +193,29 @@ body[data-new-layout]
   [data-component="browser-panel"]
   [data-slot="browser-suggestion"]:is(:hover, [aria-selected="true"]) {
   background: var(--v2-overlay-simple-overlay-hover);
+}
+
+/* Keep the native v2 button metrics logical in the browser, including leading icons in RTL. */
+[data-browser-button][data-size="small"] {
+  --browser-button-padding: 9px;
+}
+[data-browser-button][data-size="normal"] {
+  --browser-button-padding: 11px;
+}
+[data-browser-button][data-size="large"] {
+  --browser-button-padding: 15px;
+}
+[data-browser-button][data-component="button-v2"] {
+  padding-block: 0;
+  padding-inline: var(--browser-button-padding);
+}
+[data-browser-menu][data-component="menu-v2-content"] [data-slot="dropdown-menu-item-icon"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--v2-icon-icon-base);
+}
+
+.browser-native-menu :is([data-slot="dropdown-menu-item-label"], [data-slot="menu-v2-item-content"]) {
+  text-align: left;
 }

@@ -18,7 +18,9 @@
   scrollbar-width: thin;
 }
 
-[data-component="browser-panel"] [data-slot="browser-toolbar"] > [data-component="icon-button"] {
+[data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  > :is([data-component="icon-button"], [data-component="icon-button-v2"]) {
   flex-shrink: 0;
 }
 
@@ -34,7 +36,7 @@ body[data-new-layout] [data-component="browser-panel"] [data-browser-menu-trigge
   height: 34px;
 }
 
-[data-browser-menu] [data-slot="dropdown-menu-item-icon"] {
+[data-browser-menu][data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item-icon"] {
   flex: none;
   width: 16px;
   height: 16px;
@@ -73,45 +75,4 @@ body[data-new-layout] [data-component="browser-panel"] [data-browser-menu-trigge
   :is([data-component="icon-button"], [data-component="button"]):focus-visible {
   outline: 2px solid var(--text-base);
   outline-offset: -2px;
-}
-
-/*
- * New layout: match icon-button-v2 ghost. Disabled is the base icon at half opacity, pressed/expanded use the
- * pressed overlay, and focus uses the v2 focus colour.
- */
-body[data-new-layout]
-  [data-component="browser-panel"]
-  [data-slot="browser-toolbar"]
-  [data-component="icon-button"]:disabled:not([aria-pressed="true"]) {
-  opacity: 0.5;
-}
-
-body[data-new-layout]
-  [data-component="browser-panel"]
-  [data-slot="browser-toolbar"]
-  [data-component="icon-button"]:disabled:not([aria-pressed="true"])
-  [data-slot="icon-svg"] {
-  color: var(--v2-icon-icon-base);
-}
-
-body[data-new-layout]
-  [data-component="browser-panel"]
-  [data-slot="browser-toolbar"]
-  [data-component="icon-button"]:is([aria-pressed="true"], [aria-expanded="true"]) {
-  background-color: var(--v2-overlay-simple-overlay-pressed);
-}
-
-body[data-new-layout]
-  [data-component="browser-panel"]
-  [data-slot="browser-toolbar"]
-  [data-component="icon-button"]:is([aria-pressed="true"], [aria-expanded="true"])
-  [data-slot="icon-svg"] {
-  color: var(--v2-icon-icon-base);
-}
-
-body[data-new-layout]
-  [data-component="browser-panel"]
-  [data-slot="browser-toolbar"]
-  :is([data-component="icon-button"], [data-component="button"]):focus-visible {
-  outline-color: var(--v2-border-border-focus);
 }
