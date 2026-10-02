@@ -1,0 +1,193 @@
+/* Follow the native text field; keep all controls in the browser's document flow. */
+[data-component="browser-panel"] {
+  --browser-input-background: var(--input-base);
+  --browser-input-border: var(--border-weak-base);
+  --browser-input-radius: var(--radius-md);
+  --browser-input-focus: var(--border-selected);
+}
+
+[data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  :is(input:not([type="checkbox"]):not([type="radio"]):not(.browser-record-search-input), select, textarea),
+[data-component="browser-panel"] .browser-record-search,
+[data-component="browser-panel"] [data-slot="browser-address"] {
+  box-sizing: border-box;
+  height: 32px;
+  border: 1px solid var(--browser-input-border);
+  border-radius: var(--browser-input-radius);
+  background: var(--browser-input-background);
+  color: var(--text-base);
+}
+
+[data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  :is(input:not([type="checkbox"]):not([type="radio"]):not(.browser-record-search-input), select, textarea) {
+  padding: 2px 12px;
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
+}
+
+[data-component="browser-panel"] [data-slot="browser-tools"] textarea {
+  height: 32px;
+  min-height: 32px;
+  padding-block: 6px;
+  resize: vertical;
+}
+
+[data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  [data-slot="select-select-trigger"] {
+  height: 32px;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: var(--browser-input-radius);
+}
+
+[data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  :is(input[type="checkbox"], input[type="radio"]):not([data-slot="switch-input"]) {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--browser-input-focus);
+}
+
+[data-component="browser-panel"] .browser-record-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 12px;
+  width: 100%;
+}
+
+[data-component="browser-panel"] .browser-record-search-input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: start;
+}
+
+[data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  :is(input:not([type="checkbox"]):not([type="radio"]):not(.browser-record-search-input), select, textarea):focus,
+[data-component="browser-panel"] :is(.browser-record-search, [data-slot="browser-address"]):focus-within {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 3px var(--border-weak-selected),
+    0 0 0 1px var(--browser-input-focus),
+    0 1px 2px -1px rgba(19, 16, 16, 0.25),
+    0 1px 2px rgba(19, 16, 16, 0.08),
+    0 1px 3px rgba(19, 16, 16, 0.12);
+}
+
+[data-component="browser-panel"] [data-slot="browser-address"] input {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-component="browser-panel"] [data-slot="browser-suggestions"] {
+  background: var(--surface-raised-stronger-non-alpha);
+  padding: 4px;
+}
+
+[data-component="browser-panel"] [data-slot="browser-suggestion"] {
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  color: var(--text-strong);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-large);
+}
+
+[data-component="browser-panel"] [data-slot="browser-suggestion"]:is(:hover, [aria-selected="true"]) {
+  background: var(--surface-raised-base-hover);
+}
+
+[data-component="browser-panel"] [data-slot="browser-downloads"] {
+  padding-inline: 6px;
+}
+
+body[data-new-layout] [data-component="browser-panel"] {
+  --browser-input-background:
+    linear-gradient(180deg, var(--v2-alpha-light-2), var(--v2-alpha-light-0)), var(--v2-background-bg-base);
+  --browser-input-border: transparent;
+  --browser-input-radius: 6px;
+  --browser-input-focus: var(--v2-border-border-focus);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  :is(input:not([type="checkbox"]):not([type="radio"]):not(.browser-record-search-input), select, textarea),
+body[data-new-layout] [data-component="browser-panel"] :is(.browser-record-search, [data-slot="browser-address"]) {
+  background: var(--browser-input-background);
+  border-color: transparent;
+  box-shadow: var(--v2-elevation-button-neutral);
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  :is(.browser-record-search-input, [data-slot="browser-address"] input) {
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--v2-text-text-base);
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-address"]:hover:not(:focus-within) {
+  background:
+    linear-gradient(0deg, var(--v2-overlay-simple-overlay-hover), var(--v2-overlay-simple-overlay-hover)),
+    var(--browser-input-background);
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-address"] [data-component="icon-button"] {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  :is([data-slot="browser-tools"], [data-slot="browser-device-toolbar"])
+  :is(input:not([type="checkbox"]):not([type="radio"]):not(.browser-record-search-input), select, textarea):focus,
+body[data-new-layout]
+  [data-component="browser-panel"]
+  :is(.browser-record-search, [data-slot="browser-address"]):focus-within {
+  outline: 1px solid var(--browser-input-focus);
+  box-shadow: none;
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-suggestions"] {
+  background: var(--v2-background-bg-layer-01);
+  padding: 2px;
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-suggestion"] {
+  border-radius: 4px;
+  padding: 4px 12px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-suggestion"] .text-text-weak {
+  color: var(--v2-text-text-faint);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-suggestion"]:is(:hover, [aria-selected="true"]) {
+  background: var(--v2-overlay-simple-overlay-hover);
+}

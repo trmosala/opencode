@@ -574,6 +574,25 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.clipboard.title": "Allow clipboard access for {{origin}}?",
   "desktop.browser.clipboard.detail":
     "Task: {{task}}\nTab: {{tab}}\n\nAllow is saved for this exact website. Clipboard access is permitted only while its private main page is selected and visible in CookieMonster, with no agent control or pending operation.",
+  // English fallback until reviewed translations are available. Append to preserve indexed locale keys.
+  "desktop.browser.tabGrantDetail":
+    "Allow Agent Access for this entire tab, currently at {{origin}}? This includes embedded websites, page actions, screenshots of all visible pixels without redaction, diagnostics and site actions, with no further approvals. Access stays on across website changes until revoked or the tab closes. Other tabs, saved passwords and OS capabilities are not granted. File transfer controls still apply. Content already shared cannot be recalled.",
+  "desktop.browser.actionDispatchFailed":
+    "Browser input may have been dispatched, but its completion could not be confirmed.",
+  "desktop.browser.actionObservationFailed":
+    "Browser input may have taken effect, but the refreshed page state could not be confirmed.",
+  "desktop.browser.actionOutcomeUnknown":
+    "Browser input may have been dispatched. Observe the current tab state before sending further input.",
+  "desktop.browser.pageLoadCause": "Page loading failed: {{cause}} ({{code}}).",
+  "desktop.browser.pageCrashCause": "The browser page stopped: {{cause}}. Close and reopen this tab to recover.",
+  "desktop.browser.untrackedLeave":
+    "This page requested to leave with unsaved changes. The page was kept open. Use the address bar or browser navigation controls to request a confirmed destination; the browser cannot safely replay a page's form submission.",
+  "desktop.browser.visualLimit":
+    "This viewport cannot fit the image limit while retaining the minimum supported half-resolution.",
+  "desktop.browser.visualStale":
+    "The observed browser image is no longer current. Take a fresh screenshot before visual input.",
+  "desktop.browser.visualUnsupported":
+    "The browser cannot verify this visual target's document and layout. Use a semantic control or a fresh supported view.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

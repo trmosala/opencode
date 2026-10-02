@@ -32,15 +32,26 @@ test("mounted settings show eligibility, allow revocation during consent and rou
               id.replaceAll("\\", "/") === resolve("src/context/language").replaceAll("\\", "/")
             )
               return "\0settings-language"
+            if (
+              id === "@/context/settings" ||
+              id.replaceAll("\\", "/") === resolve("src/context/settings").replaceAll("\\", "/")
+            )
+              return "\0settings-preferences"
           },
           load(id) {
             if (id === "\0settings-language")
               return `import { browser } from ${JSON.stringify(resolve("src/i18n/en.ts"))};
-                export const useLanguage = () => ({ t: (key, params = {}) => Object.entries(params).reduce((text, [key, value]) => text.replaceAll("{{" + key + "}}", String(value)), browser[key] ?? key) })`
+                export const useLanguage = () => ({ direction: () => document.documentElement.dir === "rtl" ? "rtl" : "ltr", t: (key, params = {}) => Object.entries(params).reduce((text, [key, value]) => text.replaceAll("{{" + key + "}}", String(value)), browser[key] ?? key) })`
+            if (id === "\0settings-preferences")
+              return `import { createSignal } from "solid-js";
+                const [newLayout, setNewLayout] = createSignal(false);
+                export const useSettings = () => ({ general: { newLayoutDesigns: newLayout } });
+                export const setLayoutDesigns = setNewLayout;`
             if (id === "\0settings-fixture")
               return `import { createComponent } from "solid-js";
                 import { render } from "solid-js/web";
                 import { createStore } from "solid-js/store";
+                import { setLayoutDesigns } from "@/context/settings";
                 import { BrowserTools } from ${JSON.stringify(resolve("src/components/browser-panel/browser-tools.tsx"))};
                 export function mount(host, tabs, command) {
                   const [state, setState] = createStore({ tabs: structuredClone(tabs), panel: "settings" });
@@ -49,7 +60,7 @@ test("mounted settings show eligibility, allow revocation during consent and rou
                     get tab() { return state.tabs.tabs.find(tab => tab.id === state.tabs.activeID) },
                     command, close() {}, open() {}
                   }), host);
-                  return { dispose, update: tabs => setState("tabs", structuredClone(tabs)), panel: panel => setState("panel", panel) };
+                  return { dispose, update: tabs => setState("tabs", structuredClone(tabs)), panel: panel => setState("panel", panel), layout: setLayoutDesigns };
                 }`
           },
         },
@@ -117,6 +128,23 @@ test("mounted settings show eligibility, allow revocation during consent and rou
     })
     dispose = mounted.dispose
     const row = () => host.querySelector("[data-access-tab=one]")!
+    const select = (label: string) =>
+      [...host.querySelectorAll<HTMLElement>("[data-component=select]")].find(
+        (element) => element.getAttribute("aria-label") === label,
+      )!
+    const choose = async (element: HTMLElement, label: string, expected?: string[]) => {
+      const trigger = element.querySelector<HTMLButtonElement>("button")!
+      trigger.focus()
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      await Promise.resolve()
+      const listbox = document.getElementById(`${element.id}-listbox`)
+      const options = [...(listbox?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])]
+      if (expected) expect(options.map((option) => option.textContent?.trim())).toEqual(expected)
+      const option = options.find((value) => value.textContent?.trim() === label)
+      expect(option).toBeDefined()
+      option!.click()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
     const button = (text: string) => {
       const element = [...host.querySelectorAll("button")].find((element) => element.textContent?.trim() === text)
       expect(element).toBeDefined()
@@ -124,21 +152,21 @@ test("mounted settings show eligibility, allow revocation during consent and rou
     }
     expect(host.textContent).not.toContain("Add host")
     expect(calls).toEqual([])
-    expect(row().textContent).toContain("Open a website in this tab")
+    expect(row().textContent).toContain("Agent Access is on for this entire tab")
+    expect(row().textContent).toContain("Page tools need no further approval")
     expect(row().textContent).not.toContain("Page tools eligible")
     expect(row().textContent).toContain("Resolved transfer policy: default")
+    mounted.layout(true)
+    expect(host.querySelector('[data-component="settings-v2-row"]')).not.toBeNull()
+    mounted.layout(false)
     const uploads = [...host.querySelectorAll("label")]
       .find((label) => label.textContent?.trim().startsWith("Uploads"))!
       .querySelector("select")!
     expect([...uploads.options].map((option) => option.value)).toEqual(["block", "ask"])
     expect(host.textContent).toContain("Main history-search policy: Allow")
-    const search = [...host.querySelectorAll("label")]
-      .find((label) => label.textContent?.includes("Default search engine"))!
-      .querySelector("select")!
-    expect([...search.options].map((option) => option.value)).toEqual(["duckduckgo", "google", "bing"])
-    search.value = "google"
-    search.dispatchEvent(new Event("change", { bubbles: true }))
-    await new Promise<void>((resolve) => setImmediate(resolve))
+    const search = select("Default search engine")
+    expect(search.querySelector("button")?.textContent).toContain("DuckDuckGo")
+    await choose(search, "Google", ["DuckDuckGo (duck.com)", "Google", "Bing"])
     expect(calls.at(-1)).toEqual({ op: "preferences", values: { searchEngine: "google" } })
     calls.length = 0
     mounted.update({ ...tabs, tabs: [{ ...tabs.tabs[0], access: undefined }] })
@@ -178,7 +206,7 @@ test("mounted settings show eligibility, allow revocation during consent and rou
     finish!()
     await Promise.resolve()
     mounted.update({ ...tabs, tabs: [{ ...tabs.tabs[0], access: { ...tabs.tabs[0].access!, hostAllowed: true } }] })
-    expect(row().textContent).toContain("Page tools eligible in main; OpenCode tool approval still applies")
+    expect(row().textContent).toContain("Agent Access is on for this entire tab. Page tools need no further approval.")
     mounted.update({
       ...tabs,
       tabs: [{ ...tabs.tabs[0], access: { ...tabs.tabs[0].access!, hostAllowed: true, loading: true } }],
@@ -195,10 +223,14 @@ test("mounted settings show eligibility, allow revocation during consent and rou
 
     await new Promise<void>((resolve) => setImmediate(resolve))
     expect(button("Save site permissions").disabled).toBe(false)
-    const selectors = (text: string) =>
-      [...host.querySelectorAll("label")]
+    const selectors = (text: string) => [
+      ...[...host.querySelectorAll("label")]
         .filter((label) => label.textContent?.trim().startsWith(text))
-        .map((label) => label.querySelector("select")!)
+        .flatMap((label) => [...label.querySelectorAll<HTMLSelectElement>("select")]),
+      ...[...host.querySelectorAll<HTMLElement>("[data-component=select]")].filter(
+        (element) => element.querySelector("button")?.getAttribute("aria-label") === text,
+      ),
+    ]
     const site = { origin: "https://display.example", camera: "allow" as const, microphone: "ask" as const }
     for (const panel of ["settings", "site"]) {
       mounted.panel(panel)
@@ -225,12 +257,13 @@ test("mounted settings show eligibility, allow revocation during consent and rou
           )
           continue
         }
-        expect(selectors("Notifications").at(-1)!.value).toBe("block")
-        expect([...selectors("Notifications").at(-1)!.options].map((option) => option.value)).toEqual([
-          "block",
-          "ask",
-          "allow",
-        ])
+        const notificationControl = selectors("Notifications").at(-1)!
+        if (notificationControl instanceof HTMLSelectElement) {
+          expect(notificationControl.value).toBe("block")
+          expect([...notificationControl.options].map((option) => option.value)).toEqual(["block", "ask", "allow"])
+        } else {
+          expect(notificationControl.querySelector("button")?.textContent).toContain("Block")
+        }
         for (const [label, field] of [
           ["Notifications", "notifications"],
           ["Screen sharing", "displayCapture"],
@@ -238,16 +271,28 @@ test("mounted settings show eligibility, allow revocation during consent and rou
           ["Camera", "camera"],
           ["Microphone", "microphone"],
         ]) {
+          const current = field === "camera" ? "allow" : field === "microphone" ? "ask" : "block"
           for (const value of ["ask", "allow", "block"]) {
             // Let BrowserTools finish its async command before the next user edit.
             await new Promise<void>((resolve) => setImmediate(resolve))
-            const select = selectors(label).at(-1)!
-            expect(select.disabled).toBe(false)
+            const control = selectors(label).at(-1)!
             const count = calls.length
-            select.value = value
-            select.dispatchEvent(new Event("change", { bubbles: true }))
-            expect(calls).toHaveLength(count + 1)
-            expect(calls.at(-1)).toEqual({ op: "site-permission", origin: site.origin, [field]: value })
+            if (control instanceof HTMLSelectElement) {
+              expect(control.disabled).toBe(false)
+              expect([...control.options].map((option) => option.value)).toEqual(["block", "ask", "allow"])
+              control.value = value
+              control.dispatchEvent(new Event("change", { bubbles: true }))
+            } else {
+              expect(control.querySelector("button")?.hasAttribute("disabled")).toBe(false)
+              await choose(control, value === "ask" ? "Ask" : value === "allow" ? "Allow" : "Block", [
+                "Block",
+                "Ask",
+                "Allow",
+              ])
+            }
+            expect(calls).toHaveLength(count + (control instanceof HTMLSelectElement || value !== current ? 1 : 0))
+            if (value !== current)
+              expect(calls.at(-1)).toEqual({ op: "site-permission", origin: site.origin, [field]: value })
           }
         }
         await new Promise<void>((resolve) => setImmediate(resolve))

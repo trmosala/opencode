@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { MAX_SNAPSHOT_BYTES } from "@cookiemonster/cm-browser/protocol"
+import { MAX_SNAPSHOT_BYTES, type BrowserState } from "@cookiemonster/cm-browser/protocol"
 import { execute, shouldShowBrowserContextMenu, screenshotDecoder, type DriverContents, type Target } from "./driver"
 import { parseSnapshot, snapshotScript } from "./snapshot"
 import { DESKTOP_NATIVE_ENGLISH, createDesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
@@ -92,9 +92,11 @@ describe("browser driver", () => {
   })
   test("screenshot bounds preflight and decoded raster, rejects malformed capture, never retries or reads DOM", async () => {
     const decoder = screenshotDecoder.size
+    const bound = screenshotDecoder.bound
     try {
       for (const reason of [
         "success",
+        "documents",
         "edge",
         "pixels",
         "empty",
@@ -102,6 +104,7 @@ describe("browser driver", () => {
         "jpeg",
         "decode",
         "raster",
+        "bound",
         "bytes",
         "url",
       ]) {
@@ -109,16 +112,43 @@ describe("browser driver", () => {
         let captures = 0
         screenshotDecoder.size = async () =>
           reason === "decode" ? undefined : { width: reason === "raster" ? 4097 : 1, height: 1 }
+        screenshotDecoder.bound = async (_bytes, width, height) =>
+          reason === "bound"
+            ? undefined
+            : { bytes: Buffer.from([255, 216, 255, 217]), width, height, scaleX: 1, scaleY: 1 }
         view.target.contents.debugger.sendCommand = async (method, params) => {
-          if (method === "Page.getLayoutMetrics")
+          if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId: "loader" } } }
+          if (method === "Page.createIsolatedWorld") return { executionContextId: 9 }
+          if (method === "Runtime.evaluate")
             return {
-              visualViewport: {
-                clientWidth: reason === "edge" ? 4097 : reason === "pixels" ? 4096 : 1,
-                clientHeight: reason === "pixels" ? 1025 : 1,
+              result: {
+                value: {
+                  documentToken: "document",
+                  layoutToken: "layout",
+                  width: reason === "edge" ? 4097 : reason === "pixels" ? 4096 : 1,
+                  height: reason === "pixels" ? 1025 : 1,
+                  dpr: 1,
+                  scrollX: 0,
+                  scrollY: 0,
+                  animated: false,
+                },
               },
             }
+          if (method === "Page.getLayoutMetrics") return { visualViewport: { pageX: 0, pageY: 0 } }
           expect(method).toBe("Page.captureScreenshot")
-          expect(params).toEqual({ format: "jpeg", quality: 60, fromSurface: true, captureBeyondViewport: false })
+          expect(params).toMatchObject({
+            format: "jpeg",
+            quality: 88,
+            fromSurface: true,
+            captureBeyondViewport: false,
+            clip: {
+              x: 0,
+              y: 0,
+              width: reason === "edge" ? 4097 : reason === "pixels" ? 4096 : 1,
+              height: reason === "pixels" ? 1025 : 1,
+              scale: 1,
+            },
+          })
           captures++
           return {
             data:
@@ -129,23 +159,142 @@ describe("browser driver", () => {
                   : reason === "jpeg"
                     ? "YWJjZA=="
                     : reason === "bytes"
-                      ? "a".repeat(61444)
+                      ? "a".repeat(8_388_608)
                       : "/9j/2Q==",
           }
         }
-        const response = await execute(view.target, { op: "screenshot", tabID: "one" })
-        expect(response.ok).toBe(reason === "success")
+        const response = await execute(
+          {
+            ...view.target,
+            visualAuthority: "fixture-owner",
+            visualOwnerCheck() {},
+            visualDocuments: async () => {
+              if (reason === "documents") throw new Error("unverifiable document")
+              return "fixture-documents"
+            },
+          },
+          { op: "screenshot", tabID: "one" },
+        )
+        expect(response.ok).toBe(reason === "success" || reason === "documents")
         expect(captures).toBe(reason === "edge" || reason === "pixels" ? 0 : 1)
         if (response.ok)
           expect(response.result).toMatchObject({
             title: "",
             visibleText: "",
             elements: [],
-            screenshot: { width: 1, height: 1, data: "/9j/2Q==" },
+            screenshot: {
+              width: 1,
+              height: 1,
+              data: "/9j/2Q==",
+              viewportWidth: 1,
+              viewportHeight: 1,
+              scaleX: 1,
+              scaleY: 1,
+            },
           })
+        if (response.ok && reason === "documents") {
+          expect(response.result.screenshot?.visualRef).toBeUndefined()
+          expect(response.result.screenshot?.actionUnavailable).toBeString()
+        }
       }
     } finally {
       screenshotDecoder.size = decoder
+      screenshotDecoder.bound = bound
+    }
+  })
+
+  test("visual actions consume one-use refs and reject owner, document, layout, or rendered-pixel changes", async () => {
+    const decoderSize = screenshotDecoder.size
+    const decoderBound = screenshotDecoder.bound
+    let documentSignature = "documents-one"
+    let ownerActive = true
+    let layoutToken = "layout-one"
+    let captureData = "/9j/2Q=="
+    try {
+      screenshotDecoder.size = async () => ({ width: 100, height: 50 })
+      screenshotDecoder.bound = async () => ({
+        bytes: Buffer.from([255, 216, 255, 217]),
+        width: 100,
+        height: 50,
+        scaleX: 1,
+        scaleY: 1,
+      })
+      const view = fake()
+      const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+      view.target.contents.debugger.sendCommand = async (method, params) => {
+        if (method === "Page.captureScreenshot") return { data: captureData }
+        if (method === "Page.getLayoutMetrics") return { visualViewport: { pageX: 0, pageY: 0 } }
+        if (method === "Runtime.evaluate" && String(params?.expression).includes("__cmVisualGuard"))
+          return {
+            result: {
+              value: {
+                documentToken: "document-one",
+                layoutToken,
+                width: 200,
+                height: 100,
+                dpr: 1,
+                scrollX: 0,
+                scrollY: 0,
+                animated: false,
+              },
+            },
+          }
+        return send(method, params)
+      }
+      const target: Target = {
+        ...view.target,
+        visualAuthority: "owner-one",
+        visualOwnerCheck() {
+          if (!ownerActive) throw new Error("owner revoked")
+        },
+        visualDocuments: async () => documentSignature,
+      }
+      const capture = async () => {
+        const response = await execute(target, { op: "screenshot", tabID: "one" })
+        if (!response.ok || !response.result.screenshot?.visualRef) throw new Error("Visual screenshot missing ref")
+        return response.result.screenshot
+      }
+      const action = (image: NonNullable<BrowserState["screenshot"]>) =>
+        execute(target, {
+          op: "visual_action",
+          tabID: "one",
+          visualRef: image.visualRef!,
+          action: "click",
+          x: 50,
+          y: 25,
+        })
+
+      const first = await capture()
+      const dispatched = await action(first)
+      expect(dispatched.ok).toBe(true)
+      expect(
+        view.calls.filter((call) => call.method === "Input.dispatchMouseEvent").map((call) => call.params?.type),
+      ).toEqual(["mouseMoved", "mousePressed", "mouseReleased"])
+      expect(await action(first)).toMatchObject({ ok: false, code: "stale_ref" })
+      expect(view.calls.filter((call) => call.method === "Input.dispatchMouseEvent")).toHaveLength(3)
+
+      const layout = await capture()
+      layoutToken = "layout-changed"
+      expect(await action(layout)).toMatchObject({ ok: false, code: "stale_ref" })
+
+      layoutToken = "layout-one"
+      const documents = await capture()
+      documentSignature = "documents-after-child-scroll"
+      expect(await action(documents)).toMatchObject({ ok: false, code: "stale_ref" })
+
+      documentSignature = "documents-one"
+      const pixels = await capture()
+      captureData = Buffer.from([255, 216, 255, 0, 255, 217]).toString("base64")
+      expect(await action(pixels)).toMatchObject({ ok: false, code: "stale_ref" })
+
+      captureData = "/9j/2Q=="
+      const revoked = await capture()
+      ownerActive = false
+      await expect(action(revoked)).rejects.toThrow("owner revoked")
+      expect(view.calls.filter((call) => call.method === "Input.dispatchMouseEvent")).toHaveLength(3)
+    } finally {
+      screenshotDecoder.size = decoderSize
+      screenshotDecoder.bound = decoderBound
     }
   })
 

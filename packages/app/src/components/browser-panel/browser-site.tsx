@@ -51,7 +51,9 @@ export function BrowserSite(props: {
   })
   return (
     <div class="space-y-3">
-      <strong class="break-all">{origin()}</strong>
+      <strong dir="ltr" class="block text-start break-all">
+        {origin()}
+      </strong>
       <p>{language.t(`browser.site.${props.tab.connection ?? "unknown"}`)}</p>
       <p class="text-text-weak">{language.t("browser.site.connectionHelp")}</p>
       <For each={["camera", "microphone"] as const}>

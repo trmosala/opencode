@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { browserShortcut } from "@/browser-panel"
+import { browserShortcut, browserShortcutHint } from "@/browser-panel"
 
 test("browser shortcuts support Control and Command without consuming ordinary typing", () => {
   const input = { ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }
@@ -15,4 +15,13 @@ test("browser shortcuts support Control and Command without consuming ordinary t
   expect(browserShortcut({ ...input, key: "l", altKey: true })).toBeUndefined()
   expect(browserShortcut({ ...input, key: "w", shiftKey: true })).toBeUndefined()
   expect(browserShortcut({ ...input, key: "c" })).toBeUndefined()
+})
+
+test("shortcut hints use the platform modifier and translated key names", () => {
+  const label = (key: "common.key.ctrl" | "common.key.shift" | "common.key.tab") =>
+    ({ "common.key.ctrl": "Control", "common.key.shift": "Shift", "common.key.tab": "Tab" })[key]
+  expect(browserShortcutHint("find", false, label)).toBe("Control+F")
+  expect(browserShortcutHint("print", true, label)).toBe("⌘P")
+  expect(browserShortcutHint("reopen", false, label)).toBe("Control+Shift+T")
+  expect(browserShortcutHint("previous", true, label)).toBe("⌘⇧Tab")
 })

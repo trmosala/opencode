@@ -1,4 +1,7 @@
 export type BrowserTab = {
+  notice?: { code: string; message: string }
+  operation?: BrowserOperationState
+  failure?: { kind: "load" | "crash"; code: string; message: string }
   access?: {
     loading: boolean
     hostAllowed: boolean
@@ -25,6 +28,16 @@ export type BrowserTab = {
   deviceSize?: BrowserDeviceSize
   find?: { active: number; matches: number }
   siteData?: BrowserSiteData
+}
+
+export type BrowserOperationState = {
+  id: string
+  op: string
+  status: "running" | "settling" | "failed" | "quarantined"
+  code?: string
+  message?: string
+  actionStatus?: "not_dispatched" | "dispatched_observed" | "dispatched_uncertain"
+  actionCause?: string
 }
 
 export type BrowserSiteStorage =
@@ -139,6 +152,7 @@ export type BrowserDownload = {
   canResume?: boolean
 }
 export type BrowserTabs = {
+  revision?: number
   sessionID: string
   activeID?: string
   tabs: BrowserTab[]
@@ -172,6 +186,28 @@ export function browserDeviceSize(value: unknown): BrowserDeviceSize | undefined
 
 export type BrowserBounds = { x: number; y: number; width: number; height: number }
 export type BrowserShortcut = "address" | "new" | "reopen" | "close" | "reload" | "next" | "previous" | "find" | "print"
+export const BROWSER_SHORTCUTS = [
+  { action: "previous", key: "tab", shift: true },
+  { action: "next", key: "tab", shift: false },
+  { action: "reopen", key: "t", shift: true },
+  { action: "address", key: "l", shift: false },
+  { action: "new", key: "t", shift: false },
+  { action: "close", key: "w", shift: false },
+  { action: "reload", key: "r", shift: false },
+  { action: "find", key: "f", shift: false },
+  { action: "print", key: "p", shift: false },
+] as const satisfies readonly { action: BrowserShortcut; key: string; shift: boolean }[]
+
+export function browserShortcutHint(
+  action: BrowserShortcut,
+  mac: boolean,
+  t: (key: "common.key.ctrl" | "common.key.shift" | "common.key.tab") => string,
+) {
+  const shortcut = BROWSER_SHORTCUTS.find((row) => row.action === action)
+  return shortcut
+    ? `${mac ? "⌘" : `${t("common.key.ctrl")}+`}${shortcut.shift ? (mac ? "⇧" : `${t("common.key.shift")}+`) : ""}${shortcut.key === "tab" ? t("common.key.tab") : shortcut.key.toUpperCase()}`
+    : ""
+}
 export type BrowserClearKind = "history" | "cache" | "cookies" | "passwords" | "downloads"
 export type BrowserClearRange = "hour" | "day" | "week" | "month" | "all"
 
@@ -183,16 +219,7 @@ export function browserShortcut(input: {
   shiftKey: boolean
 }): BrowserShortcut | undefined {
   if (!(input.ctrlKey || input.metaKey) || input.altKey) return
-  const key = input.key.toLowerCase()
-  if (key === "tab") return input.shiftKey ? "previous" : "next"
-  if (input.shiftKey && key === "t") return "reopen"
-  if (input.shiftKey) return
-  if (key === "l") return "address"
-  if (key === "t") return "new"
-  if (key === "w") return "close"
-  if (key === "r") return "reload"
-  if (key === "f") return "find"
-  if (key === "p") return "print"
+  return BROWSER_SHORTCUTS.find((row) => row.key === input.key.toLowerCase() && row.shift === input.shiftKey)?.action
 }
 
 export function browserTabKeyIndex(

@@ -1,4 +1,5 @@
 import { Button } from "@opencode-ai/ui/button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { For, Show, createEffect } from "solid-js"
 import { createStore } from "solid-js/store"
 import {
@@ -26,7 +27,7 @@ export function BrowserContacts(props: {
     if (props.profile.vaultStatus !== "unlocked") setState({ editing: undefined, query: "" })
   })
   return (
-    <div class="space-y-3">
+    <div class="space-y-3" data-slot="browser-record-list">
       <p>{language.t("browser.contacts.help")}</p>
       <Show when={props.profile.contactsUnavailable}>
         <p role="alert">{language.t("browser.contacts.unavailable")}</p>
@@ -130,14 +131,17 @@ export function BrowserContacts(props: {
             </form>
           )}
         </Show>
-        <input
-          type="search"
-          value={state.query}
-          aria-label={language.t("browser.contacts.search")}
-          placeholder={language.t("browser.contacts.search")}
-          class="block w-full border rounded px-2 py-1"
-          onInput={(event) => setState("query", event.currentTarget.value)}
-        />
+        <label class="browser-record-search">
+          <Icon name="magnifying-glass" />
+          <input
+            type="search"
+            value={state.query}
+            aria-label={language.t("browser.contacts.search")}
+            placeholder={language.t("browser.contacts.search")}
+            class="browser-record-search-input"
+            onInput={(event) => setState("query", event.currentTarget.value)}
+          />
+        </label>
         <For
           each={props.profile.contacts?.filter((row) =>
             `${row.label} ${Object.values(row.values).join(" ")}`.toLowerCase().includes(state.query.toLowerCase()),
@@ -145,7 +149,10 @@ export function BrowserContacts(props: {
           fallback={<p>{language.t("browser.records.noMatches")}</p>}
         >
           {(row) => (
-            <div class="flex flex-wrap gap-2 items-center border-t py-2">
+            <div
+              class="flex flex-wrap gap-2 items-center border-t border-border-weaker-base py-2"
+              data-slot="browser-record-row"
+            >
               <span class="flex-1 break-words">{row.label}</span>
               <Button
                 size="small"

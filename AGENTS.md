@@ -175,11 +175,13 @@ This repo adds an Electron desktop shell ("CookieMonster") on top of upstream Op
 **Release tags:** `cookiemonster-v<upstream>_<cm-rev>` — everything before the `_` is the canonical upstream OpenCode version; the CookieMonster revision lives after it (e.g. `cookiemonster-v1.17.11_01`). The `_NN` suffix is not valid semver, so it lives only in the git tag / release name — `packages/desktop/package.json` keeps the plain upstream version. To bake a CM revision into the app itself, use semver build metadata (`1.17.11+cm.1`).
 
 Key packages beyond the upstream core:
+
 - `packages/desktop` — Electron shell: `src/main`, `src/preload`, `src/renderer`. Hosts the WPP bridge.
 - `packages/app` — shared Solid.js UI (session layout, prompt input, browser panel) used by web and desktop.
 - `packages/cm-browser` — `@cookiemonster/cm-browser`, a CookieMonster-only OpenCode **plugin** that exposes the embedded browser panel to the agent as tools. Private workspace package, bundled to `dist/plugin.mjs`. It runs inside the OpenCode sidecar, not the WPP bridge — see "Agent browser tools" below.
 
 Common commands:
+
 ```bash
 bun dev                 # OpenCode CLI (packages/opencode); `bun dev <dir>`, `bun dev serve` (:4096)
 bun run dev:desktop     # Electron app (electron-vite dev)
@@ -189,13 +191,14 @@ bun run lint            # oxlint (root only)
 O1_CODE_SHOW_WORKERS=1 bun run dev:desktop            # same, with the hidden WPP worker tabs visible
 cd packages/desktop && bun test src/main/wpp-bridge/  # the WPP bridge test suite
 ```
+
 Desktop packaging targets macOS only (from `packages/desktop`): `CM_BRAND=1 bun run build` then `CM_BRAND=1 bun run package:mac`. **Always set `CM_BRAND=1`** so the artifact ships as `CookieMonster` (appId `com.ogilvy.cookiemonster`, auto-update stripped) rather than an unbranded OpenCode build. Branded macOS packaging emits app-only `.dmg` and `.zip` artifacts for `~/Applications/CookieMonster.app`, with no PKG or public CLI registration. The DMG uses the existing **Install for My User** flow; internal sidecars remain bundled. Set `CM_UNSIGNED=0` for signed local builds with Developer ID and notarization credentials configured. Windows/Linux code remains for upstream compatibility but is no longer a CookieMonster release target. See `packages/desktop/SYSTEM_CLI.md`.
 
 ### First hour on this fork
 
 1. `bun install` at the repo root (Bun 1.3.14, per `packageManager`). Default branch is `dev`; local `main` may not exist.
 2. `O1_CODE_SHOW_WORKERS=1 bun run dev:desktop`. Seeing the worker tabs is the difference between debugging this bridge and guessing at it — without the flag every WPP window is hidden. The same toggle lives in the View menu.
-3. First launch pops a *visible* WPP SSO window. Log in once; the `persist:wpp` partition keeps the session for every later headless worker.
+3. First launch pops a _visible_ WPP SSO window. Log in once; the `persist:wpp` partition keeps the session for every later headless worker.
 4. Send one prompt, then open `http://127.0.0.1:8787/status` for the bridge diagnostic page, and confirm the response carried `x-o1-code-response-source: network`. Anything else means the page recorder missed and a lower-fidelity path served the turn.
 5. `cd packages/desktop && bun test src/main/wpp-bridge/`. Tests cannot run from the repo root (guard: `do-not-run-tests-from-root`).
 6. Read `HANDOVER-wpp-dual-capture.md` and `HANDOVER-wpp-token-counter.md` before touching capture or token accounting.
@@ -217,15 +220,15 @@ Capture pipeline (three layers, arbitrated — see `HANDOVER-wpp-dual-capture.md
 
 **Arbitration.** `WorkerPool.run` calls `capture-verdict.ts`: a non-network result that the witness can't corroborate throws a typed `o1_code_capture_failure` (`wpp_request_failed` | `recorder_parser_miss` | `submit_or_ui_failure`), the worker is discarded, and `openaiCompat.mjs` retries once as a fresh replay before surfacing a 502.
 
-**Pre-submit recovery.** Two *pre-submit* worker failures share this discard-and-replay-once recovery: `o1_code_recorder_not_armed` (the page recorder never acked its reset within `waitForRecorderReset`) and `o1_code_thread_desync` (a pinned tab whose thread was lost). Both are raised before `submitPrompt`, so no model request was sent and replaying is duplicate-safe; `WorkerPool.run` must `discard()` the dead tab (a merely-released worker stays eligible and `acquire()` could re-select it), and `openaiCompat.shouldRetryFreshReplay` gates the single fresh replay for all three types (skipping compaction and any turn that already streamed prose).
+**Pre-submit recovery.** Two _pre-submit_ worker failures share this discard-and-replay-once recovery: `o1_code_recorder_not_armed` (the page recorder never acked its reset within `waitForRecorderReset`) and `o1_code_thread_desync` (a pinned tab whose thread was lost). Both are raised before `submitPrompt`, so no model request was sent and replaying is duplicate-safe; `WorkerPool.run` must `discard()` the dead tab (a merely-released worker stays eligible and `acquire()` could re-select it), and `openaiCompat.shouldRetryFreshReplay` gates the single fresh replay for all three types (skipping compaction and any turn that already streamed prose).
 
 **Auth reclassification.** Once the fresh replay is also exhausted, `openaiCompat.loginRequiredFailure` probes the live session via `bridge.checkAuthState()` (best-effort: `WorkerPool.checkAuthState` reads an already-live worker's page through `classifyWppAuthState` and never spawns one); a logged-out verdict reclassifies the failure as `wpp_auth_required` (401) and calls `markAuthRequired` to pop the SSO window, so a stale-session failure reads as "log in" instead of a bare capture/recorder error.
 
 **Invariants.** Never treat DOM-fallback output as byte-exact. The model-request predicate is duplicated (TS `isWppModelRequest` + injected `MODEL_REQUEST_FILTER_SOURCE` string) in `model-request-filter.ts` and must be kept in sync.
 
-Concurrency: `SpawnGate` serializes *heavy* spawns (page load + CDP inject + SSO) via a semaphore — `MAX_CONCURRENT_SPAWNS` from `O1_CODE_MAX_SPAWNS` (default 3). Total workers are unbounded (one per job); only the spawn step is throttled. The 60s prune reaps idle workers on three TTL tiers (`worker-slot.ts` `ttlForWorker`): unpinned scratch (10 min, `IDLE_WORKER_TTL_MS`); session-pinned interactive tabs (4h backstop, `O1_CODE_PINNED_TTL_MS` — meant to live for the app run, destroyed on quit); and sub-agent tabs (5 min, `O1_CODE_SUBAGENT_TTL_MS`). A turn is classed sub-agent when the request carries `x-parent-session-id` (OpenCode sets it from `session.parentID` for child sessions).
+Concurrency: `SpawnGate` serializes _heavy_ spawns (page load + CDP inject + SSO) via a semaphore — `MAX_CONCURRENT_SPAWNS` from `O1_CODE_MAX_SPAWNS` (default 3). Total workers are unbounded (one per job); only the spawn step is throttled. The 60s prune reaps idle workers on three TTL tiers (`worker-slot.ts` `ttlForWorker`): unpinned scratch (10 min, `IDLE_WORKER_TTL_MS`); session-pinned interactive tabs (4h backstop, `O1_CODE_PINNED_TTL_MS` — meant to live for the app run, destroyed on quit); and sub-agent tabs (5 min, `O1_CODE_SUBAGENT_TTL_MS`). A turn is classed sub-agent when the request carries `x-parent-session-id` (OpenCode sets it from `session.parentID` for child sessions).
 
-Auth: a job hitting auth-required calls `markAuthRequired` → fire-once `openWppLogin()` shows a *visible* BrowserWindow for interactive SSO; the `persist:wpp` partition then keeps the session for subsequent headless workers. The login callback is wired from `main/index.ts` at boot.
+Auth: a job hitting auth-required calls `markAuthRequired` → fire-once `openWppLogin()` shows a _visible_ BrowserWindow for interactive SSO; the `persist:wpp` partition then keeps the session for subsequent headless workers. The login callback is wired from `main/index.ts` at boot.
 
 Serializer contract: `openaiCompat.mjs` translates the OpenCode session into the versioned `CM_REQUEST_V1` envelope defined by `proxy/protocol.mjs`. Preserve its instruction/tool/message structure; free-form `[system]` or tool-result framing makes the WPP backend treat the relay as prompt injection. The matching WPP-side instruction is versioned in `wpp-bridge/WPP_AGENT_SYSTEM_PROMPT.md` and must be installed on every routed agent before removing its legacy compatibility paragraph.
 
@@ -246,7 +249,7 @@ The four numbered files above are the spine. These carry the rest of the behavio
 
 **Response out — parsing**
 
-- `proxy/toolCallNormalizer.mjs` — the largest module in the bridge: turns model prose back into OpenAI `tool_calls`. It parses only *unfenced* XML so that code fences inside a `content` parameter survive intact, and `chooseAssistantResponse` falls back through recorder tool-call parts and alternate assistant texts. Anyone touching model output lands here.
+- `proxy/toolCallNormalizer.mjs` — the largest module in the bridge: turns model prose back into OpenAI `tool_calls`. It parses only _unfenced_ XML so that code fences inside a `content` parameter survive intact, and `chooseAssistantResponse` falls back through recorder tool-call parts and alternate assistant texts. Anyone touching model output lands here.
 - `proxy/anthropicToolFormat.mjs` / `jsonToolFormat.mjs` — render prior tool calls back out in the format the agent itself emits, so a continued thread reads its own history. Selected by `toolFormat`.
 - `proxy/streamGate.mjs` — decides from cumulative text whether a turn is prose (stream it live) or a tool call (suppress until normalized). Buffers the first `DECISION_THRESHOLD` (24) non-whitespace characters, holds back a trailing fragment that could be a marker split across frames, and flips to suppressed on a mid-stream marker. This is why prose starts a beat late; do not "fix" it by streaming raw deltas, or a tool-calling turn will spray XML into the UI and then be retroactively replaced.
 - `proxy/streamAdapter.mjs` — SSE chunk shaping for the streamed OpenAI response.
@@ -264,29 +267,29 @@ The four numbered files above are the spine. These carry the rest of the behavio
 
 All optional; effective default in parentheses.
 
-| Variable | Effect |
-| --- | --- |
-| `O1_CODE_SHOW_WORKERS` | `1` shows worker tabs at launch (hidden); also a View menu toggle |
-| `O1_CODE_PROXY_HOST` / `O1_CODE_PROXY_PORT` | proxy bind (`127.0.0.1` / `8787`) |
-| `O1_CODE_TARGET_URL` | override the WPP project URL workers load |
-| `O1_CODE_MAX_SPAWNS` | concurrent heavy spawns (`3`) |
-| `O1_CODE_PINNED_TTL_MS` / `O1_CODE_SUBAGENT_TTL_MS` | worker TTL tiers (`4h` / `5min`) |
-| `O1_CODE_SESSION_WAIT_MS` | wait for a busy pinned session's tab (`16min`) |
-| `O1_CODE_MAX_PROMPT_CHARS` | hard-reject a serialized prompt above this size |
-| `O1_CODE_THREAD_CONTINUITY` | `0` disables delta `continue` turns (always replay fresh) |
-| `O1_CODE_ARTIFACT_DIR` | absolute override for generated-media output |
-| `O1_CODE_PROXY_LOGS` / `_LOG_DIR` / `_LOG_PAYLOADS` / `_LOG_KEEP` | run logging |
-| `O1_CODE_VERBOSE_RECORDER` | `1` adds recorder diagnostics for non-recordable requests |
-| `CM_BRAND` / `CM_UNSIGNED` | packaging: brand as CookieMonster / strip signing and notarization |
+| Variable                                                          | Effect                                                             |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `O1_CODE_SHOW_WORKERS`                                            | `1` shows worker tabs at launch (hidden); also a View menu toggle  |
+| `O1_CODE_PROXY_HOST` / `O1_CODE_PROXY_PORT`                       | proxy bind (`127.0.0.1` / `8787`)                                  |
+| `O1_CODE_TARGET_URL`                                              | override the WPP project URL workers load                          |
+| `O1_CODE_MAX_SPAWNS`                                              | concurrent heavy spawns (`3`)                                      |
+| `O1_CODE_PINNED_TTL_MS` / `O1_CODE_SUBAGENT_TTL_MS`               | worker TTL tiers (`4h` / `5min`)                                   |
+| `O1_CODE_SESSION_WAIT_MS`                                         | wait for a busy pinned session's tab (`16min`)                     |
+| `O1_CODE_MAX_PROMPT_CHARS`                                        | hard-reject a serialized prompt above this size                    |
+| `O1_CODE_THREAD_CONTINUITY`                                       | `0` disables delta `continue` turns (always replay fresh)          |
+| `O1_CODE_ARTIFACT_DIR`                                            | absolute override for generated-media output                       |
+| `O1_CODE_PROXY_LOGS` / `_LOG_DIR` / `_LOG_PAYLOADS` / `_LOG_KEEP` | run logging                                                        |
+| `O1_CODE_VERBOSE_RECORDER`                                        | `1` adds recorder diagnostics for non-recordable requests          |
+| `CM_BRAND` / `CM_UNSIGNED`                                        | packaging: brand as CookieMonster / strip signing and notarization |
 
 ### Agent browser tools (`packages/cm-browser`)
 
 Two browser surfaces exist in this app; do not conflate them.
 
-- **Browser panel** (below) — what the *user* sees and drives, plus the prompt context scraped out of it.
-- **`packages/cm-browser`** — what the *agent* drives, as five OpenCode tools: `browser_read_state`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_press_key`. Without `tabID`, read-state lists opted-in tabs; every page operation requires an explicit tab ID. Snapshot refs include the tab identity and a unique snapshot ID; cross-tab and stale refs are rejected. Main requires per-tab user consent for the exact website origin in addition to normal tool approvals. Cross-origin navigation revokes consent.
+- **Browser panel** (below) — what the _user_ sees and drives, plus the prompt context scraped out of it.
+- **`packages/cm-browser`** — what the _agent_ drives, as five OpenCode tools: `browser_read_state`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_press_key`. Without `tabID`, read-state lists opted-in tabs; every page operation requires an explicit tab ID. Snapshot refs include the tab identity and a unique snapshot ID; cross-tab and stale refs are rejected. One main-owned Agent Access grant covers the selected native tab and its documents across origins. Supported page tools, screenshots, diagnostics and site actions require no further tool, receiving-origin, frame or capture approval. Cross-origin navigation retains the grant and invalidates old document refs. Revocation/global disable/close/owner replacement cancel pending work and suppress late disclosure. Other, reopened and recovered tabs start private; Vault access and unrelated OS capabilities remain separate. Screenshots disclose every visible pixel without redaction, and delivered content cannot be recalled.
 
-Wiring, because it is unusual: this is an OpenCode **plugin**, not proxy or extension code, so OpenCode owns the tools and this repo stays transport-only. `main/server.ts` `browserPluginEntry()` resolves `resources/cm-browser/plugin.mjs` when packaged (`<appPath>/../cm-browser/dist/plugin.mjs` in dev) and passes it through `o1CodeConfigContent()` into the sidecar's `OPENCODE_CONFIG_CONTENT`, along with permissions (`browser_read_state: allow`; the four mutating tools `ask`). The plugin runs inside the sidecar utility process and reaches main over `parentPort` `browser_request` messages (`src/port.ts`), which `main/browser/router.ts` executes. `main/browser/registry.ts` enforces tab origin consent **in main**, because the sidecar cannot be trusted to enforce it; a different origin fails `blocked_host` until the user opens it and grants access. The legacy host allowlist is no longer an access prerequisite. `bun run build` in the package emits the bundle, and `packages/desktop/scripts/prebuild.ts` does it during desktop packaging.
+Wiring, because it is unusual: this is an OpenCode **plugin**, not proxy or extension code, so OpenCode owns the tools and this repo stays transport-only. `main/server.ts` `browserPluginEntry()` resolves `resources/cm-browser/plugin.mjs` when packaged (`<appPath>/../cm-browser/dist/plugin.mjs` in dev) and passes it through `o1CodeConfigContent()` into the sidecar's `OPENCODE_CONFIG_CONTENT`. The plugin runs inside the sidecar utility process and reaches main over `parentPort` `browser_request` messages (`src/port.ts`), which `main/browser/router.ts` executes. Main enforces tab grants and operation-specific supported capabilities because the sidecar cannot be trusted to enforce them. The legacy host allowlist is not an access prerequisite. `bun run build` in the package emits the bundle, and `packages/desktop/scripts/prebuild.ts` does it during desktop packaging.
 
 ### Electron process split
 

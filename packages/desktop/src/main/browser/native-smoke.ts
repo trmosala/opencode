@@ -101,6 +101,13 @@ const server = createServer((request, response) => {
     request.socket.destroy()
     return
   }
+  if (request.url === "/tab-redirect") {
+    response.writeHead(302, {
+      location: `http://localhost:${server.address() && (server.address() as import("node:net").AddressInfo).port}/tab-arrived`,
+    })
+    response.end()
+    return
+  }
   if (request.url === "/redirect") {
     response.writeHead(302, { location: "http://blocked.invalid/" })
     response.end()
@@ -318,10 +325,64 @@ async function run() {
     stage("PASS snapshots")
     if (process.argv.includes("--snapshots")) return
   }
+  if (process.argv.includes("--targeted-read")) {
+    const { targetedReadSmoke } = await import("./targeted-read.fixture")
+    await targetedReadSmoke()
+    stage("PASS targeted read")
+    return
+  }
+  if (process.argv.includes("--embedded-input")) {
+    const { embeddedInputSmoke } = await import("./embedded-input.fixture")
+    await embeddedInputSmoke()
+    stage("PASS embedded input")
+    return
+  }
+  if (process.argv.includes("--visual")) {
+    const { visualSmoke } = await import("./visual.fixture")
+    await visualSmoke()
+    stage("PASS visual inspection and input")
+    return
+  }
+  if (process.argv.includes("--embedded-documents")) {
+    const { embeddedDocumentsSmoke } = await import("./embedded-documents.fixture")
+    await embeddedDocumentsSmoke()
+    stage("PASS embedded documents")
+    return
+  }
+  if (process.argv.includes("--action-outcomes")) {
+    const { outcomesSmoke } = await import("./outcomes.fixture")
+    await outcomesSmoke()
+    stage("PASS action outcomes")
+    return
+  }
+  if (process.argv.includes("--navigation")) {
+    const { navigationSmoke } = await import("./navigation.fixture")
+    await navigationSmoke()
+    stage("PASS navigation")
+    return
+  }
+  if (process.argv.includes("--overlays")) {
+    const { overlaysSmoke } = await import("./overlays.fixture")
+    await overlaysSmoke()
+    stage("PASS overlays")
+    return
+  }
+  if (process.argv.includes("--resources")) {
+    const { resourceBaselineSmoke } = await import("./resource-policy.fixture")
+    await resourceBaselineSmoke()
+    stage("PASS resource baseline")
+    return
+  }
   if (process.argv.includes("--tab-lifecycle")) {
     const { tabLifecycleSmoke } = await import("./tab-lifecycle.fixture")
     await tabLifecycleSmoke()
     stage("PASS tab lifecycle")
+    return
+  }
+  if (process.argv.includes("--delegation")) {
+    const { delegationSmoke } = await import("./delegation.fixture")
+    await delegationSmoke()
+    stage("PASS trusted tab delegation")
     return
   }
   if (process.argv.includes("--tab-organisation")) {
@@ -563,6 +624,13 @@ async function run() {
   stage("creating first tab")
   win.showInactive()
   const command = (value: Parameters<typeof browserCommand>[2]) => browserCommand(owner, "smoke", value)
+  if (process.argv.includes("--leave-confirmation")) {
+    const { leaveConfirmationSmoke } = await import("./leave-confirmation.fixture")
+    await leaveConfirmationSmoke(win, url, command)
+    stage("PASS leave confirmation")
+    win.destroy()
+    return
+  }
   if (process.argv.includes("--site-data")) {
     const { siteDataSmoke } = await import("./site-data.fixture")
     try {
@@ -725,7 +793,8 @@ async function run() {
       request.op !== "screenshot" &&
       request.op !== "observe_console" &&
       request.op !== "observe_network" &&
-      request.op !== "scroll"
+      request.op !== "scroll" &&
+      request.op !== "visual_action"
     )
       return dispatch(request)
     if ("context" in request) return dispatch(request)
@@ -1065,6 +1134,7 @@ async function run() {
   const one = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === first)!
   if (process.argv.includes("--site-access")) {
     const consent = dialog.showMessageBox
+    let prompts = 0
     const request = (request: Request) =>
       routeBrowserRequest({
         type: "browser_request",
@@ -1072,49 +1142,68 @@ async function run() {
         sessionID: "smoke",
         request,
       })
+    const context = {
+      sessionID: "smoke",
+      messageID: "access",
+      agent: "build",
+      directory: ".",
+      worktree: ".",
+      abort: new AbortController().signal,
+      metadata: () => {},
+      ask: async () => {
+        throw new Error("Redundant page-tool approval")
+      },
+    }
+    const tools = browserTools({ send: (_session, value) => request(value) })
     try {
-      // A legacy empty allowlist must no longer require a second user grant.
       writeFileSync(join(profile!, "cm-browser-allowlist.json"), "[]")
-      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
+      dialog.showMessageBox = (async () => {
+        prompts++
+        return { response: 1, checkboxChecked: false }
+      }) as typeof dialog.showMessageBox
+      browserLinkContext(owner, "smoke", "site-access")
+      browserViewport(owner, {
+        sessionID: "smoke",
+        lease: "site-access",
+        bounds: { x: 0, y: 100, width: 800, height: 500 },
+      })
       await wait(() => !one.contents.isLoadingMainFrame())
       await command({ op: "access", tabID: first, enabled: true })
-      assert.equal(one.agentOrigin, new URL(url).origin)
-      assert((await request({ op: "read_state", tabID: first })).ok)
+      assert.equal(prompts, 1)
+      assert.equal(one.agentAccess, true)
+      const initial = await request({ op: "read_state", tabID: first })
+      assert(initial.ok)
+      const ref = initial.result.elements[0].ref
       const other = (await command({ op: "new" })).activeID!
-      await command({ op: "access", tabID: other, enabled: true })
-      assert.equal(owner.groups.get("smoke")!.tabs.find((tab) => tab.id === other)!.agentAccess, false)
       await command({ op: "navigate", tabID: other, url })
       const privateRead = await request({ op: "read_state", tabID: other })
       assert(!privateRead.ok && privateRead.code === "access_denied")
       await command({ op: "select", tabID: first })
-      await command({ op: "navigate", tabID: first, url: url + "same-site" })
-      await wait(() => !one.contents.isLoadingMainFrame())
-      assert(one.agentAccess)
-      assert((await request({ op: "read_state", tabID: first })).ok)
       const destination = url.replace("127.0.0.1", "localhost")
-      const blocked = await request({
-        op: "prepare_write",
-        request: { op: "navigate", tabID: first, url: destination },
-      })
-      assert(!blocked.ok && blocked.code === "blocked_host")
-      await command({ op: "navigate", tabID: first, url: destination })
-      await wait(() => !one.contents.isLoadingMainFrame())
-      assert.equal(one.agentAccess, false)
-      assert.equal(one.agentOrigin, undefined)
-      await command({ op: "navigate", tabID: first, url })
-      await wait(() => !one.contents.isLoadingMainFrame())
-      assert.equal(one.agentAccess, false, "Returning does not restore consent")
+      await tools.browser_navigate.execute({ tabID: first, url: destination }, context)
+      assert(one.agentAccess)
+      await assert.rejects(tools.browser_click.execute({ tabID: first, ref }, context))
+      await tools.browser_navigate.execute({ tabID: first, url: url + "tab-redirect" }, context)
+      assert.equal(one.contents.getURL(), destination + "tab-arrived")
+      assert(one.agentAccess)
+      await tools.browser_read_state.execute({ tabID: first }, context)
+      await tools.browser_screenshot.execute({ tabID: first }, context)
+      await tools.browser_observe_console.execute({ tabID: first, durationMs: 250 }, context)
+      await tools.browser_observe_network.execute({ tabID: first, durationMs: 250 }, context)
+      assert.equal(prompts, 1, "No page/capture/diagnostic reapproval")
+      await command({ op: "access", tabID: first, enabled: false })
+      await assert.rejects(tools.browser_read_state.execute({ tabID: first }, context))
       await command({ op: "access", tabID: first, enabled: true })
-      assert((await request({ op: "read_state", tabID: first })).ok)
-      const redirect = { op: "navigate", tabID: first, url: url + "redirect" } as const
-      const prepared = await request({ op: "prepare_write", request: redirect })
-      assert(prepared.ok && prepared.result.context)
-      const redirected = await request({ ...redirect, context: prepared.result.context })
-      assert(!redirected.ok)
-      assert.equal(one.agentAccess, false, "Cross-site redirect revokes consent")
-      assert.notEqual(one.contents.getURL(), "http://blocked.invalid/")
+      assert.equal(prompts, 2)
+      await command({ op: "close", tabID: first })
+      await wait(() => one.contents.isDestroyed())
+      const reopened = await command({ op: "reopen" })
+      assert(reopened.activeID && reopened.activeID !== first)
+      const restored = owner.groups.get("smoke")!.tabs.find((tab) => tab.id === reopened.activeID)!
+      assert.equal(restored.agentAccess, false)
+      await assert.rejects(tools.browser_read_state.execute({ tabID: restored.id }, context))
       stage(
-        "PASS site access: no host setup, private siblings, same-site navigation, cross-site revoke, redirects and reconsent",
+        "PASS whole-tab access: single grant, cross-origin navigation/redirect, stale refs, private sibling/reopen, screenshots and diagnostics without reapproval",
       )
     } finally {
       dialog.showMessageBox = consent
@@ -4399,7 +4488,7 @@ async function run() {
   const viewportCheck = `(${browserViewportBounds.toString()})(document.querySelector('#viewport'))`
   assert(await win.webContents.executeJavaScript(viewportCheck))
   await win.webContents.executeJavaScript(
-    "document.body.insertAdjacentHTML('beforeend','<div role=\"dialog\">Dialog</div>')",
+    "document.body.insertAdjacentHTML('beforeend','<div role=\"dialog\" style=\"position:fixed;left:40px;top:40px;width:80px;height:80px\">Dialog</div>')",
   )
   assert.equal(await win.webContents.executeJavaScript(viewportCheck), null)
   await win.webContents.executeJavaScript(
@@ -5600,7 +5689,7 @@ async function run() {
 run().then(
   () => {
     writeFileSync(join(profile, "result.txt"), "PASS")
-    server.close()
+    if (server.listening) server.close()
     // Reopen fixtures need Chromium's profile metadata flushed during initial setup.
     if (process.argv.includes("--persistence-reopen")) app.quit()
     else app.exit(0)
@@ -5608,7 +5697,7 @@ run().then(
   (error) => {
     writeFileSync(join(profile, "result.txt"), String(error?.stack || error))
     console.error(error)
-    server.close()
+    if (server.listening) server.close()
     app.exit(1)
   },
 )

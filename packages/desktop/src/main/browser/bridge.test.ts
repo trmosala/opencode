@@ -207,6 +207,95 @@ test("site tool delivery rechecks authority immediately before sidecar post", as
   }
 })
 
+test("delivery suppression keeps dispatched action status while withholding stale page state", async () => {
+  const child = new EventEmitter()
+  const replies: BrowserIpcResult[] = []
+  const stop = attachBrowserBridge(
+    Object.assign(child, { postMessage: (reply: BrowserIpcResult) => replies.push(reply) }),
+    async (_request, _allowed, control) => {
+      control.onActionDispatch?.()
+      control.onScreenshotDelivery?.(() => {
+        throw new Error("source changed")
+      })
+      return {
+        ...success({ tabID: "tab", url: "https://example.test/", title: "", visibleText: "changed", elements: [] }),
+        actionStatus: "dispatched_observed",
+      }
+    },
+  )
+  try {
+    child.emit("message", {
+      type: "browser_request",
+      id: "click-delivery",
+      sessionID: "one",
+      request: {
+        op: "click",
+        tabID: "tab",
+        ref: "snapshot:e0",
+        context: {
+          tabID: "tab",
+          origin: "https://example.test",
+          urlHash: "a".repeat(64),
+          revision: 0,
+          accessRevision: 0,
+          ownerContext: "owner",
+        },
+      },
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(replies).toHaveLength(1)
+    expect(replies[0].response).toMatchObject({ ok: false, code: "unavailable", actionStatus: "dispatched_uncertain" })
+    expect(JSON.stringify(replies[0])).not.toContain("changed")
+  } finally {
+    stop()
+  }
+})
+
+test("bridge cancellation after dispatch reports an uncertain action", async () => {
+  const child = new EventEmitter()
+  const replies: BrowserIpcResult[] = []
+  const operation = Promise.withResolvers<BrowserIpcResult["response"]>()
+  let control: { onActionDispatch?: () => void } | undefined
+  const stop = attachBrowserBridge(
+    Object.assign(child, { postMessage: (reply: BrowserIpcResult) => replies.push(reply) }),
+    async (_request, _allowed, current) => {
+      control = current
+      return operation.promise
+    },
+  )
+  try {
+    child.emit("message", {
+      type: "browser_request",
+      id: "click-cancel",
+      sessionID: "one",
+      request: {
+        op: "click",
+        tabID: "tab",
+        ref: "snapshot:e0",
+        context: {
+          tabID: "tab",
+          origin: "https://example.test",
+          urlHash: "a".repeat(64),
+          revision: 0,
+          accessRevision: 0,
+          ownerContext: "owner",
+        },
+      },
+    })
+    control?.onActionDispatch?.()
+    child.emit("message", { type: "browser_cancel", id: "click-cancel", sessionID: "one" })
+    expect(replies[0].response).toMatchObject({
+      code: "cancelled",
+      actionStatus: "dispatched_uncertain",
+      actionCause: "cancelled",
+    })
+    operation.resolve(failure("cancelled", "Browser operation cancelled."))
+    await new Promise((resolve) => setImmediate(resolve))
+  } finally {
+    stop()
+  }
+})
+
 const deliveryContext = {
   tabID: "tab",
   origin: "https://example.test",

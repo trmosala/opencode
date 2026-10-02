@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
 import { attachBrowserBridge } from "./browser/bridge"
+import { createBrowserSessionResolver } from "./browser/session-resolver"
 import { getLogger } from "./logging"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
@@ -79,7 +80,11 @@ export async function spawnLocalServer(
   })
   let exited = false
   const exit = defer<number>()
-  const stopBrowserBridge = attachBrowserBridge(child)
+  const stopBrowserBridge = attachBrowserBridge(
+    child,
+    undefined,
+    createBrowserSessionResolver(`http://${hostname}:${port}`, password),
+  )
 
   const onProcessGone = (_event: unknown, details: Details) => {
     if (details.type !== "Utility" || details.name !== SIDECAR_SERVICE_NAME) return

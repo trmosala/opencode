@@ -1,0 +1,35 @@
+/*
+ * New-layout surfaces below the browser tab strip. Classic layout keeps its Tailwind utility tokens.
+ * These rules are deliberately unlayered so they outrank the layered utilities on the same elements.
+ * The tab strip and the operation status (#43) are styled elsewhere and are intentionally not matched.
+ */
+body[data-new-layout] [data-component="browser-panel"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-toolbar"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-address"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-suggestions"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-landing"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-tools"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-device-toolbar"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-downloads"] {
+  background-color: var(--v2-background-bg-base);
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-toolbar"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-suggestions"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-tools"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-tools"] [class~="border-border-weaker-base"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-device-toolbar"],
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-downloads"],
+body[data-new-layout] [data-component="browser-panel"] [data-browser-agent-strip] {
+  border-color: var(--v2-border-border-base);
+}
+
+/* Leave the focused address border to its existing focus token. */
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-address"]:not(:focus-within) {
+  border-color: var(--v2-border-border-base);
+}
+
+/* Matches the native v2 menu highlight (menu-v2 `[data-highlighted]`). */
+body[data-new-layout] [data-component="browser-panel"] [data-slot="browser-suggestion"][aria-selected="true"] {
+  background-color: var(--v2-overlay-simple-overlay-hover);
+}

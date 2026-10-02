@@ -15,18 +15,64 @@ import { browserTools } from "@cookiemonster/cm-browser/tools"
 import {
   registerBrowserTab,
   browserAccessAllowed,
-  revokeBrowserAccessOnNavigation,
+  invalidateBrowserDocument,
+  revokeBrowserAccess,
   setBrowserAgentEnabled,
   setBrowserTabHandler,
   browserOperationBusy,
   type BrowserRegistration,
 } from "./registry"
 import { createTabHandler, type NativeTabAction } from "./agent-tabs"
-import { routeBrowserRequest } from "./router"
+import { routeBrowserRequest, type BrowserOperation } from "./router"
 import { browserInputFailure, shouldShowBrowserContextMenu, screenshotDecoder } from "./driver"
 import { parseSnapshot } from "./snapshot"
 import { DESKTOP_NATIVE_ENGLISH } from "@opencode-ai/app/i18n/desktop-native"
 import { setNativeTranslations } from "../native-translations"
+import { createFrameSessions } from "./frame-sessions"
+import type { WebContents } from "electron"
+
+function screenshotFixture(tab: BrowserRegistration, capture = async () => ({ data: "/9j/2Q==" })) {
+  const decode = screenshotDecoder.size
+  const bound = screenshotDecoder.bound
+  const documents = tab.frameSessions
+  screenshotDecoder.size = async () => ({ width: 1, height: 1 })
+  screenshotDecoder.bound = async (bytes, width, height, check) => {
+    check()
+    return { bytes, width, height, scaleX: 1, scaleY: 1 }
+  }
+  tab.frameSessions = createFrameSessions(tab.contents as WebContents)
+  tab.frameSessions.ready("")
+  tab.frameSessions.message("Runtime.executionContextCreated", {
+    context: { id: 1, uniqueId: "native-main-document", auxData: { isDefault: true, frameId: "main" } },
+  })
+  tab.contents.debugger.sendCommand = async (method) => {
+    if (method === "Page.captureScreenshot") return capture()
+    if (method === "Page.getLayoutMetrics")
+      return { visualViewport: { clientWidth: 1, clientHeight: 1, pageX: 0, pageY: 0 } }
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main", loaderId: "main-document" } } }
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 8 }
+    return {
+      result: {
+        value: {
+          documentToken: "native-main-document",
+          layoutToken: "stable-layout",
+          width: 1,
+          height: 1,
+          dpr: 1,
+          scrollX: 0,
+          scrollY: 0,
+          animated: false,
+        },
+      },
+    }
+  }
+  return () => {
+    screenshotDecoder.size = decode
+    screenshotDecoder.bound = bound
+    tab.frameSessions?.close()
+    tab.frameSessions = documents
+  }
+}
 
 function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
   const calls: string[] = []
@@ -100,8 +146,8 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
     ownerID: 1,
     revision: 0,
     agentAccess: true,
-    agentOrigin: "http://localhost",
     transferGuarded: true,
+    captureOwner: () => () => {},
     contents: Object.assign(new EventEmitter(), {
       mainFrame: { detached: false },
       get focusedFrame() {
@@ -119,19 +165,61 @@ function fixture(isAllowed = (url: string) => ["localhost", "127.0.0.1"].include
     }),
   }
   const remove = registerBrowserTab(tab)
-  const route = (request: Request, sessionID = tab.sessionID) =>
+  const route = (request: Request, sessionID = tab.sessionID, control: BrowserOperation = {}) =>
     routeBrowserRequest(
       { type: "browser_request", id: "request", sessionID, request } satisfies BrowserIpcRequest,
       isAllowed,
+      control,
     )
-  const write = async (request: WriteRequest) => {
+  const write = async (request: WriteRequest, control: BrowserOperation = {}) => {
     const prepared = await route({ op: "prepare_write", request })
     if (!prepared.ok) return prepared
     if (!prepared.result.context) throw new Error("Missing approval context")
-    return route({ ...request, context: prepared.result.context })
+    return route({ ...request, context: prepared.result.context }, tab.sessionID, control)
   }
   return { tab, calls, debuggerFixture, remove, route, write }
 }
+
+test.each(["check", "resolve"] as const)(
+  "authority %s failure settles without native commands or leaked errors",
+  async (stage) => {
+    const { tab, calls, remove } = fixture()
+    const controller = new AbortController()
+    const settled = Promise.withResolvers<void>()
+    try {
+      const response = await routeBrowserRequest(
+        {
+          type: "browser_request",
+          id: "failed-authority",
+          sessionID: tab.sessionID,
+          request: { op: "read_state", tabID: tab.id },
+        },
+        undefined,
+        {
+          signal: controller.signal,
+          authority: {
+            check() {
+              if (stage === "check") throw new Error("Private authority detail")
+            },
+            resolve() {
+              throw new Error("Private authority detail")
+            },
+            tabs: () => [tab],
+          },
+          onSettled: (operation) => void operation.finally(() => settled.resolve()),
+        },
+      )
+      await settled.promise
+      expect(response).toMatchObject({ ok: false, code: "unavailable" })
+      expect(JSON.stringify(response)).not.toContain("Private")
+      expect(calls).toHaveLength(0)
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
+      expect(browserOperationBusy.has(tab.id)).toBe(false)
+    } finally {
+      remove()
+    }
+  },
+)
 
 test("tab lifecycle tokens bind exact task, action, target and source without private metadata", async () => {
   const { tab, route, remove, calls } = fixture()
@@ -429,13 +517,9 @@ test.each(["success", "missing", "regrant", "aba", "replace", "allowlist", "glob
   "screenshot real-route response-to-post race is fail closed: %s",
   async (reason) => {
     const { tab, route, remove } = fixture()
-    const decode = screenshotDecoder.size
-    screenshotDecoder.size = async () => ({ width: 1, height: 1 })
-    tab.confirmScreenshot = async () => () => {}
-    tab.contents.debugger.sendCommand = async (method) =>
-      method === "Page.getLayoutMetrics"
-        ? { visualViewport: { clientWidth: 1, clientHeight: 1 } }
-        : { data: "/9j/2Q==" }
+    let removeReplacement: (() => boolean) | undefined
+    const restore = screenshotFixture(tab)
+    tab.captureOwner = () => () => {}
     const posted = Promise.withResolvers<BrowserIpcResult>()
     const child = Object.assign(new EventEmitter(), {
       postMessage: (result: BrowserIpcResult) => posted.resolve(result),
@@ -459,7 +543,7 @@ test.each(["success", "missing", "regrant", "aba", "replace", "allowlist", "glob
       }
       if (reason === "replace") {
         remove()
-        registerBrowserTab({ ...tab })
+        removeReplacement = registerBrowserTab({ ...tab, agentAccess: true })
       }
       if (reason === "allowlist") allowed = false
       if (reason === "global") {
@@ -488,26 +572,24 @@ test.each(["success", "missing", "regrant", "aba", "replace", "allowlist", "glob
       await new Promise((resolve) => setImmediate(resolve))
     } finally {
       stop()
+      removeReplacement?.()
       remove()
       setBrowserAgentEnabled(true)
-      screenshotDecoder.size = decode
+      restore()
     }
   },
 )
 
 test.each(["route", "post"] as const)("screenshot %s delivery error uses native i18n", async (phase) => {
   const { tab, route, remove } = fixture()
-  const decode = screenshotDecoder.size.bind(screenshotDecoder)
+  const restore = screenshotFixture(tab)
   const key = "desktop.browser.screenshotDeliveryUnavailable"
   expect(DESKTOP_NATIVE_ENGLISH[key]).toBe("Browser screenshot delivery unavailable.")
   setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH, [key]: "test delivery sentinel" } })
   let invalidated = false
-  tab.confirmScreenshot = async () => () => {
+  tab.captureOwner = () => () => {
     if (invalidated) throw new Error("Owner changed")
   }
-  screenshotDecoder.size = async () => ({ width: 1, height: 1 })
-  tab.contents.debugger.sendCommand = async (method) =>
-    method === "Page.getLayoutMetrics" ? { visualViewport: { clientWidth: 1, clientHeight: 1 } } : { data: "/9j/2Q==" }
   const posted = Promise.withResolvers<BrowserIpcResult>()
   const child = Object.assign(new EventEmitter(), {
     postMessage: (result: BrowserIpcResult) => posted.resolve(result),
@@ -546,23 +628,21 @@ test.each(["route", "post"] as const)("screenshot %s delivery error uses native 
   } finally {
     stop()
     remove()
-    screenshotDecoder.size = decode
+    restore()
     setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH } })
   }
 })
 
-test("screenshot rejects private, foreign, missing consent and stale native approval before capture", async () => {
+test("screenshot rejects private, foreign, unavailable native ownership before capture", async () => {
   const { tab, route, write, calls, remove } = fixture()
   try {
     const request = { op: "screenshot", tabID: tab.id } as const
-    expect(await write(request)).toMatchObject({ code: "access_denied" })
     tab.agentAccess = false
     expect(await write(request)).toMatchObject({ code: "access_denied" })
     expect(await route({ op: "prepare_write", request }, "other")).toMatchObject({ code: "no_target" })
     tab.agentAccess = true
-    tab.confirmScreenshot = async () => {
-      tab.revision++
-      return () => {}
+    tab.captureOwner = () => {
+      throw new Error("Detached view")
     }
     expect(await write(request)).toMatchObject({ ok: false })
     expect(calls).toEqual([])
@@ -577,7 +657,7 @@ test("network collector failures use native i18n without exposing raw errors", a
   const key = "desktop.browser.operationUnavailable"
   expect(DESKTOP_NATIVE_ENGLISH[key]).toBe("Browser operation interrupted or unavailable.")
   setNativeTranslations({ locale: "en", messages: { ...DESKTOP_NATIVE_ENGLISH, [key]: "test unavailable sentinel" } })
-  tab.confirmDiagnostics = async () => () => {}
+  tab.captureOwner = () => () => {}
   tab.observeNetwork = async () => {
     throw new Error("https://example.test/?credential=secret")
   }
@@ -595,16 +675,10 @@ test("network collector failures use native i18n without exposing raw errors", a
   }
 })
 
-test("console diagnostics bind owner approval and return counts without message payloads", async () => {
+test("console diagnostics bind owner identity and return counts without message payloads", async () => {
   const { tab, route, remove } = fixture()
   let owner = "owner-task-1"
   tab.ownerContext = () => owner
-  tab.confirmDiagnostics = async (_url, durationMs) => {
-    expect(durationMs).toBe(250)
-    return () => {
-      if (owner !== "owner-task-1") throw new Error("Owner changed")
-    }
-  }
   try {
     const request = { op: "observe_console", tabID: tab.id, durationMs: 250 } as const
     const prepared = await route({ op: "prepare_write", request })
@@ -646,7 +720,7 @@ test("console diagnostics bind owner approval and return counts without message 
 test("console diagnostics clean up and fail closed when source authority changes", async () => {
   const { tab, route, remove } = fixture()
   let valid = true
-  tab.confirmDiagnostics = async () => () => {
+  tab.captureOwner = () => () => {
     if (!valid) throw new Error("Owner changed")
   }
   try {
@@ -679,7 +753,7 @@ test.each([
   "policy",
   "native-revoke",
   "cancel",
-] as const)("network diagnostics preserve native consent, authority and cancellation: %s", async (reason) => {
+] as const)("network diagnostics preserve tab grant, authority and cancellation: %s", async (reason) => {
   let permitted = true
   const { tab, route, calls, remove } = fixture(() => permitted)
   const controller = new AbortController()
@@ -697,13 +771,10 @@ test.each([
     failed: 0,
     total: 1,
   }
-  tab.confirmDiagnostics = async (_url, duration, signal, kind) => {
-    expect(duration).toBe(250)
-    expect(kind).toBe("network")
-    expect(signal).toBe(tab.diagnosticConsent?.signal)
-    expect(observed).toBe(false)
+  tab.captureOwner = () => {
     if (reason === "consent-source") tab.revision++
-    return reason === "denied" ? false : () => {}
+    if (reason === "denied") throw new Error("Owner unavailable")
+    return () => {}
   }
   tab.observeNetwork = async (duration, check, signal) => {
     observed = true
@@ -763,7 +834,7 @@ test.each(["route", "post"] as const)(
   "network real-route %s delivery drops counts after authority changes",
   async (phase) => {
     const { tab, route, remove } = fixture()
-    tab.confirmDiagnostics = async () => () => {}
+    tab.captureOwner = () => () => {}
     tab.observeNetwork = async (_duration, check) => {
       check()
       return {
@@ -824,8 +895,8 @@ test("network diagnostics reject private/foreign/stale approval and missing nati
   const { tab, route, write, remove, calls } = fixture()
   const request = { op: "observe_network", tabID: tab.id, durationMs: 250 } as const
   try {
-    expect(await write(request)).toMatchObject({ code: "access_denied" })
-    tab.confirmDiagnostics = async () => () => {}
+    expect(await write(request)).toMatchObject({ code: "unavailable" })
+    tab.captureOwner = () => () => {}
     expect(await write(request)).toMatchObject({ code: "unavailable" })
     expect(await route({ op: "prepare_write", request }, "foreign")).toMatchObject({ code: "no_target" })
     const prepared = await route({ op: "prepare_write", request })
@@ -840,16 +911,9 @@ test("network diagnostics reject private/foreign/stale approval and missing nati
   }
 })
 
-test("site tools bind discovery, named approval, native consent and invocation to one source", async () => {
+test("site tools bind discovery, document binding, tab grant and invocation to one source", async () => {
   const { tab, route, remove } = fixture()
-  let confirmations = 0
-  tab.confirmSiteTool = async (url, tool, argumentsJSON) => {
-    confirmations++
-    expect(url).toBe("http://localhost/")
-    expect(tool).toMatchObject({ name: "search", description: "Search this site", readOnly: true })
-    expect(argumentsJSON).toBe('{"query":"cookies"}')
-    return () => {}
-  }
+  tab.captureOwner = () => () => {}
   try {
     const discovered = await route({ op: "list_site_tools", tabID: tab.id })
     if (!discovered.ok || !discovered.result.siteTools?.[0]) throw new Error("No site tool")
@@ -880,7 +944,6 @@ test("site tools bind discovery, named approval, native consent and invocation t
         },
       },
     })
-    expect(confirmations).toBe(1)
     expect(tab.siteToolConsent).toBeUndefined()
   } finally {
     remove()
@@ -889,11 +952,6 @@ test("site tools bind discovery, named approval, native consent and invocation t
 
 test("site tool changes and access revocation fail before native dispatch", async () => {
   const { tab, route, debuggerFixture, remove } = fixture()
-  let confirmations = 0
-  tab.confirmSiteTool = async () => {
-    confirmations++
-    return () => {}
-  }
   try {
     const discovered = await route({ op: "list_site_tools", tabID: tab.id })
     if (!discovered.ok || !discovered.result.siteTools?.[0]) throw new Error("No site tool")
@@ -913,11 +971,9 @@ test("site tool changes and access revocation fail before native dispatch", asyn
         siteToolContext: stale.result.siteToolContext,
       }),
     ).toMatchObject({ ok: false, code: "unavailable" })
-    expect(confirmations).toBe(0)
 
     tab.agentAccess = false
     expect(await route(request)).toMatchObject({ ok: false, code: "access_denied" })
-    expect(confirmations).toBe(0)
   } finally {
     remove()
   }
@@ -927,23 +983,19 @@ test.each(["success", "cancel", "timeout", "regrant", "aba", "replace", "global"
   "screenshot held capture drops stale pixels and retains lease: %s",
   async (reason) => {
     const { tab, route, remove } = fixture()
-    const decode = screenshotDecoder.size
+    let removeReplacement: (() => boolean) | undefined
     const entered = Promise.withResolvers<void>(),
       held = Promise.withResolvers<void>(),
       settled = Promise.withResolvers<void>()
     const controller = new AbortController()
     let allowed = true
     tab.contents.backgroundThrottling = true
-    tab.confirmScreenshot = async () => () => {}
-    screenshotDecoder.size = async () => ({ width: 1, height: 1 })
-    tab.contents.debugger.sendCommand = async (method, params) => {
-      if (method === "Page.getLayoutMetrics") return { visualViewport: { clientWidth: 1, clientHeight: 1 } }
-      expect(method).toBe("Page.captureScreenshot")
-      expect(params).toEqual({ format: "jpeg", quality: 60, fromSurface: true, captureBeyondViewport: false })
+    tab.captureOwner = () => () => {}
+    const restore = screenshotFixture(tab, async () => {
       entered.resolve()
       await held.promise
       return { data: "/9j/2Q==" }
-    }
+    })
     try {
       const request = { op: "screenshot", tabID: tab.id } as const
       const prepared = await route({ op: "prepare_write", request })
@@ -978,7 +1030,7 @@ test.each(["success", "cancel", "timeout", "regrant", "aba", "replace", "global"
       }
       if (reason === "replace") {
         remove()
-        registerBrowserTab({ ...tab })
+        removeReplacement = registerBrowserTab({ ...tab, agentAccess: true })
       }
       if (reason === "global") {
         setBrowserAgentEnabled(false)
@@ -1004,7 +1056,8 @@ test.each(["success", "cancel", "timeout", "regrant", "aba", "replace", "global"
       held.resolve()
       controller.abort()
       await settled.promise
-      screenshotDecoder.size = decode
+      restore()
+      removeReplacement?.()
       remove()
       setBrowserAgentEnabled(true)
     }
@@ -1015,6 +1068,7 @@ test.each(["success", "cancel", "revoke", "timeout", "owner", "source", "registr
   "drag held movement retains ownership and quarantine through %s settlement",
   async (reason) => {
     const { tab, route, remove } = fixture()
+    let removeReplacement: (() => boolean) | undefined
     const controller = new AbortController()
     const entered = Promise.withResolvers<void>(),
       held = Promise.withResolvers<void>(),
@@ -1091,7 +1145,7 @@ test.each(["success", "cancel", "revoke", "timeout", "owner", "source", "registr
       if (reason === "source") tab.revision++
       if (reason === "registration") {
         remove()
-        registerBrowserTab({ ...tab })
+        removeReplacement = registerBrowserTab({ ...tab, agentAccess: true })
       }
       if (reason === "policy") permitted = false
       if (reason === "cancel" || reason === "timeout")
@@ -1105,7 +1159,14 @@ test.each(["success", "cancel", "revoke", "timeout", "owner", "source", "registr
       expect(await pending).toMatchObject(
         reason === "success"
           ? { ok: true }
-          : { code: reason === "cancel" ? "cancelled" : reason === "timeout" ? "timeout" : "unavailable" },
+          : {
+              code:
+                reason === "cancel" || reason === "registration" || reason === "unregister"
+                  ? "cancelled"
+                  : reason === "timeout"
+                    ? "timeout"
+                    : "unavailable",
+            },
       )
       await settled.promise
       expect(input).toHaveLength(reason === "success" ? 7 : 3)
@@ -1117,6 +1178,7 @@ test.each(["success", "cancel", "revoke", "timeout", "owner", "source", "registr
     } finally {
       held.resolve()
       controller.abort()
+      removeReplacement?.()
       remove()
     }
   },
@@ -1320,11 +1382,16 @@ test.each(["read_state", "navigate", "scroll", "wait_for_element", "wait_for_nav
         expect(responses).toEqual([phase !== "route"])
         if (phase === "success") expect(reply).toMatchObject({ ok: true, result: { visibleText: "hello" } })
         else {
-          expect(reply).toEqual({
+          expect(reply).toMatchObject({
             ok: false,
             code: "unavailable",
-            error: DESKTOP_NATIVE_ENGLISH["desktop.browser.operationUnavailable"],
+            error:
+              request.op === "navigate" || request.op === "scroll"
+                ? DESKTOP_NATIVE_ENGLISH["desktop.browser.actionObservationFailed"]
+                : DESKTOP_NATIVE_ENGLISH["desktop.browser.operationUnavailable"],
           })
+          if (request.op === "navigate" || request.op === "scroll")
+            expect(["not_dispatched", "dispatched_uncertain"]).toContain(reply.actionStatus)
           expect(JSON.stringify(reply)).not.toContain("hello")
         }
         await new Promise((resolve) => setImmediate(resolve))
@@ -1446,7 +1513,13 @@ test.each(["scroll", "wait_for_element"] as const)(
         expect(response).toMatchObject(
           reason === "success"
             ? { ok: true }
-            : { code: reason === "cancel" ? "cancelled" : reason === "timeout" ? "timeout" : "unavailable" },
+            : {
+                code: ["cancel", "revoke", "unregister"].includes(reason)
+                  ? "cancelled"
+                  : reason === "timeout"
+                    ? "timeout"
+                    : "unavailable",
+              },
         )
         expect(JSON.stringify(response)).not.toContain("Secret-bearing")
         expect(tab.contents.backgroundThrottling).toBe(true)
@@ -1591,7 +1664,11 @@ test.each(["cancel", "timeout", "revoke", "unregister", "navigate", "owner", "ta
       if (reason === "owner") tab.ownerID++
       if (reason === "target-policy") targetAllowed = false
       expect(await pending).toMatchObject({
-        code: reason === "cancel" ? "cancelled" : reason === "timeout" ? "timeout" : "unavailable",
+        code: ["cancel", "unregister", "revoke"].includes(reason)
+          ? "cancelled"
+          : reason === "timeout"
+            ? "timeout"
+            : "unavailable",
       })
       await new Promise((resolve) => setImmediate(resolve))
       expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
@@ -1843,13 +1920,20 @@ test.each(["cancel", "deadline"])(
         },
       )
       await entered.promise
+      expect(tab.operation).toMatchObject({ op: "press_key", status: "running" })
       if (reason === "cancel") controller.abort()
-      expect(await pending).toMatchObject({ code: reason === "cancel" ? "cancelled" : "timeout" })
+      expect(await pending).toMatchObject({
+        code: reason === "cancel" ? "cancelled" : "timeout",
+        actionStatus: "dispatched_uncertain",
+        actionCause: reason === "cancel" ? "cancelled" : "timeout",
+      })
       expect(tab.contents.backgroundThrottling).toBe(false)
+      expect(tab.operation).toMatchObject({ status: "settling", actionStatus: "dispatched_uncertain" })
       expect(tab.navigationAllowed).toBeDefined()
       expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "unavailable" })
       held.resolve()
       await settled.promise
+      expect(tab.operation).toMatchObject({ status: "quarantined", code: "input_held" })
       expect(calls.filter((method) => method === "Input.dispatchKeyEvent")).toHaveLength(1)
       expect(tab.contents.backgroundThrottling).toBe(true)
       expect(tab.navigationAllowed).toBeUndefined()
@@ -1893,7 +1977,7 @@ test.each(["remove", "replace", "move"])("registration %s during await blocks fo
     if (change === "move") tab.sessionID = "foreign"
     else {
       remove()
-      if (change === "replace") removeReplacement = registerBrowserTab({ ...tab })
+      if (change === "replace") removeReplacement = registerBrowserTab({ ...tab, agentAccess: true })
     }
     return value
   }
@@ -1906,6 +1990,8 @@ test.each(["remove", "replace", "move"])("registration %s during await blocks fo
     tab.sessionID = "route-session"
     tab.contents.debugger.sendCommand = original
     removeReplacement = registerBrowserTab(tab)
+    expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "access_denied" })
+    tab.agentAccess = true
     expect((await route({ op: "read_state", tabID: tab.id })).ok).toBe(true)
   } finally {
     remove()
@@ -1973,7 +2059,7 @@ test("long source permits approved short navigation but rejects exact source mut
         },
       },
     )
-    expect(asked).toEqual([["*"], ["127.0.0.1"]])
+    expect(asked).toEqual([])
     expect(tab.contents.getURL()).toBe(request.url)
   } finally {
     remove()
@@ -2027,11 +2113,62 @@ test("global off/on and fresh tab consent cannot revive old refs", async () => {
     setBrowserAgentEnabled(true)
     tab.agentAccess = true
     const response = await write({ op: "click", tabID: tab.id, ref: snapshot.result.elements[0].ref })
-    expect(response).toMatchObject({ ok: false, code: "stale_ref" })
+    expect(response).toMatchObject({ ok: false, code: "stale_ref", actionStatus: "not_dispatched" })
     expect(calls.some((method) => method.startsWith("Input."))).toBe(false)
   } finally {
     remove()
     setBrowserAgentEnabled(true)
+  }
+})
+
+test("click retains dispatch status when follow-up observation fails", async () => {
+  const { tab, calls, route, write, remove } = fixture()
+  try {
+    const snapshot = await route({ op: "read_state", tabID: tab.id })
+    if (!snapshot.ok) throw new Error(snapshot.error)
+    const original = tab.contents.debugger.sendCommand
+    let released = false
+    tab.contents.debugger.sendCommand = async (method, params) => {
+      if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") released = true
+      if (released && method === "Runtime.evaluate") throw new Error("snapshot unavailable")
+      return original(method, params)
+    }
+    const response = await write({ op: "click", tabID: tab.id, ref: snapshot.result.elements[0].ref })
+    expect(response).toMatchObject({
+      ok: false,
+      code: "unavailable",
+      actionStatus: "dispatched_uncertain",
+      actionCause: "observation_failed",
+      error: DESKTOP_NATIVE_ENGLISH["desktop.browser.actionObservationFailed"],
+    })
+    expect(calls).toContain("Input.dispatchMouseEvent")
+  } finally {
+    remove()
+  }
+})
+
+test("cancellation before native input reports that no action was dispatched", async () => {
+  const { tab, calls, route, remove } = fixture()
+  const controller = new AbortController()
+  try {
+    const request: WriteRequest = { op: "click", tabID: tab.id, ref: "snapshot:e0" }
+    const prepared = await route({ op: "prepare_write", request })
+    if (!prepared.ok || !prepared.result.context) throw new Error("Preparation failed")
+    controller.abort()
+    const response = await routeBrowserRequest(
+      {
+        type: "browser_request",
+        id: "cancel-before-input",
+        sessionID: tab.sessionID,
+        request: { ...request, context: prepared.result.context },
+      },
+      undefined,
+      { signal: controller.signal },
+    )
+    expect(response).toMatchObject({ code: "cancelled", actionStatus: "not_dispatched" })
+    expect(calls.some((method) => method.startsWith("Input."))).toBe(false)
+  } finally {
+    remove()
   }
 })
 
@@ -2142,6 +2279,8 @@ test("oversized tab listing fails bounded without truncating source identity or 
 test("global revoke/regrant cannot recover interrupted input on the same view", async () => {
   const { tab, calls, write, remove } = fixture()
   const original = tab.contents.debugger.sendCommand
+  const held = Promise.withResolvers<void>()
+  const settled = Promise.withResolvers<void>()
   try {
     tab.contents.debugger.sendCommand = async (method, params) => {
       const result = await original(method, params)
@@ -2149,13 +2288,22 @@ test("global revoke/regrant cannot recover interrupted input on the same view", 
         setBrowserAgentEnabled(false)
         setBrowserAgentEnabled(true)
         tab.agentAccess = true
+        await held.promise
       }
       return result
     }
     const request: WriteRequest = { op: "press_key", tabID: tab.id, key: "Enter", modifiers: [] }
-    expect(await write(request)).toMatchObject({ code: "unavailable" })
+    expect(
+      await write(request, { onSettled: (operation) => void operation.finally(() => settled.resolve()) }),
+    ).toMatchObject({ code: "cancelled" })
     expect(calls.filter((method) => method === "Input.dispatchKeyEvent")).toHaveLength(1)
     expect(tab.transferGuarded).toBe(true)
+    expect(await write(request)).toMatchObject({
+      code: "unavailable",
+      error: "Another operation is running on this tab.",
+    })
+    held.resolve()
+    await settled.promise
     tab.contents.debugger.sendCommand = original
     const count = calls.length
     expect(await write(request)).toMatchObject({
@@ -2164,13 +2312,15 @@ test("global revoke/regrant cannot recover interrupted input on the same view", 
     })
     expect(calls).toHaveLength(count)
   } finally {
+    held.resolve()
+    await settled.promise
     remove()
     setBrowserAgentEnabled(true)
   }
 })
 
 test.each(["A to B", "A to B to A", "reload", "tab regrant", "global regrant"])(
-  "press_key rejects approval after %s",
+  "press_key rejects stale preparation after %s",
   async (change) => {
     const { tab, calls, route, remove } = fixture()
     const waiting = Promise.withResolvers<void>()
@@ -2183,16 +2333,20 @@ test.each(["A to B", "A to B to A", "reload", "tab regrant", "global regrant"])(
       worktree: ".",
       abort: new AbortController().signal,
       metadata: () => {},
-      ask: async (input) => {
-        if (input.permission !== "browser_press_key") return
-        expect(input.patterns).toEqual(["localhost"])
-        waiting.resolve()
-        await approval.promise
+      ask: async () => {
+        throw new Error("Redundant approval")
       },
     }
     try {
       const pending = browserTools({
-        send: (sessionID, request) => route(request, sessionID),
+        send: async (sessionID, request) => {
+          const response = await route(request, sessionID)
+          if (request.op === "prepare_write") {
+            waiting.resolve()
+            await approval.promise
+          }
+          return response
+        },
       }).browser_press_key.execute({ tabID: tab.id, key: "Enter" }, context)
       await waiting.promise
       if (change.startsWith("A to B")) await tab.contents.loadURL("http://127.0.0.1/")
@@ -2218,58 +2372,44 @@ test.each(["A to B", "A to B to A", "reload", "tab regrant", "global regrant"])(
   },
 )
 
-test("website consent admits an unlisted site only in its granted tab and exact origin", async () => {
+test("production-default routing retains the grant across origins but invalidates document refs", async () => {
   const { tab, remove } = fixture()
   const second = { ...tab, id: "private-site-tab", agentAccess: false }
   const removeSecond = registerBrowserTab(second)
   const request = (request: Request) =>
     routeBrowserRequest({
       type: "browser_request",
-      id: "site-consent",
+      id: "tab-grant",
       sessionID: tab.sessionID,
       request,
     })
   try {
-    await tab.contents.loadURL("https://unlisted.example/work")
-    tab.agentOrigin = "https://unlisted.example"
-    expect((await request({ op: "read_state", tabID: tab.id })).ok).toBe(true)
-    expect(await request({ op: "read_state", tabID: second.id })).toMatchObject({ code: "access_denied" })
+    const original = await request({ op: "read_state", tabID: tab.id })
+    if (!original.ok) throw new Error("Missing snapshot")
+    for (const url of ["https://other.example/", "https://sub.example/", "http://example/", "https://example:8443/"]) {
+      const next = { op: "navigate", tabID: tab.id, url } as const
+      const prepared = await request({ op: "prepare_write", request: next })
+      if (!prepared.ok || !prepared.result.context) throw new Error("Missing context")
+      expect((await request({ ...next, context: prepared.result.context })).ok).toBe(true)
+      invalidateBrowserDocument(tab)
+      expect(tab.agentAccess).toBe(true)
+      expect(await request({ op: "read_state", tabID: second.id })).toMatchObject({ code: "access_denied" })
+      const stale = { op: "click", tabID: tab.id, ref: original.result.elements[0].ref } as const
+      const binding = await request({ op: "prepare_write", request: stale })
+      if (!binding.ok || !binding.result.context) throw new Error("Missing context")
+      expect(await request({ ...stale, context: binding.result.context })).toMatchObject({ code: "stale_ref" })
+    }
     const listing = await request({ op: "list_tabs" })
     expect(listing.ok && listing.result.tabs?.map((entry) => entry.tabID)).toEqual([tab.id])
-    for (const url of [
-      "https://other.example/",
-      "https://sub.unlisted.example/",
-      "http://unlisted.example/",
-      "https://unlisted.example:8443/",
-    ]) {
-      expect(await request({ op: "prepare_write", request: { op: "navigate", tabID: tab.id, url } })).toMatchObject({
-        code: "blocked_host",
-      })
-    }
-    const next = { op: "navigate", tabID: tab.id, url: "https://unlisted.example/next" } as const
-    const prepared = await request({ op: "prepare_write", request: next })
-    expect(prepared.ok).toBe(true)
-    if (!prepared.ok || !prepared.result.context) throw new Error("Missing context")
-    expect((await request({ ...next, context: prepared.result.context })).ok).toBe(true)
-    revokeBrowserAccessOnNavigation(tab, next.url)
-    expect(tab.agentAccess).toBe(true)
-    tab.accessConsent = new AbortController()
-    tab.screenshotConsent = new AbortController()
-    revokeBrowserAccessOnNavigation(tab, "https://other.example/")
-    expect(tab.accessConsent.signal.aborted).toBe(true)
-    expect(tab.screenshotConsent.signal.aborted).toBe(true)
-    expect(tab.agentAccess).toBe(false)
-    expect(tab.agentOrigin).toBeUndefined()
-    revokeBrowserAccessOnNavigation(tab, next.url)
+    revokeBrowserAccess(tab)
     expect(await request({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "access_denied" })
-    expect(browserAccessAllowed(tab, next.url)).toBe(false)
   } finally {
     removeSecond()
     remove()
   }
 })
 
-test("missing website consent and a changed live origin fail closed", async () => {
+test("tab grant is required independently of the origin and unsupported URLs remain blocked", async () => {
   const { tab, remove } = fixture()
   const request = () =>
     routeBrowserRequest({
@@ -2279,13 +2419,13 @@ test("missing website consent and a changed live origin fail closed", async () =
       request: { op: "read_state", tabID: tab.id },
     })
   try {
-    tab.agentOrigin = undefined
-    expect(await request()).toMatchObject({ code: "blocked_host" })
-    tab.agentOrigin = "http://localhost"
+    tab.agentAccess = false
+    expect(await request()).toMatchObject({ code: "access_denied" })
+    tab.agentAccess = true
     expect((await request()).ok).toBe(true)
     await tab.contents.loadURL("https://other.example/")
-    expect(await request()).toMatchObject({ code: "blocked_host" })
-    expect(browserAccessAllowed(tab, "about:blank")).toBe(false)
+    expect((await request()).ok).toBe(true)
+    expect(browserAccessAllowed(tab, "about:blank")).toBe(true)
     expect(browserAccessAllowed(tab, "file:///tmp/example")).toBe(false)
     expect(browserAccessAllowed(tab, "http://user:pass@localhost/")).toBe(false)
   } finally {

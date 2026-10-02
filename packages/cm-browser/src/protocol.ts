@@ -19,7 +19,17 @@ export const MAX_SITE_TOOLS = 32
 export const MAX_SITE_TOOL_ARGUMENT_BYTES = 8 * 1024
 export const MAX_SITE_TOOL_RESULT_BYTES = 16 * 1024
 
-export type Screenshot = { readonly data: string; readonly width: number; readonly height: number }
+export type Screenshot = {
+  readonly data: string
+  readonly width: number
+  readonly height: number
+  readonly visualRef?: string
+  readonly actionUnavailable?: string
+  readonly viewportWidth?: number
+  readonly viewportHeight?: number
+  readonly scaleX?: number
+  readonly scaleY?: number
+}
 export type ConsoleObservation = {
   readonly durationMs: number
   readonly debug: number
@@ -135,12 +145,23 @@ export type FrameSelectContext = FrameContext & {
   readonly optionRef: string
 }
 export type FrameRequest =
+  | FrameInputRequest
   | { readonly op: "prepare_frame"; readonly tabID: string; readonly frameRef: string }
   | {
       readonly op: "read_state"
       readonly tabID: string
       readonly frameRef: string
       readonly frameContext: FrameContext
+      readonly selector?: string
+    }
+  | {
+      readonly op: "wait_for_element"
+      readonly tabID: string
+      readonly frameRef: string
+      readonly frameContext: FrameContext
+      readonly selector: string
+      readonly condition?: "visible" | "attached" | "ready"
+      readonly timeoutMs: number
     }
   | {
       readonly op: "prepare_frame_select"
@@ -158,8 +179,72 @@ export type FrameRequest =
       readonly frameSelectContext: FrameSelectContext
     }
 
+export const MAX_DELEGATED_TABS = 16
+export type DelegationRequest =
+  | {
+      readonly op: "grant_tabs"
+      readonly executionID: string
+      readonly childSessionID: string
+      readonly tabIDs: readonly string[]
+    }
+  | { readonly op: "revoke_tabs"; readonly executionID: string }
+export type DelegationResult = { readonly executionID: string; readonly active: boolean }
+
+export const browserIdentity = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value)
+
+export function parseDelegationRequest(value: unknown): DelegationRequest | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (!browserIdentity(input.executionID)) return
+  if (input.op === "revoke_tabs")
+    return Object.keys(input).every((key) => key === "op" || key === "executionID")
+      ? { op: input.op, executionID: input.executionID }
+      : undefined
+  if (
+    input.op !== "grant_tabs" ||
+    Object.keys(input).some((key) => !["op", "executionID", "childSessionID", "tabIDs"].includes(key)) ||
+    !browserIdentity(input.childSessionID) ||
+    !Array.isArray(input.tabIDs) ||
+    input.tabIDs.length < 1 ||
+    input.tabIDs.length > MAX_DELEGATED_TABS ||
+    !input.tabIDs.every(browserIdentity) ||
+    new Set(input.tabIDs).size !== input.tabIDs.length
+  )
+    return
+  return {
+    op: input.op,
+    executionID: input.executionID,
+    childSessionID: input.childSessionID,
+    tabIDs: [...input.tabIDs],
+  }
+}
+
+export function parseDelegationResult(value: unknown): DelegationResult | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).length !== 2 || !browserIdentity(input.executionID) || typeof input.active !== "boolean")
+    return
+  return { executionID: input.executionID, active: input.active }
+}
+
 export type BrowserState = {
+  readonly actionStatus?: ActionStatus
+  readonly actionCause?: ActionFailureCause
+  readonly delegation?: DelegationResult
   readonly frames?: readonly { frameRef: string; origin: string }[]
+  readonly documents?: readonly {
+    frameRef: string
+    parentFrameRef?: string
+    origin: string
+    url: string
+    title: string
+    status: "read" | "excluded" | "unsupported" | "failed" | "truncated"
+    reason?: string
+    omissions?: readonly string[]
+    visibleText?: string
+    elements?: readonly ElementRef[]
+  }[]
   readonly frameContext?: FrameContext
   readonly frameSelectContext?: FrameSelectContext
   readonly frameRef?: string
@@ -186,6 +271,8 @@ export type BrowserState = {
   readonly title: string
   readonly visibleText: string
   readonly truncated?: boolean
+  readonly inspection?: { readonly selector: string; readonly matched: boolean }
+  readonly observedCondition?: { readonly selector: string; readonly condition: "visible" | "attached" | "ready" }
   readonly elements: readonly ElementRef[]
 }
 
@@ -210,6 +297,13 @@ export type AccessContext = {
 
 export type WriteRequest = { readonly tabID: string } & (
   | { readonly op: "screenshot" }
+  | {
+      readonly op: "visual_action"
+      readonly visualRef: string
+      readonly action: "click" | "hover"
+      readonly x: number
+      readonly y: number
+    }
   | { readonly op: "observe_console"; readonly durationMs: number }
   | { readonly op: "observe_network"; readonly durationMs: number }
   | { readonly op: "navigate"; readonly url: string }
@@ -229,13 +323,45 @@ export type WriteRequest = { readonly tabID: string } & (
 )
 
 export type WaitRequest = { readonly tabID: string; readonly timeoutMs: number } & (
-  | { readonly op: "wait_for_element"; readonly selector: string }
+  | {
+      readonly op: "wait_for_element"
+      readonly selector: string
+      readonly condition?: "visible" | "attached" | "ready"
+    }
   | { readonly op: "wait_for_navigation"; readonly url: string }
 )
 
-export type PageRequest = { readonly op: "read_state"; readonly tabID: string } | WriteRequest | WaitRequest
+type FrameWrite = Extract<
+  WriteRequest,
+  { op: "click" | "hover" | "drag" | "fill" | "press_key" | "select_option" | "scroll" }
+>
+export type FrameAction = FrameWrite extends infer Action
+  ? Action extends FrameWrite
+    ? Omit<Action, "tabID">
+    : never
+  : never
+export type FrameInputRequest =
+  | {
+      readonly op: "prepare_frame_input"
+      readonly tabID: string
+      readonly frameRef: string
+      readonly action: FrameAction
+    }
+  | {
+      readonly op: "frame_input"
+      readonly tabID: string
+      readonly frameRef: string
+      readonly frameContext: FrameContext
+      readonly action: FrameAction
+    }
+
+export type PageRequest =
+  | { readonly op: "read_state"; readonly tabID: string; readonly selector?: string }
+  | WriteRequest
+  | WaitRequest
 
 export type Request =
+  | DelegationRequest
   | FrameRequest
   | { readonly op: "prepare_tab"; readonly request: TabRequest }
   | (TabRequest & { readonly token: string })
@@ -257,7 +383,7 @@ export type Request =
   | WaitRequest
   | { readonly op: "list_tabs" }
   | { readonly op: "prepare_write"; readonly request: WriteRequest }
-  | { readonly op: "read_state"; readonly tabID: string }
+  | { readonly op: "read_state"; readonly tabID: string; readonly selector?: string }
   | (WriteRequest & { readonly context: AccessContext })
 
 export type ErrorCode =
@@ -271,8 +397,27 @@ export type ErrorCode =
   | "timeout"
   | "cancelled"
 
-export type Failure = { readonly ok: false; readonly code: ErrorCode; readonly error: string }
-export type Success<T> = { readonly ok: true; readonly result: T }
+export type ActionStatus = "not_dispatched" | "dispatched_observed" | "dispatched_uncertain"
+export type ActionFailureCause =
+  | "native_action_failed"
+  | "observation_failed"
+  | "observation_unavailable"
+  | "cancelled"
+  | "timeout"
+  | "transport_unknown"
+export type Failure = {
+  readonly ok: false
+  readonly code: ErrorCode
+  readonly error: string
+  readonly actionStatus?: ActionStatus
+  readonly actionCause?: ActionFailureCause
+}
+export type Success<T> = {
+  readonly ok: true
+  readonly result: T
+  readonly actionStatus?: ActionStatus
+  readonly actionCause?: ActionFailureCause
+}
 export type Response<T> = Success<T> | Failure
 
 export type BrowserIpcRequest = {
@@ -356,6 +501,29 @@ export function parseTabRequest(value: unknown): TabRequest | undefined {
 export function parseRequest(value: unknown): Request | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
+  if (input.op === "grant_tabs" || input.op === "revoke_tabs") return parseDelegationRequest(input)
+  if (input.op === "prepare_frame_input" || input.op === "frame_input") {
+    if (
+      typeof input.tabID !== "string" ||
+      !input.tabID ||
+      input.tabID.length > 128 ||
+      typeof input.frameRef !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(input.frameRef) ||
+      Object.keys(input).some(
+        (key) =>
+          !["op", "tabID", "frameRef", "action", ...(input.op === "frame_input" ? ["frameContext"] : [])].includes(key),
+      )
+    )
+      return
+    const action = parseFrameAction(input.action)
+    if (!action) return
+    if (input.op === "prepare_frame_input")
+      return { op: input.op, tabID: input.tabID, frameRef: input.frameRef, action }
+    const frameContext = parseFrameContext(input.frameContext)
+    return frameContext && frameContext.frameRef === input.frameRef
+      ? { op: input.op, tabID: input.tabID, frameRef: input.frameRef, action, frameContext }
+      : undefined
+  }
   if (input.op === "list_site_tools") {
     if (
       Object.keys(input).some((key) => !["op", "tabID"].includes(key)) ||
@@ -422,10 +590,39 @@ export function parseRequest(value: unknown): Request | undefined {
       ? { op: input.op, ...target, frameSelectContext }
       : undefined
   }
+  if (input.op === "wait_for_element" && "frameRef" in input) {
+    const frameContext = parseFrameContext(input.frameContext)
+    if (
+      !frameContext ||
+      frameContext.frameRef !== input.frameRef ||
+      typeof input.tabID !== "string" ||
+      !input.tabID ||
+      input.tabID.length > 128 ||
+      !browserReadSelector(input.selector) ||
+      !validTimeout(input.timeoutMs) ||
+      (input.condition !== undefined && !["visible", "attached", "ready"].includes(input.condition as string)) ||
+      Object.keys(input).some(
+        (key) => !["op", "tabID", "frameRef", "frameContext", "selector", "condition", "timeoutMs"].includes(key),
+      )
+    )
+      return
+    return {
+      op: input.op,
+      tabID: input.tabID,
+      frameRef: frameContext.frameRef,
+      frameContext,
+      selector: input.selector,
+      timeoutMs: input.timeoutMs,
+      ...(input.condition === undefined ? {} : { condition: input.condition as "visible" | "attached" | "ready" }),
+    }
+  }
   if (input.op === "prepare_frame" || (input.op === "read_state" && "frameRef" in input)) {
     if (
       Object.keys(input).some(
-        (key) => !["op", "tabID", "frameRef", ...(input.op === "read_state" ? ["frameContext"] : [])].includes(key),
+        (key) =>
+          !["op", "tabID", "frameRef", ...(input.op === "read_state" ? ["frameContext", "selector"] : [])].includes(
+            key,
+          ),
       ) ||
       typeof input.tabID !== "string" ||
       !input.tabID ||
@@ -435,9 +632,16 @@ export function parseRequest(value: unknown): Request | undefined {
     )
       return
     if (input.op === "prepare_frame") return { op: input.op, tabID: input.tabID, frameRef: input.frameRef }
+    if (input.selector !== undefined && !browserReadSelector(input.selector)) return
     const frameContext = parseFrameContext(input.frameContext)
     return frameContext && frameContext.frameRef === input.frameRef
-      ? { op: "read_state", tabID: input.tabID, frameRef: input.frameRef, frameContext }
+      ? {
+          op: "read_state",
+          tabID: input.tabID,
+          frameRef: input.frameRef,
+          frameContext,
+          ...(input.selector === undefined ? {} : { selector: input.selector }),
+        }
       : undefined
   }
   if (hasFrameTarget(input) || "frameContext" in input) return
@@ -490,15 +694,27 @@ export function parseRequest(value: unknown): Request | undefined {
     return request ? { op: "prepare_write", request } : undefined
   }
   if (input.op === "read_state")
-    return typeof input.tabID === "string" && input.tabID.length > 0 && input.tabID.length <= 128
-      ? { op: "read_state", tabID: input.tabID }
+    return typeof input.tabID === "string" &&
+      input.tabID.length > 0 &&
+      input.tabID.length <= 128 &&
+      (input.selector === undefined || browserReadSelector(input.selector))
+      ? { op: "read_state", tabID: input.tabID, ...(input.selector === undefined ? {} : { selector: input.selector }) }
       : undefined
   if (input.op === "wait_for_element" || input.op === "wait_for_navigation") {
     if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128 || !validTimeout(input.timeoutMs))
       return undefined
     if (input.op === "wait_for_element")
-      return typeof input.selector === "string" && input.selector.trim().length > 0 && input.selector.length <= 512
-        ? { op: input.op, tabID: input.tabID, selector: input.selector, timeoutMs: input.timeoutMs }
+      return browserReadSelector(input.selector) &&
+        (input.condition === undefined || ["visible", "attached", "ready"].includes(input.condition as string))
+        ? {
+            op: input.op,
+            tabID: input.tabID,
+            selector: input.selector,
+            timeoutMs: input.timeoutMs,
+            ...(input.condition === undefined
+              ? {}
+              : { condition: input.condition as "visible" | "attached" | "ready" }),
+          }
         : undefined
     return typeof input.url === "string" && input.url.length <= MAX_URL_LENGTH && hostOf(input.url)
       ? { op: input.op, tabID: input.tabID, url: input.url, timeoutMs: input.timeoutMs }
@@ -535,8 +751,8 @@ export function parseFrameContext(value: unknown): FrameContext | undefined {
     if (
       typeof input[key] !== "string" ||
       input[key].length > MAX_URL_LENGTH ||
-      !hostOf(input[key]) ||
-      new URL(input[key]).origin !== input[key]
+      (!(key === "origin" && input[key] === "null") &&
+        (!hostOf(input[key]) || new URL(input[key]).origin !== input[key]))
     )
       return
   return {
@@ -655,6 +871,24 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
   if (typeof input.tabID !== "string" || !input.tabID || input.tabID.length > 128) return
   const tabID = input.tabID
   if (input.op === "screenshot") return { op: "screenshot", tabID }
+  if (input.op === "visual_action") {
+    if (
+      Object.keys(input).some((key) => !["op", "tabID", "visualRef", "action", "x", "y", "context"].includes(key)) ||
+      typeof input.visualRef !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(input.visualRef) ||
+      (input.action !== "click" && input.action !== "hover") ||
+      typeof input.x !== "number" ||
+      !Number.isFinite(input.x) ||
+      input.x < 0 ||
+      input.x >= MAX_SCREENSHOT_EDGE ||
+      typeof input.y !== "number" ||
+      !Number.isFinite(input.y) ||
+      input.y < 0 ||
+      input.y >= MAX_SCREENSHOT_EDGE
+    )
+      return
+    return { op: input.op, tabID, visualRef: input.visualRef, action: input.action, x: input.x, y: input.y }
+  }
   if (input.op === "observe_console" || input.op === "observe_network") {
     if (
       Object.keys(input).some((key) => !["op", "tabID", "durationMs", "context"].includes(key)) ||
@@ -735,6 +969,37 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
   return { op: "press_key", tabID, key: input.key, modifiers }
 }
 
+function parseFrameAction(value: unknown): FrameAction | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  const keys: Record<string, readonly string[]> = {
+    click: ["ref", "mode"],
+    hover: ["ref"],
+    drag: ["sourceRef", "targetRef"],
+    fill: ["ref", "text"],
+    press_key: ["key", "modifiers"],
+    select_option: ["ref", "optionRef"],
+    scroll: ["ref", "deltaX", "deltaY", "timeoutMs"],
+  }
+  if (
+    typeof input.op !== "string" ||
+    !Object.hasOwn(keys, input.op) ||
+    Object.keys(input).some((key) => key !== "op" && !keys[input.op as string].includes(key))
+  )
+    return
+  if (
+    ["ref", "sourceRef", "targetRef", "optionRef"].some(
+      (key) => input[key] !== undefined && !frameElementRef(input[key]),
+    )
+  )
+    return
+  const request = parseWriteRequest({ ...input, tabID: "frame" })
+  if (!request || !["click", "hover", "drag", "fill", "press_key", "select_option", "scroll"].includes(request.op))
+    return
+  const { tabID: _tabID, ...action } = request as FrameWrite
+  return action
+}
+
 export function parseBrowserIpcRequest(value: unknown): BrowserIpcRequest | undefined {
   if (!value || typeof value !== "object") return
   const input = value as Record<string, unknown>
@@ -742,6 +1007,13 @@ export function parseBrowserIpcRequest(value: unknown): BrowserIpcRequest | unde
   if (typeof input.sessionID !== "string" || !input.sessionID || input.sessionID.length > 128) return
   const request = parseRequest(input.request)
   if (!request) return
+  if (
+    (request.op === "grant_tabs" || request.op === "revoke_tabs") &&
+    (!browserIdentity(input.sessionID) ||
+      Object.keys(input).some((key) => !["type", "id", "sessionID", "request"].includes(key)) ||
+      (request.op === "grant_tabs" && request.childSessionID === input.sessionID))
+  )
+    return
   return { type: "browser_request", id: input.id, sessionID: input.sessionID, request }
 }
 
@@ -755,7 +1027,37 @@ export function parseBrowserIpcResult(value: unknown): BrowserIpcResult | undefi
     typeof (input.response as { ok?: unknown }).ok !== "boolean"
   )
     return
+  const response = input.response as Record<string, unknown>
+  if (
+    "actionStatus" in response &&
+    !["not_dispatched", "dispatched_observed", "dispatched_uncertain"].includes(response.actionStatus as string)
+  )
+    return
+  if (
+    "actionCause" in response &&
+    ![
+      "native_action_failed",
+      "observation_failed",
+      "observation_unavailable",
+      "cancelled",
+      "timeout",
+      "transport_unknown",
+    ].includes(response.actionCause as string)
+  )
+    return
+  if (response.ok && response.result && typeof response.result === "object" && "delegation" in response.result) {
+    if (!parseDelegationResult(response.result.delegation)) return
+  }
   return input as BrowserIpcResult
+}
+
+export function browserReadSelector(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    /^(?:[A-Za-z][A-Za-z0-9-]*)?(?:[.#][A-Za-z_][A-Za-z0-9_-]*)*(?![\s\S])/.test(value)
+  )
 }
 
 export function hostOf(url: string): string | undefined {

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict"
 import { EventEmitter, once } from "node:events"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
+import { join } from "node:path"
 import { setTimeout } from "node:timers/promises"
 import { BrowserWindow, dialog, nativeImage } from "electron"
 import {
   MAX_SCREENSHOT_BYTES,
+  MAX_SCREENSHOT_EDGE,
+  MAX_SCREENSHOT_PIXELS,
   MAX_SNAPSHOT_BYTES,
   type BrowserIpcRequest,
   type BrowserIpcResult,
@@ -23,9 +27,11 @@ export async function screenshotsSmoke() {
   assert(process.env.CM_BROWSER_SMOKE_PROFILE, "Only run through the isolated smoke runner")
   const frame = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" })
-    response.end('<!doctype html><body style="margin:0;background:rgb(20,40,220)">synthetic frame secret</body>')
+    response.end(
+      '<!doctype html><body style="margin:0;height:800px;background:rgb(20,40,220)"><button style="width:120px;height:100px;padding:0;border:0;background:transparent" onclick="document.body.style.background=String.fromCharCode(114,103,98,40,50,48,44,50,48,48,44,52,48,41)">embedded target</button></body>',
+    )
   })
-  frame.listen(0, "127.0.0.1")
+  frame.listen(0, "0.0.0.0")
   await once(frame, "listening")
   const frameAddress = frame.address()
   assert(frameAddress && typeof frameAddress === "object")
@@ -33,20 +39,35 @@ export async function screenshotsSmoke() {
 <style>body{margin:0;height:2400px;background:#eee}
 input,canvas,iframe{position:fixed;top:40px;width:120px;height:100px;border:0;padding:0}
 input{left:20px;background:rgb(20,200,40);color:rgb(220,20,180);font:30px monospace}
-canvas{left:180px}iframe{left:340px}</style>
+canvas{left:180px}iframe{left:340px}
+canvas#detail{position:fixed;inset:0;width:600px;height:400px;z-index:0;pointer-events:none}
+input,canvas:not(#detail),iframe,img,#closed-widget{z-index:2}
+img{position:fixed;left:470px;top:40px;width:120px;height:100px}
+#closed-widget{position:fixed;left:500px;top:180px;width:80px;height:80px}</style>
 <input aria-label="Synthetic revealed password" autocomplete="current-password" value="&#x2588;&#x2588;&#x2588;">
+<canvas id="detail" width="600" height="400"></canvas>
 <canvas width="120" height="100"></canvas>
 <iframe src="http://127.0.0.1:${frameAddress.port}/"></iframe>
-<script>const c=document.querySelector('canvas').getContext('2d');c.fillStyle='rgb(220,30,20)';c.fillRect(0,0,120,100);</script>`
+<img alt="Synthetic detailed image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='200'%3E%3Crect width='240' height='200' fill='%23fff'/%3E%3Cpath d='M0 0L240 200M240 0L0 200' stroke='%23000'/%3E%3Ctext x='8' y='100' font-size='20'%3EDETAIL-123456%3C/text%3E%3C/svg%3E">
+<div id="closed-widget"></div>
+<script>
+const canvas=document.querySelector('canvas:not(#detail)');const c=canvas.getContext('2d');c.fillStyle='rgb(220,30,20)';c.fillRect(0,0,120,100);
+canvas.addEventListener('click',()=>window.canvasClicks=(window.canvasClicks||0)+1);
+const detail=document.querySelector('#detail'),detailContext=detail.getContext('2d'),pixels=detailContext.createImageData(600,400);
+let seed=123456789;for(let i=0;i<pixels.data.length;i+=4){seed=(1664525*seed+1013904223)>>>0;pixels.data[i]=seed&255;pixels.data[i+1]=(seed>>>8)&255;pixels.data[i+2]=(seed>>>16)&255;pixels.data[i+3]=255;}detailContext.putImageData(pixels,0,0);
+const root=document.querySelector('#closed-widget').attachShadow({mode:'closed'});
+const button=document.createElement('button');button.textContent='Synthetic closed target';button.style.cssText='width:80px;height:80px';
+button.addEventListener('click',()=>window.closedTargetClicks=(window.closedTargetClicks||0)+1);root.append(button);
+</script>`
   const server = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" })
     response.end(html)
   })
-  server.listen(0, "127.0.0.1")
+  server.listen(0, "0.0.0.0")
   await once(server, "listening")
   const address = server.address()
   assert(address && typeof address === "object")
-  const url = `http://127.0.0.1:${address.port}/`
+  const url = `http://localhost:${address.port}/`
   const win = new BrowserWindow({
     show: false,
     width: 760,
@@ -56,20 +77,10 @@ canvas{left:180px}iframe{left:340px}</style>
   const owner = registerBrowserOwner(win)
   const command = (value: Parameters<typeof browserCommand>[2]) => browserCommand(owner, "screenshots", value)
   const nativeDialog = dialog.showMessageBox.bind(dialog)
-  let answer = 1
   let prompts = 0
-  let dialogHook: ((options: Electron.MessageBoxOptions) => Promise<void>) | undefined
-  dialog.showMessageBox = (async (
-    windowOrOptions: Electron.BaseWindow | Electron.MessageBoxOptions,
-    options?: Electron.MessageBoxOptions,
-  ) => {
-    const settings = options ?? ("message" in windowOrOptions ? windowOrOptions : undefined)
-    assert(settings)
-    assert.equal(settings.defaultId, 0)
-    assert.equal(settings.cancelId, 0)
+  dialog.showMessageBox = (async () => {
     prompts++
-    await dialogHook?.(settings)
-    return { response: answer, checkboxChecked: false }
+    return { response: 1, checkboxChecked: false }
   }) as typeof dialog.showMessageBox
   let stop = () => {}
   try {
@@ -90,17 +101,37 @@ canvas{left:180px}iframe{left:340px}</style>
     const send = contents.debugger.sendCommand.bind(contents.debugger)
     let captures = 0
     let rawBytes = 0
-    let fakePreflight = false
+    let embeddedChanged = false
+    let oversizedMetrics: { width: number; height: number } | undefined
+    let oversizedMetricsApplied = false
+    const oversizedViewport = new Map<number, { width: number; height: number }>()
     let captureHook: (() => Promise<void>) | undefined
     const methods: string[] = []
-    contents.debugger.sendCommand = async (method, params) => {
+    contents.debugger.sendCommand = async (method, params, sessionID) => {
       methods.push(method)
-      if (method === "Page.getLayoutMetrics" && fakePreflight)
-        return { visualViewport: { clientWidth: 600, clientHeight: 400 } }
-      if (method !== "Page.captureScreenshot") return send(method, params)
-      assert.deepEqual(params, { format: "jpeg", quality: 60, fromSurface: true, captureBeyondViewport: false })
+      if (method === "Page.getLayoutMetrics" && oversizedMetrics) {
+        await send("Emulation.setDeviceMetricsOverride", { ...oversizedMetrics, deviceScaleFactor: 1, mobile: false })
+        oversizedMetricsApplied = true
+      }
+      if (method !== "Page.captureScreenshot") {
+        const result = await send(method, params, sessionID)
+        if (
+          method === "Runtime.evaluate" &&
+          oversizedMetricsApplied &&
+          String(params?.expression).includes("__cmVisualGuard")
+        ) {
+          const value = (result as { result?: { value?: { width?: number; height?: number } } }).result?.value
+          if (typeof value?.width === "number" && typeof value.height === "number")
+            oversizedViewport.set(0, { width: value.width, height: value.height })
+        }
+        return result
+      }
+      assert.equal(params?.format, "jpeg")
+      assert.equal(params?.fromSurface, true)
+      assert.equal(params?.captureBeyondViewport, false)
+      assert.equal(typeof params?.quality, "number")
       captures++
-      const result = await send(method, params)
+      const result = await send(method, params, sessionID)
       rawBytes = Buffer.from(result.data, "base64").length
       await captureHook?.()
       return result
@@ -151,11 +182,101 @@ canvas{left:180px}iframe{left:340px}</style>
       return { op: "screenshot", tabID, context: prepared.result.context } as const
     }
     const shot = async () => dispatch(await prepare())
+    const visualAction = async (request: {
+      readonly tabID: string
+      readonly visualRef: string
+      readonly action: "click" | "hover"
+      readonly x: number
+      readonly y: number
+    }) => {
+      const prepared = await dispatch({ op: "prepare_write", request: { op: "visual_action", ...request } })
+      assert(prepared.ok && prepared.result.context, "Visual action preparation")
+      return dispatch({ op: "visual_action", ...request, context: prepared.result.context })
+    }
     const noImage = (response: Response<BrowserState>) => {
       assert.equal(response.ok, false, "Must reject without pixels")
       assert(!("result" in response))
       assert(!JSON.stringify(response).includes("data:image"))
       assert(!JSON.stringify(response).includes("/9j/"))
+    }
+    const visualRegions = async () =>
+      JSON.parse(
+        await contents.executeJavaScript(`JSON.stringify({
+      input: document.querySelector('input').getBoundingClientRect().toJSON(),
+      canvas: document.querySelector('canvas:not(#detail)').getBoundingClientRect().toJSON(),
+      iframe: document.querySelector('iframe').getBoundingClientRect().toJSON(),
+    })`),
+      ) as Record<"input" | "canvas" | "iframe", { x: number; y: number; width: number; height: number }>
+    const regionHas = (
+      bitmap: Buffer,
+      imageWidth: number,
+      scaleX: number,
+      scaleY: number,
+      rect: { x: number; y: number; width: number; height: number },
+      matches: (color: number[]) => boolean,
+    ) => {
+      for (let y = Math.max(0, Math.floor(rect.y)); y < rect.y + rect.height; y += 2)
+        for (let x = Math.max(0, Math.floor(rect.x)); x < rect.x + rect.width; x += 2) {
+          const offset = (Math.floor(y * scaleY) * imageWidth + Math.floor(x * scaleX)) * 4
+          if (matches([bitmap[offset + 2]!, bitmap[offset + 1]!, bitmap[offset]!])) return true
+        }
+      return false
+    }
+    const assertWidgetPixels = async (
+      image: NonNullable<BrowserState["screenshot"]>,
+      decoded: Electron.NativeImage,
+      expectedFrame: "blue" | "green",
+    ) => {
+      const rects = await visualRegions()
+      const bitmap = decoded.toBitmap()
+      const scaleX = image.scaleX!
+      const scaleY = image.scaleY!
+      assert(
+        regionHas(
+          bitmap,
+          image.width,
+          scaleX,
+          scaleY,
+          rects.input,
+          (color) => color[0] < 60 && color[1] > 160 && color[2] < 80,
+        ),
+        "Input background is visible in its own bounds",
+      )
+      assert(
+        regionHas(
+          bitmap,
+          image.width,
+          scaleX,
+          scaleY,
+          rects.input,
+          (color) => color[0] > 150 && color[1] < 80 && color[2] > 100,
+        ),
+        "Revealed field value is visible in its own bounds",
+      )
+      assert(
+        regionHas(
+          bitmap,
+          image.width,
+          scaleX,
+          scaleY,
+          rects.canvas,
+          (color) => color[0] > 170 && color[1] < 70 && color[2] < 70,
+        ),
+        "Canvas pixels are visible in canvas bounds",
+      )
+      assert(
+        regionHas(
+          bitmap,
+          image.width,
+          scaleX,
+          scaleY,
+          rects.iframe,
+          expectedFrame === "blue"
+            ? (color) => color[0] < 70 && color[1] < 80 && color[2] > 150
+            : (color) => color[0] < 70 && color[1] > 150 && color[2] < 80,
+        ),
+        `Embedded frame ${expectedFrame} pixels are visible in its own bounds`,
+      )
     }
     const pixels = async (response: Response<BrowserState>, label: string) => {
       assert(
@@ -167,38 +288,29 @@ canvas{left:180px}iframe{left:340px}</style>
       const bytes = Buffer.from(image.data, "base64")
       const decoded = nativeImage.createFromBuffer(bytes)
       assert(!decoded.isEmpty())
+      const proof = join(process.cwd(), "../../node_modules/.cache/cm-browser-review/visual-proof.jpg")
+      mkdirSync(join(process.cwd(), "../../node_modules/.cache/cm-browser-review"), { recursive: true })
+      writeFileSync(proof, bytes)
       assert.deepEqual(decoded.getSize(), { width: image.width, height: image.height })
       assert(bytes.length <= MAX_SCREENSHOT_BYTES)
+      assert(rawBytes > MAX_SCREENSHOT_BYTES, "Detailed synthetic raster exercises the reduction path")
+      assert(typeof image.scaleX === "number" && typeof image.scaleY === "number")
+      assert(image.scaleX >= 0.5 && image.scaleY >= 0.5, "Supported captures retain at least half viewport resolution")
+      assert(image.visualRef && image.viewportWidth && image.viewportHeight && image.scaleX && image.scaleY)
+      assert(Math.abs(image.scaleX - image.width / image.viewportWidth) < 0.002)
+      assert(Math.abs(image.scaleY - image.height / image.viewportHeight) < 0.002)
       assert.equal(state.url, contents.getURL())
       assert.equal(state.title, "")
       assert.equal(state.visibleText, "")
       assert.equal(state.elements.length, 0)
       const viewport = await contents.executeJavaScript(
-        "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,scroll:scrollY})",
+        "({width:visualViewport.width,height:visualViewport.height,dpr:devicePixelRatio,scroll:visualViewport.pageTop})",
       )
-      const scale = image.width / viewport.width
-      assert(Math.abs(image.height - viewport.height * scale) <= 2, "Viewport-only aspect ratio")
+      const scaleX = image.scaleX!
+      const scaleY = image.scaleY!
+      assert(Math.abs(image.height - viewport.height * scaleY) <= 2, "Viewport-only aspect ratio")
       const bitmap = decoded.toBitmap()
-      const rgb = (x: number, y: number) => {
-        const offset = (Math.floor(y * scale) * image.width + Math.floor(x * scale)) * 4
-        return [bitmap[offset + 2], bitmap[offset + 1], bitmap[offset]]
-      }
-      for (const [x, expected] of [
-        [80, [20, 200, 40]],
-        [240, [220, 30, 20]],
-        [400, [20, 40, 220]],
-      ] as const)
-        assert(
-          rgb(x, 120).every((value, index) => Math.abs(value - expected[index]) < 18),
-          `${label}: unredacted swatch ${x}`,
-        )
-      let visibleValue = false
-      for (let y = 70; y < 110; y++)
-        for (let x = 25; x < 100; x++) {
-          const color = rgb(x, y)
-          if (color[0] > 150 && color[1] < 80 && color[2] > 100) visibleValue = true
-        }
-      assert(visibleValue, "Revealed field value pixels remain unredacted")
+      await assertWidgetPixels(image, decoded, embeddedChanged ? "green" : "blue")
       assert.equal(await contents.executeJavaScript("document.querySelector('iframe').contentDocument === null"), true)
       console.log(
         "PASS pixels",
@@ -221,6 +333,19 @@ canvas{left:180px}iframe{left:340px}</style>
     assert.equal(prompts, startPrompts)
     await command({ op: "access", tabID: id, enabled: true })
     assert(tab.agentAccess)
+    const mainFrameTree = (await send("Page.getFrameTree")) as { frameTree?: { frame?: { id?: unknown } } }
+    const mainFrameID = mainFrameTree.frameTree?.frame?.id
+    assert(typeof mainFrameID === "string")
+    for (
+      let attempt = 0;
+      attempt < 50 && !tab.frameSessions?.list().some((frame) => frame.frameId !== mainFrameID && frame.sessionID);
+      attempt++
+    )
+      await setTimeout(20)
+    assert(
+      tab.frameSessions?.list().some((frame) => frame.frameId !== mainFrameID && frame.sessionID),
+      "Cross-site fixture has a tracked out-of-process iframe session",
+    )
     await contents.executeJavaScript(
       "const ctx = document.querySelector('canvas').getContext('2d'); ctx.fillStyle = 'rgb(220,30,20)'; ctx.fillRect(0,0,120,100); scrollTo(0,120)",
     )
@@ -237,8 +362,9 @@ canvas{left:180px}iframe{left:340px}</style>
       methods.length = 0
       const count = prompts
       await pixels(await shot(), `zoom-${zoom}`)
-      assert.equal(prompts, count + 1)
-      assert.deepEqual(methods, ["Page.getLayoutMetrics", "Page.captureScreenshot"])
+      assert.equal(prompts, count, "Tab authority requires no capture prompt")
+      assert(methods.includes("Page.captureScreenshot"))
+      assert.equal(methods.filter((method) => method === "Page.captureScreenshot").length, 1)
       assert.equal(await geometry(), before)
       assert.equal(BrowserWindow.getFocusedWindow()?.id, focus, "Capture does not focus owner")
     }
@@ -251,6 +377,102 @@ canvas{left:180px}iframe{left:340px}</style>
       assert.equal(await geometry(), before)
     }
     await send("Emulation.clearDeviceMetricsOverride")
+
+    const visual = await shot()
+    assert(visual.ok && visual.result.screenshot?.visualRef, "Bounded visual screenshot includes a one-use reference")
+    const image = visual.result.screenshot
+    assert(typeof image.scaleX === "number" && typeof image.scaleY === "number")
+    const pixel = (cssX: number, cssY: number) => ({
+      tabID: id,
+      visualRef: image.visualRef!,
+      action: "click" as const,
+      x: Math.floor(cssX * image.scaleX!),
+      y: Math.floor(cssY * image.scaleY!),
+    })
+    const inputCount = () => methods.filter((method) => method === "Input.dispatchMouseEvent").length
+    const beforeClosed = inputCount()
+    const closedAction = await visualAction(pixel(540, 220))
+    assert(closedAction.ok, closedAction.ok ? "" : closedAction.error)
+    assert.equal(
+      await contents.executeJavaScript("window.closedTargetClicks"),
+      1,
+      "Closed-root button received the click",
+    )
+    assert.equal(inputCount() - beforeClosed, 3, "One acknowledged mouse move/down/up sequence")
+    const replay = await visualAction(pixel(540, 220))
+    assert(!replay.ok && replay.code === "stale_ref", "A visual reference is consumed before dispatch")
+    assert.equal(inputCount() - beforeClosed, 3, "A replayed ref dispatches no additional input")
+
+    const canvasShot = await shot()
+    assert(canvasShot.ok && canvasShot.result.screenshot?.visualRef)
+    const canvas = canvasShot.result.screenshot
+    assert(typeof canvas.scaleX === "number" && typeof canvas.scaleY === "number")
+    const canvasClicks = await visualAction({
+      tabID: id,
+      visualRef: canvas.visualRef!,
+      action: "click",
+      x: Math.floor(240 * canvas.scaleX!),
+      y: Math.floor(90 * canvas.scaleY!),
+    })
+    assert(
+      canvasClicks.ok,
+      canvasClicks.ok ? "" : `${canvasClicks.code}/${canvasClicks.actionStatus}: ${canvasClicks.error}`,
+    )
+    assert.equal(await contents.executeJavaScript("window.canvasClicks"), 1, "Canvas received the coordinate click")
+
+    const embeddedShot = await shot()
+    assert(embeddedShot.ok && embeddedShot.result.screenshot?.visualRef)
+    const embedded = embeddedShot.result.screenshot
+    assert(typeof embedded.scaleX === "number" && typeof embedded.scaleY === "number")
+    const embeddedClick = await visualAction({
+      tabID: id,
+      visualRef: embedded.visualRef!,
+      action: "click",
+      x: Math.floor(400 * embedded.scaleX!),
+      y: Math.floor(90 * embedded.scaleY!),
+    })
+    assert(embeddedClick.ok, embeddedClick.ok ? "" : embeddedClick.error)
+    const embeddedPixels = await shot()
+    assert(embeddedPixels.ok && embeddedPixels.result.screenshot)
+    assert(
+      typeof embeddedPixels.result.screenshot.scaleX === "number" &&
+        typeof embeddedPixels.result.screenshot.scaleY === "number",
+    )
+    const embeddedBitmap = nativeImage.createFromBuffer(Buffer.from(embeddedPixels.result.screenshot.data, "base64"))
+    await assertWidgetPixels(embeddedPixels.result.screenshot, embeddedBitmap, "green")
+    embeddedChanged = true
+    const proof = join(process.cwd(), "../../node_modules/.cache/cm-browser-review/visual-proof.jpg")
+    writeFileSync(proof, Buffer.from(embeddedPixels.result.screenshot.data, "base64"))
+
+    const staleShot = await shot()
+    assert(staleShot.ok && staleShot.result.screenshot?.visualRef)
+    const staleImage = staleShot.result.screenshot
+    assert(typeof staleImage.scaleX === "number" && typeof staleImage.scaleY === "number")
+    await contents.executeJavaScript("scrollTo(0,240)")
+    const staleVisual = await visualAction({
+      tabID: id,
+      visualRef: staleImage.visualRef!,
+      action: "click",
+      x: Math.floor(540 * staleImage.scaleX!),
+      y: Math.floor(220 * staleImage.scaleY!),
+    })
+    assert(!staleVisual.ok && staleVisual.code === "stale_ref", "Scrolling invalidates prior visual coordinates")
+
+    const iframeScrollShot = await shot()
+    assert(iframeScrollShot.ok && iframeScrollShot.result.screenshot?.visualRef)
+    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 400, y: 90, deltaX: 0, deltaY: 50 })
+    await setTimeout(50)
+    const staleIframe = await visualAction({
+      tabID: id,
+      visualRef: iframeScrollShot.result.screenshot.visualRef!,
+      action: "click",
+      x: Math.floor(400 * iframeScrollShot.result.screenshot.scaleX!),
+      y: Math.floor(90 * iframeScrollShot.result.screenshot.scaleY!),
+    })
+    assert(
+      !staleIframe.ok && staleIframe.code === "stale_ref",
+      "Embedded document scroll invalidates visual coordinates",
+    )
 
     const other = (await command({ op: "new" })).activeID!
     await command({ op: "navigate", tabID: other, url })
@@ -294,61 +516,66 @@ canvas{left:180px}iframe{left:340px}</style>
 
     const tool = browserTools({ send: (sessionID, request) => dispatch(request, sessionID) }).browser_screenshot
     const permissions: string[] = []
-    answer = 0
-    const deniedCaptures = captures
-    await assert.rejects(
-      tool.execute(
-        { tabID: id },
-        {
-          sessionID: "screenshots",
-          messageID: "plugin-allow",
-          agent: "build",
-          directory: ".",
-          worktree: ".",
-          abort: new AbortController().signal,
-          metadata: () => {},
-          ask: async (input) => {
-            permissions.push(input.permission)
-          },
+    const promptCount = prompts
+    const screenshot = await tool.execute(
+      { tabID: id },
+      {
+        sessionID: "screenshots",
+        messageID: "whole-tab-grant",
+        agent: "build",
+        directory: ".",
+        worktree: ".",
+        abort: new AbortController().signal,
+        metadata: () => {},
+        ask: async (input) => {
+          permissions.push(input.permission)
+          throw new Error("Whole-tab access must not ask for per-tool approval")
         },
-      ),
+      },
     )
-    assert.deepEqual(permissions, ["browser_read_state", "browser_screenshot"])
-    assert.equal(captures, deniedCaptures)
-    answer = 1
-    dialogHook = async (options) => {
-      assert(options.signal)
-      assert(options.detail)
-      assert(options.detail.includes(id) && options.detail.includes(url))
-      assert(options.detail.includes("passwords") && options.detail.includes("Nothing is redacted"))
-      tab.screenshotConsent?.abort()
-    }
-    noImage(await shot())
-    assert.equal(captures, deniedCaptures)
-    dialogHook = undefined
-    console.log("PASS private/wrong-task, per-capture consent, plugin Allow does not bypass denial, consent abort")
+    assert(typeof screenshot !== "string")
+    const attachment = screenshot.attachments?.[0]
+    assert(attachment)
+    assert.equal(attachment.mime, "image/jpeg")
+    assert(attachment.url.startsWith("data:image/jpeg;base64,"))
+    assert.deepEqual(permissions, [])
+    assert.equal(prompts, promptCount, "Whole-tab grant requires no screenshot dialog")
+    console.log("PASS private/wrong-task and whole-tab screenshot without per-tool or native reapproval")
 
     for (const dimensions of [
-      [4097, 100],
-      [2048, 2049],
+      [12_291, 100],
+      [12_291, 4_096],
     ]) {
-      await send("Emulation.setDeviceMetricsOverride", {
-        width: dimensions[0],
-        height: dimensions[1],
-        deviceScaleFactor: 1,
-        mobile: false,
-      })
-      await setTimeout(60)
+      oversizedMetrics = { width: dimensions[0]!, height: dimensions[1]! }
+      oversizedMetricsApplied = false
+      oversizedViewport.delete(0)
+      assert(oversizedMetrics.width > 0 && oversizedMetrics.height > 0, "Oversized device metrics are valid")
       const before = captures
-      noImage(await shot())
-      assert.equal(captures, before, "Oversized viewport preflight: zero captures")
-      fakePreflight = true
-      noImage(await shot())
-      assert.equal(captures, before + 1, "Actual oversized raster: one capture")
-      assert(rawBytes <= MAX_SCREENSHOT_BYTES, "Raster rejection must not be a byte rejection")
-      fakePreflight = false
+      const response = await shot()
+      console.log(
+        "Oversized viewport witness",
+        JSON.stringify({
+          requested: oversizedMetrics,
+          measured: oversizedViewport.get(0),
+          ok: response.ok,
+          code: response.ok ? undefined : response.code,
+          viewportWidth: response.ok ? response.result.screenshot?.viewportWidth : undefined,
+          viewportHeight: response.ok ? response.result.screenshot?.viewportHeight : undefined,
+          captures: captures - before,
+        }),
+      )
+      await send("Emulation.clearDeviceMetricsOverride")
+      oversizedMetrics = undefined
+      oversizedMetricsApplied = false
+      const width = Math.ceil(oversizedViewport.get(0)?.width ?? 0)
+      const height = Math.ceil(oversizedViewport.get(0)?.height ?? 0)
+      assert(
+        width > MAX_SCREENSHOT_EDGE || height > MAX_SCREENSHOT_EDGE || width * height > MAX_SCREENSHOT_PIXELS,
+        `Driver-observed viewport must exceed screenshot bounds: ${width}x${height}`,
+      )
+      noImage(response)
+      assert.equal(captures, before, `Oversized driver-observed viewport ${width}x${height}: zero captures`)
     }
-    await send("Emulation.clearDeviceMetricsOverride")
     await contents.executeJavaScript(`(() => {
       const c=document.createElement('canvas');c.width=600;c.height=400;
       c.style.cssText='position:fixed;inset:0;width:600px;height:400px;z-index:10';document.body.append(c);
@@ -358,19 +585,39 @@ canvas{left:180px}iframe{left:340px}</style>
     })()`)
     await setTimeout(100)
     const entropyBefore = captures
-    noImage(await shot())
+    const entropy = await shot()
     assert(rawBytes > MAX_SCREENSHOT_BYTES)
-    assert.equal(captures, entropyBefore + 1, "High entropy fails without retry")
+    assert.equal(captures, entropyBefore + 1, "High-entropy bounded capture uses one native screenshot")
+    if (entropy.ok) {
+      const image = entropy.result.screenshot
+      assert(image, "A fitting high-entropy capture returns a screenshot")
+      const bytes = Buffer.from(image.data, "base64")
+      assert(bytes.length <= MAX_SCREENSHOT_BYTES, "A successful high-entropy screenshot stays under the byte cap")
+      assert(image.width <= MAX_SCREENSHOT_EDGE && image.height <= MAX_SCREENSHOT_EDGE)
+      assert(image.width * image.height <= MAX_SCREENSHOT_PIXELS)
+      assert(image.scaleX !== undefined && image.scaleX >= 0.5)
+      assert(image.scaleY !== undefined && image.scaleY >= 0.5)
+      console.log(
+        "PASS bounded high-entropy screenshot",
+        JSON.stringify({ bytes: bytes.length, width: image.width, height: image.height }),
+      )
+    } else {
+      assert.equal(entropy.code, "unavailable", "An unfit high-entropy capture returns a typed bounded failure")
+      noImage(entropy)
+      console.log("PASS high-entropy screenshot rejected with a bounded failure")
+    }
     console.log(
       "PASS size limits",
       JSON.stringify({ highEntropyBytes: rawBytes, rawLimit: MAX_SCREENSHOT_BYTES, responseLimit: MAX_SNAPSHOT_BYTES }),
     )
     await contents.loadURL(url)
     while (contents.isLoadingMainFrame()) await setTimeout(10)
+    embeddedChanged = false
     await contents.executeJavaScript("history.replaceState(null,'','?long='+'x'.repeat(65536))")
     noImage(await shot())
     await contents.loadURL(url)
     while (contents.isLoadingMainFrame()) await setTimeout(10)
+    embeddedChanged = false
 
     for (const phase of ["capture", "post"] as const) {
       for (const reason of [
@@ -406,9 +653,7 @@ canvas{left:180px}iframe{left:340px}</style>
         contents.backgroundThrottling = true
         // An owned alias lets the real registry unregister/re-register the same ID without closing Chromium.
         const registration =
-          reason === "registration"
-            ? { ...tab, id: id + "-registration", confirmScreenshot: async () => () => {} }
-            : undefined
+          reason === "registration" ? { ...tab, id: id + "-registration", captureOwner: tab.captureOwner } : undefined
         let removeRegistration = registration ? registerBrowserTab(registration) : undefined
         const request = await prepare(registration?.id)
         const requestID = `race-${++sequence}`
@@ -443,6 +688,7 @@ canvas{left:180px}iframe{left:340px}</style>
           if (reason === "aba") {
             await contents.loadURL(url + "?b")
             await contents.loadURL(url)
+            embeddedChanged = false
           }
           if (registration) {
             removeRegistration!()
@@ -465,22 +711,28 @@ canvas{left:180px}iframe{left:340px}</style>
               await setTimeout(20)
               assert.equal(captures, attempts + 1, "Bridge correlation ID remains occupied")
             }
-            if (tab.agentAccess && allowed) {
+            if (reason === "registration") {
+              const replaced = await routeBrowserRequest({
+                type: "browser_request",
+                id: "replaced-registration",
+                sessionID: "screenshots",
+                request: { op: "read_state", tabID: request.tabID },
+              })
+              assert(!replaced.ok && replaced.code === "access_denied", JSON.stringify(replaced))
+            } else if (tab.agentAccess && allowed) {
               const busy = await routeBrowserRequest({
                 type: "browser_request",
                 id: "busy",
                 sessionID: "screenshots",
                 request: { op: "read_state", tabID: request.tabID },
               })
-              assert(!busy.ok && busy.code === "unavailable")
+              assert(!busy.ok && busy.code === "unavailable", JSON.stringify(busy))
             }
           }
           release.resolve()
           noImage(await pending)
           await settled
           if (phase === "capture") assert.equal(contents.backgroundThrottling, true)
-          assert.equal(tab.screenshotConsent, undefined)
-          assert.equal(registration?.screenshotConsent, undefined)
           await setTimeout(0)
           assert.deepEqual(posts.get(requestID), { replies: 1, images: 0 })
           assert.equal(captures, attempts + 1)
@@ -508,32 +760,11 @@ canvas{left:180px}iframe{left:340px}</style>
       }
     }
     assert.equal(browserRegistration("screenshots", id), tab)
-    if (process.platform === "win32") {
-      dialog.showMessageBox = nativeDialog
-      const before = captures
-      let complete = false
-      const pending = shot().finally(() => {
-        complete = true
-      })
-      const abort = globalThis.setTimeout(() => tab.screenshotConsent?.abort(), 1500)
-      try {
-        await setTimeout(200)
-        assert.equal(complete, false, "Real Windows dialog must remain pending")
-        assert.equal(win.isEnabled(), true)
-        tab.screenshotConsent?.abort()
-        noImage(await pending)
-        await settled
-        assert.equal(captures, before)
-        assert.equal(owner.suspended, 0)
-        console.log(
-          "PASS real Windows unparented dialog: owner enabled, AbortSignal cancellation, zero captures (not physical usability)",
-        )
-      } finally {
-        clearTimeout(abort)
-        tab.screenshotConsent?.abort()
-        await pending
-      }
-    }
+    const finalPrompts = prompts
+    await pixels(await shot(), "final-tab-authority")
+    assert.equal(prompts, finalPrompts)
+    assert.equal(win.isEnabled(), true)
+    assert.equal(owner.suspended, 0)
   } finally {
     stop()
     dialog.showMessageBox = nativeDialog

@@ -1,9 +1,16 @@
 import { Button } from "@opencode-ai/ui/button"
-import { For, Show } from "solid-js"
+import { Select } from "@opencode-ai/ui/select"
+import { Switch } from "@opencode-ai/ui/switch"
+import { SettingsList } from "@/components/settings-list"
+import { SettingsRow } from "@/components/settings-row"
+import { SettingsListV2 } from "@/components/settings-v2/parts/list"
+import { SettingsRowV2 } from "@/components/settings-v2/parts/row"
+import { useSettings } from "@/context/settings"
+import { For, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { BrowserCommand, BrowserPermission, BrowserPreferences, BrowserProfile, BrowserTab } from "@/browser-panel"
-import { BROWSER_SEARCH_ENGINES, browserSearchEngine } from "@/browser-panel"
+import { BROWSER_SEARCH_ENGINES } from "@/browser-panel"
 import type { BrowserToolPanel } from "./browser-tools"
 import { BrowserTransfers } from "./browser-transfers"
 
@@ -15,6 +22,7 @@ export function BrowserSettings(props: {
   open(panel: BrowserToolPanel): void
 }) {
   const language = useLanguage()
+  const settings = useSettings()
   const [state, setState] = createStore({
     origin: "",
     camera: "block" as BrowserPermission,
@@ -33,6 +41,25 @@ export function BrowserSettings(props: {
   const toggle = (key: keyof BrowserPreferences, value: boolean) =>
     void props.command({ op: "preferences", values: { [key]: value } })
   const permissions = ["block", "ask", "allow"] as const
+  const SettingRow = (row: { title: string; description: string; children: JSX.Element }) => (
+    <Show
+      when={settings.general.newLayoutDesigns()}
+      fallback={
+        <SettingsRow title={row.title} description={row.description}>
+          {row.children}
+        </SettingsRow>
+      }
+    >
+      <SettingsRowV2 title={row.title} description={row.description}>
+        {row.children}
+      </SettingsRowV2>
+    </Show>
+  )
+  const SettingsRows = (rows: { children: JSX.Element }) => (
+    <Show when={settings.general.newLayoutDesigns()} fallback={<SettingsList>{rows.children}</SettingsList>}>
+      <SettingsListV2>{rows.children}</SettingsListV2>
+    </Show>
+  )
   return (
     <div class="max-w-3xl mx-auto space-y-6 pb-4">
       <p class="text-text-weak">{language.t("browser.settings.description")}</p>
@@ -51,27 +78,26 @@ export function BrowserSettings(props: {
             {language.t("browser.access.refresh")}
           </Button>
         </div>
-        <p class="text-text-weak">{language.t("browser.access.help")}</p>
-        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <label class="flex items-center justify-between gap-4">
-            <span>
-              <strong>{language.t("browser.settings.agent")}</strong>
-              <p class="text-text-weak mt-1">{language.t("browser.settings.agent.help")}</p>
-            </span>
-            <input
-              type="checkbox"
+        <p class="text-text-weak">{language.t("browser.access.tabGrantHelp")}</p>
+        <SettingsRows>
+          <SettingRow
+            title={language.t("browser.settings.agent")}
+            description={language.t("browser.settings.agent.tabGrantHelp")}
+          >
+            <Switch
+              aria-label={language.t("browser.settings.agent")}
               checked={props.profile.preferences?.agentEnabled === true}
               disabled={
                 props.profile.preferences?.agentEnabled === undefined ||
                 (props.busy && !props.profile.preferences.agentEnabled)
               }
-              onChange={(event) => toggle("agentEnabled", event.currentTarget.checked)}
+              onChange={(checked) => toggle("agentEnabled", checked)}
             />
-          </label>
+          </SettingRow>
           <Show when={props.profile.preferences?.agentEnabled === undefined}>
             <p role="status">{language.t("browser.access.unknown")}</p>
           </Show>
-        </section>
+        </SettingsRows>
         <section
           class="rounded-lg border border-border-weak-base p-4 space-y-4"
           aria-label={language.t("browser.access.tabs")}
@@ -80,8 +106,12 @@ export function BrowserSettings(props: {
           <For each={props.tabs} fallback={<p>{language.t("browser.tabs.empty")}</p>}>
             {(tab) => (
               <div class="min-w-0 border-t border-border-weaker-base pt-3 space-y-2" data-access-tab={tab.id}>
-                <strong class="block break-all">{tab.title || tab.url}</strong>
-                <p class="break-all text-text-weak">{tab.url}</p>
+                <strong dir={tab.title ? "auto" : "ltr"} class="block text-start break-all">
+                  {tab.title || tab.url}
+                </strong>
+                <p dir="ltr" class="break-all text-start text-text-weak">
+                  {tab.url}
+                </p>
                 <p role="status">
                   {language.t(
                     !tab.access || props.profile.preferences?.agentEnabled === undefined
@@ -92,13 +122,9 @@ export function BrowserSettings(props: {
                           ? "browser.access.private"
                           : tab.access.blank
                             ? "browser.access.blank"
-                            : !tab.access.hostAllowed
-                              ? "browser.access.blocked"
-                              : tab.access.loading === undefined
-                                ? "browser.access.unknown"
-                                : tab.access.loading
-                                  ? "browser.access.loading"
-                                  : "browser.access.eligible",
+                            : tab.access.loading
+                              ? "browser.access.tabGrantLoading"
+                              : "browser.access.tabGrantEligible",
                   )}
                 </p>
                 <Show when={tab.access}>
@@ -139,8 +165,8 @@ export function BrowserSettings(props: {
                         props.busy ||
                         !tab.access ||
                         tab.access.loading !== false ||
-                        props.profile.preferences?.agentEnabled !== true ||
-                        !tab.access.hostAllowed
+                        tab.access.blank !== false ||
+                        props.profile.preferences?.agentEnabled !== true
                       }
                       onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: true })}
                     >
@@ -150,7 +176,7 @@ export function BrowserSettings(props: {
                   <Button
                     size="small"
                     variant="secondary"
-                    style={{ "max-width": "100%", "white-space": "normal", height: "auto", "min-height": "24px" }}
+                    class="max-w-full whitespace-normal h-auto min-h-6"
                     onClick={() => void props.command({ op: "access", tabID: tab.id, enabled: false })}
                   >
                     {language.t("browser.access.revoke")}
@@ -161,30 +187,26 @@ export function BrowserSettings(props: {
           </For>
         </section>
         <fieldset disabled={props.busy} class="min-w-0 space-y-4">
-          <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-            <label class="flex flex-wrap items-center justify-between gap-4">
-              <span class="min-w-0 flex-1">
-                <strong>{language.t("browser.history.agent")}</strong>
-                <p class="text-text-weak mt-1">{language.t("browser.history.agent.help")}</p>
-              </span>
-              <select
-                class="max-w-full"
-                disabled={props.profile.preferences?.agentHistory === undefined}
-                value={props.profile.preferences?.agentHistory ?? ""}
-                onChange={(event) => {
-                  const value = event.currentTarget.value
-                  if (value !== "never" && value !== "ask" && value !== "allow") return
-                  void props.command({ op: "preferences", values: { agentHistory: value } })
-                }}
-              >
-                <Show when={props.profile.preferences?.agentHistory === undefined}>
-                  <option value="">{language.t("browser.access.unknown")}</option>
-                </Show>
-                <For each={["never", "ask", "allow"] as const}>
-                  {(value) => <option value={value}>{language.t(`browser.history.agent.${value}`)}</option>}
-                </For>
-              </select>
-            </label>
+          <SettingsRows>
+            <SettingRow
+              title={language.t("browser.history.agent")}
+              description={language.t("browser.history.agent.help")}
+            >
+              <Select
+                aria-label={language.t("browser.history.agent")}
+                triggerProps={{ "aria-label": language.t("browser.history.agent") }}
+                options={["never", "ask", "allow"] as const}
+                current={props.profile.preferences?.agentHistory ?? "never"}
+                disabled={props.busy || props.profile.preferences?.agentHistory === undefined}
+                label={(value) => language.t(`browser.history.agent.${value}`)}
+                onSelect={(value) =>
+                  value && void props.command({ op: "preferences", values: { agentHistory: value } })
+                }
+                variant="secondary"
+                size="small"
+                triggerVariant="settings"
+              />
+            </SettingRow>
             <p role="status">
               {props.profile.preferences?.agentEnabled === false
                 ? language.t("browser.access.historyOff")
@@ -195,76 +217,90 @@ export function BrowserSettings(props: {
                     })
                   : language.t("browser.access.unknown")}
             </p>
-          </section>
+          </SettingsRows>
           <BrowserTransfers rules={props.profile.transferRules} command={(value) => props.command(value)} />
           <p class="text-text-weak">{language.t("browser.access.transferLimits")}</p>
         </fieldset>
       </section>
       <fieldset disabled={!props.profile.preferences || props.busy} class="min-w-0 space-y-5">
         <h3 class="text-14-medium">{language.t("browser.settings.general")}</h3>
-        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <label class="flex items-center justify-between gap-4">
-            <span>
-              <strong>{language.t("browser.settings.search")}</strong>
-              <p class="text-text-weak mt-1">{language.t("browser.settings.search.help")}</p>
-            </span>
-            <select
-              value={props.profile.preferences?.searchEngine ?? "duckduckgo"}
-              onChange={(event) =>
-                void props.command({
-                  op: "preferences",
-                  values: { searchEngine: browserSearchEngine(event.currentTarget.value) },
-                })
+        <SettingsRows>
+          <SettingRow
+            title={language.t("browser.settings.search")}
+            description={language.t("browser.settings.search.help")}
+          >
+            <Select
+              disabled={props.busy || !props.profile.preferences}
+              aria-label={language.t("browser.settings.search")}
+              triggerProps={{ "aria-label": language.t("browser.settings.search") }}
+              options={[...BROWSER_SEARCH_ENGINES]}
+              current={props.profile.preferences?.searchEngine ?? "duckduckgo"}
+              label={(engine) => language.t(`browser.search.${engine}`)}
+              onSelect={(engine) =>
+                engine && void props.command({ op: "preferences", values: { searchEngine: engine } })
               }
-            >
-              <For each={BROWSER_SEARCH_ENGINES}>
-                {(engine) => <option value={engine}>{language.t(`browser.search.${engine}`)}</option>}
-              </For>
-            </select>
-          </label>
-          <p class="text-text-weak">{language.t("browser.settings.linksHelp")}</p>
+              variant="secondary"
+              size="small"
+              triggerVariant="settings"
+            />
+          </SettingRow>
           <For each={["webLinks", "localLinks"] as const}>
-            {(key) => (
-              <label class="flex items-center justify-between gap-4">
-                <span>{language.t(`browser.settings.${key}`)}</span>
-                <select
-                  disabled={props.profile.preferences?.[key] === undefined}
-                  value={props.profile.preferences?.[key] ?? (key === "webLinks" ? "external" : "browser")}
-                  onChange={(event) =>
-                    void props.command({ op: "preferences", values: { [key]: event.currentTarget.value } })
-                  }
+            {(key) => {
+              const options = [
+                { value: "external", label: language.t("browser.links.external") },
+                { value: "browser", label: language.t("browser.links.internal") },
+              ]
+              return (
+                <SettingRow
+                  title={language.t(`browser.settings.${key}`)}
+                  description={key === "webLinks" ? language.t("browser.settings.linksHelp") : ""}
                 >
-                  <option value="external">{language.t("browser.links.external")}</option>
-                  <option value="browser">{language.t("browser.links.internal")}</option>
-                </select>
-              </label>
-            )}
+                  <Select
+                    aria-label={language.t(`browser.settings.${key}`)}
+                    triggerProps={{ "aria-label": language.t(`browser.settings.${key}`) }}
+                    options={options}
+                    current={options.find(
+                      (option) =>
+                        option.value ===
+                        (props.profile.preferences?.[key] ?? (key === "webLinks" ? "external" : "browser")),
+                    )}
+                    disabled={props.busy || props.profile.preferences?.[key] === undefined}
+                    value={(option) => option.value}
+                    label={(option) => option.label}
+                    onSelect={(option) =>
+                      option && void props.command({ op: "preferences", values: { [key]: option.value } })
+                    }
+                    variant="secondary"
+                    size="small"
+                    triggerVariant="settings"
+                  />
+                </SettingRow>
+              )
+            }}
           </For>
           <For each={["showFullURL", "selectionScreenshots", "restoreTabs"] as const}>
             {(key) => (
-              <label class="flex items-center justify-between gap-4">
-                <span>
-                  <strong>{language.t(`browser.settings.${key}`)}</strong>
-                  <p class="text-text-weak mt-1">{language.t(`browser.settings.${key}.help`)}</p>
-                </span>
-                <input
-                  type="checkbox"
+              <SettingRow
+                title={language.t(`browser.settings.${key}`)}
+                description={language.t(`browser.settings.${key}.help`)}
+              >
+                <Switch
+                  aria-label={language.t(`browser.settings.${key}`)}
                   disabled={props.busy}
                   checked={props.profile.preferences?.[key] ?? key === "showFullURL"}
-                  onChange={(event) => toggle(key, event.currentTarget.checked)}
+                  onChange={(checked) => toggle(key, checked)}
                 />
-              </label>
+              </SettingRow>
             )}
           </For>
-          <label class="flex items-center justify-between gap-4">
-            <span>{language.t("browser.settings.history")}</span>
-            <input
-              type="checkbox"
+          <SettingRow title={language.t("browser.settings.history")} description="">
+            <Switch
+              aria-label={language.t("browser.settings.history")}
               checked={props.profile.rememberHistory}
               disabled={props.busy}
-              onChange={(event) => void props.command({ op: "settings", rememberHistory: event.currentTarget.checked })}
+              onChange={(checked) => void props.command({ op: "settings", rememberHistory: checked })}
             />
-          </label>
+          </SettingRow>
           <div class="flex flex-wrap gap-2">
             <For each={["import", "history", "clear"] as const}>
               {(panel) => (
@@ -274,32 +310,35 @@ export function BrowserSettings(props: {
               )}
             </For>
           </div>
-        </section>
+        </SettingsRows>
         <h3 class="text-14-medium">{language.t("browser.menu.passwords")}</h3>
-        <section class="rounded-lg border border-border-weak-base p-4">
-          <Button size="small" onClick={() => props.open("passwords")}>
-            {language.t("browser.settings.passwords.manage")}
-          </Button>
-        </section>
-        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <label class="flex items-center justify-between gap-4">
-            <span>
-              <strong>{language.t("browser.passwords.offers")}</strong>
-              <p class="text-text-weak mt-1">{language.t("browser.passwords.offers.help")}</p>
-            </span>
-            <input
-              type="checkbox"
-              disabled={props.profile.preferences?.offerSaveLogins === undefined}
+        <SettingsRows>
+          <SettingRow title={language.t("browser.menu.passwords")} description="">
+            <Button size="small" onClick={() => props.open("passwords")}>
+              {language.t("browser.settings.passwords.manage")}
+            </Button>
+          </SettingRow>
+        </SettingsRows>
+        <SettingsRows>
+          <SettingRow
+            title={language.t("browser.passwords.offers")}
+            description={language.t("browser.passwords.offers.help")}
+          >
+            <Switch
+              aria-label={language.t("browser.passwords.offers")}
+              disabled={props.busy || props.profile.preferences?.offerSaveLogins === undefined}
               checked={props.profile.preferences?.offerSaveLogins ?? false}
-              onChange={(event) => toggle("offerSaveLogins", event.currentTarget.checked)}
+              onChange={(checked) => toggle("offerSaveLogins", checked)}
             />
-          </label>
+          </SettingRow>
           <Show when={props.profile.loginOfferExclusions?.length}>
             <h4>{language.t("browser.passwords.offers.never")}</h4>
             <For each={props.profile.loginOfferExclusions}>
               {(origin) => (
                 <div class="flex items-center justify-between gap-3">
-                  <span class="break-all">{origin}</span>
+                  <span dir="ltr" class="break-all text-start">
+                    {origin}
+                  </span>
                   <Button
                     size="small"
                     variant="ghost"
@@ -311,14 +350,13 @@ export function BrowserSettings(props: {
               )}
             </For>
           </Show>
-        </section>
+        </SettingsRows>
         <h3 class="text-14-medium">{language.t("browser.menu.downloads")}</h3>
-        <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
-          <div class="flex flex-wrap justify-between gap-3">
-            <span class="min-w-0">
-              <strong>{language.t("browser.settings.location")}</strong>
-              <p class="break-all mt-1 text-text-weak">{props.profile.downloadDirectory}</p>
-            </span>
+        <SettingsRows>
+          <SettingRow
+            title={language.t("browser.settings.location")}
+            description={props.profile.downloadDirectory ?? ""}
+          >
             <div class="flex gap-2">
               <Button
                 size="small"
@@ -336,23 +374,24 @@ export function BrowserSettings(props: {
                 {language.t("browser.settings.resetLocation")}
               </Button>
             </div>
-          </div>
-          <label class="flex items-center justify-between gap-4">
-            <span>
-              <strong>{language.t("browser.settings.askDownloadLocation")}</strong>
-              <p class="text-text-weak mt-1">{language.t("browser.settings.askDownloadLocation.help")}</p>
-            </span>
-            <input
-              type="checkbox"
+          </SettingRow>
+          <SettingRow
+            title={language.t("browser.settings.askDownloadLocation")}
+            description={language.t("browser.settings.askDownloadLocation.help")}
+          >
+            <Switch
+              aria-label={language.t("browser.settings.askDownloadLocation")}
               disabled={props.busy}
               checked={props.profile.preferences?.askDownloadLocation ?? true}
-              onChange={(event) => toggle("askDownloadLocation", event.currentTarget.checked)}
+              onChange={(checked) => toggle("askDownloadLocation", checked)}
             />
-          </label>
-          <Button size="small" onClick={() => props.open("downloads")}>
-            {language.t("browser.settings.downloads.manage")}
-          </Button>
-        </section>
+          </SettingRow>
+          <SettingRow title={language.t("browser.settings.downloads.manage")} description="">
+            <Button size="small" onClick={() => props.open("downloads")}>
+              {language.t("browser.settings.downloads.manage")}
+            </Button>
+          </SettingRow>
+        </SettingsRows>
         <h3 class="text-14-medium">{language.t("browser.settings.sites")}</h3>
         <section class="rounded-lg border border-border-weak-base p-4 space-y-4">
           <p class="text-text-weak">{language.t("browser.settings.sites.help")}</p>
@@ -375,6 +414,7 @@ export function BrowserSettings(props: {
               {language.t("browser.settings.origin")}
               <input
                 type="url"
+                dir="ltr"
                 required
                 value={state.origin}
                 onInput={(event) => setState("origin", event.currentTarget.value)}
@@ -386,15 +426,18 @@ export function BrowserSettings(props: {
               {(device) => (
                 <label>
                   {language.t(`browser.settings.${device}`)}
-                  <select
-                    class="block border border-border-weak-base rounded p-2 mt-1"
-                    value={state[device]}
-                    onChange={(event) => setState(device, event.currentTarget.value as BrowserPermission)}
-                  >
-                    <For each={permissions}>
-                      {(value) => <option value={value}>{language.t(`browser.permission.${value}`)}</option>}
-                    </For>
-                  </select>
+                  <Select
+                    disabled={props.busy || !props.profile.preferences}
+                    aria-label={language.t(`browser.settings.${device}`)}
+                    triggerProps={{ "aria-label": language.t(`browser.settings.${device}`) }}
+                    options={[...permissions]}
+                    current={state[device]}
+                    label={(value) => language.t(`browser.permission.${value}`)}
+                    onSelect={(value) => value && setState(device, value)}
+                    variant="secondary"
+                    size="small"
+                    triggerVariant="settings"
+                  />
                 </label>
               )}
             </For>
@@ -423,27 +466,32 @@ export function BrowserSettings(props: {
           <For each={props.profile.sites}>
             {(site) => (
               <div class="flex flex-wrap items-center gap-3 border-t border-border-weaker-base pt-3">
-                <strong class="flex-1 break-all">{site.origin}</strong>
+                <strong dir="ltr" class="flex-1 break-all text-start">
+                  {site.origin}
+                </strong>
                 <For each={siteControls()}>
                   {(device) => (
                     <label>
                       {language.t(`browser.settings.${device}`)}
-                      <select
-                        class="block border border-border-weak-base rounded p-2 mt-1"
+                      <Select
+                        aria-label={language.t(`browser.settings.${device}`)}
+                        triggerProps={{ "aria-label": language.t(`browser.settings.${device}`) }}
+                        options={[...permissions]}
+                        current={site[device] ?? "block"}
                         disabled={props.busy}
-                        value={site[device] ?? "block"}
-                        onChange={(event) =>
+                        label={(value) => language.t(`browser.permission.${value}`)}
+                        onSelect={(value) =>
+                          value &&
                           void props.command({
                             op: "site-permission",
                             origin: site.origin,
-                            [device]: event.currentTarget.value as BrowserPermission,
+                            [device]: value,
                           })
                         }
-                      >
-                        <For each={permissions}>
-                          {(value) => <option value={value}>{language.t(`browser.permission.${value}`)}</option>}
-                        </For>
-                      </select>
+                        variant="secondary"
+                        size="small"
+                        triggerVariant="settings"
+                      />
                     </label>
                   )}
                 </For>

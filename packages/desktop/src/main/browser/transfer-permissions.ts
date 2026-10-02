@@ -9,7 +9,6 @@ import {
   type BrowserRegistration,
 } from "./registry"
 import { bindFrameUpload } from "./frames"
-import { hostPolicyRevision } from "./allowlist"
 import { browserInputFailure } from "./driver"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
@@ -131,14 +130,12 @@ export async function guardUploads(win: BrowserWindow, tab: BrowserRegistration,
     const navigation = tab.revision
     const access = tab.accessRevision
     const policy = revision
-    const hosts = hostPolicyRevision()
     const valid = () =>
       !contents.isDestroyed() &&
       !win.isDestroyed() &&
       tab.revision === navigation &&
       tab.accessRevision === access &&
       revision === policy &&
-      hostPolicyRevision() === hosts &&
       contents.getURL() === url
     if (
       !Number.isInteger(params.backendNodeId) ||
@@ -194,19 +191,6 @@ export async function guardUploads(win: BrowserWindow, tab: BrowserRegistration,
           check,
         )
         check(binding.origin)
-        const consent = await dialog.showMessageBox(win, {
-          type: "question",
-          message: nativeT("desktop.browser.transfer.frameUpload"),
-          detail: nativeT("desktop.browser.transfer.frameUploadDetail", {
-            topOrigin: binding.topOrigin,
-            origin: binding.origin,
-          }),
-          buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
-          defaultId: 0,
-          cancelId: 0,
-        })
-        check(binding.origin)
-        if (consent.response !== 1) return
         await binding.validate()
         const answer = await dialog.showOpenDialog(win, {
           title: nativeT("desktop.browser.transfer.upload", { origin: binding.origin }),

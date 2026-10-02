@@ -20,6 +20,7 @@ export type PageSnapshot = {
   readonly visibleText: string
   readonly truncated: boolean
   readonly elements: readonly SnapshotElement[]
+  readonly inspection?: { readonly selector: string; readonly matched: boolean }
 }
 
 // Only execute in cm-browser-snapshot, never the page's main world.
@@ -27,6 +28,7 @@ export type PageSnapshot = {
 export const snapshotScript = (
   id: string,
   reference?: { generation: string; token: string; fill?: boolean; focused?: boolean },
+  selector?: string,
 ) => `(() => {
   const id = ${JSON.stringify(id)}, reference = ${JSON.stringify(reference ?? null)};
   const newToken = () => Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16).padStart(8, "0")).join("");
@@ -211,9 +213,12 @@ export const snapshotScript = (
     const ancestry = chain(el);
     if (!ancestry || ancestry.length !== stored.chain.length ||
       ancestry.some((node, index) => node !== (stored.chain[index]?.deref() ?? null))) return null;
-    if (!visible(el) || disabled(el) || !interactive(el)) return null;
+    if ((!reference.focused && !visible(el)) || disabled(el) || !interactive(el)) return null;
     if (reference.fill && (!stored.fillKind || fillKind(el) !== stored.fillKind)) return null;
     if (reference.focused) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 ||
+        !el.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return null;
       let active = document.activeElement;
       for (let depth = 0; active?.shadowRoot && depth < 64; depth++) {
         const inner = active.shadowRoot.activeElement;
@@ -287,10 +292,14 @@ export const snapshotScript = (
     if (node.nodeType === Node.TEXT_NODE && node.parentElement && !sensitive(node.parentElement)) {
       if (visibleText.length >= ${MAX_VISIBLE_TEXT} || characters <= 0) truncated = true;
       else if (visible(node.parentElement)) {
+        const root = node.getRootNode();
         const range = document.createRange();
         range.selectNodeContents(node);
         const rect = range.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth)
+        const rendered = root instanceof ShadowRoot
+          ? visible(root.host)
+          : rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
+        if (rendered)
           visibleText = compact(visibleText + " " + content(node, Math.min(${MAX_VISIBLE_TEXT} - visibleText.length, characters)), ${MAX_VISIBLE_TEXT});
       }
     }
@@ -301,10 +310,12 @@ export const snapshotScript = (
     // Visit light children once, then open roots; never expand assignedNodes (unbounded allocation).
     if (node instanceof Element && node.shadowRoot) walk(node.shadowRoot, depth + 1);
   };
-  walk(document.body || document.documentElement, 0);
+  const selector = ${JSON.stringify(selector ?? null)};
+  const scope = selector ? document.querySelector(selector) : document.body || document.documentElement;
+  if (scope) walk(scope, 0);
   state.snapshots.set(id, entries);
   while (state.snapshots.size > 10) state.snapshots.delete(state.snapshots.keys().next().value);
-  return { ...page(elements), visibleText, truncated };
+  return { ...page(elements), visibleText, truncated, ...(selector ? {inspection:{selector,matched:!!scope}} : {}) };
 })()`
 
 // Both identity/hit checks run synchronously in one isolated-world evaluation, without yielding.
@@ -384,7 +395,21 @@ export function parseSnapshot(value: unknown): PageSnapshot | undefined {
   truncated ||= optionBudget.truncated
   const title = bounded(input.title, 256),
     visibleText = bounded(input.visibleText, MAX_VISIBLE_TEXT)
-  return { generation: token(input.generation), url: text(input.url), title, visibleText, truncated, elements }
+  const inspection = object(input.inspection)
+  return {
+    generation: token(input.generation),
+    url: text(input.url),
+    title,
+    visibleText,
+    truncated,
+    elements,
+    ...(inspection &&
+    typeof inspection.selector === "string" &&
+    inspection.selector.length <= 512 &&
+    typeof inspection.matched === "boolean"
+      ? { inspection: { selector: inspection.selector, matched: inspection.matched } }
+      : {}),
+  }
 }
 
 function parseElement(

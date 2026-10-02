@@ -2,15 +2,17 @@ import { createHash } from "node:crypto"
 import type { EventEmitter } from "node:events"
 import {
   OPERATION_TIMEOUT_MS,
+  MAX_SNAPSHOT_BYTES,
   failure,
   success,
   parseRequest,
   type BrowserIpcRequest,
   type FrameRequest,
   type BrowserState,
+  type ActionStatus,
+  type ActionFailureCause,
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
-import { hostPolicyRevision } from "./allowlist"
 import { browserInputFailure, execute } from "./driver"
 import {
   browserTabs,
@@ -20,21 +22,29 @@ import {
   routeBrowserHistory,
   routeBrowserTab,
   browserOperationBusy,
+  browserTabReserved,
+  watchBrowserAccess,
 } from "./registry"
+import type { BrowserAuthority } from "./delegation"
 import { browserURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
-import { discoverFrames, executeFrame } from "./frames"
+import { discoverDocuments, executeFrame } from "./frames"
 import { observeConsole } from "./console-diagnostics"
 import { discoverSiteTools, invokeSiteTool, prepareSiteTool } from "./site-tools"
+import { startBrowserOperation } from "./operation-state"
+import { visualDocumentSignature } from "./visual-documents"
 
 const busy = browserOperationBusy
 
 export type BrowserOperation = {
+  authority?: BrowserAuthority
   signal?: AbortSignal
   deadline?: number
   onSettled?: (operation: Promise<unknown>) => void
   onScreenshotDelivery?: (check: () => void) => void
+  onActionDispatch?: () => void
+  onActionObservation?: () => void
 }
 
 const PAGE_STATE_OPERATIONS = new Set<BrowserIpcRequest["request"]["op"]>([
@@ -47,6 +57,7 @@ const PAGE_STATE_OPERATIONS = new Set<BrowserIpcRequest["request"]["op"]>([
   "fill",
   "press_key",
   "scroll",
+  "visual_action",
   "wait_for_element",
   "wait_for_navigation",
 ])
@@ -63,12 +74,16 @@ export function browserOperationReturnsPageState(op: BrowserIpcRequest["request"
 export function browserResponseNeedsDeliveryCheck(op: BrowserIpcRequest["request"]["op"], result: BrowserState) {
   return (
     browserOperationReturnsPageState(op, result) ||
+    op === "list_tabs" ||
+    result.context !== undefined ||
+    result.delegation?.active === true ||
     op === "screenshot" ||
     op === "observe_console" ||
     op === "observe_network" ||
     result.screenshot !== undefined ||
     result.diagnostics !== undefined ||
     result.frames !== undefined ||
+    result.documents !== undefined ||
     result.frameRef !== undefined ||
     result.frameContext !== undefined ||
     result.frameSelectContext !== undefined ||
@@ -97,15 +112,7 @@ export function browserDeliveryError(
     op === "execute_site_tool"
   )
     return "desktop.browser.siteToolDeliveryUnavailable"
-  if (
-    result.screenshot !== undefined ||
-    result.frames !== undefined ||
-    result.frameRef !== undefined ||
-    result.frameContext !== undefined ||
-    result.frameSelectContext !== undefined ||
-    op === "screenshot"
-  )
-    return "desktop.browser.screenshotDeliveryUnavailable"
+  if (result.screenshot !== undefined || op === "screenshot") return "desktop.browser.screenshotDeliveryUnavailable"
   return "desktop.browser.operationUnavailable"
 }
 
@@ -116,6 +123,81 @@ export async function routeBrowserRequest(
 ): Promise<Response<BrowserState>> {
   const validated = parseRequest(message.request)
   if (!validated) return failure("bad_request", "Invalid browser request.")
+  const request = validated.op === "prepare_write" ? validated.request : validated
+  const tracksAction = [
+    "navigate",
+    "click",
+    "hover",
+    "drag",
+    "select_option",
+    "fill",
+    "press_key",
+    "scroll",
+    "execute_site_tool",
+    "frame_input",
+    "visual_action",
+  ].includes(request.op)
+  let dispatchAttempted = false
+  let observationStarted = false
+  const markDispatched = () => {
+    dispatchAttempted = true
+    control.onActionDispatch?.()
+  }
+  const markObservation = () => {
+    observationStarted = true
+    control.onActionObservation?.()
+  }
+  const withActionStatus = (response: Response<BrowserState>): Response<BrowserState> => {
+    if (!tracksAction) return response
+    const actionStatus: ActionStatus = !dispatchAttempted
+      ? "not_dispatched"
+      : response.ok &&
+          (browserOperationReturnsPageState(request.op, response.result) ||
+            request.op === "execute_site_tool" ||
+            (request.op === "frame_input" &&
+              response.result.frameRef === request.frameRef &&
+              !response.result.frameContext))
+        ? "dispatched_observed"
+        : "dispatched_uncertain"
+    const actionCause: ActionFailureCause | undefined =
+      actionStatus !== "dispatched_uncertain"
+        ? undefined
+        : response.ok
+          ? "observation_unavailable"
+          : response.code === "cancelled"
+            ? "cancelled"
+            : response.code === "timeout"
+              ? "timeout"
+              : observationStarted
+                ? "observation_failed"
+                : "native_action_failed"
+    const error = !response.ok
+      ? actionCause === "native_action_failed"
+        ? nativeT("desktop.browser.actionDispatchFailed")
+        : actionCause === "observation_failed" || actionCause === "observation_unavailable"
+          ? nativeT("desktop.browser.actionObservationFailed")
+          : response.error
+      : undefined
+    const bounded = { ...response, actionStatus, ...(actionCause ? { actionCause } : {}), ...(error ? { error } : {}) }
+    return Buffer.byteLength(JSON.stringify(bounded)) <= MAX_SNAPSHOT_BYTES
+      ? bounded
+      : {
+          ...failure(
+            "unavailable",
+            dispatchAttempted
+              ? nativeT("desktop.browser.actionObservationFailed")
+              : "Browser response exceeds the size limit.",
+          ),
+          actionStatus: dispatchAttempted ? "dispatched_uncertain" : "not_dispatched",
+          ...(dispatchAttempted ? { actionCause: "observation_failed" as const } : {}),
+        }
+  }
+  if (validated.op === "grant_tabs" || validated.op === "revoke_tabs")
+    return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
+  const access = control.authority
+  const operationSignal = access?.signal
+    ? AbortSignal.any([...(control.signal ? [control.signal] : []), access.signal])
+    : control.signal
   const duration =
     validated.op === "search_history" || validated.op === "open_history"
       ? 60_000
@@ -125,11 +207,11 @@ export async function routeBrowserRequest(
   const deadline = Math.min(control.deadline ?? Infinity, Date.now() + duration)
   const controller = new AbortController()
   const abort = () => controller.abort(failure("cancelled", "Browser operation cancelled."))
-  if (control.signal?.aborted) abort()
+  if (operationSignal?.aborted) abort()
   if (!controller.signal.aborted && Date.now() >= deadline)
     controller.abort(failure("timeout", "Browser operation timed out."))
-  if (controller.signal.aborted) return controller.signal.reason
-  control.signal?.addEventListener("abort", abort, { once: true })
+  if (controller.signal.aborted) return withActionStatus(controller.signal.reason)
+  operationSignal?.addEventListener("abort", abort, { once: true })
   const timer = setTimeout(
     () => controller.abort(failure("timeout", "Browser operation timed out.")),
     Math.max(0, deadline - Date.now()),
@@ -139,43 +221,84 @@ export async function routeBrowserRequest(
     interrupted = () => resolve(controller.signal.reason)
     controller.signal.addEventListener("abort", interrupted, { once: true })
   })
+  let unwatch: (() => void) | undefined
   let deliveryCheck: (() => void) | undefined
-  const operation = route(message, policy, controller.signal, deadline, (check) => {
-    deliveryCheck = () => {
-      control.signal?.throwIfAborted()
-      check()
-    }
-    control.onScreenshotDelivery?.(deliveryCheck)
-  })
+  let operationState: ReturnType<typeof startBrowserOperation> | undefined
+  const report = (response: Response<BrowserState>) => {
+    operationState?.report(response)
+    return response
+  }
+  const operation = (async () => {
+    access?.check()
+    const tab =
+      "tabID" in request
+        ? access
+          ? access.resolve(request.tabID)
+          : browserRegistration(message.sessionID, request.tabID)
+        : undefined
+    unwatch = tab ? watchBrowserAccess(tab, abort) : undefined
+    return route(
+      message,
+      policy,
+      controller.signal,
+      deadline,
+      markDispatched,
+      markObservation,
+      (check) => {
+        deliveryCheck = () => {
+          operationSignal?.throwIfAborted()
+          access?.check()
+          check()
+        }
+        control.onScreenshotDelivery?.(deliveryCheck)
+      },
+      access,
+      (state) => {
+        operationState = state
+      },
+    )
+  })()
     .then((response) =>
       controller.signal.aborted
-        ? controller.signal.reason
+        ? withActionStatus(controller.signal.reason)
         : Date.now() >= deadline
-          ? failure("timeout", "Browser operation timed out.")
-          : response,
+          ? withActionStatus(failure("timeout", "Browser operation timed out."))
+          : withActionStatus(response),
     )
     .catch(() =>
       controller.signal.aborted
-        ? controller.signal.reason
+        ? withActionStatus(controller.signal.reason)
         : Date.now() >= deadline
-          ? failure("timeout", "Browser operation timed out.")
-          : failure("unavailable", nativeT("desktop.browser.operationUnavailable")),
+          ? withActionStatus(failure("timeout", "Browser operation timed out."))
+          : withActionStatus(failure("unavailable", nativeT("desktop.browser.operationUnavailable"))),
     )
+  void operation.finally(() => unwatch?.())
   control.onSettled?.(operation)
   try {
-    const response = await Promise.race([operation, cancelled])
+    const response = withActionStatus(await Promise.race([operation, cancelled]))
     if (response.ok && browserResponseNeedsDeliveryCheck(validated.op, response.result)) {
       try {
         if (!deliveryCheck) throw new Error("Missing browser delivery authority")
         deliveryCheck()
       } catch {
-        return failure("unavailable", nativeT(browserDeliveryError(validated.op, response.result)))
+        return report({
+          ...failure("unavailable", nativeT(browserDeliveryError(validated.op, response.result))),
+          ...(response.actionStatus
+            ? {
+                actionStatus:
+                  response.actionStatus === "dispatched_observed" ? "dispatched_uncertain" : response.actionStatus,
+              }
+            : {}),
+          ...(response.actionStatus
+            ? { actionCause: "observation_failed" as const, error: nativeT("desktop.browser.actionObservationFailed") }
+            : {}),
+        })
       }
     }
-    return response
+    return report(response)
   } finally {
     clearTimeout(timer)
-    control.signal?.removeEventListener("abort", abort)
+    operationSignal?.removeEventListener("abort", abort)
     controller.signal.removeEventListener("abort", interrupted)
   }
 }
@@ -185,37 +308,79 @@ async function route(
   policy: ((url: string) => boolean) | undefined,
   signal: AbortSignal,
   deadline: number,
+  markDispatched: () => void,
+  markObservation: () => void,
   onScreenshotDelivery: (check: () => void) => void,
+  access?: BrowserAuthority,
+  onOperationStart?: (state: ReturnType<typeof startBrowserOperation>) => void,
 ): Promise<Response<BrowserState>> {
   signal.throwIfAborted()
+  access?.check()
   const parsed = parseRequest(message.request)
   if (!parsed) return failure("bad_request", "Invalid browser request.")
+  if (parsed.op === "grant_tabs" || parsed.op === "revoke_tabs")
+    return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
   if (!browserAgentEnabled()) return failure("access_denied", "Browser agent access is disabled in browser settings.")
   if (parsed.op === "prepare_tab" || "token" in parsed)
     return routeBrowserTab(message.sessionID, parsed, signal, deadline)
   const request = parsed.op === "prepare_write" ? parsed.request : parsed
   if (request.op === "search_history" || request.op === "open_history")
     return routeBrowserHistory(message.sessionID, request, signal)
+  const resolve = (tabID: string) => (access ? access.resolve(tabID) : browserRegistration(message.sessionID, tabID))
   if (request.op === "list_tabs") {
+    const listed = (access ? access.tabs() : browserTabs(message.sessionID))
+      .filter(
+        (tab) =>
+          !browserTabReserved(tab, access?.token) &&
+          tab.agentAccess &&
+          (tab.contents.getURL() === "about:blank" ||
+            (browserPageURL(tab.contents.getURL()) &&
+              (policy ? policy(tab.contents.getURL()) : browserAccessAllowed(tab, tab.contents.getURL())))),
+      )
+      .map((tab) => ({
+        tab,
+        url: tab.contents.getURL(),
+        revision: tab.revision,
+        accessRevision: tab.accessRevision,
+        ownerID: tab.ownerID,
+        ownerContext: tab.ownerContext?.(),
+        sessionID: tab.sessionID,
+        agentOwnerSessionID: tab.agentOwnerSessionID,
+      }))
+    onScreenshotDelivery(() => {
+      signal.throwIfAborted()
+      access?.check()
+      if (!browserAgentEnabled() || Date.now() >= deadline) throw new Error("Inventory authority changed")
+      listed.forEach((item) => {
+        const tab = item.tab
+        if (
+          resolve(tab.id) !== tab ||
+          browserTabReserved(tab, access?.token) ||
+          !tab.agentAccess ||
+          tab.contents.getURL() !== item.url ||
+          tab.revision !== item.revision ||
+          tab.accessRevision !== item.accessRevision ||
+          tab.ownerID !== item.ownerID ||
+          tab.ownerContext?.() !== item.ownerContext ||
+          tab.sessionID !== item.sessionID ||
+          tab.agentOwnerSessionID !== item.agentOwnerSessionID
+        )
+          throw new Error("Inventory authority changed")
+      })
+    })
     return success({
       tabID: "",
       url: "",
       title: "",
       visibleText: "",
       elements: [],
-      tabs: browserTabs(message.sessionID)
-        .filter(
-          (tab) =>
-            tab.agentAccess &&
-            (tab.contents.getURL() === "about:blank" ||
-              (browserPageURL(tab.contents.getURL()) &&
-                (policy ? policy(tab.contents.getURL()) : browserAccessAllowed(tab, tab.contents.getURL())))),
-        )
-        .map((tab) => ({ tabID: tab.id, url: tab.contents.getURL(), title: "" })),
+      tabs: listed.map(({ tab, url }) => ({ tabID: tab.id, url, title: "" })),
     })
   }
-  const tab = browserRegistration(message.sessionID, request.tabID)
+  const tab = resolve(request.tabID)
   if (!tab) return failure("no_target", "Browser tab not found in this session.")
+  if (browserTabReserved(tab, access?.token))
+    return failure("unavailable", nativeT("desktop.browser.operationUnavailable"))
   if (!tab.agentAccess) return failure("access_denied", "Enable agent access for this tab in the browser panel.")
   const isAllowed = policy ?? ((url: string) => browserAccessAllowed(tab, url))
   const contents = tab.contents
@@ -235,7 +400,6 @@ async function route(
     return failure("unavailable", "Browser page is loading. Wait for loading to finish.")
 
   const ownerID = tab.ownerID
-  const hosts = hostPolicyRevision()
   const revision = tab.revision
   const accessRevision = tab.accessRevision ?? 0
   const ownerContext =
@@ -243,16 +407,10 @@ async function route(
   // ponytail: hash the exact source, not a truncated URL; main's epochs also detect A-B-A.
   const origin = url === "about:blank" ? url : new URL(url).origin
   const urlHash = createHash("sha256").update(url).digest("hex")
-  if (parsed.op === "prepare_write")
-    return success({
-      tabID: tab.id,
-      url: origin,
-      title: "",
-      visibleText: "",
-      elements: [],
-      context: { tabID: tab.id, origin, urlHash, revision, accessRevision, ownerContext },
-    })
+  const sessionID = tab.sessionID
+  const agentOwnerSessionID = tab.agentOwnerSessionID
   if (
+    parsed.op !== "prepare_write" &&
     request.op !== "read_state" &&
     request.op !== "prepare_frame" &&
     request.op !== "prepare_frame_select" &&
@@ -267,18 +425,21 @@ async function route(
       parsed.context.accessRevision !== accessRevision ||
       parsed.context.ownerContext !== ownerContext)
   )
-    return failure("access_denied", "Browser approval context changed. Request approval again.")
+    return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
   let destination: { revision: number; url: string } | undefined
   const check = (source = false) => {
     signal.throwIfAborted()
+    access?.check()
     if (Date.now() >= deadline) throw new Error("Browser operation timed out")
     if (
-      browserRegistration(message.sessionID, request.tabID) !== tab ||
+      resolve(request.tabID) !== tab ||
+      browserTabReserved(tab, access?.token) ||
+      tab.sessionID !== sessionID ||
+      tab.agentOwnerSessionID !== agentOwnerSessionID ||
       tab.contents !== contents ||
       tab.ownerID !== ownerID ||
       (tab.ownerContext?.() ?? createHash("sha256").update(`${tab.ownerID}:${tab.sessionID}`).digest("base64url")) !==
         ownerContext ||
-      hostPolicyRevision() !== hosts ||
       !browserAgentEnabled() ||
       !tab.agentAccess ||
       (tab.accessRevision ?? 0) !== accessRevision ||
@@ -304,6 +465,18 @@ async function route(
       destination = { revision: tab.revision, url: current }
     }
   }
+  if (parsed.op === "prepare_write") {
+    check()
+    onScreenshotDelivery(check)
+    return success({
+      tabID: tab.id,
+      url: origin,
+      title: "",
+      visibleText: "",
+      elements: [],
+      context: { tabID: tab.id, origin, urlHash, revision, accessRevision, ownerContext },
+    })
+  }
   const pinDestination = () => {
     check()
     destination = { revision: tab.revision, url: contents.getURL() }
@@ -311,11 +484,13 @@ async function route(
   }
   // Screenshots observe every source transition but never veto user navigation.
   const screenshot = request.op === "screenshot"
+  const visual = request.op === "visual_action"
   const diagnostics = request.op === "observe_console" || request.op === "observe_network"
   const siteExecution = request.op === "execute_site_tool"
-  const consent = screenshot || diagnostics || siteExecution ? new AbortController() : undefined
+  const consent = screenshot || visual || diagnostics || siteExecution ? new AbortController() : undefined
   const revoke = () => consent?.abort()
-  let ownerCheck: (() => void) | undefined
+  if (consent && !tab.captureOwner) return failure("unavailable", nativeT("desktop.browser.operationUnavailable"))
+  const ownerCheck = consent ? tab.captureOwner!(screenshot || visual) : undefined
   const authority = (source = false) => {
     check(source)
     consent?.signal.throwIfAborted()
@@ -324,6 +499,8 @@ async function route(
   if (!observing && !screenshot && !diagnostics && !siteRequest)
     tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
   busy.add(tab.id)
+  const operationState = startBrowserOperation(tab, request.op, signal)
+  onOperationStart?.(operationState)
   const release = keepBrowserRendering(contents)
   try {
     if (consent && !siteExecution) {
@@ -331,21 +508,6 @@ async function route(
       if (diagnostics) tab.diagnosticConsent = consent
       signal.addEventListener("abort", revoke, { once: true })
       authority()
-      const approved = diagnostics
-        ? await tab.confirmDiagnostics?.(
-            url,
-            request.durationMs,
-            consent.signal,
-            request.op === "observe_network" ? "network" : "console",
-          )
-        : await tab.confirmScreenshot?.(url, consent.signal)
-      ownerCheck = typeof approved === "function" ? approved : undefined
-      authority()
-      if (!ownerCheck)
-        return failure(
-          "access_denied",
-          nativeT(diagnostics ? "desktop.browser.diagnosticsDenied" : "desktop.browser.screenshotDenied"),
-        )
       onScreenshotDelivery(authority)
     }
     if (siteRequest) {
@@ -400,14 +562,11 @@ async function route(
         context.toolRevision !== prepared.revision ||
         context.argumentHash !== prepared.argumentHash
       )
-        return failure("access_denied", "Browser site tool approval context changed. Request approval again.")
+        return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
       tab.siteToolConsent = consent
       signal.addEventListener("abort", revoke, { once: true })
       authority()
-      const approved = await tab.confirmSiteTool?.(url, prepared.public, request.arguments, consent!.signal)
-      ownerCheck = typeof approved === "function" ? approved : undefined
-      authority()
-      if (!ownerCheck) return failure("access_denied", nativeT("desktop.browser.siteToolDenied"))
+      markDispatched()
       const result = await invokeSiteTool(contents, prepared, request.arguments, authority, consent!.signal)
       authority()
       onScreenshotDelivery(authority)
@@ -421,7 +580,15 @@ async function route(
       })
     }
     if ("frameRef" in request) {
-      const frame = await executeFrame(tab, request as FrameRequest, authority, deadline, isAllowed)
+      const frame = await executeFrame(
+        tab,
+        request as FrameRequest,
+        authority,
+        deadline,
+        isAllowed,
+        markDispatched,
+        markObservation,
+      )
       const delivery = () => {
         authority()
         frame.check()
@@ -448,7 +615,12 @@ async function route(
             visibleText: "",
             elements: [],
             diagnostics: {
-              console: await observeConsole(contents as unknown as EventEmitter, request.durationMs, authority, signal),
+              console: await observeConsole(
+                contents as unknown as EventEmitter,
+                request.durationMs,
+                authority,
+                consent!.signal,
+              ),
             },
           })
         : await execute(
@@ -458,6 +630,26 @@ async function route(
               check: authority,
               signal,
               deadline,
+              onActionDispatch: markDispatched,
+              onActionObservation: markObservation,
+              visualOwnerCheck: screenshot || visual ? ownerCheck : undefined,
+              visualDocuments: screenshot || visual ? () => visualDocumentSignature(tab, authority) : undefined,
+              visualAuthority:
+                screenshot || visual
+                  ? createHash("sha256")
+                      .update(
+                        JSON.stringify([
+                          ownerID,
+                          sessionID,
+                          agentOwnerSessionID,
+                          ownerContext,
+                          revision,
+                          accessRevision,
+                          urlHash,
+                        ]),
+                      )
+                      .digest("hex")
+                  : undefined,
               pinDestination: request.op === "navigate" ? pinDestination : undefined,
             },
             request,
@@ -468,7 +660,25 @@ async function route(
       onScreenshotDelivery(authority)
     }
     if (response.ok && request.op === "read_state") {
-      const discovered = await discoverFrames(tab, authority, isAllowed)
+      let page: BrowserState = response.result
+      if (tab.frameSessions) {
+        while (Buffer.byteLength(JSON.stringify(page)) > 24 * 1024 && page.elements.length) {
+          page = { ...page, elements: page.elements.slice(0, -1), truncated: true }
+        }
+        while (Buffer.byteLength(JSON.stringify(page)) > 24 * 1024 && page.visibleText.length) {
+          page = {
+            ...page,
+            visibleText: page.visibleText.slice(0, Math.floor(page.visibleText.length / 2)),
+            truncated: true,
+          }
+        }
+      }
+      const discovered = await discoverDocuments(
+        tab,
+        authority,
+        isAllowed,
+        MAX_SNAPSHOT_BYTES - Buffer.byteLength(JSON.stringify(page)) - 512,
+      )
       if (discovered) {
         const delivery = () => {
           authority()
@@ -476,7 +686,7 @@ async function route(
         }
         delivery()
         onScreenshotDelivery(delivery)
-        return success({ ...response.result, frames: discovered.frames })
+        return success({ ...page, frames: discovered.frames, documents: discovered.documents })
       }
     }
     return response
@@ -486,6 +696,7 @@ async function route(
     if (consent && tab.diagnosticConsent === consent) tab.diagnosticConsent = undefined
     if (consent && tab.siteToolConsent === consent) tab.siteToolConsent = undefined
     busy.delete(tab.id)
+    operationState.finish()
     if (!observing && !screenshot && !diagnostics && !siteRequest) tab.navigationAllowed = undefined
     release()
   }

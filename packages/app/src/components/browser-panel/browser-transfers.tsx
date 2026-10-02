@@ -18,7 +18,7 @@ export function BrowserTransfers(props: {
         <For each={props.rules}>
           {(rule) => (
             <div class="flex flex-wrap items-center gap-3">
-              <strong class="flex-1 break-all">
+              <strong class="flex-1 break-all text-start" dir="ltr">
                 {rule.origin === "*" ? language.t("browser.transfer.default") : rule.origin}
               </strong>
               <For each={["uploads", "downloads"] as const}>
@@ -76,6 +76,7 @@ export function BrowserTransfers(props: {
             {language.t("browser.settings.origin")}
             <input
               type="url"
+              dir="ltr"
               required
               value={state.origin}
               onInput={(event) => setState("origin", event.currentTarget.value)}

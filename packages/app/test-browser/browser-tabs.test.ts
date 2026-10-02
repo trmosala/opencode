@@ -50,13 +50,14 @@ beforeAll(async () => {
         enforce: "pre",
         resolveId(id) {
           const normalized = id.replaceAll("\\", "/")
-          for (const name of ["tabs-fixture", "@/context/language"]) {
+          for (const name of ["tabs-fixture", "@/context/language", "@/context/platform"]) {
             if (id === name || normalized === resolve(name.replace("@/", "src/")).replaceAll("\\", "/"))
               return "\0" + name
           }
           return null
         },
         load(id) {
+          if (id === "\0@/context/platform") return `export const usePlatform = () => ({ os: "windows" });`
           if (id === "\0@/context/language")
             return `import { browser } from ${JSON.stringify(resolve("src/i18n/en.ts"))};
               export const useLanguage = () => ({ t: (key, params = {}) => Object.entries(params).reduce((text, [key, value]) => text.replaceAll("{{" + key + "}}", String(value)), browser[key] ?? key) });`

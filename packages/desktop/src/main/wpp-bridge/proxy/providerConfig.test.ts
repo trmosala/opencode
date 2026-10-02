@@ -369,7 +369,7 @@ for (const browser of [false, true]) {
       expect(config.permission).toEqual(JSON.parse(o1CodeConfigContent()).permission)
       expect(Object.keys(config.permission).every((name) => name.startsWith("browser_"))).toBe(true)
       expect(config.permission.browser_list_site_tools).toBe("allow")
-      expect(config.permission.browser_execute_site_tool).toBe("ask")
+      expect(config.permission.browser_execute_site_tool).toBe("allow")
       // High-precedence injection cannot replace AE denies, wildcards or agent/mode policies.
       const policy = {
         permission: { ae_execute: "deny", "ae_*": "deny" },
@@ -427,19 +427,20 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
     browser_create_tab: "ask",
     browser_select_tab: "ask",
     browser_close_tab: "ask",
-    browser_navigate: "ask",
-    browser_click: "ask",
-    browser_hover: "ask",
-    browser_drag: "ask",
-    browser_select_option: "ask",
-    browser_screenshot: "ask",
-    browser_observe_console: "ask",
-    browser_observe_network: "ask",
+    browser_navigate: "allow",
+    browser_click: "allow",
+    browser_hover: "allow",
+    browser_drag: "allow",
+    browser_select_option: "allow",
+    browser_screenshot: "allow",
+    browser_visual_action: "allow",
+    browser_observe_console: "allow",
+    browser_observe_network: "allow",
     browser_list_site_tools: "allow",
-    browser_execute_site_tool: "ask",
-    browser_fill: "ask",
-    browser_press_key: "ask",
-    browser_scroll: "ask",
+    browser_execute_site_tool: "allow",
+    browser_fill: "allow",
+    browser_press_key: "allow",
+    browser_scroll: "allow",
     browser_wait_for_element: "allow",
     browser_wait_for_navigation: "allow",
   })

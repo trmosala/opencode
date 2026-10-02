@@ -13,7 +13,7 @@ import type {
 import type { Provider as ProviderV2, Model as ModelV2, Auth } from "@opencode-ai/sdk/v2"
 
 import type { BunShell } from "./shell.js"
-import { type ToolDefinition } from "./tool.js"
+import { type ToolDefinition, type ToolContext } from "./tool.js"
 
 export * from "./tool.js"
 
@@ -266,6 +266,24 @@ export interface Hooks {
   "tool.execute.before"?: (
     input: { tool: string; sessionID: string; callID: string },
     output: { args: any },
+  ) => Promise<void>
+  /**
+   * Acquire resources for one foreground task. Register cleanup before acquiring,
+   * then acknowledge before the host may prompt the child.
+   */
+  "task.execute.scope"?: (
+    input: {
+      executionID: string
+      parentSessionID: string
+      childSessionID: string
+      browserTabIDs: readonly string[]
+      abort: AbortSignal
+      ask: ToolContext["ask"]
+    },
+    output: {
+      defer(cleanup: () => Promise<void>): void
+      acknowledge(): void
+    },
   ) => Promise<void>
   "shell.env"?: (
     input: { cwd: string; sessionID?: string; callID?: string },

@@ -1,4 +1,5 @@
 import { Button } from "@opencode-ai/ui/button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
@@ -41,7 +42,7 @@ export function BrowserLibrary(props: {
     return { index: siblings.findIndex((entry) => entry.id === row.id), count: siblings.length }
   }
   return (
-    <div class="space-y-3">
+    <div class="space-y-3" data-slot="browser-record-list">
       <p class="text-text-weak">{language.t("browser.bookmarks.help")}</p>
       <div class="flex flex-wrap gap-2">
         <Button
@@ -92,6 +93,7 @@ export function BrowserLibrary(props: {
             class="border rounded px-2 py-1 flex-1 min-w-40"
             required
             type="url"
+            dir="ltr"
             maxLength={2048}
             value={state.url}
             onInput={(event) => setState("url", event.currentTarget.value)}
@@ -120,14 +122,17 @@ export function BrowserLibrary(props: {
           </Button>
         </form>
       </Show>
-      <input
-        type="search"
-        aria-label={language.t("browser.bookmarks.search")}
-        placeholder={language.t("browser.bookmarks.search")}
-        class="w-full border rounded px-2 py-1"
-        value={state.query}
-        onInput={(event) => setState("query", event.currentTarget.value)}
-      />
+      <label class="browser-record-search">
+        <Icon name="magnifying-glass" />
+        <input
+          type="search"
+          aria-label={language.t("browser.bookmarks.search")}
+          placeholder={language.t("browser.bookmarks.search")}
+          class="browser-record-search-input"
+          value={state.query}
+          onInput={(event) => setState("query", event.currentTarget.value)}
+        />
+      </label>
       <For each={groups()} fallback={<p>{language.t("browser.bookmarks.empty")}</p>}>
         {(group) => (
           <section class="space-y-1">
@@ -138,14 +143,19 @@ export function BrowserLibrary(props: {
               {(row) => {
                 const order = () => position(row)
                 return (
-                  <div class="flex flex-wrap items-center gap-2 border-t border-border-weaker-base py-2">
+                  <div
+                    class="flex flex-wrap items-center gap-2 border-t border-border-weaker-base py-2"
+                    data-slot="browser-record-row"
+                  >
                     <button
-                      class="min-w-0 flex-1 text-left truncate"
+                      class="min-w-0 flex-1 text-start truncate"
                       title={row.url}
                       onClick={() => void props.command({ op: "open-link", url: row.url, destination: "browser" })}
                     >
-                      {row.title}
-                      <span class="block text-text-weak truncate">{row.url}</span>
+                      <span dir="auto">{row.title}</span>
+                      <span dir="ltr" class="block text-start text-text-weak truncate">
+                        {row.url}
+                      </span>
                     </button>
                     <Button
                       size="small"

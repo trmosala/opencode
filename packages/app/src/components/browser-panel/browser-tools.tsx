@@ -1,6 +1,12 @@
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Icon } from "@opencode-ai/ui/icon"
+import { Progress } from "@opencode-ai/ui/progress"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { Keybind } from "@opencode-ai/ui/keybind"
+import { usePlatform } from "@/context/platform"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Select } from "@opencode-ai/ui/select"
 import { createEffect, createUniqueId, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
@@ -12,7 +18,13 @@ import type {
   BrowserClearKind,
   BrowserClearRange,
 } from "@/browser-panel"
-import { browserDeviceSize, BROWSER_DEVICE_MIN, BROWSER_DEVICE_MAX, BROWSER_DEVICE_DEFAULT } from "@/browser-panel"
+import {
+  browserShortcutHint,
+  browserDeviceSize,
+  BROWSER_DEVICE_MIN,
+  BROWSER_DEVICE_MAX,
+  BROWSER_DEVICE_DEFAULT,
+} from "@/browser-panel"
 import { BrowserSettings } from "./browser-settings"
 import { BrowserLibrary } from "./browser-library"
 import { BrowserSite } from "./browser-site"
@@ -38,34 +50,58 @@ export function BrowserMenu(props: {
   screenshot(closed: Promise<void>): void
 }) {
   const language = useLanguage()
+  const platform = usePlatform()
+  const icons = {
+    import: "cloud-upload",
+    passwords: "key",
+    contacts: "bubble-5",
+    downloads: "download",
+    history: "archive",
+    bookmarks: "star",
+    clear: "trash",
+    settings: "settings-gear",
+  } as const
   let finishScreenshot: (() => void) | undefined
   onCleanup(() => finishScreenshot?.())
   return (
     <DropdownMenu>
-      <DropdownMenu.Trigger
-        as={IconButton}
-        type="button"
-        icon="dot-grid"
-        variant="ghost"
-        aria-label={language.t("browser.menu.label")}
-      />
+      <Tooltip placement="top" flip={false} value={language.t("browser.menu.label")}>
+        <DropdownMenu.Trigger
+          data-browser-menu-trigger
+          as={IconButton}
+          type="button"
+          icon="dot-grid"
+          variant="ghost"
+          aria-label={language.t("browser.menu.label")}
+        />
+      </Tooltip>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
+          data-browser-menu="browser"
           onCloseAutoFocus={() => {
             finishScreenshot?.()
             finishScreenshot = undefined
           }}
         >
           <DropdownMenu.Item disabled={!props.tab} onSelect={() => props.open("find")}>
+            <Icon name="magnifying-glass" size="small" data-slot="dropdown-menu-item-icon" />
             <DropdownMenu.ItemLabel>{language.t("browser.menu.find")}</DropdownMenu.ItemLabel>
+            <DropdownMenu.ItemDescription dir="ltr">
+              <Keybind>{browserShortcutHint("find", platform.os === "macos", language.t)}</Keybind>
+            </DropdownMenu.ItemDescription>
           </DropdownMenu.Item>
           <DropdownMenu.Item
             disabled={!props.tab}
             onSelect={() => props.tab && void props.command({ op: "print", tabID: props.tab.id })}
           >
+            <Icon name="open-file" size="small" data-slot="dropdown-menu-item-icon" />
             <DropdownMenu.ItemLabel>{language.t("browser.menu.print")}</DropdownMenu.ItemLabel>
+            <DropdownMenu.ItemDescription dir="ltr">
+              <Keybind>{browserShortcutHint("print", platform.os === "macos", language.t)}</Keybind>
+            </DropdownMenu.ItemDescription>
           </DropdownMenu.Item>
           <DropdownMenu.Item disabled={!props.tab} onSelect={() => props.open("zoom")}>
+            <Icon name="expand" size="small" data-slot="dropdown-menu-item-icon" />
             <DropdownMenu.ItemLabel>{language.t("browser.menu.zoom")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
@@ -75,6 +111,7 @@ export function BrowserMenu(props: {
               props.tab && void props.command({ op: "device", tabID: props.tab.id, enabled: !props.tab.device })
             }
           >
+            <Icon name="window-cursor" size="small" data-slot="dropdown-menu-item-icon" />
             <DropdownMenu.ItemLabel>
               {language.t(props.tab?.device ? "browser.menu.deviceOff" : "browser.menu.device")}
             </DropdownMenu.ItemLabel>
@@ -89,11 +126,16 @@ export function BrowserMenu(props: {
               )
             }
           >
+            <Icon name="photo" size="small" data-slot="dropdown-menu-item-icon" />
             <DropdownMenu.ItemLabel>{language.t("browser.menu.screenshot")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
           <DropdownMenu.Item onSelect={() => void props.command({ op: "reopen" })}>
+            <Icon name="arrow-undo-down" size="small" data-slot="dropdown-menu-item-icon" />
             <DropdownMenu.ItemLabel>{language.t("browser.tabs.reopen")}</DropdownMenu.ItemLabel>
+            <DropdownMenu.ItemDescription dir="ltr">
+              <Keybind>{browserShortcutHint("reopen", platform.os === "macos", language.t)}</Keybind>
+            </DropdownMenu.ItemDescription>
           </DropdownMenu.Item>
           <For
             each={
@@ -102,6 +144,7 @@ export function BrowserMenu(props: {
           >
             {(panel) => (
               <DropdownMenu.Item onSelect={() => props.open(panel)}>
+                <Icon name={icons[panel]} size="small" data-slot="dropdown-menu-item-icon" />
                 <DropdownMenu.ItemLabel>{language.t(`browser.menu.${panel}`)}</DropdownMenu.ItemLabel>
               </DropdownMenu.Item>
             )}
@@ -185,6 +228,7 @@ export function BrowserDeviceToolbar(props: {
   const language = useLanguage()
   const help = createUniqueId()
   const [state, setState] = createStore({ width: "", height: "", name: "", preset: "", busy: false })
+  const customPreset = "__custom__"
   const current = () => props.tab.deviceSize ?? BROWSER_DEVICE_DEFAULT
   const size = () => browserDeviceSize({ width: Number(state.width), height: Number(state.height) })
   createEffect(() => {
@@ -215,6 +259,7 @@ export function BrowserDeviceToolbar(props: {
       }
     >
       <form
+        data-slot="browser-device-toolbar"
         class="shrink-0 max-h-48 overflow-y-auto border-b border-border-weaker-base px-2 py-1 text-12-regular text-text-base"
         aria-label={language.t("browser.menu.device")}
         onSubmit={(event) => {
@@ -228,20 +273,29 @@ export function BrowserDeviceToolbar(props: {
         <fieldset class="flex flex-wrap items-center gap-2" disabled={state.busy || props.tab.loading}>
           <label class="flex items-center gap-1">
             {language.t("browser.device.preset")}
-            <select
-              class="max-w-48 border border-border-weak-base rounded px-2 py-1"
-              value={state.preset}
-              onChange={(event) => {
-                const preset = props.presets?.find((row) => row.id === event.currentTarget.value)
+            <Select
+              aria-label={language.t("browser.device.preset")}
+              triggerProps={{ "aria-label": language.t("browser.device.preset") }}
+              options={[customPreset, ...(props.presets ?? []).map((preset) => preset.id)]}
+              current={state.preset || customPreset}
+              disabled={state.busy || props.tab.loading}
+              value={(id) => id}
+              label={(id) =>
+                id === customPreset
+                  ? language.t("browser.device.custom")
+                  : (props.presets?.find((preset) => preset.id === id)?.name ?? id)
+              }
+              onSelect={(id) => {
+                if (id === undefined) return
+                const preset = id === customPreset ? undefined : props.presets?.find((row) => row.id === id)
                 setState("preset", preset?.id ?? "")
                 if (!preset) return
                 setState({ name: preset.name, width: String(preset.size.width), height: String(preset.size.height) })
                 void props.command({ op: "device", tabID: props.tab.id, enabled: true, size: preset.size })
               }}
-            >
-              <option value="">{language.t("browser.device.custom")}</option>
-              <For each={props.presets}>{(preset) => <option value={preset.id}>{preset.name}</option>}</For>
-            </select>
+              variant="secondary"
+              size="small"
+            />
           </label>
           <For each={["width", "height"] as const}>
             {(axis) => (
@@ -366,21 +420,28 @@ export function BrowserAccounts(props: {
   return (
     <DropdownMenu open={state.open} onOpenChange={(open) => setState("open", open)}>
       {/* Stays mounted while hidden: smoke tests read its disabled state. */}
-      <DropdownMenu.Trigger
-        as={IconButton}
-        type="button"
-        icon="key"
-        variant="ghost"
-        class="shrink-0 h-6 w-6"
-        classList={{ hidden: !accounts().length }}
-        data-account-selector
-        disabled={state.busy || !accounts().length}
-        aria-label={language.t("browser.menu.passwords")}
-        title={language.t("browser.menu.passwords")}
-      />
+      <Tooltip
+        inactive={!accounts().length}
+        placement="top"
+        flip={false}
+        class="shrink-0"
+        value={language.t("browser.menu.passwords")}
+      >
+        <DropdownMenu.Trigger
+          as={IconButton}
+          type="button"
+          icon="key"
+          variant="ghost"
+          class="shrink-0 h-6 w-6"
+          classList={{ hidden: !accounts().length }}
+          data-account-selector
+          disabled={state.busy || !accounts().length}
+          aria-label={language.t("browser.menu.passwords")}
+        />
+      </Tooltip>
       <Show when={state.open}>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content class="max-h-80 max-w-[calc(100vw-16px)] overflow-y-auto">
+          <DropdownMenu.Content data-browser-menu="accounts" class="max-h-80 max-w-[calc(100vw-16px)] overflow-y-auto">
             <For each={accounts()}>
               {(login) => (
                 <DropdownMenu.Group data-account-id={login.id}>
@@ -391,6 +452,11 @@ export function BrowserAccounts(props: {
                         data-field={field}
                         onSelect={() => void fill(login.id, field === "both" ? undefined : field)}
                       >
+                        <Icon
+                          name={field === "password" ? "lock" : "key"}
+                          size="small"
+                          data-slot="dropdown-menu-item-icon"
+                        />
                         <DropdownMenu.ItemLabel>
                           {language.t(
                             field === "both"
@@ -468,6 +534,8 @@ export function BrowserTools(props: {
   }
   return (
     <section
+      data-slot="browser-tools"
+      data-browser-records={["passwords", "history", "downloads"].includes(props.panel) ? "" : undefined}
       class={`${props.panel === "settings" ? "flex-1 min-h-0 p-6" : "shrink-0 max-h-64 p-2"} overflow-y-auto border-b border-border-weaker-base text-12-regular text-text-base`}
       aria-label={language.t(`browser.menu.${props.panel}`)}
       onKeyDown={(event) => {
@@ -477,8 +545,14 @@ export function BrowserTools(props: {
       }}
     >
       <div class="flex items-center justify-between mb-2">
-        <strong>{language.t(`browser.menu.${props.panel}`)}</strong>
-        <IconButton icon="close" variant="ghost" aria-label={language.t("browser.tools.close")} onClick={close} />
+        <h2 class="text-14-medium text-text-strong">{language.t(`browser.menu.${props.panel}`)}</h2>
+        <IconButton
+          icon="close"
+          size="small"
+          variant="ghost"
+          aria-label={language.t("browser.tools.close")}
+          onClick={close}
+        />
       </div>
       <Show when={props.panel === "find"}>
         <form
@@ -704,6 +778,7 @@ export function BrowserTools(props: {
             >
               <input
                 type="url"
+                dir="ltr"
                 required
                 maxLength={2048}
                 value={state.accountOrigin}
@@ -717,14 +792,17 @@ export function BrowserTools(props: {
               </Button>
             </form>
           </Show>
-          <input
-            type="search"
-            value={state.query}
-            aria-label={language.t("browser.passwords.search")}
-            placeholder={language.t("browser.passwords.search")}
-            class="w-full border border-border-weak-base rounded px-2 py-1 my-2"
-            onInput={(event) => setState("query", event.currentTarget.value)}
-          />
+          <div class="browser-record-search my-2">
+            <Icon name="magnifying-glass" />
+            <input
+              type="search"
+              value={state.query}
+              aria-label={language.t("browser.passwords.search")}
+              placeholder={language.t("browser.passwords.search")}
+              class="browser-record-search-input"
+              onInput={(event) => setState("query", event.currentTarget.value)}
+            />
+          </div>
         </Show>
         <For
           each={
@@ -739,9 +817,12 @@ export function BrowserTools(props: {
           }
         >
           {(login) => (
-            <div class="flex flex-wrap items-center gap-2 border-t border-border-weaker-base py-2 mt-1">
+            <div
+              data-slot="browser-record-row"
+              class="flex flex-wrap items-center gap-2 border-t border-border-weaker-base py-2 mt-1"
+            >
               <div class="min-w-0 flex-1">
-                <div class="truncate" title={login.origin}>
+                <div class="truncate text-start" dir="ltr" title={login.origin}>
                   {login.origin}
                 </div>
                 <div class="truncate">{login.username}</div>
@@ -807,30 +888,37 @@ export function BrowserTools(props: {
         <p role="status">{language.t("browser.tools.nextLaunch")}</p>
       </Show>
       <Show when={props.panel === "history"}>
-        <input
-          type="search"
-          class="w-full border border-border-weak-base rounded px-2 py-1 mb-2"
-          aria-label={language.t("browser.history.search")}
-          placeholder={language.t("browser.history.search")}
-          value={state.query}
-          onInput={(event) => setState("query", event.currentTarget.value)}
-        />
+        <div class="browser-record-search my-2">
+          <Icon name="magnifying-glass" />
+          <input
+            type="search"
+            class="browser-record-search-input"
+            aria-label={language.t("browser.history.search")}
+            placeholder={language.t("browser.history.search")}
+            value={state.query}
+            onInput={(event) => setState("query", event.currentTarget.value)}
+          />
+        </div>
         <p class="mb-2 text-text-weak">{language.t("browser.history.retention")}</p>
         <For
           each={props.tabs.profile?.history.filter((entry) => matches(`${entry.title} ${entry.url}`))}
           fallback={<p>{language.t(state.query ? "browser.records.noMatches" : "browser.history.empty")}</p>}
         >
           {(entry) => (
-            <div class="flex items-center gap-2 border-t border-border-weaker-base">
+            <div data-slot="browser-record-row" class="flex items-center gap-2 border-t border-border-weaker-base">
               <button
                 type="button"
-                class="block text-left truncate min-w-0 flex-1 py-1"
+                class="block text-start truncate min-w-0 flex-1 py-1"
                 title={entry.url}
                 disabled={state.busy || !entry.id}
                 onClick={() => entry.id && void run({ op: "open-history", id: entry.id })}
               >
-                {entry.title || entry.url}
-                <span class="block truncate text-text-weak">{entry.url}</span>
+                <span dir={entry.title ? "auto" : "ltr"} class="block text-start">
+                  {entry.title || entry.url}
+                </span>
+                <span class="block truncate text-text-weak text-start" dir="ltr">
+                  {entry.url}
+                </span>
                 <time class="block text-text-weak" dateTime={new Date(entry.time).toISOString()}>
                   {language.formatDate(entry.time)}
                 </time>
@@ -853,7 +941,8 @@ export function BrowserTools(props: {
             {(entry) => (
               <button
                 type="button"
-                class="block text-left w-full truncate py-1"
+                class="block text-start w-full truncate py-1"
+                dir={entry.title ? "auto" : "ltr"}
                 disabled={state.busy}
                 title={entry.url}
                 onClick={() => void run({ op: "reopen", id: entry.id })}
@@ -865,21 +954,27 @@ export function BrowserTools(props: {
         </Show>
       </Show>
       <Show when={props.panel === "downloads"}>
-        <input
-          type="search"
-          class="w-full border border-border-weak-base rounded px-2 py-1 mb-2"
-          aria-label={language.t("browser.download.search")}
-          placeholder={language.t("browser.download.search")}
-          value={state.query}
-          onInput={(event) => setState("query", event.currentTarget.value)}
-        />
+        <div class="browser-record-search my-2">
+          <Icon name="magnifying-glass" />
+          <input
+            type="search"
+            class="browser-record-search-input"
+            aria-label={language.t("browser.download.search")}
+            placeholder={language.t("browser.download.search")}
+            value={state.query}
+            onInput={(event) => setState("query", event.currentTarget.value)}
+          />
+        </div>
         <p class="mb-2 text-text-weak">{language.t("browser.download.retention")}</p>
         <For
           each={props.tabs.downloads?.filter((entry) => matches(entry.filename))}
           fallback={<p>{language.t(state.query ? "browser.records.noMatches" : "browser.download.historyEmpty")}</p>}
         >
           {(entry) => (
-            <div class="flex flex-wrap items-center justify-between gap-2 py-1">
+            <div
+              data-slot="browser-record-row"
+              class="flex flex-wrap items-center justify-between gap-2 border-t border-border-weaker-base py-1"
+            >
               <div class="min-w-0 flex-1" role="status">
                 {language.t(
                   entry.canResume
@@ -907,7 +1002,7 @@ export function BrowserTools(props: {
                   </p>
                 </Show>
                 <Show when={entry.canControl && entry.total}>
-                  <progress
+                  <Progress
                     class="w-full"
                     aria-label={language.t("browser.menu.downloads")}
                     value={entry.received ?? 0}
@@ -968,10 +1063,15 @@ export function BrowserTools(props: {
         <fieldset disabled={state.busy} class="space-y-2">
           <label class="flex items-center gap-2">
             {language.t("browser.clear.range")}
-            <select
-              value={state.range}
-              onChange={(event) => {
-                const range = event.currentTarget.value as BrowserClearRange
+            <Select
+              aria-label={language.t("browser.clear.range")}
+              triggerProps={{ "aria-label": language.t("browser.clear.range") }}
+              disabled={state.busy}
+              options={["hour", "day", "week", "month", "all"] as const}
+              current={state.range}
+              label={(range) => language.t(`browser.clear.${range}`)}
+              onSelect={(range) => {
+                if (!range) return
                 setState("range", range)
                 if (range !== "all")
                   setState(
@@ -979,11 +1079,9 @@ export function BrowserTools(props: {
                     state.kinds.filter((kind) => kind === "history" || kind === "downloads"),
                   )
               }}
-            >
-              <For each={["hour", "day", "week", "month", "all"] as const}>
-                {(range) => <option value={range}>{language.t(`browser.clear.${range}`)}</option>}
-              </For>
-            </select>
+              variant="secondary"
+              size="small"
+            />
           </label>
           <For each={["history", "cache", "cookies", "passwords", "downloads"] as const}>
             {(kind) => (

@@ -11,8 +11,155 @@ import {
   parseBrowserIpcRequest,
   parseBrowserIpcCancel,
   parseRequest,
+  parseDelegationRequest,
+  parseDelegationResult,
+  parseBrowserIpcResult,
   stateDirectory,
 } from "../src/protocol"
+
+test("targeted inspection and document waits share bounded selector rules", () => {
+  const frameRef = "a".repeat(36)
+  const frameContext = { frameRef, approval: "b".repeat(36), topOrigin: "https://example.test", origin: "null" }
+  for (const selector of ["button", "#week", ".event", "button#open.primary"]) {
+    expect(parseRequest({ op: "read_state", tabID: "one", selector })).toBeDefined()
+    expect(parseRequest({ op: "read_state", tabID: "one", frameRef, frameContext, selector })).toBeDefined()
+    for (const condition of ["visible", "attached", "ready"])
+      expect(
+        parseRequest({
+          op: "wait_for_element",
+          tabID: "one",
+          frameRef,
+          frameContext,
+          selector,
+          condition,
+          timeoutMs: 15000,
+        }),
+      ).toBeDefined()
+  }
+  for (const selector of ["button span", "input[value]", "button:hover", "*", "#a,#b", "#a\\31", "x".repeat(513)])
+    for (const request of [
+      { op: "read_state", tabID: "one" },
+      { op: "wait_for_element", tabID: "one", selector, condition: "visible", timeoutMs: 10 },
+    ])
+      expect(parseRequest({ ...request, selector })).toBeUndefined()
+})
+
+test("visual actions admit bounded raster coordinates and explicit one-use image identity", () => {
+  const visual = {
+    op: "visual_action",
+    tabID: "one",
+    visualRef: "a".repeat(36),
+    action: "click",
+    x: 120,
+    y: 40,
+  } as const
+  expect(parseRequest({ op: "prepare_write", request: visual })).toBeDefined()
+  for (const invalid of [
+    { x: -1 },
+    { y: 4096 },
+    { x: Infinity },
+    { y: NaN },
+    { visualRef: "url" },
+    { action: "fill" },
+    { frameID: "raw" },
+    { script: "raw" },
+  ])
+    expect(parseRequest({ op: "prepare_write", request: { ...visual, ...invalid } })).toBeUndefined()
+})
+
+test("embedded input admits exact native bindings and bounded frame actions only", () => {
+  const frameRef = "a".repeat(36)
+  const frameContext = { frameRef, approval: "b".repeat(36), topOrigin: "https://example.test", origin: "null" }
+  const action = { op: "click", ref: `frame.${"c".repeat(36)}:target` } as const
+  const prepare = { op: "prepare_frame_input", tabID: "one", frameRef, action } as const
+  expect(parseRequest(prepare)).toEqual(prepare)
+  expect(parseRequest({ ...prepare, op: "frame_input", frameContext })).toBeDefined()
+  for (const invalid of [
+    { ...action, ref: "top:ref" },
+    { op: "navigate", url: "https://example.test" },
+    { ...action, script: "private" },
+    { ...action, tabID: "other" },
+  ])
+    expect(parseRequest({ ...prepare, action: invalid })).toBeUndefined()
+  expect(parseRequest({ ...prepare, frameContext })).toBeUndefined()
+  expect(
+    parseRequest({ ...prepare, op: "frame_input", frameContext: { ...frameContext, frameRef: "d".repeat(36) } }),
+  ).toBeUndefined()
+})
+
+test("delegation parses only exact bounded identities and acknowledgements", () => {
+  const grant = { op: "grant_tabs", executionID: "exec-1", childSessionID: "child", tabIDs: ["a", "b"] } as const
+  const revoke = { op: "revoke_tabs", executionID: "exec-1" } as const
+  expect(parseRequest(grant)).toEqual(grant)
+  expect(parseRequest(revoke)).toEqual(revoke)
+  for (const invalid of [
+    { tabIDs: [] },
+    { tabIDs: ["a", "a"] },
+    { tabIDs: Array.from({ length: 17 }, (_, i) => `tab-${i}`) },
+    { tabIDs: ["a", 1] },
+    { tabIDs: ["../tab"] },
+    { childSessionID: "" },
+    { executionID: "x".repeat(129) },
+    { executionID: "x\n" },
+    { parentSessionID: "parent" },
+    { origin: "https://example.test" },
+    { active: true },
+  ])
+    expect(parseDelegationRequest({ ...grant, ...invalid })).toBeUndefined()
+  for (const extra of [{ tabIDs: ["a"] }, { childSessionID: "child" }, { active: false }])
+    expect(parseRequest({ ...revoke, ...extra })).toBeUndefined()
+  const envelope = { type: "browser_request", id: "request", sessionID: "parent", request: grant } as const
+  expect(parseBrowserIpcRequest(envelope)).toEqual(envelope)
+  expect(parseBrowserIpcRequest({ ...envelope, sessionID: "child" })).toBeUndefined()
+  expect(parseBrowserIpcRequest({ ...envelope, sessionID: "../parent" })).toBeUndefined()
+  expect(parseBrowserIpcRequest({ ...envelope, parentSessionID: "other" })).toBeUndefined()
+  for (const active of [true, false]) {
+    const result = { executionID: "exec-1", active }
+    expect(parseDelegationResult(result)).toEqual(result)
+    expect(parseDelegationResult({ ...result, tabIDs: ["a"] })).toBeUndefined()
+  }
+  for (const result of [null, [], {}, { executionID: "e", active: "true" }, { executionID: "", active: false }]) {
+    expect(parseDelegationResult(result)).toBeUndefined()
+    expect(
+      parseBrowserIpcResult({
+        type: "browser_result",
+        id: "request",
+        response: { ok: true, result: { delegation: result } },
+      }),
+    ).toBeUndefined()
+  }
+})
+
+test("browser IPC accepts only the bounded action dispatch status vocabulary", () => {
+  for (const actionStatus of ["not_dispatched", "dispatched_observed", "dispatched_uncertain"] as const)
+    expect(
+      parseBrowserIpcResult({
+        type: "browser_result",
+        id: "click",
+        response: { ok: false, code: "unavailable", error: "unavailable", actionStatus },
+      })?.response,
+    ).toMatchObject({ actionStatus })
+  expect(
+    parseBrowserIpcResult({
+      type: "browser_result",
+      id: "click",
+      response: {
+        ok: false,
+        code: "unavailable",
+        error: "unavailable",
+        actionStatus: "sent_twice",
+        actionCause: "transport_unknown",
+      },
+    }),
+  ).toBeUndefined()
+  expect(
+    parseBrowserIpcResult({
+      type: "browser_result",
+      id: "click",
+      response: { ok: false, code: "unavailable", error: "unavailable", actionCause: "raw_error" },
+    }),
+  ).toBeUndefined()
+})
 
 test("explicit frame reads require exact preparation and origin binding, never raw CDP targeting", () => {
   const frameRef = "a".repeat(36)
@@ -26,6 +173,9 @@ test("explicit frame reads require exact preparation and origin binding, never r
   const read = { op: "read_state", tabID: "one", frameRef, frameContext } as const
   expect(parseRequest(prepare)).toEqual(prepare)
   expect(parseRequest(read)).toEqual(read)
+  expect(parseRequest({ ...read, frameContext: { ...frameContext, origin: "null" } })).toMatchObject({
+    frameContext: { origin: "null" },
+  })
   expect(parseRequest({ ...read, frameContext: undefined })).toBeUndefined()
   expect(parseRequest({ ...prepare, frameContext })).toBeUndefined()
   expect(parseRequest({ op: "read_state", tabID: "one", frameContext })).toBeUndefined()
@@ -34,7 +184,6 @@ test("explicit frame reads require exact preparation and origin binding, never r
     expect(parseRequest({ ...read, [key]: "x" })).toBeUndefined()
   }
   for (const invalid of [
-    { origin: "null" },
     { origin: "https://child.test/path" },
     { topOrigin: "about:blank" },
     { frameRef: "c".repeat(36) },

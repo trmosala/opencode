@@ -1,0 +1,29 @@
+/* Record rows follow the active layout's native weak divider and hover colors. */
+[data-component="browser-panel"]
+  :is([data-slot="browser-record-list"], [data-slot="browser-tools"][data-browser-records])
+  [data-slot="browser-record-row"] {
+  border-color: var(--border-weaker-base);
+  border-radius: 6px;
+  padding-inline: 8px;
+  transition: background-color 120ms ease;
+}
+
+[data-component="browser-panel"]
+  :is([data-slot="browser-record-list"], [data-slot="browser-tools"][data-browser-records])
+  [data-slot="browser-record-row"]:is(:hover, :focus-within) {
+  background-color: var(--surface-raised-base-hover);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  :is([data-slot="browser-record-list"], [data-slot="browser-tools"][data-browser-records])
+  [data-slot="browser-record-row"] {
+  border-color: var(--v2-border-border-muted);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  :is([data-slot="browser-record-list"], [data-slot="browser-tools"][data-browser-records])
+  [data-slot="browser-record-row"]:is(:hover, :focus-within) {
+  background-color: var(--v2-overlay-simple-overlay-hover);
+}

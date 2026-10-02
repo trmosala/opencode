@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
 import {
   MAX_SNAPSHOT_BYTES,
   OPERATION_TIMEOUT_MS,
-  screenshotBytes,
   screenshotDimensions,
   failure,
   success,
@@ -12,6 +11,15 @@ import {
   type PageRequest,
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
+import {
+  boundedJpeg,
+  newVisualRef,
+  VISUAL_MIN_SCALE,
+  validCapturedJpeg,
+  visualGuardScript,
+  visualPoint,
+  type VisualLease,
+} from "./visual"
 import {
   parseSnapshot,
   snapshotScript,
@@ -30,6 +38,39 @@ export const screenshotDecoder = {
     check()
     const image = nativeImage.createFromBuffer(bytes)
     return image.isEmpty() ? undefined : image.getSize()
+  },
+  async bound(
+    bytes: Buffer,
+    sourceWidth: number,
+    sourceHeight: number,
+    check: () => void,
+    minimumScale = VISUAL_MIN_SCALE,
+  ) {
+    check()
+    const { nativeImage } = await import("electron")
+    check()
+    const source = nativeImage.createFromBuffer(bytes)
+    if (source.isEmpty() || source.getSize().width !== sourceWidth || source.getSize().height !== sourceHeight) return
+    let image = source
+    let imageWidth = sourceWidth
+    let imageHeight = sourceHeight
+    return boundedJpeg(
+      bytes,
+      (_raw, width, height, quality) => {
+        check()
+        if (imageWidth !== width || imageHeight !== height) {
+          image = source.resize({ width, height, quality: "best" })
+          imageWidth = width
+          imageHeight = height
+        }
+        const encoded = image.toJPEG(quality)
+        check()
+        return encoded
+      },
+      sourceWidth,
+      sourceHeight,
+      minimumScale,
+    )
   },
 }
 
@@ -57,6 +98,11 @@ export type Target = {
   readonly signal?: AbortSignal
   readonly deadline?: number
   readonly inputRef?: string
+  readonly visualAuthority?: string
+  readonly visualOwnerCheck?: () => void
+  readonly visualDocuments?: () => Promise<string>
+  readonly onActionDispatch?: () => void
+  readonly onActionObservation?: () => void
 }
 
 function check(target: Target, source = false) {
@@ -72,6 +118,14 @@ export function invalidateSnapshots(contents: DriverContents) {
 // ponytail: input pairs are serial; an uncertain down quarantines this WebContents for its lifetime.
 // Never synthesize a release after revocation: keyUp/mouseReleased can trigger page actions.
 const inputDown = new WeakSet<DriverContents>()
+
+export function markBrowserInputDown(contents: DriverContents) {
+  inputDown.add(contents)
+}
+
+export function markBrowserInputReleased(contents: DriverContents) {
+  inputDown.delete(contents)
+}
 
 export function browserInputFailure(contents: DriverContents) {
   if (!inputDown.has(contents)) return undefined
@@ -98,6 +152,7 @@ async function send(target: Target, method: string, params?: Record<string, unkn
   }
   const input = method === "Input.dispatchKeyEvent" || method === "Input.dispatchMouseEvent"
   if (input && (params?.type === "keyDown" || params?.type === "mousePressed")) inputDown.add(target.contents)
+  if (method.startsWith("Input.")) target.onActionDispatch?.()
   const result = await target.contents.debugger.sendCommand(method, params)
   if (input && (params?.type === "keyUp" || params?.type === "mouseReleased")) inputDown.delete(target.contents)
   check(target)
@@ -113,6 +168,7 @@ async function send(target: Target, method: string, params?: Record<string, unkn
 
 type StoredSnapshot = { readonly id: string; readonly page: PageSnapshot }
 const histories = new WeakMap<object, { snapshots: Map<string, StoredSnapshot> }>()
+const visualLeases = new WeakMap<object, Map<string, VisualLease & { readonly ownerCheck: () => void }>>()
 
 const KEYS: Record<string, { key: string; code: string; keyCode: number; text?: string }> = {
   enter: { key: "Enter", code: "Enter", keyCode: 13, text: "\r" },
@@ -142,13 +198,16 @@ async function capture(
   id: string,
   reference?: Parameters<typeof snapshotScript>[1],
   targetToken?: string,
+  selector?: string,
 ) {
   const contextId = await snapshotContext(target)
   if (typeof contextId !== "number") return
   const page = parseSnapshot(
     await send(target, "Runtime.evaluate", {
       expression:
-        reference && targetToken ? dragSnapshotScript(id, reference, targetToken) : snapshotScript(id, reference),
+        reference && targetToken
+          ? dragSnapshotScript(id, reference, targetToken)
+          : snapshotScript(id, reference, selector),
       contextId,
       returnByValue: true,
       timeout: Math.max(1, target.deadline! - Date.now()),
@@ -156,6 +215,70 @@ async function capture(
   )
   if (!page || page.url !== target.contents.getURL()) return
   return page
+}
+
+async function visualState(target: Target) {
+  const tree = (await send(target, "Page.getFrameTree")) as { frameTree?: { frame?: { id?: unknown } } } | undefined
+  const frameID = tree?.frameTree?.frame?.id
+  if (typeof frameID !== "string") return
+  const frameIDs: { id: string; loaderId: string }[] = []
+  const collect = (node: unknown) => {
+    if (!node || typeof node !== "object" || !("frame" in node) || !node.frame || typeof node.frame !== "object") return
+    if ("id" in node.frame && typeof node.frame.id === "string")
+      frameIDs.push({
+        id: node.frame.id,
+        loaderId: "loaderId" in node.frame && typeof node.frame.loaderId === "string" ? node.frame.loaderId : "",
+      })
+    if ("childFrames" in node && Array.isArray(node.childFrames)) node.childFrames.forEach(collect)
+  }
+  collect(tree?.frameTree)
+  const world = (await send(target, "Page.createIsolatedWorld", {
+    frameId: frameID,
+    worldName: "cm-browser-visual",
+  })) as { executionContextId?: unknown } | undefined
+  if (typeof world?.executionContextId !== "number") return
+  const response = (await send(target, "Runtime.evaluate", {
+    expression: visualGuardScript,
+    contextId: world.executionContextId,
+    returnByValue: true,
+    awaitPromise: true,
+    timeout: Math.max(1, target.deadline! - Date.now()),
+  })) as { exceptionDetails?: unknown; result?: { value?: unknown } } | undefined
+  if (!response || response.exceptionDetails || !response.result?.value || typeof response.result.value !== "object")
+    return
+  const value = response.result.value
+  if (
+    !("documentToken" in value) ||
+    typeof value.documentToken !== "string" ||
+    !("layoutToken" in value) ||
+    typeof value.layoutToken !== "string" ||
+    !("width" in value) ||
+    typeof value.width !== "number" ||
+    !("height" in value) ||
+    typeof value.height !== "number" ||
+    !("dpr" in value) ||
+    typeof value.dpr !== "number" ||
+    !("scrollX" in value) ||
+    typeof value.scrollX !== "number" ||
+    !("scrollY" in value) ||
+    typeof value.scrollY !== "number" ||
+    !("animated" in value) ||
+    typeof value.animated !== "boolean"
+  )
+    return
+  return {
+    ...(value as {
+      documentToken: string
+      layoutToken: string
+      width: number
+      height: number
+      dpr: number
+      scrollX: number
+      scrollY: number
+      animated: boolean
+    }),
+    frameSignature: JSON.stringify(frameIDs),
+  }
 }
 
 function publicState(target: Target, page: PageSnapshot, id: string): BrowserState {
@@ -170,6 +293,7 @@ function publicState(target: Target, page: PageSnapshot, id: string): BrowserSta
     title: page.title,
     visibleText: page.visibleText,
     truncated: page.truncated,
+    ...(page.inspection ? { inspection: page.inspection } : {}),
     elements: page.elements.map((element) => ({
       ref: `${id}:${element.token}`,
       tag: element.tag,
@@ -202,9 +326,9 @@ function publicState(target: Target, page: PageSnapshot, id: string): BrowserSta
   }
 }
 
-async function refreshed(target: Target): Promise<Response<BrowserState>> {
+async function refreshed(target: Target, selector?: string): Promise<Response<BrowserState>> {
   const id = `${target.tabID}.${randomUUID()}`
-  const page = await capture(target, id)
+  const page = await capture(target, id, undefined, undefined, selector)
   if (!page) return failure("unavailable", "The page did not return a usable snapshot.")
   return success(publicState(target, page, id))
 }
@@ -214,6 +338,11 @@ const rightClicks = new WeakSet<DriverContents>()
 
 export function shouldShowBrowserContextMenu(contents: DriverContents) {
   return !rightClicks.has(contents)
+}
+
+export function suppressBrowserContextMenu(contents: DriverContents) {
+  rightClicks.add(contents)
+  return () => rightClicks.delete(contents)
 }
 
 async function dispatchClick(target: Target, element: SnapshotElement, button = "left", clickCount = 1) {
@@ -292,33 +421,242 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
 
   if (request.op === "screenshot") {
     const unavailable = () => failure("unavailable", nativeT("desktop.browser.screenshotUnavailable"))
+    const limit = () => failure("unavailable", nativeT("desktop.browser.visualLimit"))
+    if (!target.visualAuthority || !target.visualOwnerCheck || !target.visualDocuments) return unavailable()
+    target.visualOwnerCheck()
+    const documents = async () => target.visualDocuments!().catch(() => undefined)
+    const beforeDocuments = await documents()
+    target.visualOwnerCheck()
     const metrics = (await send(target, "Page.getLayoutMetrics")) as
-      | {
-          visualViewport?: { clientWidth?: unknown; clientHeight?: unknown }
-        }
+      | { visualViewport?: { pageX?: unknown; pageY?: unknown } }
       | undefined
     const viewport = metrics?.visualViewport
-    if (!viewport || !screenshotDimensions(viewport.clientWidth, viewport.clientHeight)) return unavailable()
-    const captured = (await send(target, "Page.captureScreenshot", {
+    const before = await visualState(target)
+    if (
+      !before ||
+      !screenshotDimensions(Math.ceil(before.width), Math.ceil(before.height)) ||
+      !Number.isFinite(before.dpr) ||
+      before.dpr <= 0 ||
+      typeof viewport?.pageX !== "number" ||
+      !Number.isFinite(viewport.pageX) ||
+      typeof viewport.pageY !== "number" ||
+      !Number.isFinite(viewport.pageY)
+    )
+      return unavailable()
+    const captureScale = Math.min(
+      1,
+      4096 / (before.width * before.dpr),
+      4096 / (before.height * before.dpr),
+      Math.sqrt(4_194_304 / (before.width * before.height * before.dpr * before.dpr)),
+    )
+    const captureParams = {
       format: "jpeg",
-      quality: 60,
+      quality: 88,
       fromSurface: true,
       captureBeyondViewport: false,
-    })) as { data?: unknown } | undefined
-    const bytes = screenshotBytes(captured?.data)
+      clip: { x: viewport.pageX, y: viewport.pageY, width: before.width, height: before.height, scale: captureScale },
+    }
+    const captured = (await send(target, "Page.captureScreenshot", captureParams)) as { data?: unknown } | undefined
+    const bytes = validCapturedJpeg(captured?.data)
     if (!bytes) return unavailable()
     check(target)
     const size = await screenshotDecoder.size(bytes, () => check(target))
     check(target)
     if (!size || !screenshotDimensions(size.width, size.height)) return unavailable()
-    return success({
+    target.visualOwnerCheck()
+    const after = await visualState(target)
+    const changedDuringCapture =
+      !after ||
+      before.animated ||
+      after.animated ||
+      before.documentToken !== after.documentToken ||
+      before.layoutToken !== after.layoutToken ||
+      before.width !== after.width ||
+      before.height !== after.height ||
+      before.dpr !== after.dpr ||
+      before.scrollX !== after.scrollX ||
+      before.scrollY !== after.scrollY ||
+      before.frameSignature !== after.frameSignature ||
+      beforeDocuments === undefined ||
+      beforeDocuments !== (await documents())
+    const minimumScale = Math.max(
+      VISUAL_MIN_SCALE,
+      (before.width * 0.5) / size.width,
+      (before.height * 0.5) / size.height,
+    )
+    const bounded = await screenshotDecoder.bound(bytes, size.width, size.height, () => check(target), minimumScale)
+    check(target)
+    target.visualOwnerCheck()
+    const finalDocuments = await documents()
+    if (!bounded) return limit()
+    const actionUnavailable = changedDuringCapture || finalDocuments === undefined || finalDocuments !== beforeDocuments
+    const visualRef = actionUnavailable ? undefined : newVisualRef()
+    const lease: (VisualLease & { readonly ownerCheck: () => void }) | undefined = visualRef
+      ? {
+          visualRef,
+          tabID: target.tabID,
+          url: target.contents.getURL(),
+          documentToken: before.documentToken,
+          layoutToken: before.layoutToken,
+          dpr: before.dpr,
+          viewportWidth: before.width,
+          viewportHeight: before.height,
+          scrollX: before.scrollX,
+          scrollY: before.scrollY,
+          clipX: viewport.pageX,
+          clipY: viewport.pageY,
+          scaleX: bounded.width / before.width,
+          scaleY: bounded.height / before.height,
+          width: bounded.width,
+          height: bounded.height,
+          owner: target.visualAuthority,
+          ownerCheck: target.visualOwnerCheck,
+          captureScale,
+          sourceDigest: createHash("sha256").update(bytes).digest("hex"),
+          frameSignature: before.frameSignature,
+          documentSignature: finalDocuments!,
+        }
+      : undefined
+    if (lease) {
+      const leases = visualLeases.get(target.contents) ?? new Map()
+      leases.set(visualRef!, lease)
+      while (leases.size > 4) leases.delete(leases.keys().next().value!)
+      visualLeases.set(target.contents, leases)
+    }
+    const result: BrowserState = {
       tabID: target.tabID,
       url: target.contents.getURL(),
       title: "",
       visibleText: "",
       elements: [],
-      screenshot: { data: bytes.toString("base64"), width: size.width, height: size.height },
-    })
+      screenshot: {
+        data: bounded.bytes.toString("base64"),
+        width: bounded.width,
+        height: bounded.height,
+        ...(visualRef ? { visualRef } : { actionUnavailable: nativeT("desktop.browser.visualUnsupported") }),
+        viewportWidth: before.width,
+        viewportHeight: before.height,
+        scaleX: bounded.width / before.width,
+        scaleY: bounded.height / before.height,
+      },
+    }
+    if (Buffer.byteLength(JSON.stringify(result)) > MAX_SNAPSHOT_BYTES) return unavailable()
+    return success(result)
+  }
+
+  if (request.op === "visual_action") {
+    const leases = visualLeases.get(target.contents)
+    const lease = leases?.get(request.visualRef)
+    // A visual reference is single-use even when a stale or unauthorized attempt is made.
+    leases?.delete(request.visualRef)
+    const stale = () => failure("stale_ref", nativeT("desktop.browser.visualStale"))
+    const documents = async () => {
+      const signature = await target.visualDocuments!().catch(() => undefined)
+      check(target)
+      target.visualOwnerCheck?.()
+      return signature
+    }
+    const state = async () => {
+      try {
+        return await visualState(target)
+      } catch {
+        check(target)
+        target.visualOwnerCheck?.()
+        return undefined
+      }
+    }
+    if (
+      !lease ||
+      lease.tabID !== target.tabID ||
+      lease.url !== target.contents.getURL() ||
+      !target.visualAuthority ||
+      target.visualAuthority !== lease.owner ||
+      !target.visualOwnerCheck ||
+      !target.visualDocuments ||
+      !visualPoint(lease, request.x, request.y)
+    )
+      return stale()
+    lease.ownerCheck()
+    target.visualOwnerCheck()
+    if (lease.documentSignature !== (await documents())) return stale()
+    const before = await state()
+    if (
+      !before ||
+      before.animated ||
+      before.documentToken !== lease.documentToken ||
+      before.dpr !== lease.dpr ||
+      before.layoutToken !== lease.layoutToken ||
+      before.width !== lease.viewportWidth ||
+      before.height !== lease.viewportHeight ||
+      before.frameSignature !== lease.frameSignature ||
+      lease.documentSignature !== (await documents())
+    )
+      return stale()
+    const pixels = (await send(target, "Page.captureScreenshot", {
+      format: "jpeg",
+      quality: 88,
+      fromSurface: true,
+      captureBeyondViewport: false,
+      clip: {
+        x: lease.clipX,
+        y: lease.clipY,
+        width: lease.viewportWidth,
+        height: lease.viewportHeight,
+        scale: lease.captureScale,
+      },
+    })) as { data?: unknown } | undefined
+    const currentPixels = validCapturedJpeg(pixels?.data)
+    if (!currentPixels || createHash("sha256").update(currentPixels).digest("hex") !== lease.sourceDigest)
+      return stale()
+    const point = visualPoint(lease, request.x, request.y)
+    if (!point) return stale()
+    const tree = (await send(target, "Page.getFrameTree")) as
+      | { frameTree?: { frame?: { id?: unknown }; childFrames?: readonly unknown[] } }
+      | undefined
+    const frameIDs = new Set<string>()
+    const collectFrames = (node: unknown) => {
+      if (!node || typeof node !== "object" || !("frame" in node) || !node.frame || typeof node.frame !== "object")
+        return
+      if ("id" in node.frame && typeof node.frame.id === "string") frameIDs.add(node.frame.id)
+      if ("childFrames" in node && Array.isArray(node.childFrames)) node.childFrames.forEach(collectFrames)
+    }
+    collectFrames(tree?.frameTree)
+    const x = Math.round(point.x)
+    const y = Math.round(point.y)
+    const hit = (await send(target, "DOM.getNodeForLocation", {
+      x: Math.round(point.x + before.scrollX),
+      y: Math.round(point.y + before.scrollY),
+      includeUserAgentShadowDOM: false,
+    })) as { frameId?: unknown; backendNodeId?: unknown } | undefined
+    if (typeof hit?.frameId !== "string" || !frameIDs.has(hit.frameId) || typeof hit.backendNodeId !== "number")
+      return failure("unavailable", nativeT("desktop.browser.visualUnsupported"))
+    lease.ownerCheck()
+    target.visualOwnerCheck()
+    if (lease.documentSignature !== (await documents())) return stale()
+    const current = await state()
+    if (
+      !current ||
+      current.animated ||
+      current.documentToken !== lease.documentToken ||
+      current.dpr !== lease.dpr ||
+      current.layoutToken !== lease.layoutToken ||
+      current.width !== lease.viewportWidth ||
+      current.height !== lease.viewportHeight ||
+      current.frameSignature !== lease.frameSignature ||
+      lease.documentSignature !== (await documents())
+    )
+      return stale()
+    if (request.action === "hover") {
+      await send(target, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: 0 })
+    } else {
+      const mouse = { x, y, button: "left", buttons: 1, clickCount: 1 }
+      await send(target, "Input.dispatchMouseEvent", { ...mouse, type: "mouseMoved" })
+      await send(target, "Input.dispatchMouseEvent", { ...mouse, type: "mousePressed" })
+      await send(target, "Input.dispatchMouseEvent", { ...mouse, type: "mouseReleased", buttons: 0 })
+    }
+    target.onActionObservation?.()
+    await settle(target)
+    return refreshed(target)
   }
 
   if (request.op === "wait_for_navigation") {
@@ -337,11 +675,12 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
     })
   }
 
-  if (request.op === "read_state") return refreshed(target)
+  if (request.op === "read_state") return refreshed(target, request.selector)
   if (request.op === "navigate") {
     const deadline = target.deadline!
     // Explicit recovery replaces the old load. Cancellation itself never stops an observed user load.
     if (target.contents.isLoadingMainFrame()) {
+      target.onActionDispatch?.()
       target.contents.stop()
       do {
         check(target, true)
@@ -350,6 +689,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       } while (target.contents.isLoadingMainFrame())
     }
     check(target, true)
+    target.onActionDispatch?.()
     await target.contents.loadURL(request.url)
     // loadURL resolves before Chromium clears main-frame loading.
     while (target.contents.isLoadingMainFrame()) {
@@ -358,11 +698,13 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       await settle(target)
     }
     target.pinDestination?.()
+    target.onActionObservation?.()
     return refreshed(target)
   }
   if (request.op === "press_key") {
     if (!(await dispatchKey(target, request.key, request.modifiers)))
       return failure("bad_request", `Unsupported key: ${request.key}.`)
+    target.onActionObservation?.()
     await settle(target)
     return refreshed(target)
   }
@@ -420,6 +762,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       deltaX: request.deltaX,
       deltaY: request.deltaY,
     })
+    target.onActionObservation?.()
     await settle(target)
     return refreshed(target)
   }
@@ -445,6 +788,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       return failure("stale_ref", nativeT("desktop.browser.driver.staleScrollRef"))
     const contextId = await snapshotContext(target)
     if (typeof contextId !== "number") return failure("unavailable", nativeT(contextId))
+    target.onActionDispatch?.()
     const response = (await send(target, "Runtime.evaluate", {
       expression: selectOptionScript(
         stored.id,
@@ -458,6 +802,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
     })) as { exceptionDetails?: unknown; result?: { value?: unknown } } | undefined
     if (!response || "exceptionDetails" in response || response.result?.value !== true)
       return failure("stale_ref", nativeT("desktop.browser.driver.staleScrollRef"))
+    target.onActionObservation?.()
     await settle(target)
     return refreshed(target)
   }
@@ -496,6 +841,7 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
       for (const character of request.text) await dispatchKey(target, character)
     }
 
+    target.onActionObservation?.()
     await settle(target)
     return await refreshed(target)
   } finally {
@@ -589,6 +935,7 @@ async function dispatchDrag(target: Target, request: Extract<PageRequest, { op: 
     buttons: 0,
     clickCount: 1,
   })
+  target.onActionObservation?.()
   await settle(target)
   return refreshed(target)
 }
@@ -631,6 +978,8 @@ async function waitForVisibleElement(target: Target, request: Extract<PageReques
     let matches;
     try { matches = document.querySelectorAll(${JSON.stringify(request.selector)}) } catch { return "invalid" }
     if (!matches.length) return false;
+    if (${JSON.stringify(request.condition ?? "visible")} === "attached") return Array.from(matches).some(el => el.isConnected);
+    if (${JSON.stringify(request.condition ?? "visible")} === "ready") return document.readyState !== "loading";
     let observer, timer;
     try {
       return await new Promise((resolve, reject) => {
@@ -671,7 +1020,15 @@ async function waitForVisibleElement(target: Target, request: Extract<PageReques
       return failure("unavailable", nativeT("desktop.browser.driver.probeUnavailable"))
     if (response.result.value === "invalid")
       return failure("bad_request", nativeT("desktop.browser.driver.invalidSelector"))
-    if (response.result.value === true) return refreshed(target)
+    if (response.result.value === true) {
+      const observed = await refreshed(target, request.selector)
+      return observed.ok
+        ? success({
+            ...observed.result,
+            observedCondition: { selector: request.selector, condition: request.condition ?? "visible" },
+          })
+        : observed
+    }
     if (response.result.value !== false)
       return failure("unavailable", nativeT("desktop.browser.driver.probeUnavailable"))
     await settle(target)

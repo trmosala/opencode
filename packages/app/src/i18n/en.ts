@@ -1,10 +1,21 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const browser = {
+  "browser.operation.running": "An agent operation is running in this tab.",
+  "browser.operation.settling": "Access has stopped. Waiting for native browser work to settle.",
+  "browser.operation.failed": "The browser operation failed.",
+  "browser.operation.quarantined": "Browser input was interrupted. This tab cannot receive further agent input.",
+  "browser.operation.uncertain": "Input may have taken effect. Observe the page before sending more input.",
+  "browser.operation.recovery":
+    "Close this tab and reopen it from Recently closed. Agent Access will be off. Reloading or enabling access again does not clear interrupted input.",
+  "browser.operation.close": "Close tab for recovery",
+  "browser.operation.takeover": "Take over this tab",
   "browser.access.title": "Agent access",
   "browser.access.tabs": "This task's tabs",
   "browser.access.help":
     "New tabs are private. Allow agent access grants access to the current website in that tab. Visiting a different website turns access off. The global switch and OpenCode tool approvals still apply.",
+  "browser.access.tabGrantHelp":
+    "Agent Access authorises this entire tab, including embedded websites, page actions, screenshots and diagnostics, without further approvals. Access stays on when the website changes. Screenshots share all visible pixels without redaction. Other tabs, saved passwords and OS capabilities remain separate. Turn access off to stop pending work; content already shared cannot be recalled.",
   "browser.access.unknown": "Effective access unavailable. Refresh settings or use a matching desktop build.",
   "browser.access.refresh": "Refresh access status",
   "browser.access.off": "Page tools blocked: global agent access is off.",
@@ -13,7 +24,10 @@ export const browser = {
   "browser.access.blank": "Open a website before allowing agent access.",
   "browser.access.loading":
     "Page reads and input paused: the main page is loading. Navigation within the approved website remains available.",
+  "browser.access.tabGrantLoading":
+    "Page reads and input paused: the main page is loading. Navigation in this authorised tab remains available.",
   "browser.access.eligible": "Page tools eligible in main; OpenCode tool approval still applies.",
+  "browser.access.tabGrantEligible": "Agent Access is on for this entire tab. Page tools need no further approval.",
   "browser.access.grant": "Request tab access",
   "browser.access.revoke": "Revoke tab access / cancel pending grant",
   "browser.access.guarded": "Transfer rules remain enforced until this tab closes, even with its grant off.",
@@ -187,6 +201,8 @@ export const browser = {
   "browser.settings.agent": "Allow agents to use the browser",
   "browser.settings.agent.help":
     "Turning this off revokes access to every tab. When enabled, each tab still requires your permission and the host allowlist still applies.",
+  "browser.settings.agent.tabGrantHelp":
+    "Turning this off revokes every tab grant and stops pending agent work. Turning it on does not restore grants. Grant Agent Access separately for each tab.",
   "browser.settings.general": "General",
   "browser.settings.showFullURL": "Show full URL",
   "browser.settings.showFullURL.help":

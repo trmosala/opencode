@@ -1,0 +1,117 @@
+/*
+ * Browser toolbar geometry and control states (#50). The first rules apply to both layouts; the
+ * body[data-new-layout] rules below swap in native v2 tokens. Unlayered on purpose so they outrank the layered
+ * IconButton, Button and Tailwind utility styles. Kept out of browser-panel.css, whose rules are all new-layout
+ * scoped (#49).
+ */
+[data-component="browser-panel"] [data-slot="browser-toolbar"] {
+  /*
+   * Mirrors browser-tab-strip.css (owned by another worktree): 4px strip + 2px tab-list inline padding and a
+   * 3px gap between tabs, so the back button lines up with the first tab. Logical padding keeps RTL symmetric.
+   * The bar never wraps; the address field is the flexible item and shrinks instead.
+   */
+  flex-wrap: nowrap;
+  gap: 3px;
+  min-width: 0;
+  padding-inline: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+[data-component="browser-panel"] [data-slot="browser-toolbar"] > [data-component="icon-button"] {
+  flex-shrink: 0;
+}
+
+[data-component="browser-panel"] [data-slot="browser-address"] {
+  min-width: 144px;
+}
+
+[data-component="browser-panel"] [data-slot="browser-address"] input {
+  min-width: 32px;
+}
+
+body[data-new-layout] [data-component="browser-panel"] [data-browser-menu-trigger] {
+  height: 34px;
+}
+
+[data-browser-menu] [data-slot="dropdown-menu-item-icon"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--icon-base);
+}
+
+.browser-tooltip [data-slot="tooltip-keybind-key"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Native disabled icon colour, matching the ghost Button. A pressed control keeps its pressed appearance. */
+[data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  [data-component="icon-button"]:disabled:not([aria-pressed="true"])
+  [data-slot="icon-svg"] {
+  color: var(--icon-disabled);
+}
+
+/* One pressed/expanded appearance, driven by the controls' accessible state rather than a variant swap. */
+[data-component="browser-panel"] [data-slot="browser-toolbar"] [data-component="icon-button"][aria-pressed="true"],
+[data-component="browser-panel"] [data-slot="browser-toolbar"] [data-component="icon-button"][aria-expanded="true"] {
+  background-color: var(--surface-base-active);
+}
+
+[data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  [data-component="icon-button"]:is([aria-pressed="true"], [aria-expanded="true"])
+  [data-slot="icon-svg"] {
+  color: var(--icon-strong-base);
+}
+
+/* Same keyboard focus ring as the tab strip's tabs. The shared components remove their outline on focus. */
+[data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  :is([data-component="icon-button"], [data-component="button"]):focus-visible {
+  outline: 2px solid var(--text-base);
+  outline-offset: -2px;
+}
+
+/*
+ * New layout: match icon-button-v2 ghost. Disabled is the base icon at half opacity, pressed/expanded use the
+ * pressed overlay, and focus uses the v2 focus colour.
+ */
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  [data-component="icon-button"]:disabled:not([aria-pressed="true"]) {
+  opacity: 0.5;
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  [data-component="icon-button"]:disabled:not([aria-pressed="true"])
+  [data-slot="icon-svg"] {
+  color: var(--v2-icon-icon-base);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  [data-component="icon-button"]:is([aria-pressed="true"], [aria-expanded="true"]) {
+  background-color: var(--v2-overlay-simple-overlay-pressed);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  [data-component="icon-button"]:is([aria-pressed="true"], [aria-expanded="true"])
+  [data-slot="icon-svg"] {
+  color: var(--v2-icon-icon-base);
+}
+
+body[data-new-layout]
+  [data-component="browser-panel"]
+  [data-slot="browser-toolbar"]
+  :is([data-component="icon-button"], [data-component="button"]):focus-visible {
+  outline-color: var(--v2-border-border-focus);
+}

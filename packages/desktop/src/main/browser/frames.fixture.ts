@@ -337,7 +337,6 @@ export async function framesSmoke() {
               for (const change of [
                 "allow",
                 "cancel",
-                "deny",
                 "source",
                 "receiver",
                 "private",
@@ -359,7 +358,6 @@ export async function framesSmoke() {
                 "held-receiver",
                 "held-source-policy",
                 "held-receiver-policy",
-                "consent-revoke",
                 "policy-picker",
                 "border-held",
                 "clip-held",
@@ -430,7 +428,6 @@ export async function framesSmoke() {
                   assert(options?.detail?.includes(new URL(destination).origin))
                   assert.equal(options?.defaultId, 0)
                   assert.equal(options?.cancelId, 0)
-                  if (change === "consent-revoke") tab.accessRevision = (tab.accessRevision ?? 0) + 1
                   return { response: change === "deny" ? 0 : 1, checkboxChecked: false }
                 }) as typeof dialog.showMessageBox
                 dialog.showOpenDialog = (async () => {
@@ -498,10 +495,11 @@ export async function framesSmoke() {
                   await setTimeout(100)
                   for (let i = 0; browserOperationBusy.has(tab.id) && i < 200; i++) await setTimeout(10)
                   assert(!browserOperationBusy.has(tab.id), "chooser settled")
-                  assert.equal(filesSent, change === "allow" ? 1 : 0, change)
+                  const hostEdit = ["source", "receiver", "held-source", "held-receiver", "policy-picker"].includes(
+                    change,
+                  )
+                  assert.equal(filesSent, change === "allow" || hostEdit ? 1 : 0, change)
                   const blocked = [
-                    "source",
-                    "receiver",
                     "private",
                     "global",
                     "source-policy",
@@ -510,12 +508,8 @@ export async function framesSmoke() {
                     "sandbox",
                     "hidden",
                   ].includes(change)
-                  assert.equal(prompts, blocked ? 0 : 1, `${change}: exact consent count`)
-                  assert.equal(
-                    picks,
-                    blocked || ["deny", "consent-revoke"].includes(change) ? 0 : 1,
-                    `${change}: exact picker count`,
-                  )
+                  assert.equal(prompts, 0, `${change}: whole-tab grant has no receiver approval`)
+                  assert.equal(picks, blocked ? 0 : 1, `${change}: exact picker count`)
                   const counts = []
                   for (const child of contents.mainFrame.frames)
                     counts.push(
@@ -525,7 +519,7 @@ export async function framesSmoke() {
                     await contents.executeJavaScript('document.querySelector("input[type=file]").files.length'),
                     0,
                   )
-                  if (change === "allow") {
+                  if (change === "allow" || hostEdit) {
                     assert.deepEqual(counts, [1, 0], "exact native receiver, not identical-URL sibling")
                     assert.equal(await children[0].executeJavaScript("upload.files[0].text()"), "synthetic frame file")
                     assert.equal(
@@ -533,7 +527,7 @@ export async function framesSmoke() {
                       1,
                       "cancel:true precedes approved native delivery",
                     )
-                    assert.equal(prompts, 1)
+                    assert.equal(prompts, 0)
                     assert.equal(picks, 1)
                     const world = await send(
                       "Page.createIsolatedWorld",
@@ -598,8 +592,6 @@ export async function framesSmoke() {
           for (const cross of [false, true]) {
             for (const change of [
               "allow",
-              "deny",
-              "abort",
               "replace",
               "navigate",
               "aba",
@@ -639,7 +631,6 @@ export async function framesSmoke() {
               assert.equal(inventory.result.frames?.length, 1, JSON.stringify(inventory))
               const frame = inventory.result.frames![0]
               assert.equal(frame.origin, new URL(destination).origin)
-              const abort = new AbortController()
               let prompts = 0
               const context: ToolContext = {
                 sessionID: tab.sessionID,
@@ -647,72 +638,64 @@ export async function framesSmoke() {
                 agent: "build",
                 directory: ".",
                 worktree: ".",
-                abort: abort.signal,
+                abort: new AbortController().signal,
                 metadata: () => {},
-                ask: async (ask) => {
-                  if (ask.permission !== "browser_read_frame") return
+                ask: async () => {
                   prompts++
-                  assert.deepEqual(ask.patterns, [`${new URL(url).origin} -> ${new URL(destination).origin}`])
-                  assert.deepEqual(ask.always, [])
-                  assert.equal(ask.metadata.receivingOrigin, new URL(destination).origin)
-                  assert.equal(childReads, before, "no body read while approval is pending")
-                  if (change === "deny") throw new Error("Denied")
-                  if (change === "abort") abort.abort()
-                  if (change.startsWith("border-") || change.startsWith("clip-") || change.startsWith("contain-"))
-                    await clipOwner(change)
-                  if (change === "policy-approval") await revokeReceiver()
-                  if (change === "policy-dispatch")
-                    holdTree = async () => {
-                      holdTree = undefined
-                      await revokeReceiver()
-                    }
-                  if (change === "policy-result")
-                    holdResult = async () => {
-                      holdResult = undefined
-                      await revokeReceiver()
-                    }
-                  if (change === "revoke") {
-                    tab.accessRevision = (tab.accessRevision ?? 0) + 1
-                    tab.agentAccess = false
-                    tab.agentAccess = true
-                  }
-                  if (change === "replace")
-                    await contents.executeJavaScript(
-                      'const el=document.querySelector("iframe");el.replaceWith(el.cloneNode());void 0',
-                    )
-                  if (change === "hidden")
-                    await contents.executeJavaScript('document.querySelector("iframe").style.display="none";void 0')
-                  if (change === "covered")
-                    await contents.executeJavaScript(
-                      'const el=document.createElement("div");el.style.cssText="position:fixed;inset:0;z-index:999";document.body.append(el);void 0',
-                    )
-                  if (change === "transform")
-                    await contents.executeJavaScript(
-                      'document.querySelector("iframe").style.transform="scale(.9)";void 0',
-                    )
-                  if (change === "sandbox")
-                    await contents.executeJavaScript(
-                      'document.querySelector("iframe").setAttribute("sandbox","allow-scripts allow-same-origin");void 0',
-                    )
-                  if (change === "document")
-                    await contents.mainFrame.frames[0].executeJavaScript(
-                      'document.open();document.write("<p>REPLACED</p>");document.close();void 0',
-                    )
-                  if (change === "navigate" || change === "aba") {
-                    await contents.executeJavaScript(
-                      `document.querySelector("iframe").src=${JSON.stringify(destination + "?changed")};void 0`,
-                    )
-                    await loaded()
-                    if (change === "aba") {
-                      await contents.executeJavaScript(
-                        `document.querySelector("iframe").src=${JSON.stringify(destination)};void 0`,
-                      )
-                      await loaded()
-                    }
-                  }
-                  await loaded()
+                  throw new Error("Whole-tab access must not ask for per-frame approval")
                 },
               }
+              if (change.startsWith("border-") || change.startsWith("clip-") || change.startsWith("contain-"))
+                await clipOwner(change)
+              if (change === "policy-approval") await revokeReceiver()
+              if (change === "policy-dispatch")
+                holdTree = async () => {
+                  holdTree = undefined
+                  await revokeReceiver()
+                }
+              if (change === "policy-result")
+                holdResult = async () => {
+                  holdResult = undefined
+                  await revokeReceiver()
+                }
+              if (change === "revoke") {
+                tab.accessRevision = (tab.accessRevision ?? 0) + 1
+                tab.agentAccess = false
+                tab.agentAccess = true
+              }
+              if (change === "replace")
+                await contents.executeJavaScript(
+                  'const el=document.querySelector("iframe");el.replaceWith(el.cloneNode());void 0',
+                )
+              if (change === "hidden")
+                await contents.executeJavaScript('document.querySelector("iframe").style.display="none";void 0')
+              if (change === "covered")
+                await contents.executeJavaScript(
+                  'const el=document.createElement("div");el.style.cssText="position:fixed;inset:0;z-index:999";document.body.append(el);void 0',
+                )
+              if (change === "transform")
+                await contents.executeJavaScript('document.querySelector("iframe").style.transform="scale(.9)";void 0')
+              if (change === "sandbox")
+                await contents.executeJavaScript(
+                  'document.querySelector("iframe").setAttribute("sandbox","allow-scripts allow-same-origin");void 0',
+                )
+              if (change === "document")
+                await contents.mainFrame.frames[0].executeJavaScript(
+                  'document.open();document.write("<p>REPLACED</p>");document.close();void 0',
+                )
+              if (change === "navigate" || change === "aba") {
+                await contents.executeJavaScript(
+                  `document.querySelector("iframe").src=${JSON.stringify(destination + "?changed")};void 0`,
+                )
+                await loaded()
+                if (change === "aba") {
+                  await contents.executeJavaScript(
+                    `document.querySelector("iframe").src=${JSON.stringify(destination)};void 0`,
+                  )
+                  await loaded()
+                }
+              }
+              await loaded()
               const tools = browserTools({ send: (_session, request) => route(request) })
               const promise = tools.browser_read_state.execute({ tabID: tab.id, frameRef: frame.frameRef }, context)
               if (change === "allow") {
@@ -735,7 +718,7 @@ export async function framesSmoke() {
                   `${change}: no follow-on snapshot dispatch`,
                 )
               }
-              assert.equal(prompts, 1)
+              assert.equal(prompts, 0, "whole-tab grant needs no frame approval")
               assert.deepEqual(input, [], "frame reads never dispatch native input")
               console.log("PASS approved frame", cross ? "OOPIF" : "same", change)
             }
@@ -817,8 +800,6 @@ export async function framesSmoke() {
           for (const cross of [false, true]) {
             for (const change of [
               "allow",
-              "deny",
-              "abort",
               "wrong-frame",
               "wrong-tab",
               "wrong-token",
@@ -899,88 +880,9 @@ export async function framesSmoke() {
                 worktree: ".",
                 abort: abort.signal,
                 metadata: () => {},
-                ask: async (ask) => {
-                  if (ask.permission !== "browser_select_frame_option") return
+                ask: async () => {
                   prompts++
-                  assert.deepEqual(ask.patterns, [`${new URL(url).origin} -> ${new URL(destination).origin}`])
-                  assert.deepEqual(ask.always, [])
-                  assert.equal(ask.metadata.frameRef, frame.frameRef)
-                  assert.equal(mutations, 0, "no mutation while approval is pending")
-                  if (change === "deny") throw new Error("Denied")
-                  if (change === "abort") abort.abort()
-                  if (change.startsWith("border-") || change.startsWith("clip-") || change.startsWith("contain-"))
-                    await clipOwner(change)
-                  if (change === "policy-approval") await revokeReceiver()
-                  if (change === "policy-dispatch")
-                    holdTree = async () => {
-                      holdTree = undefined
-                      await revokeReceiver()
-                    }
-                  if (change === "policy-result")
-                    holdResult = async () => {
-                      holdResult = undefined
-                      await revokeReceiver()
-                    }
-                  if (change === "revoke") {
-                    tab.accessRevision = (tab.accessRevision ?? 0) + 1
-                    tab.agentAccess = false
-                    tab.agentAccess = true
-                  }
-                  if (change === "replace")
-                    await contents.executeJavaScript(
-                      'const el=document.querySelector("iframe");el.replaceWith(el.cloneNode());void 0',
-                    )
-                  if (change === "hidden")
-                    await contents.executeJavaScript('document.querySelector("iframe").style.display="none";void 0')
-                  if (change === "covered")
-                    await contents.executeJavaScript(
-                      'const el=document.createElement("div");el.style.cssText="position:fixed;inset:0;z-index:999";document.body.append(el);void 0',
-                    )
-                  if (change === "transform")
-                    await contents.executeJavaScript(
-                      'document.querySelector("iframe").style.transform="scale(.9)";void 0',
-                    )
-                  if (change === "sandbox")
-                    await contents.executeJavaScript(
-                      'document.querySelector("iframe").setAttribute("sandbox","allow-scripts allow-same-origin");void 0',
-                    )
-                  if (change === "document")
-                    await children[0].executeJavaScript(
-                      'document.open();document.write("<p>REPLACED</p>");document.close();void 0',
-                    )
-                  if (change === "select-replace")
-                    await children[0].executeJavaScript(
-                      'const el=document.querySelector("select");el.replaceWith(el.cloneNode(true));void 0',
-                    )
-                  if (change === "option-replace")
-                    await children[0].executeJavaScript(
-                      'const el=document.querySelectorAll("option")[1];el.replaceWith(el.cloneNode(true));void 0',
-                    )
-                  if (change === "disabled")
-                    await children[0].executeJavaScript('document.querySelector("select").disabled=true;void 0')
-                  if (change === "multiple")
-                    await children[0].executeJavaScript('document.querySelector("select").multiple=true;void 0')
-                  if (change === "reparent")
-                    await children[0].executeJavaScript(
-                      'const el=document.querySelector("select");const wrap=document.createElement("div");el.replaceWith(wrap);wrap.append(el);void 0',
-                    )
-                  if (change === "navigate" || change === "aba") {
-                    await contents.executeJavaScript(
-                      `document.querySelector("iframe").src=${JSON.stringify(destination + "?changed")};void 0`,
-                    )
-                    await loaded()
-                    if (change === "aba") {
-                      await contents.executeJavaScript(
-                        `document.querySelector("iframe").src=${JSON.stringify(destination)};void 0`,
-                      )
-                      await loaded()
-                    }
-                  }
-                  if (change === "read-prepare") {
-                    const prepared = await route({ op: "prepare_frame", tabID: tab.id, frameRef: frame.frameRef })
-                    assert(prepared.ok, "read preparation preserves the original selection snapshot")
-                  }
-                  await loaded()
+                  throw new Error("Whole-tab access must not ask for per-frame approval")
                 },
               }
               const tools = browserTools({
@@ -1057,6 +959,77 @@ export async function framesSmoke() {
               }
               mutations = 0
               if (change === "stale") await route({ op: "read_state", tabID: tab.id })
+              if (change.startsWith("border-") || change.startsWith("clip-") || change.startsWith("contain-"))
+                await clipOwner(change)
+              if (change === "policy-approval") await revokeReceiver()
+              if (change === "policy-dispatch")
+                holdTree = async () => {
+                  holdTree = undefined
+                  await revokeReceiver()
+                }
+              if (change === "policy-result")
+                holdResult = async () => {
+                  holdResult = undefined
+                  await revokeReceiver()
+                }
+              if (change === "revoke") {
+                tab.accessRevision = (tab.accessRevision ?? 0) + 1
+                tab.agentAccess = false
+                tab.agentAccess = true
+              }
+              if (change === "replace")
+                await contents.executeJavaScript(
+                  'const el=document.querySelector("iframe");el.replaceWith(el.cloneNode());void 0',
+                )
+              if (change === "hidden")
+                await contents.executeJavaScript('document.querySelector("iframe").style.display="none";void 0')
+              if (change === "covered")
+                await contents.executeJavaScript(
+                  'const el=document.createElement("div");el.style.cssText="position:fixed;inset:0;z-index:999";document.body.append(el);void 0',
+                )
+              if (change === "transform")
+                await contents.executeJavaScript('document.querySelector("iframe").style.transform="scale(.9)";void 0')
+              if (change === "sandbox")
+                await contents.executeJavaScript(
+                  'document.querySelector("iframe").setAttribute("sandbox","allow-scripts allow-same-origin");void 0',
+                )
+              if (change === "document")
+                await children[0].executeJavaScript(
+                  'document.open();document.write("<p>REPLACED</p>");document.close();void 0',
+                )
+              if (change === "select-replace")
+                await children[0].executeJavaScript(
+                  'const el=document.querySelector("select");el.replaceWith(el.cloneNode(true));void 0',
+                )
+              if (change === "option-replace")
+                await children[0].executeJavaScript(
+                  'const el=document.querySelectorAll("option")[1];el.replaceWith(el.cloneNode(true));void 0',
+                )
+              if (change === "disabled")
+                await children[0].executeJavaScript('document.querySelector("select").disabled=true;void 0')
+              if (change === "multiple")
+                await children[0].executeJavaScript('document.querySelector("select").multiple=true;void 0')
+              if (change === "reparent")
+                await children[0].executeJavaScript(
+                  'const el=document.querySelector("select");const wrap=document.createElement("div");el.replaceWith(wrap);wrap.append(el);void 0',
+                )
+              if (change === "navigate" || change === "aba") {
+                await contents.executeJavaScript(
+                  `document.querySelector("iframe").src=${JSON.stringify(destination + "?changed")};void 0`,
+                )
+                await loaded()
+                if (change === "aba") {
+                  await contents.executeJavaScript(
+                    `document.querySelector("iframe").src=${JSON.stringify(destination)};void 0`,
+                  )
+                  await loaded()
+                }
+              }
+              if (change === "read-prepare") {
+                const prepared = await route({ op: "prepare_frame", tabID: tab.id, frameRef: frame.frameRef })
+                assert(prepared.ok, "read preparation preserves the original selection snapshot")
+              }
+              await loaded()
               const promise = tools.browser_select_option.execute(
                 {
                   ...args,
@@ -1098,7 +1071,7 @@ export async function framesSmoke() {
                     ["change", false],
                   ],
                 )
-                assert.equal(prompts, 1)
+                assert.equal(prompts, 0, "whole-tab grant needs no frame approval")
               } else
                 assert(
                   witnesses.every((value) => value.events.length === 0),

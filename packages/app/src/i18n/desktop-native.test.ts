@@ -13,6 +13,25 @@ import {
 } from "./desktop-native"
 
 describe("desktop native translations", () => {
+  test("describes the complete tab grant in its English fallback", () => {
+    const detail = formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.browser.tabGrantDetail"], {
+      origin: "https://example.test",
+    })
+    for (const value of [
+      "https://example.test",
+      "entire tab",
+      "without redaction",
+      "no further approvals",
+      "stays on across website changes",
+      "Other tabs",
+      "OS capabilities",
+      "cannot be recalled",
+    ])
+      expect(detail).toContain(value)
+    expect(detail).not.toContain("{{")
+    expect(DESKTOP_NATIVE_KEYS).toContain("desktop.browser.tabGrantDetail")
+  })
+
   test("network consent appends distinct keys without changing console disclosure", () => {
     expect(DESKTOP_NATIVE_KEYS.slice(265, 269)).toEqual([
       "desktop.browser.networkConsent",

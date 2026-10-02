@@ -15,6 +15,8 @@ import { Effect, Exit, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
+import { Plugin } from "@/plugin"
+import { runTaskScope } from "./task-scope"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -50,6 +52,16 @@ const BaseParameterFields = {
       "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
+  browser_tab_ids: Schema.optional(
+    Schema.Array(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,128}$/))).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(16),
+      Schema.isUnique(),
+    ),
+  ).annotate({
+    description:
+      "Explicit browser tab IDs to delegate to a NEW foreground child task. Cannot be used with task_id or background=true.",
+  }),
 }
 
 const BaseParameters = Schema.Struct(BaseParameterFields)
@@ -90,11 +102,15 @@ export const TaskTool = Tool.define(
     const scope = yield* Scope.Scope
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const plugin = yield* Effect.serviceOption(Plugin.Service)
 
     const run = Effect.fn("TaskTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context,
     ) {
+      if (params.browser_tab_ids !== undefined && (params.background === true || params.task_id !== undefined)) {
+        return yield* Effect.fail(new Error("browser_tab_ids requires a new foreground task without task_id"))
+      }
       const cfg = yield* config.get()
       const runInBackground = params.background === true
       if (runInBackground && !flags.experimentalBackgroundSubagents) {
@@ -229,6 +245,25 @@ export const TaskTool = Tool.define(
         }
         return result.parts.findLast((item) => item.type === "text")?.text ?? ""
       })
+
+      if (params.browser_tab_ids !== undefined) {
+        const text = yield* runTaskScope({
+          parentSessionID: ctx.sessionID,
+          childSessionID: nextSession.id,
+          browserTabIDs: params.browser_tab_ids,
+          abort: ctx.abort,
+          ask: (permission) => ctx.ask(permission),
+          acquire: (input, output) =>
+            plugin._tag === "Some" ? plugin.value.trigger("task.execute.scope", input, output) : Effect.void,
+          run: runTask(),
+          cancel: ops.cancel(nextSession.id),
+        })
+        return {
+          title: params.description,
+          metadata,
+          output: renderOutput({ sessionID: nextSession.id, state: "completed", text }),
+        }
+      }
 
       const inject = Effect.fn("TaskTool.injectBackgroundResult")(function* (
         state: "completed" | "error",

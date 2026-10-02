@@ -64,14 +64,25 @@ test("pre-abort never dispatches or subscribes", async () => {
   expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
 })
 
-test("pending abort cancels once, removes listeners, and ignores late replies", async () => {
+test("pending abort waits for the bridge outcome so dispatch status is preserved", async () => {
   const { port, parent, sent, reply } = fixture()
   const controller = new AbortController()
   const pending = port.send("session", { op: "list_tabs" }, controller.signal)
   expect(parent.listenerCount("message")).toBe(1)
   controller.abort()
-  reply(sent[0].id)
-  expect(await pending).toMatchObject({ code: "cancelled" })
+  parent.emit("message", {
+    data: {
+      type: "browser_result",
+      id: sent[0].id,
+      response: {
+        ok: false,
+        code: "cancelled",
+        error: "Browser operation cancelled.",
+        actionStatus: "dispatched_uncertain",
+      },
+    },
+  })
+  expect(await pending).toMatchObject({ code: "cancelled", actionStatus: "dispatched_uncertain" })
   expect(sent).toEqual([
     expect.objectContaining({ type: "browser_request", sessionID: "session" }),
     { type: "browser_cancel", sessionID: "session", id: sent[0].id },
@@ -79,7 +90,6 @@ test("pending abort cancels once, removes listeners, and ignores late replies", 
   expect(parent.listenerCount("message")).toBe(0)
   expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
   const next = port.send("session", { op: "list_tabs" })
-  reply(sent[0].id)
   reply(sent[2].id)
   expect(await next).toMatchObject({ code: "no_target" })
   expect(parent.listenerCount("message")).toBe(0)

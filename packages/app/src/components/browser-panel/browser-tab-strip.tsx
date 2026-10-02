@@ -1,9 +1,17 @@
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { createEffect, For, onCleanup, onMount, Show, type JSX } from "solid-js"
-import { browserTabKeyIndex, type BrowserCommand, type BrowserTab, type BrowserTabs } from "@/browser-panel"
+import {
+  browserShortcutHint,
+  browserTabKeyIndex,
+  type BrowserCommand,
+  type BrowserTab,
+  type BrowserTabs,
+} from "@/browser-panel"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import { BrowserTabMenu } from "./browser-tools"
 import "./browser-tab-strip.css"
 
@@ -13,6 +21,7 @@ export function BrowserTabStrip(props: {
   children?: JSX.Element
 }) {
   const language = useLanguage()
+  const platform = usePlatform()
   let strip!: HTMLDivElement
   let add!: HTMLButtonElement
   const title = (tab: BrowserTab) => tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)
@@ -141,24 +150,32 @@ export function BrowserTabStrip(props: {
         </For>
       </div>
       <div data-slot="browser-tab-controls">
-        <IconButton
-          ref={add}
-          icon="plus-small"
-          variant="ghost"
-          aria-label={language.t("browser.tabs.new")}
+        <TooltipKeybind
+          placement="top"
+          flip={false}
+          contentClass="browser-tooltip"
           title={language.t("browser.tabs.new")}
-          onClick={() => void props.command({ op: "new" })}
-        />
-        <DropdownMenu>
-          <DropdownMenu.Trigger
-            as={IconButton}
-            type="button"
-            icon="chevron-down"
+          keybind={browserShortcutHint("new", platform.os === "macos", language.t)}
+        >
+          <IconButton
+            ref={add}
+            icon="plus-small"
             variant="ghost"
-            disabled={!props.tabs.tabs.length}
-            aria-label={language.t("browser.tabs.label")}
-            title={language.t("browser.tabs.label")}
+            aria-label={language.t("browser.tabs.new")}
+            onClick={() => void props.command({ op: "new" })}
           />
+        </TooltipKeybind>
+        <DropdownMenu>
+          <Tooltip placement="top" flip={false} value={language.t("browser.tabs.label")}>
+            <DropdownMenu.Trigger
+              as={IconButton}
+              type="button"
+              icon="chevron-down"
+              variant="ghost"
+              disabled={!props.tabs.tabs.length}
+              aria-label={language.t("browser.tabs.label")}
+            />
+          </Tooltip>
           <DropdownMenu.Portal>
             <DropdownMenu.Content class="max-h-80 w-72 max-w-[calc(100vw-16px)] overflow-y-auto">
               <DropdownMenu.RadioGroup

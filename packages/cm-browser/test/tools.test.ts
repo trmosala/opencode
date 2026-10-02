@@ -52,6 +52,64 @@ function fakeContext(sessionID = "ses_1") {
 }
 
 describe("browser tools", () => {
+  test("renders embedded content, omissions and the actual targeted wait condition", async () => {
+    const observed = {
+      ...state,
+      inspection: { selector: "#week", matched: true },
+      observedCondition: { selector: "#week", condition: "attached" as const },
+      documents: [
+        {
+          frameRef: "a".repeat(36),
+          origin: "https://calendar.example",
+          url: "https://calendar.example/week",
+          title: "Calendar",
+          status: "truncated" as const,
+          visibleText: "Synthetic appointment",
+          omissions: ["element_limit"],
+          elements: [{ ...state.elements[0], ref: "frame.test:open", label: "Open appointment" }],
+        },
+      ],
+    }
+    const fixture = fakePort(success(observed))
+    const output = await browserTools(fixture.port).browser_read_state.execute({ tabID: "one" }, fakeContext().context)
+    if (typeof output === "string") throw new Error("Expected structured browser result")
+    expect(output.output).toContain("Synthetic appointment")
+    expect(output.output).toContain("[frame.test:open]")
+    expect(output.output).toContain("truncated")
+    expect(output.output).toContain("omission: element_limit")
+    expect(output.output).toContain("inspection: #week; matched=true")
+    expect(output.output).toContain("observed condition: #week; attached")
+  })
+
+  test("embedded input retains exact action and consumes only main's native frame preparation", async () => {
+    const frameRef = "a".repeat(36)
+    const frameContext = {
+      frameRef,
+      approval: "b".repeat(36),
+      topOrigin: "https://teams.microsoft.com",
+      origin: "null",
+    }
+    const sent: Request[] = []
+    const port: BrowserPort = {
+      send: async (sessionID, request) => {
+        sent.push(request)
+        return request.op === "prepare_frame_input"
+          ? success({ ...state, frameContext })
+          : success({ ...state, frameRef })
+      },
+    }
+    const context = fakeContext()
+    const ref = `frame.${"c".repeat(36)}:target`
+    await browserTools(port).browser_fill.execute(
+      { tabID: "one", frameRef, ref, text: "Synthetic note" },
+      context.context,
+    )
+    expect(sent).toEqual([
+      { op: "prepare_frame_input", tabID: "one", frameRef, action: { op: "fill", ref, text: "Synthetic note" } },
+      { op: "frame_input", tabID: "one", frameRef, frameContext, action: { op: "fill", ref, text: "Synthetic note" } },
+    ])
+    expect(context.asked).toEqual([])
+  })
   test("frame targeting is rejected before plugin approval or top-page dispatch", async () => {
     const browser = fakePort()
     const call = fakeContext()
@@ -65,54 +123,45 @@ describe("browser tools", () => {
     expect(call.asked).toEqual([])
   })
 
-  test("frame selection preserves original refs across separate deferred consent and rejects forged inputs", async () => {
+  test("frame selection uses tab authority, preserves refs and rejects aborts or forged inputs", async () => {
     const args = {
       tabID: "one",
       frameRef: "a".repeat(36),
       ref: `frame.${"b".repeat(36)}:select`,
       optionRef: `frame.${"b".repeat(36)}:option`,
     }
-    for (const decision of ["allow", "deny", "abort"]) {
-      const binding = {
-        ...args,
-        op: "select_option" as const,
+    for (const abort of [false, true]) {
+      const frameContext = {
+        frameRef: args.frameRef,
         approval: "c".repeat(36),
         topOrigin: "https://top.test:8443",
         origin: "https://child.test:9443",
       }
-      const { tabID: _tabID, ...frameSelectContext } = binding
       const sent: Request[] = []
       const call = fakeContext()
       const controller = new AbortController()
       call.context.abort = controller.signal
-      const entered = Promise.withResolvers<void>()
-      const release = Promise.withResolvers<void>()
-      call.context.ask = async (input) => {
-        if (input.permission === "browser_read_state") return
-        expect(input.permission).toBe("browser_select_frame_option")
-        expect(input.patterns).toEqual([`${binding.topOrigin} -> ${binding.origin}`])
-        expect(input.always).toEqual([])
-        expect(input.metadata.ref).toBe(args.ref)
-        expect(input.metadata.optionRef).toBe(args.optionRef)
-        expect(sent).toEqual([{ op: "prepare_frame_select", ...args }])
-        entered.resolve()
-        await release.promise
+      call.context.ask = async () => {
+        throw new Error("Redundant approval")
       }
       const tools = browserTools({
         send: async (_session, request) => {
           sent.push(request)
-          return success({ ...state, frameSelectContext })
+          if (abort) controller.abort()
+          return success({ ...state, frameContext })
         },
       })
-      const pending = tools.browser_select_option.execute(args, call.context).catch((error: unknown) => error)
-      await entered.promise
-      if (decision === "abort") controller.abort()
-      if (decision === "deny") release.reject(new Error("Denied"))
-      else release.resolve()
-      const response = await pending
-      expect(response instanceof Error).toBe(decision !== "allow")
-      expect(sent).toHaveLength(decision === "allow" ? 2 : 1)
-      if (decision === "allow") expect(sent[1]).toEqual({ op: "select_option", ...args, frameSelectContext })
+      const response = await tools.browser_select_option.execute(args, call.context).catch((error: unknown) => error)
+      expect(response instanceof Error).toBe(abort)
+      expect(sent).toHaveLength(abort ? 1 : 2)
+      if (!abort)
+        expect(sent[1]).toEqual({
+          op: "frame_input",
+          tabID: args.tabID,
+          frameRef: args.frameRef,
+          frameContext,
+          action: { op: "select_option", ref: args.ref, optionRef: args.optionRef },
+        })
     }
     for (const extra of [{ op: "read_state" }, { frameSelectContext: {} }, { frameContext: {} }, { unknown: true }]) {
       const browser = fakePort()
@@ -298,43 +347,59 @@ describe("browser tools", () => {
     expect(call.asked).toEqual([])
   })
 
-  test("screenshot uses named approval and only attachment pixels, rejecting invalid results", async () => {
+  test("screenshot uses tab authority and only attachment pixels, rejecting invalid results", async () => {
     const image = { data: Buffer.from([255, 216, 255, 217]).toString("base64"), width: 1, height: 1 }
     const value = { ...state, title: "", visibleText: "", elements: [], screenshot: image }
     const browser = fakePort(success(value))
     const call = fakeContext()
     const reply = await browserTools(browser.port).browser_screenshot.execute({ tabID: "one" }, call.context)
-    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_screenshot"])
+    expect(call.asked).toEqual([])
     expect(browser.sent.map((item) => item.request.op)).toEqual(["prepare_write", "screenshot"])
     expect(browser.sent[1].request).toMatchObject({ context: state.context })
     expect(reply).toEqual({
       output: `Screenshot 1x1; tab one; source ${state.url}`,
       attachments: [{ type: "file", mime: "image/jpeg", url: `data:image/jpeg;base64,${image.data}` }],
     })
+    for (const metadata of [
+      { visualRef: "a".repeat(36) },
+      { actionUnavailable: "Animated layout cannot bind visual input." },
+    ]) {
+      const observed = fakePort(
+        success({
+          ...value,
+          screenshot: { ...image, ...metadata, viewportWidth: 2, viewportHeight: 2, scaleX: 0.5, scaleY: 0.5 },
+        }),
+      )
+      const result = await browserTools(observed.port).browser_screenshot.execute(
+        { tabID: "one" },
+        fakeContext().context,
+      )
+      if (typeof result === "string") throw new Error("Expected screenshot attachment")
+      expect(result.output).toContain("viewport 2x2; scale 0.5,0.5")
+      expect(result.output).toContain("visualRef" in metadata ? "visualRef" : "visual action unavailable")
+    }
     for (const screenshot of [
       undefined,
       { ...image, data: "" },
       { ...image, data: "bad!" },
       { ...image, width: 4097 },
       { ...image, width: 4096, height: 4096 },
+      { ...image, visualRef: "a".repeat(36), viewportWidth: 2, viewportHeight: 2, scaleX: NaN, scaleY: 0.5 },
+      { ...image, viewportWidth: 2, viewportHeight: 2, scaleX: 0.5, scaleY: 0.5 },
     ]) {
       const invalid = fakePort(success({ ...value, screenshot }))
       await expect(
         browserTools(invalid.port).browser_screenshot.execute({ tabID: "one" }, fakeContext().context),
       ).rejects.toThrow("Invalid browser screenshot")
     }
-    const denied = fakePort()
-    const denial = fakeContext()
-    denial.context.ask = async (input) => {
-      if (input.permission === "browser_screenshot") throw new Error("Denied")
-    }
+    const denied = fakePort(failure("access_denied", "Tab grant revoked"))
     await expect(
-      browserTools(denied.port).browser_screenshot.execute({ tabID: "one" }, denial.context),
-    ).rejects.toThrow("Denied")
+      browserTools(denied.port).browser_screenshot.execute({ tabID: "one" }, fakeContext().context),
+    ).rejects.toThrow("Tab grant revoked")
     expect(denied.sent.map((item) => item.request.op)).toEqual(["prepare_write"])
   })
 
-  test("console observation asks explicitly and returns only bounded severity counts", async () => {
+  test("console observation uses tab authority and returns only bounded severity counts", async () => {
     const browser = fakePort(
       success({
         ...state,
@@ -351,7 +416,7 @@ describe("browser tools", () => {
       { tabID: "one", durationMs: 250 },
       call.context,
     )
-    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_observe_console"])
+    expect(call.asked).toEqual([])
     expect(browser.sent.map((item) => item.request.op)).toEqual(["prepare_write", "observe_console"])
     expect(browser.sent[1].request).toMatchObject({ context: state.context, durationMs: 250 })
     expect(reply).toBe("Console counts for tab one over 250ms: error 4, warning 3, info 2, debug 1, other 0, total 10.")
@@ -382,7 +447,7 @@ describe("browser tools", () => {
     }
   })
 
-  test("network observation uses named approval, exact counts and no payload output", async () => {
+  test("network observation uses tab authority, exact counts and no payload output", async () => {
     const network = {
       durationMs: 3000,
       http1xx: 0,
@@ -398,7 +463,7 @@ describe("browser tools", () => {
     const browser = fakePort(success(value))
     const call = fakeContext()
     const reply = await browserTools(browser.port).browser_observe_network.execute({ tabID: "one" }, call.context)
-    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_observe_network"])
+    expect(call.asked).toEqual([])
     expect(browser.sent.map((item) => item.request.op)).toEqual(["prepare_write", "observe_network"])
     expect(browser.sent[1].request).toMatchObject({ context: state.context, durationMs: 3000 })
     expect(reply).toContain("2xx 1")
@@ -446,14 +511,10 @@ describe("browser tools", () => {
       ).rejects.toThrow()
       expect(port.sent).toHaveLength(0)
     }
-    const denied = fakePort()
-    const denial = fakeContext()
-    denial.context.ask = async (input) => {
-      if (input.permission === "browser_observe_network") throw new Error("Denied")
-    }
+    const denied = fakePort(failure("access_denied", "Tab grant revoked"))
     await expect(
-      browserTools(denied.port).browser_observe_network.execute({ tabID: "one" }, denial.context),
-    ).rejects.toThrow("Denied")
+      browserTools(denied.port).browser_observe_network.execute({ tabID: "one" }, fakeContext().context),
+    ).rejects.toThrow("Tab grant revoked")
     expect(denied.sent.map((item) => item.request.op)).toEqual(["prepare_write"])
   })
 
@@ -477,14 +538,14 @@ describe("browser tools", () => {
     )
     const call = fakeContext()
     const reply = await browserTools(browser.port).browser_list_site_tools.execute({ tabID: "one" }, call.context)
-    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state"])
+    expect(call.asked).toEqual([])
     expect(browser.sent.map((item) => item.request)).toEqual([{ op: "list_site_tools", tabID: "one" }])
     if (typeof reply === "string") throw new Error("Expected structured site-tool discovery result")
     expect(reply.output).toContain("untrusted site-provided WebMCP metadata")
     expect(reply.output).toContain('"name":"search"')
   })
 
-  test("site-tool execution binds preparation before named per-origin approval", async () => {
+  test("site-tool execution binds preparation without per-origin approval", async () => {
     const toolRef = "a".repeat(8) + "-aaaa-4aaa-8aaa-" + "a".repeat(12)
     const siteToolContext = {
       ...state.context,
@@ -494,22 +555,8 @@ describe("browser tools", () => {
     }
     const sent: Request[] = []
     const call = fakeContext()
-    call.context.ask = async (input) => {
-      call.asked.push({ permission: input.permission, patterns: input.patterns })
-      if (input.permission === "browser_read_state") return
-      expect(input).toEqual({
-        permission: "browser_execute_site_tool",
-        patterns: ["teams.microsoft.com"],
-        always: [],
-        metadata: {
-          tabID: "one",
-          origin: "https://teams.microsoft.com",
-          name: "send_message",
-          title: "Send message",
-          arguments: { message: "hello" },
-        },
-      })
-      expect(sent).toHaveLength(1)
+    call.context.ask = async () => {
+      throw new Error("Redundant approval")
     }
     const port: BrowserPort = {
       send: async (_sessionID, request) => {
@@ -545,7 +592,7 @@ describe("browser tools", () => {
       { tabID: "one", toolRef, arguments: '{"message":"hello"}' },
       call.context,
     )
-    expect(call.asked.map((item) => item.permission)).toEqual(["browser_read_state", "browser_execute_site_tool"])
+    expect(call.asked).toEqual([])
     expect(sent[1]).toEqual({
       op: "execute_site_tool",
       tabID: "one",
@@ -567,7 +614,7 @@ describe("browser tools", () => {
     ["browser_scroll", { deltaX: 0, deltaY: 200, timeoutMs: 1000 }],
     ["browser_wait_for_element", { selector: "#ready", timeoutMs: 1000 }],
     ["browser_wait_for_navigation", { url: state.url, timeoutMs: 1000 }],
-  ] as const)("%s keeps read gating, task identity and abort", async (name, args) => {
+  ] as const)("%s keeps task identity and abort without redundant approval", async (name, args) => {
     const browser = fakePort()
     const call = fakeContext()
     const controller = new AbortController()
@@ -582,7 +629,7 @@ describe("browser tools", () => {
     const tools = browserTools(port)
     expect(tools[name]).toBeDefined()
     await tools[name].execute({ tabID: "one", ...args }, call.context)
-    expect(call.asked[0]).toEqual({ permission: "browser_read_state", patterns: ["*"] })
+    expect(call.asked).toEqual([])
     expect(browser.sent.at(-1)).toMatchObject({
       sessionID: call.context.sessionID,
       request: { op: name.slice(8), tabID: "one", ...args },
@@ -594,103 +641,78 @@ describe("browser tools", () => {
       name === "browser_click" ||
       name === "browser_select_option"
     ) {
-      expect(call.asked.at(-1)).toEqual({ permission: name, patterns: ["teams.microsoft.com"] })
+      expect(call.asked).toEqual([])
       expect(browser.sent.at(-1)?.request).toMatchObject({ context: state.context })
-    } else expect(call.asked).toHaveLength(1)
+    }
     controller.abort()
     const count = browser.sent.length
     await expect(tools[name].execute({ tabID: "one", ...args }, call.context)).rejects.toThrow()
     expect(browser.sent).toHaveLength(count)
   })
 
-  test.each(["before", "read", "write", "prepare"])(
-    "abort during %s prevents further approval or dispatch",
-    async (stage) => {
-      const browser = fakePort()
-      const call = fakeContext()
-      const controller = new AbortController()
-      call.context.abort = controller.signal
-      const send = browser.port.send
-      const port: BrowserPort = {
-        send: async (sessionID, request, signal) => {
-          expect(signal).toBe(controller.signal)
-          const reply = await send(sessionID, request, signal)
-          if (stage === "prepare") controller.abort()
-          return reply
-        },
-      }
-      const ask = call.context.ask
-      call.context.ask = async (input) => {
-        await ask(input)
-        if (input.permission === (stage === "read" ? "browser_read_state" : "browser_press_key")) controller.abort()
-      }
-      if (stage === "before") controller.abort()
-      await expect(
-        browserTools(port).browser_press_key.execute({ tabID: "one", key: "Enter" }, call.context),
-      ).rejects.toThrow()
-      expect(browser.sent.every(({ request }) => request.op === "prepare_write")).toBe(true)
-      expect(browser.sent).toHaveLength(stage === "before" || stage === "read" ? 0 : 1)
-      expect(call.asked).toHaveLength(stage === "before" ? 0 : stage === "write" ? 2 : 1)
-    },
-  )
+  test("click explains uncertain dispatch and labels a refreshed observation", async () => {
+    const call = fakeContext()
+    const uncertain: BrowserPort = {
+      send: async (_sessionID, request) =>
+        request.op === "prepare_write"
+          ? success(state)
+          : {
+              ok: false,
+              code: "unavailable",
+              error: "Browser operation interrupted or unavailable.",
+              actionStatus: "dispatched_uncertain",
+            },
+    }
+    await expect(
+      browserTools(uncertain).browser_click.execute({ tabID: "one", ref: "s4:e0" }, call.context),
+    ).rejects.toThrow("observe the current tab state before sending further input")
 
-  test.each(["browser_select_option", "browser_scroll", "browser_wait_for_element", "browser_wait_for_navigation"])(
-    "%s cannot bypass read denial or abort during read approval",
-    async (name) => {
-      for (const reason of ["deny", "abort"]) {
-        const browser = fakePort()
-        const call = fakeContext()
-        const controller = new AbortController()
-        call.context.abort = controller.signal
-        call.context.ask = async (input) => {
-          expect(input.permission).toBe("browser_read_state")
-          if (reason === "deny") throw new Error("Read denied")
-          controller.abort()
-        }
-        await expect(
-          browserTools(browser.port)[name].execute(
-            { tabID: "one", deltaX: 0, deltaY: 1, selector: "#ready", url: state.url, timeoutMs: 1000 },
-            call.context,
-          ),
-        ).rejects.toThrow()
-        expect(browser.sent).toEqual([])
-      }
-    },
-  )
+    const observed: BrowserPort = {
+      send: async (_sessionID, request) =>
+        request.op === "prepare_write" ? success(state) : success({ ...state, actionStatus: "dispatched_observed" }),
+    }
+    const reply = await browserTools(observed).browser_click.execute({ tabID: "one", ref: "s4:e0" }, call.context)
+    if (typeof reply === "string") throw new Error("Expected browser result")
+    expect(reply.output).toContain("action status: dispatched_observed")
+  })
 
-  test.each(["deny", "abort", "allow"])("navigation respects page-read approval: %s", async (decision) => {
-    const browser = fakePort()
+  test.each(["before", "prepare_write", "press_key"])("abort during %s prevents further dispatch", async (stage) => {
     const call = fakeContext()
     const controller = new AbortController()
     call.context.abort = controller.signal
-    const ask = call.context.ask
-    call.context.ask = async (input) => {
-      await ask(input)
-      if (input.permission !== "browser_read_state") return
-      if (decision === "deny") throw new Error("Read denied")
-      if (decision === "abort") controller.abort()
+    const sent: Request[] = []
+    const port: BrowserPort = {
+      send: async (_session, request) => {
+        sent.push(request)
+        if (request.op === stage) controller.abort()
+        return success(state)
+      },
     }
-    const pending = browserTools(browser.port).browser_navigate.execute(
+    if (stage === "before") controller.abort()
+    await expect(
+      browserTools(port).browser_press_key.execute({ tabID: "one", key: "Enter" }, call.context),
+    ).rejects.toThrow()
+    expect(sent).toHaveLength(stage === "before" ? 0 : stage === "prepare_write" ? 1 : 2)
+    expect(call.asked).toEqual([])
+  })
+
+  test("navigation uses the tab grant across receiving origins without approval", async () => {
+    const browser = fakePort()
+    const call = fakeContext()
+    call.context.ask = async () => {
+      throw new Error("Redundant approval")
+    }
+    await browserTools(browser.port).browser_navigate.execute(
       { tabID: "one", url: "https://destination.test/" },
       call.context,
     )
-    if (decision !== "allow") {
-      await expect(pending).rejects.toThrow(decision === "deny" ? "Read denied" : undefined)
-      expect(browser.sent).toEqual([])
-      expect(call.asked).toEqual([{ permission: "browser_read_state", patterns: ["*"] }])
-      return
-    }
-    const reply = await pending
-    expect(call.asked).toEqual([
-      { permission: "browser_read_state", patterns: ["*"] },
-      { permission: "browser_navigate", patterns: ["destination.test"] },
-    ])
     expect(browser.sent.map(({ request }) => request.op)).toEqual(["prepare_write", "navigate"])
-    expect(browser.sent[1]).toEqual({
-      sessionID: call.context.sessionID,
-      request: { op: "navigate", tabID: "one", url: "https://destination.test/", context: state.context },
+    expect(browser.sent[1].request).toEqual({
+      op: "navigate",
+      tabID: "one",
+      url: "https://destination.test/",
+      context: state.context,
     })
-    expect(typeof reply === "string" ? reply : reply.output).toContain(state.visibleText)
   })
 
   test("select options render only owned metadata and describe untrusted events", async () => {
@@ -721,7 +743,7 @@ describe("browser tools", () => {
     const result = await browserTools(browser.port).browser_read_state.execute({ tabID: "one" }, call.context)
     const output = typeof result === "string" ? result : result.output
     expect(browser.sent).toEqual([{ sessionID: "ses_read", request: { tabID: "one", op: "read_state" } }])
-    expect(call.asked[0]).toEqual({ permission: "browser_read_state", patterns: ["*"] })
+    expect(call.asked).toEqual([])
     expect(output).toContain("Message Send")
     expect(output).toContain("[s4:e0] <button> Send")
   })
@@ -740,12 +762,12 @@ describe("browser tools", () => {
       expect(output).toContain(value)
   })
 
-  test("writes use their tool IDs and hostname as the permission pattern", async () => {
+  test("writes retain explicit tab identity without permission prompts", async () => {
     const browser = fakePort()
     const tools = browserTools(browser.port)
     const click = fakeContext("ses_click")
     await tools.browser_click.execute({ tabID: "one", ref: "s4:e0" }, click.context)
-    expect(click.asked.at(-1)).toEqual({ permission: "browser_click", patterns: ["teams.microsoft.com"] })
+    expect(click.asked).toEqual([])
 
     const key = fakeContext("ses_key")
     await tools.browser_press_key.execute({ tabID: "one", key: "Enter", ctrl: true }, key.context)
@@ -756,7 +778,7 @@ describe("browser tools", () => {
       modifiers: ["Ctrl"],
       context: state.context,
     })
-    expect(key.asked.at(-1)).toEqual({ permission: "browser_press_key", patterns: ["teams.microsoft.com"] })
+    expect(key.asked).toEqual([])
   })
 
   test("fill forwards its opaque ref and text", async () => {
@@ -785,26 +807,28 @@ describe("browser tools", () => {
     ["browser_fill", { ref: "s4:e1", text: "hi" }],
     ["browser_navigate", { url: "http://localhost/destination" }],
     ["browser_scroll", { deltaX: 0, deltaY: 200 }],
-  ] as const)("%s retains the context captured before deferred approval", async (name, args) => {
+  ] as const)("%s retains the context captured before deferred preparation settles", async (name, args) => {
     const browser = fakePort()
     const call = fakeContext()
     const waiting = Promise.withResolvers<void>()
     const approval = Promise.withResolvers<void>()
-    call.context.ask = async (input) => {
-      call.asked.push({ permission: input.permission, patterns: input.patterns })
-      if (input.permission !== name) return
-      waiting.resolve()
-      await approval.promise
+    const port: BrowserPort = {
+      send: async (sessionID, request, signal) => {
+        const response = await browser.port.send(sessionID, request, signal)
+        waiting.resolve()
+        await approval.promise
+        return response
+      },
     }
-    const pending = browserTools(browser.port)[name].execute({ tabID: "one", ...args }, call.context)
+    call.context.ask = async () => {
+      throw new Error("Redundant approval")
+    }
+    const pending = browserTools(port)[name].execute({ tabID: "one", ...args }, call.context)
     try {
       await waiting.promise
       expect(browser.sent).toHaveLength(1)
       expect(browser.sent[0].request.op).toBe("prepare_write")
-      expect(call.asked.at(-1)).toEqual({
-        permission: name,
-        patterns: [name === "browser_navigate" ? "localhost" : "teams.microsoft.com"],
-      })
+      expect(call.asked).toEqual([])
       approval.resolve()
       await pending
       expect(browser.sent).toHaveLength(2)
@@ -826,19 +850,22 @@ describe("browser tools", () => {
     ["browser_fill", { ref: "s4:e1", text: "hi" }],
     ["browser_navigate", { url: "http://localhost/destination" }],
     ["browser_scroll", { deltaX: 0, deltaY: 200 }],
-  ] as const)("%s cannot dispatch after an aborted deferred approval answers late", async (name, args) => {
+  ] as const)("%s cannot dispatch after an aborted deferred preparation answers late", async (name, args) => {
     const browser = fakePort()
     const call = fakeContext()
     const controller = new AbortController()
     const waiting = Promise.withResolvers<void>()
     const approval = Promise.withResolvers<void>()
     call.context.abort = controller.signal
-    call.context.ask = async (input) => {
-      if (input.permission !== name) return
-      waiting.resolve()
-      await approval.promise
+    const port: BrowserPort = {
+      send: async (sessionID, request, signal) => {
+        const response = await browser.port.send(sessionID, request, signal)
+        waiting.resolve()
+        await approval.promise
+        return response
+      },
     }
-    const tools = browserTools(browser.port)
+    const tools = browserTools(port)
     const pending = tools[name].execute({ tabID: "one", ...args }, call.context).catch((error: unknown) => error)
     try {
       await waiting.promise
@@ -852,15 +879,15 @@ describe("browser tools", () => {
     }
   })
 
-  test("missing or malformed main context fails before write approval", async () => {
+  test("missing or malformed main context fails before write dispatch", async () => {
     for (const context of [undefined, { ...state.context, revision: -1 }, { ...state.context, tabID: "other" }]) {
       const browser = fakePort(success({ ...state, context } as BrowserState))
       const call = fakeContext()
       await expect(
         browserTools(browser.port).browser_press_key.execute({ tabID: "one", key: "Enter" }, call.context),
-      ).rejects.toThrow(/approval context/)
+      ).rejects.toThrow(/document context/)
       expect(browser.sent).toHaveLength(1)
-      expect(call.asked.map((input) => input.permission)).toEqual(["browser_read_state"])
+      expect(call.asked).toEqual([])
     }
   })
 

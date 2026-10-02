@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { cancelBrowserNavigation, navigateBrowser } from "./navigation"
 import type { EventEmitter } from "node:events"
 import { trackDownload } from "./download-records"
 import {
@@ -29,7 +30,7 @@ import { browserPreferences, browserURL, browserPageURL, BROWSER_PARTITION } fro
 import {
   registerBrowserTab,
   revokeBrowserAccess,
-  revokeBrowserAccessOnNavigation,
+  invalidateBrowserDocument,
   setBrowserAgentEnabled,
   browserAgentEnabled,
   browserOperationBusy,
@@ -110,9 +111,31 @@ import { setBrowserTabHandler } from "./registry"
 import { failure, hasFrameTarget, type TabRequest } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 import { transferVaultBackup } from "./vault-backup"
+import { createLeaveConfirmation } from "./leave-confirmation"
+import { browserOwnerScopeCurrent, resolveBrowserOwnerScope, type BrowserOwnerScope } from "./session-resolver"
 
 type Tab = BrowserRegistration & {
-  agentClose?: { check: () => void }
+  failure?: { kind: "load" | "crash"; code: string; message: string }
+  agentClose?: {
+    check: () => void
+    retry?: () => void
+    retrying?: boolean
+    settled?: () => void
+    settledPromise?: Promise<void>
+    prompt?: Promise<boolean>
+    stay?: () => void
+  }
+  leaveIntent?: {
+    navigation: boolean
+    check: () => void
+    replay: () => Promise<unknown> | unknown
+    settled: Promise<void>
+    settle: () => void
+    prompt?: Promise<boolean>
+    replaying?: boolean
+    vetoed?: boolean
+    vetoRevision?: number
+  }
   uploadGuard?: Promise<unknown>
   saved: SavedTab
   recovery?: { started: boolean; restoring: boolean }
@@ -132,8 +155,12 @@ type Tab = BrowserRegistration & {
   readyLoginOffers?: (check: () => void) => Promise<number>
   loginBusy?: boolean
   siteData?: BrowserSiteData
+  deferredRestore?: boolean
+  restorePromise?: Promise<void>
+  restore?: () => Promise<void>
 }
 type Group = {
+  revision?: number
   sessionID: string
   tabs: Tab[]
   activeID?: string
@@ -241,12 +268,14 @@ export function registerBrowserOwner(win: BrowserWindow) {
   win.webContents.on("did-start-navigation", (_event, _url, _inPlace, main) => {
     owner.screenshotEpoch++
     if (main) {
+      owner.groups.forEach((group) => group.tabs.forEach(revokeBrowserAccess))
       vaultAccess.lock()
       hide()
     }
   })
   win.webContents.on("render-process-gone", () => {
     owner.screenshotEpoch++
+    owner.groups.forEach((group) => group.tabs.forEach(revokeBrowserAccess))
     vaultAccess.lock()
     hide()
   })
@@ -352,10 +381,13 @@ function groupFor(owner: Owner, sessionID: string) {
   owner.groups.set(sessionID, group)
   if (saved) {
     group.closed = saved.closed.slice(0, 20)
-    saved.tabs.slice(0, 32).forEach((tab) => createTab(owner, group, undefined, tab))
+    saved.tabs
+      .slice(0, 32)
+      .forEach((tab, index) => createTab(owner, group, undefined, tab, undefined, index !== saved.active))
     group.activeID = group.tabs[saved.active]?.id ?? group.tabs[0]?.id
   }
   group.restoring = false
+  if (group.activeID) layout(owner)
   return group
 }
 
@@ -423,8 +455,10 @@ function browserDataOrigin(value: string) {
 }
 
 function state(group: Group): BrowserTabs {
+  group.revision = (group.revision ?? 0) + 1
   const profile = browserProfile()
   return {
+    revision: group.revision,
     sessionID: group.sessionID,
     activeID: group.activeID,
     recentlyClosed: group.closed,
@@ -437,7 +471,7 @@ function state(group: Group): BrowserTabs {
       .filter((tab) => !tab.view.webContents.isDestroyed())
       .map((tab) => {
         const contents = tab.view.webContents
-        const url = contents.getURL()
+        const url = tab.deferredRestore ? tab.saved.url : contents.getURL()
         const origin = presentationOrigin(url)
         const rule = transferRule(profile.transferRules ?? [], url)
         return {
@@ -446,9 +480,12 @@ function state(group: Group): BrowserTabs {
           revision: tab.revision,
           openerID: tab.openerID,
           agentAccess: tab.agentAccess,
+          operation: tab.operation ? { ...tab.operation } : undefined,
+          notice: tab.notice,
+          failure: tab.failure,
           // ponytail: report main's policy for the live URL, never the saved/display fallback.
           access: {
-            loading: contents.isLoadingMainFrame(),
+            loading: contents.isLoadingMainFrame() || tab.deferredRestore === true,
             hostAllowed: browserPageURL(url) && url !== "about:blank",
             blank: url === "about:blank",
             transferGuarded: tab.transferGuarded === true,
@@ -456,14 +493,16 @@ function state(group: Group): BrowserTabs {
             transferSource: !/^https?:/.test(url) ? "unavailable" : rule.origin === "*" ? "default" : "exception",
           },
           loadFailed: tab.loadFailed,
-          loadError: tab.loadFailed && tab.recovery?.restoring ? nativeT("desktop.browser.recovery.failed") : undefined,
+          loadError:
+            tab.failure?.message ??
+            (tab.loadFailed && tab.recovery?.restoring ? nativeT("desktop.browser.recovery.failed") : undefined),
           connection: tab.loadFailed
             ? "error"
             : contents.isLoadingMainFrame()
               ? "unknown"
-              : contents.getURL().startsWith("https:")
+              : url.startsWith("https:")
                 ? "https"
-                : contents.getURL().startsWith("http:")
+                : url.startsWith("http:")
                   ? "http"
                   : "unknown",
           zoom: origin
@@ -473,11 +512,15 @@ function state(group: Group): BrowserTabs {
           deviceSize: tab.deviceSize ?? BROWSER_DEVICE_DEFAULT,
           find: tab.find,
           siteData: tab.siteData?.origin === browserDataOrigin(url) ? tab.siteData : undefined,
-          url: contents.getURL() || tab.saved.url,
-          title: contents.getTitle().slice(0, 512) || tab.saved.title,
-          loading: contents.isLoading(),
-          canGoBack: contents.navigationHistory.canGoBack(),
-          canGoForward: contents.navigationHistory.canGoForward(),
+          url: url || tab.saved.url,
+          title: (tab.deferredRestore ? tab.saved.title : contents.getTitle().slice(0, 512)) || tab.saved.title,
+          loading: contents.isLoading() || tab.deferredRestore === true,
+          canGoBack: tab.deferredRestore
+            ? (tab.saved.navigation?.activeIndex ?? 0) > 0
+            : contents.navigationHistory.canGoBack(),
+          canGoForward: tab.deferredRestore
+            ? (tab.saved.navigation?.activeIndex ?? 0) < (tab.saved.navigation?.entries.length ?? 1) - 1
+            : contents.navigationHistory.canGoForward(),
         }
       }),
   }
@@ -523,11 +566,163 @@ function layout(owner: Owner) {
   }
   tab.view.setBounds({ x, y, width, height })
   if (tab.device) contentsDevice(tab, width, height)
+  if (tab.deferredRestore) void tab.restore?.()
   if (owner.attached !== tab) {
     if (!owner.win.contentView.children.includes(tab.view)) owner.win.contentView.addChildView(tab.view)
     tab.view.setVisible(true)
     owner.attached = tab
   }
+}
+
+async function confirmTabLeave(owner: Owner, tab: Tab, check: () => void) {
+  const controller = new AbortController()
+  const cancel = () => controller.abort()
+  const contents = tab.view.webContents
+  owner.win.on("close", cancel)
+  owner.win.on("hide", cancel)
+  owner.win.on("minimize", cancel)
+  contents.once("destroyed", cancel)
+  owner.suspended++
+  layout(owner)
+  try {
+    return await createLeaveConfirmation({
+      check,
+      ask: async () => {
+        const answer = await dialog.showMessageBox(owner.win, {
+          type: "warning",
+          message: nativeT("desktop.browser.leave"),
+          detail: nativeT("desktop.browser.leaveDetail"),
+          buttons: [nativeT("desktop.browser.stay"), nativeT("desktop.browser.leaveConfirm")],
+          defaultId: 0,
+          cancelId: 0,
+          signal: controller.signal,
+        })
+        return answer.response === 1
+      },
+    }).confirm()
+  } catch {
+    return false
+  } finally {
+    owner.win.removeListener("close", cancel)
+    owner.win.removeListener("hide", cancel)
+    owner.win.removeListener("minimize", cancel)
+    contents.removeListener("destroyed", cancel)
+    owner.suspended--
+    layout(owner)
+  }
+}
+
+async function runLeaveIntent<T>(
+  owner: Owner,
+  tab: Tab,
+  action: () => Promise<T> | T,
+  navigation = false,
+): Promise<T | undefined> {
+  // Loading a destination can be superseded; a leave decision or its approved replay cannot.
+  if (tab.leaveIntent && (!tab.leaveIntent.navigation || tab.leaveIntent.prompt || tab.leaveIntent.replaying))
+    throw new Error(nativeT("desktop.browser.tabs.busy"))
+  const contents = tab.view.webContents
+  const sourceURL = contents.getURL()
+  const revision = tab.revision
+  const taskEpoch = owner.taskEpoch
+  const deadline = Date.now() + 60_000
+  const settled = Promise.withResolvers<void>()
+  const intent: NonNullable<Tab["leaveIntent"]> = {
+    navigation,
+    check: () => {
+      if (
+        contents.isDestroyed() ||
+        owner.shutting ||
+        owner.taskEpoch !== taskEpoch ||
+        !owner.groups.get(tab.sessionID)?.tabs.includes(tab) ||
+        !!tab.agentClose ||
+        (tab.revision !== revision && (!intent.vetoed || tab.revision !== intent.vetoRevision)) ||
+        contents.getURL() !== sourceURL ||
+        Date.now() >= deadline ||
+        tab.leaveIntent !== intent
+      )
+        throw new Error("Leave intent expired or changed")
+    },
+    replay: action,
+    settled: settled.promise,
+    settle: settled.resolve,
+  }
+  tab.leaveIntent = intent
+  try {
+    let result: T | undefined
+    let failure: unknown
+    try {
+      result = await action()
+    } catch (error) {
+      failure = error
+    } finally {
+      intent.settle()
+    }
+    if (intent.prompt) {
+      const leave = await intent.prompt.catch(() => false)
+      if (leave) {
+        await intent.settled
+        intent.check()
+        intent.replaying = true
+        return await action()
+      }
+      return undefined
+    }
+    if (failure) throw failure
+    return result
+  } finally {
+    if (tab.leaveIntent === intent) tab.leaveIntent = undefined
+  }
+}
+
+function runPendingNavigation(contents: WebContents, action: () => void) {
+  const events: EventEmitter = contents
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      contents.removeListener("did-finish-load", finish)
+      contents.removeListener("did-stop-loading", finish)
+      contents.removeListener("did-navigate-in-page", finish)
+      contents.removeListener("did-fail-load", failed)
+      contents.removeListener("destroyed", finish)
+      events.removeListener("-before-unload-fired", unloaded)
+      resolve()
+    }
+    const failed = (_event: Electron.Event, _code: number, _description: string, _url: string, main: boolean) => {
+      if (main) finish()
+    }
+    const unloaded = (_event: Electron.Event, proceed: boolean) => {
+      if (!proceed) finish()
+    }
+    const timeout = setTimeout(finish, 15_000)
+    contents.once("did-finish-load", finish)
+    contents.once("did-stop-loading", finish)
+    contents.once("did-navigate-in-page", finish)
+    contents.on("did-fail-load", failed)
+    contents.once("destroyed", finish)
+    events.once("-before-unload-fired", unloaded)
+    action()
+  })
+}
+
+function closeTabAttempt(contents: WebContents) {
+  const events: EventEmitter = contents
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      contents.removeListener("destroyed", finish)
+      events.removeListener("-before-unload-fired", unloaded)
+      resolve()
+    }
+    const unloaded = (_event: Electron.Event, proceed: boolean) => {
+      if (!proceed) finish()
+    }
+    contents.once("destroyed", finish)
+    events.once("-before-unload-fired", unloaded)
+    contents.close({ waitForBeforeUnload: true })
+  })
 }
 
 function contentsDevice(tab: Tab, width: number, height: number) {
@@ -730,6 +925,7 @@ function createTab(
   popup?: { preferences?: WebPreferences; webContents?: WebContents; openerID: string },
   saved: SavedTab = { url: "about:blank", title: "" },
   position?: number,
+  deferredRestore = false,
 ) {
   if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
   if (!profileReady) {
@@ -932,261 +1128,48 @@ function createTab(
     revision: 0,
     openerID: popup?.openerID,
     loadFailed: false,
+    deferredRestore,
   }
   tab.ownerContext = () => `${owner.authorityID}_${owner.taskEpoch}`
-  tab.confirmScreenshot = async (url, signal) => {
-    // Detached views may never settle CDP capture; require the currently presented tab.
-    const attached = () =>
-      group.activeID === tab.id && owner.attached === tab && owner.win.contentView.children.includes(tab.view)
-    if (
-      owner.suspended ||
-      owner.shutting ||
-      owner.win.isDestroyed() ||
-      !owner.win.isVisible() ||
-      owner.win.isMinimized() ||
-      !group.tabs.includes(tab) ||
-      !attached()
-    )
-      return false
-    const consent = tab.screenshotConsent
-    if (!consent || consent.signal !== signal || signal.aborted) return false
+  let ownerScope: BrowserOwnerScope | undefined
+  tab.resolveOwnerScope = async (signal) => {
+    if (ownerScope && browserOwnerScopeCurrent(ownerScope.generation)) return ownerScope
+    const scope = await resolveBrowserOwnerScope(tab.sessionID, signal)
+    if (contents.isDestroyed() || owner.groups.get(group.sessionID) !== group || !group.tabs.includes(tab))
+      throw new Error("Browser tab owner changed")
+    ownerScope = scope
+    return scope
+  }
+  tab.ownerScope = () => (ownerScope && browserOwnerScopeCurrent(ownerScope.generation) ? ownerScope : undefined)
+  tab.ownerScopeReady = tab.resolveOwnerScope(AbortSignal.timeout(3000))
+  void tab.ownerScopeReady.catch(() => undefined)
+  tab.captureOwner = (screenshot) => {
     const epoch = owner.screenshotEpoch
-    const revoke = () => consent.abort()
-    const sheet =
-      process.platform === "darwin"
-        ? new BrowserWindow({
-            width: 400,
-            height: 160,
-            show: false,
-            title: nativeT("desktop.browser.screenshotConsent"),
-            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-          })
-        : undefined
-    sheet?.on("close", revoke)
-    owner.win.on("close", revoke)
-    owner.win.on("hide", revoke)
-    owner.win.on("minimize", revoke)
-    owner.win.webContents.on("destroyed", revoke)
-    owner.win.webContents.on("render-process-gone", revoke)
-    owner.win.webContents.on("did-start-navigation", revoke)
-    owner.suspended++
-    layout(owner)
-    try {
-      signal.throwIfAborted()
-      sheet?.showInactive()
-      const options = {
-        type: "warning" as const,
-        message: nativeT("desktop.browser.screenshotConsent"),
-        detail: nativeT("desktop.browser.screenshotDetail", { task: tab.sessionID, tab: tab.id, url }),
-        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
-        defaultId: 0,
-        cancelId: 0,
-        signal,
-      }
-      const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
-      if (answer.response !== 1) return false
-      // Retain the original owner epoch through disclosure, not just native consent.
-      return () => {
-        signal.throwIfAborted()
-        if (
-          owner.screenshotEpoch !== epoch ||
-          owner.shutting ||
-          owner.win.isDestroyed() ||
-          owner.win.webContents.isDestroyed() ||
-          !owner.win.isVisible() ||
-          owner.win.isMinimized() ||
-          owners.get(tab.ownerID) !== owner ||
-          owner.groups.get(tab.sessionID) !== group ||
-          !group.tabs.includes(tab) ||
-          !attached()
-        )
-          throw new Error("Screenshot owner changed")
-      }
-    } finally {
-      owner.win.removeListener("close", revoke)
-      owner.win.removeListener("hide", revoke)
-      owner.win.removeListener("minimize", revoke)
-      owner.win.webContents.removeListener("destroyed", revoke)
-      owner.win.webContents.removeListener("render-process-gone", revoke)
-      owner.win.webContents.removeListener("did-start-navigation", revoke)
-      if (sheet && !sheet.isDestroyed()) sheet.destroy()
-      owner.suspended--
-      layout(owner)
+    const taskEpoch = owner.taskEpoch
+    const check = () => {
+      if (
+        owner.screenshotEpoch !== epoch ||
+        owner.taskEpoch !== taskEpoch ||
+        owner.suspended ||
+        owner.shutting ||
+        owner.win.isDestroyed() ||
+        owner.win.webContents.isDestroyed() ||
+        !owner.win.isVisible() ||
+        owner.win.isMinimized() ||
+        owners.get(tab.ownerID) !== owner ||
+        owner.groups.get(tab.sessionID) !== group ||
+        !group.tabs.includes(tab) ||
+        (owner.linkContext?.sessionID ?? owner.viewport?.sessionID) !== tab.sessionID ||
+        (screenshot &&
+          (group.activeID !== tab.id || owner.attached !== tab || !owner.win.contentView.children.includes(tab.view)))
+      )
+        throw new Error("Browser capture owner changed")
     }
+    check()
+    return check
   }
   tab.observeNetwork = (durationMs, check, signal) =>
     observeNetwork(contents.session.webRequest, contents, durationMs, check, signal)
-  tab.confirmDiagnostics = async (url, durationMs, signal, kind) => {
-    const title = kind === "network" ? "desktop.browser.networkConsent" : "desktop.browser.diagnosticsConsent"
-    const detail = kind === "network" ? "desktop.browser.networkDetail" : "desktop.browser.diagnosticsDetail"
-    const currentTask = () => owner.linkContext?.sessionID ?? owner.viewport?.sessionID
-    if (
-      owner.suspended ||
-      owner.shutting ||
-      owner.win.isDestroyed() ||
-      !owner.win.isVisible() ||
-      owner.win.isMinimized() ||
-      currentTask() !== tab.sessionID ||
-      !group.tabs.includes(tab)
-    )
-      return false
-    const consent = tab.diagnosticConsent
-    if (!consent || consent.signal !== signal || signal.aborted) return false
-    const taskEpoch = owner.taskEpoch
-    const windowEpoch = owner.screenshotEpoch
-    const revoke = () => consent.abort()
-    const sheet =
-      process.platform === "darwin"
-        ? new BrowserWindow({
-            width: 400,
-            height: 160,
-            show: false,
-            title: nativeT(title),
-            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-          })
-        : undefined
-    sheet?.on("close", revoke)
-    owner.win.on("close", revoke)
-    owner.win.on("hide", revoke)
-    owner.win.on("minimize", revoke)
-    owner.win.webContents.on("destroyed", revoke)
-    owner.win.webContents.on("render-process-gone", revoke)
-    owner.win.webContents.on("did-start-navigation", revoke)
-    owner.suspended++
-    layout(owner)
-    try {
-      signal.throwIfAborted()
-      sheet?.showInactive()
-      const options = {
-        type: "warning" as const,
-        message: nativeT(title),
-        detail: nativeT(detail, {
-          task: tab.sessionID,
-          tab: tab.id,
-          url,
-          duration: durationMs,
-        }),
-        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
-        defaultId: 0,
-        cancelId: 0,
-        signal,
-      }
-      const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
-      if (answer.response !== 1) return false
-      return () => {
-        signal.throwIfAborted()
-        if (
-          owner.taskEpoch !== taskEpoch ||
-          owner.screenshotEpoch !== windowEpoch ||
-          owner.shutting ||
-          owner.win.isDestroyed() ||
-          owner.win.webContents.isDestroyed() ||
-          !owner.win.isVisible() ||
-          owner.win.isMinimized() ||
-          currentTask() !== tab.sessionID ||
-          owners.get(tab.ownerID) !== owner ||
-          owner.groups.get(tab.sessionID) !== group ||
-          !group.tabs.includes(tab)
-        )
-          throw new Error("Diagnostics owner changed")
-      }
-    } finally {
-      owner.win.removeListener("close", revoke)
-      owner.win.removeListener("hide", revoke)
-      owner.win.removeListener("minimize", revoke)
-      owner.win.webContents.removeListener("destroyed", revoke)
-      owner.win.webContents.removeListener("render-process-gone", revoke)
-      owner.win.webContents.removeListener("did-start-navigation", revoke)
-      if (sheet && !sheet.isDestroyed()) sheet.destroy()
-      owner.suspended--
-      layout(owner)
-    }
-  }
-  tab.confirmSiteTool = async (url, tool, argumentsJSON, signal) => {
-    const currentTask = () => owner.linkContext?.sessionID ?? owner.viewport?.sessionID
-    if (
-      owner.suspended ||
-      owner.shutting ||
-      owner.win.isDestroyed() ||
-      !owner.win.isVisible() ||
-      owner.win.isMinimized() ||
-      currentTask() !== tab.sessionID ||
-      !group.tabs.includes(tab)
-    )
-      return false
-    const consent = tab.siteToolConsent
-    if (!consent || consent.signal !== signal || signal.aborted) return false
-    const taskEpoch = owner.taskEpoch
-    const windowEpoch = owner.screenshotEpoch
-    const revoke = () => consent.abort()
-    const sheet =
-      process.platform === "darwin"
-        ? new BrowserWindow({
-            width: 480,
-            height: 260,
-            show: false,
-            title: nativeT("desktop.browser.siteToolConsent"),
-            webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-          })
-        : undefined
-    sheet?.on("close", revoke)
-    owner.win.on("close", revoke)
-    owner.win.on("hide", revoke)
-    owner.win.on("minimize", revoke)
-    owner.win.webContents.on("destroyed", revoke)
-    owner.win.webContents.on("render-process-gone", revoke)
-    owner.win.webContents.on("did-start-navigation", revoke)
-    owner.suspended++
-    layout(owner)
-    try {
-      signal.throwIfAborted()
-      sheet?.showInactive()
-      const options = {
-        type: "warning" as const,
-        message: nativeT("desktop.browser.siteToolConsent"),
-        detail: nativeT("desktop.browser.siteToolDetail", {
-          task: tab.sessionID,
-          tab: tab.id,
-          url,
-          tool: tool.title || tool.name,
-          arguments: argumentsJSON,
-        }),
-        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
-        defaultId: 0,
-        cancelId: 0,
-        signal,
-      }
-      const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
-      if (answer.response !== 1) return false
-      return () => {
-        signal.throwIfAborted()
-        if (
-          owner.taskEpoch !== taskEpoch ||
-          owner.screenshotEpoch !== windowEpoch ||
-          owner.shutting ||
-          owner.win.isDestroyed() ||
-          owner.win.webContents.isDestroyed() ||
-          !owner.win.isVisible() ||
-          owner.win.isMinimized() ||
-          currentTask() !== tab.sessionID ||
-          owners.get(tab.ownerID) !== owner ||
-          owner.groups.get(tab.sessionID) !== group ||
-          !group.tabs.includes(tab)
-        )
-          throw new Error("Site tool owner changed")
-      }
-    } finally {
-      owner.win.removeListener("close", revoke)
-      owner.win.removeListener("hide", revoke)
-      owner.win.removeListener("minimize", revoke)
-      owner.win.webContents.removeListener("destroyed", revoke)
-      owner.win.webContents.removeListener("render-process-gone", revoke)
-      owner.win.webContents.removeListener("did-start-navigation", revoke)
-      if (sheet && !sheet.isDestroyed()) sheet.destroy()
-      owner.suspended--
-      layout(owner)
-    }
-  }
   if (tab.transferGuarded) {
     tab.uploadGuard = guardUploads(owner.win, tab, contents)
     void tab.uploadGuard.catch(() => {
@@ -1196,8 +1179,11 @@ function createTab(
   const firstUnpinned = group.tabs.findIndex((entry) => entry.saved.pinned !== true)
   const target = position ?? (tab.saved.pinned === true && firstUnpinned >= 0 ? firstUnpinned : group.tabs.length)
   group.tabs.splice(Math.max(0, Math.min(target, group.tabs.length)), 0, tab)
-  group.activeID = tab.id
+  if (!group.restoring) group.activeID = tab.id
   const unregister = registerBrowserTab(tab)
+  tab.operationChanged = () => {
+    if (!contents.isDestroyed() && owner.groups.get(group.sessionID) === group && group.tabs.includes(tab)) changed()
+  }
   const offers = watchLoginOffers(
     owner.win,
     contents,
@@ -1213,12 +1199,7 @@ function createTab(
   tab.readyLoginOffers = offers.ready
   const changed = () => publish(owner, group)
   const invalidate = () => {
-    tab.accessConsent?.abort()
-    tab.screenshotConsent?.abort()
-    tab.diagnosticConsent?.abort()
-    tab.siteToolConsent?.abort()
-    tab.revision++
-    invalidateSnapshots(contents)
+    invalidateBrowserDocument(tab)
     cancelPicker(contents)
   }
   contents.on("will-frame-navigate", (event) => {
@@ -1230,17 +1211,17 @@ function createTab(
       event.preventDefault()
   })
   contents.on("will-redirect", (event, url, _inPlace, main) => {
-    if (main) revokeBrowserAccessOnNavigation(tab, url)
     if (main && (!browserURL(url) || tab.navigationAllowed?.(url) === false)) event.preventDefault()
   })
   contents.on("did-start-navigation", (_event, url, inPlace, main) => {
     if (!main) return
-    revokeBrowserAccessOnNavigation(tab, url)
+
     // Supersede the callback, not the last recoverable snapshot; a retry may fail or stop.
     if (tab.recovery?.started) tab.recovery = undefined
     if (tab.recovery) tab.recovery.started = true
     if (!inPlace && tab.permissionReloadPhase) tab.permissionReloadPhase = "loading"
     tab.loadFailed = false
+    tab.failure = undefined
     tab.find = undefined
     tab.findRequest = undefined
     tab.siteData = undefined
@@ -1259,13 +1240,17 @@ function createTab(
     }
     changed()
   })
-  contents.on("did-fail-load", (_event, code, _description, _url, main) => {
+  contents.on("did-fail-load", (_event, code, description, _url, main) => {
     if (!main || code === -3) return
     tab.loadFailed = true
+    tab.failure = {
+      kind: "load",
+      code: String(code),
+      message: nativeT("desktop.browser.pageLoadCause", { cause: description.slice(0, 256), code }),
+    }
     changed()
   })
   const navigated = () => {
-    revokeBrowserAccessOnNavigation(tab, contents.getURL())
     if (!tab.recovery && !tab.loadFailed) {
       const navigation = recoveryNavigation({
         entries: contents.navigationHistory.getAllEntries(),
@@ -1281,7 +1266,35 @@ function createTab(
     }
     changed()
   }
+  tab.restore = () => {
+    if (!tab.deferredRestore && tab.restorePromise) return tab.restorePromise
+    if (contents.isDestroyed()) return Promise.resolve()
+    tab.deferredRestore = false
+    const recovery = { started: false, restoring: group.restoring || !!tab.saved.navigation }
+    tab.recovery = recovery
+    tab.restorePromise = (
+      tab.saved.navigation
+        ? contents.navigationHistory.restore({
+            entries: tab.saved.navigation.entries,
+            index: tab.saved.navigation.activeIndex,
+          })
+        : contents.loadURL(tab.saved.url)
+    ).then(
+      () => {
+        if (contents.isDestroyed() || tab.recovery !== recovery || tab.loadFailed) return
+        tab.recovery = undefined
+        navigated()
+      },
+      () => {
+        if (contents.isDestroyed() || tab.recovery !== recovery) return
+        tab.loadFailed = true
+        changed()
+      },
+    )
+    return tab.restorePromise
+  }
   contents.on("did-navigate", () => {
+    tab.notice = undefined
     // A main-frame document commit covers all prior requests, including ones queued before this commit.
     tab.permissionReload = false
     tab.permissionReloadQueued = false
@@ -1317,50 +1330,74 @@ function createTab(
     changed()
   })
   contents.on("page-title-updated", navigated)
-  contents.on("render-process-gone", () => {
-    tab.agentAccess = false
+  contents.on("render-process-gone", (_event, details) => {
+    tab.loadFailed = true
+    tab.failure = {
+      kind: "crash",
+      code: details.reason,
+      message: nativeT("desktop.browser.pageCrashCause", { cause: details.reason }),
+    }
+    revokeBrowserAccess(tab)
     invalidate()
     changed()
   })
   contents.on("will-prevent-unload", (event) => {
     const pending = tab.agentClose
+    const intent = tab.leaveIntent
     // A site cannot keep capturing by vetoing the document replacement after its permission is revoked.
     if (tab.permissionReplacing || (tab.permissionReloadPhase && !pending)) {
       event.preventDefault()
       return
     }
-    if (pending) {
+    if (pending?.retrying || intent?.replaying) {
       try {
-        pending.check()
+        pending?.check()
+        intent?.check()
+        event.preventDefault()
+        if (intent?.replaying) intent.replaying = false
       } catch {
         return
       }
+      return
     }
-    owner.suspended++
-    layout(owner)
     try {
-      const answer = dialog.showMessageBoxSync(owner.win, {
-        type: "warning",
-        message: nativeT("desktop.browser.leave"),
-        detail: nativeT("desktop.browser.leaveDetail"),
-        buttons: [nativeT("desktop.browser.stay"), nativeT("desktop.browser.leaveConfirm")],
-        defaultId: 0,
-        cancelId: 0,
-      })
-      if (answer !== 1) return
-      // The sync dialog blocks timers; check the same absolute deadline after its answer.
+      pending?.check()
+    } catch {
       if (pending) {
-        try {
-          pending.check()
-        } catch {
-          return
-        }
+        pending.prompt ??= pending.settledPromise!.then(() => pending.stay?.()).then(() => false)
       }
-      event.preventDefault()
-    } finally {
-      owner.suspended--
-      layout(owner)
+      return
     }
+    if (intent) {
+      intent.vetoed = true
+      intent.vetoRevision = tab.revision
+      intent.prompt ??= confirmTabLeave(owner, tab, intent.check)
+      return
+    }
+    if (!pending) {
+      tab.notice = {
+        code: "untracked_leave",
+        message: nativeT("desktop.browser.untrackedLeave"),
+      }
+      changed()
+      return
+    }
+    pending.prompt ??= confirmTabLeave(owner, tab, pending.check)
+      .then(async (leave) => {
+        await pending.settledPromise
+        if (!leave) {
+          pending.stay?.()
+          return false
+        }
+        pending.check()
+        pending.retrying = true
+        pending.retry?.()
+        return true
+      })
+      .catch(() => {
+        pending.stay?.()
+        return false
+      })
   })
   contents.setWindowOpenHandler(({ url }) => {
     if (!browserURL(url || "about:blank") || group.tabs.length >= 32) return { action: "deny" }
@@ -1425,30 +1462,7 @@ function createTab(
   layout(owner)
   changed()
   persistGroup(owner, group)
-  if (!popup) {
-    const recovery = { started: false, restoring: group.restoring || !!tab.saved.navigation }
-    tab.recovery = recovery
-    // Only URL/title projections reach Electron; never serialize or replay native pageState.
-    void (
-      tab.saved.navigation
-        ? contents.navigationHistory.restore({
-            entries: tab.saved.navigation.entries,
-            index: tab.saved.navigation.activeIndex,
-          })
-        : contents.loadURL(tab.saved.url)
-    ).then(
-      () => {
-        if (contents.isDestroyed() || tab.recovery !== recovery || tab.loadFailed) return
-        tab.recovery = undefined
-        navigated()
-      },
-      () => {
-        if (contents.isDestroyed() || tab.recovery !== recovery) return
-        tab.loadFailed = true
-        changed()
-      },
-    )
-  }
+  if (!popup && !deferredRestore) void tab.restore()
   return tab
 }
 
@@ -1723,6 +1737,12 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     ["close", "close-tabs", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
   )
     throw new Error(nativeT("desktop.browser.tabs.busy"))
+  if (!["tab-pin", "tab-move", "select", "close", "close-tabs"].includes(command.op)) {
+    if (command.op === "navigate" && tab.deferredRestore) {
+      tab.deferredRestore = false
+      tab.saved = projectSavedTab({ ...tab.saved, url: command.url, navigation: undefined })!
+    } else await tab.restore?.()
+  }
   if (command.op === "tab-pin") {
     if (typeof command.pinned !== "boolean") throw new Error("Invalid tab pin")
     if ((tab.saved.pinned === true) === command.pinned) return state(group)
@@ -1754,7 +1774,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       group,
       undefined,
       {
-        url: recoveryURL(contents.getURL() || tab.saved.url),
+        url: recoveryURL(tab.deferredRestore ? tab.saved.url : contents.getURL() || tab.saved.url),
         title: contents.getTitle().slice(0, 512) || tab.saved.title,
         pinned: false,
       },
@@ -1768,13 +1788,19 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       (entry, entryIndex) =>
         entry !== tab && entry.saved.pinned !== true && (command.scope === "others" || entryIndex > index),
     )
-    if (targets.some((entry) => entry.agentClose || entry.permissionReloadPhase))
+    if (targets.some((entry) => entry.agentClose || entry.leaveIntent || entry.permissionReloadPhase))
       throw new Error(nativeT("desktop.browser.tabs.busy"))
     if (targets.some((entry) => entry.id === group.activeID)) {
       group.activeID = tab.id
       layout(owner)
     }
-    targets.forEach((entry) => entry.view.webContents.close({ waitForBeforeUnload: true }))
+    for (const entry of targets) {
+      if (entry.contents.isDestroyed()) continue
+      cancelBrowserNavigation(entry.view.webContents)
+      await runLeaveIntent(owner, entry, () => closeTabAttempt(entry.view.webContents))
+      // Stay ends the batch, keeping all remaining unsaved work available to the user.
+      if (!entry.contents.isDestroyed()) break
+    }
     return state(group)
   } else if (command.op === "inspect-site") {
     const url = contents.getURL()
@@ -2300,20 +2326,33 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     }
   } else if (command.op === "select") {
     group.activeID = tab.id
+    void tab.restore?.()
     persistGroup(owner, group)
     layout(owner)
-  } else if (command.op === "close") contents.close({ waitForBeforeUnload: true })
-  else if (command.op === "navigate") {
+  } else if (command.op === "close") {
+    cancelBrowserNavigation(contents)
+    await runLeaveIntent(owner, tab, () => closeTabAttempt(contents))
+  } else if (command.op === "navigate") {
     if (!browserURL(command.url)) throw new Error("Invalid browser URL")
-    await contents.loadURL(command.url)
+    await runLeaveIntent(owner, tab, () => navigateBrowser(contents, command.url), true)
   } else if (command.op === "back") {
-    if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+    if (contents.navigationHistory.canGoBack()) {
+      const index = contents.navigationHistory.getActiveIndex() - 1
+      await runLeaveIntent(owner, tab, () =>
+        runPendingNavigation(contents, () => contents.navigationHistory.goToIndex(index)),
+      )
+    }
   } else if (command.op === "forward") {
-    if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+    if (contents.navigationHistory.canGoForward()) {
+      const index = contents.navigationHistory.getActiveIndex() + 1
+      await runLeaveIntent(owner, tab, () =>
+        runPendingNavigation(contents, () => contents.navigationHistory.goToIndex(index)),
+      )
+    }
   } else if (command.op === "reload") {
     if (tab.permissionReload) reloadForPermissions(tab)
-    else contents.reload()
-  } else if (command.op === "stop") contents.stop()
+    else await runLeaveIntent(owner, tab, () => runPendingNavigation(contents, () => contents.reload()))
+  } else if (command.op === "stop") cancelBrowserNavigation(contents)
   else if (command.op === "access") {
     if (command.enabled && tab.loginBusy) throw new Error("Login operation pending")
     if (command.enabled && !browserAgentEnabled()) throw new Error("Browser agent access is disabled")
@@ -2374,7 +2413,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         const options = {
           type: "warning" as const,
           message: nativeT("desktop.browser.access"),
-          detail: nativeT("desktop.browser.accessSiteDetail", { origin: new URL(url).origin }),
+          detail: nativeT("desktop.browser.tabGrantDetail", { origin: new URL(url).origin }),
           buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
           defaultId: 0,
           cancelId: 0,
@@ -2401,7 +2440,6 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
               }),
           )
           if (valid()) {
-            tab.agentOrigin = new URL(url).origin
             tab.agentAccess = true
             tab.accessRevision = (tab.accessRevision ?? 0) + 1
           }
@@ -2431,7 +2469,7 @@ export function browserViewport(
   if (!input || typeof input.lease !== "string" || input.lease.length > 128) throw new Error("Invalid browser viewport")
   groupFor(owner, input.sessionID)
   if (input.bounds === null) {
-    if (owner.viewport?.lease === input.lease) {
+    if (owner.viewport?.lease === input.lease && owner.viewport?.sessionID === input.sessionID) {
       advanceOwnerTask(owner)
       owner.viewport = undefined
     }
@@ -2663,9 +2701,19 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         // Electron 42 emits this close-only acknowledgement after the renderer returns,
         // unlike will-prevent-unload. Revalidate this internal event on Electron upgrades.
         const unloaded = (event: Electron.Event, proceed: boolean) => {
-          if (!proceed || event.defaultPrevented) setImmediate(() => finish(contents.isDestroyed()))
+          if (!proceed || event.defaultPrevented) {
+            if (pending.retrying) setImmediate(() => finish(contents.isDestroyed()))
+            else pending.settled?.()
+          }
         }
-        const pending = { check: authority }
+        const firstSettlement = Promise.withResolvers<void>()
+        const pending: NonNullable<Tab["agentClose"]> = {
+          check: authority,
+          settled: firstSettlement.resolve,
+          settledPromise: firstSettlement.promise,
+          retry: () => contents.close({ waitForBeforeUnload: true }),
+          stay: () => finish(false),
+        }
         target.agentClose = pending
         contents.once("destroyed", destroyed)
         events.on("-before-unload-fired", unloaded)
