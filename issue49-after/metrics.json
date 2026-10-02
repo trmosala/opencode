@@ -1,0 +1,1038 @@
+{
+  "mode": "after",
+  "metrics": [
+    {
+      "tag": "classic-light-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(248, 248, 248)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(248, 248, 248)",
+          "border": "rgb(3, 76, 255)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-light-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 33,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 57,
+              "bottom": 104,
+              "left": 33
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 61,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 85,
+              "bottom": 104,
+              "left": 61
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 89,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 113,
+              "bottom": 104,
+              "left": 89
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 120,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 144,
+              "bottom": 104,
+              "left": 120
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 378,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 402,
+              "bottom": 104,
+              "left": 378
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-light-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(248, 248, 248)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(248, 248, 248)",
+          "border": "rgb(3, 76, 255)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(240, 240, 240)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-light-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 383,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 407,
+              "bottom": 104,
+              "left": 383
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 355,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 379,
+              "bottom": 104,
+              "left": 355
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 327,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 351,
+              "bottom": 104,
+              "left": 327
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 296,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 320,
+              "bottom": 104,
+              "left": 296
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 38,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 62,
+              "bottom": 104,
+              "left": 38
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(16, 16, 16)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(16, 16, 16)",
+          "border": "rgb(157, 190, 254)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-dark-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 33,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 57,
+              "bottom": 104,
+              "left": 33
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 61,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 85,
+              "bottom": 104,
+              "left": 61
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 89,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 113,
+              "bottom": 104,
+              "left": 89
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 120,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 144,
+              "bottom": 104,
+              "left": 120
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 378,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 402,
+              "bottom": 104,
+              "left": 378
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "classic-dark-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(16, 16, 16)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(16, 16, 16)",
+          "border": "rgb(157, 190, 254)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgba(0, 0, 0, 0)",
+          "border": "rgb(32, 32, 32)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "classic-dark-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 383,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 407,
+              "bottom": 104,
+              "left": 383
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 355,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 379,
+              "bottom": 104,
+              "left": 355
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 327,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 351,
+              "bottom": 104,
+              "left": 327
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 296,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 320,
+              "bottom": 104,
+              "left": 296
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 38,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 62,
+              "bottom": 104,
+              "left": 38
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(3, 76, 255)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-light-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 33,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 57,
+              "bottom": 104,
+              "left": 33
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 61,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 85,
+              "bottom": 104,
+              "left": 61
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 89,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 113,
+              "bottom": 104,
+              "left": 89
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 120,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 144,
+              "bottom": 104,
+              "left": 120
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 378,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 402,
+              "bottom": 104,
+              "left": 378
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-light-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(3, 76, 255)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(0, 0, 0)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgba(0, 0, 0, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-light-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 383,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 407,
+              "bottom": 104,
+              "left": 383
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 355,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 379,
+              "bottom": 104,
+              "left": 355
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 327,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 351,
+              "bottom": 104,
+              "left": 327
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 296,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 320,
+              "bottom": 104,
+              "left": 296
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 38,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 62,
+              "bottom": 104,
+              "left": 38
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-ltr",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(157, 190, 254)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-dark-ltr-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 33,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 57,
+              "bottom": 104,
+              "left": 33
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 61,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 85,
+              "bottom": 104,
+              "left": 61
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 89,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 113,
+              "bottom": 104,
+              "left": 89
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 120,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 144,
+              "bottom": 104,
+              "left": 120
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 378,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 402,
+              "bottom": 104,
+              "left": 378
+            }
+          }
+        ]
+      }
+    },
+    {
+      "tag": "new-dark-rtl",
+      "styles": [
+        {
+          "slot": "panel",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-toolbar",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-address",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(157, 190, 254)",
+          "width": 658
+        },
+        {
+          "slot": "browser-suggestions",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        },
+        {
+          "slot": "browser-landing",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgb(255, 255, 255)",
+          "width": 758
+        },
+        {
+          "slot": "browser-downloads",
+          "background": "rgb(22, 22, 22)",
+          "border": "rgba(255, 255, 255, 0.1)",
+          "width": 758
+        }
+      ]
+    },
+    {
+      "tag": "new-dark-rtl-narrow",
+      "geometry": {
+        "toolbarWidth": 388,
+        "scrollWidth": 388,
+        "inputWidth": 230,
+        "controls": [
+          {
+            "name": "Back",
+            "rect": {
+              "x": 383,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 407,
+              "bottom": 104,
+              "left": 383
+            }
+          },
+          {
+            "name": "Forward",
+            "rect": {
+              "x": 355,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 379,
+              "bottom": 104,
+              "left": 355
+            }
+          },
+          {
+            "name": "Reload",
+            "rect": {
+              "x": 327,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 351,
+              "bottom": 104,
+              "left": 327
+            }
+          },
+          {
+            "name": "Site controls",
+            "rect": {
+              "x": 296,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 320,
+              "bottom": 104,
+              "left": 296
+            }
+          },
+          {
+            "name": "Passwords and autofill",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0,
+              "left": 0
+            }
+          },
+          {
+            "name": "Add bookmark",
+            "rect": {
+              "x": 38,
+              "y": 80,
+              "width": 24,
+              "height": 24,
+              "top": 80,
+              "right": 62,
+              "bottom": 104,
+              "left": 38
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "errors": []
+}

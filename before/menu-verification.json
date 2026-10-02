@@ -1,0 +1,997 @@
+{
+  "checks": [
+    {
+      "tag": "classic-light-ltr-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-light-ltr-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-light-rtl-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-light-rtl-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-dark-ltr-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-dark-ltr-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-dark-rtl-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "classic-dark-rtl-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-light-ltr-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-light-ltr-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-light-rtl-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-light-rtl-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-dark-ltr-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-dark-ltr-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-dark-rtl-windows",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    },
+    {
+      "tag": "new-dark-rtl-macos",
+      "items": [
+        {
+          "label": "Find in page",
+          "icon": false
+        },
+        {
+          "label": "Print",
+          "icon": false
+        },
+        {
+          "label": "Zoom",
+          "icon": false
+        },
+        {
+          "label": "Show device toolbar",
+          "icon": false
+        },
+        {
+          "label": "Take a screenshot and add to chat",
+          "icon": false
+        },
+        {
+          "label": "Reopen closed tab",
+          "icon": false
+        },
+        {
+          "label": "Import cookies and passwords…",
+          "icon": false
+        },
+        {
+          "label": "Passwords and autofill",
+          "icon": false
+        },
+        {
+          "label": "Contacts and addresses",
+          "icon": false
+        },
+        {
+          "label": "Downloads",
+          "icon": false
+        },
+        {
+          "label": "History",
+          "icon": false
+        },
+        {
+          "label": "Bookmarks",
+          "icon": false
+        },
+        {
+          "label": "Clear browsing data",
+          "icon": false
+        },
+        {
+          "label": "Browser settings",
+          "icon": false
+        }
+      ],
+      "arrows": []
+    }
+  ],
+  "errors": []
+}

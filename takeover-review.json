@@ -1,0 +1,69 @@
+{
+  "checkout": "D:\\Workarea\\CookieMonster\\browser-gaps",
+  "implemented": [
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    59,
+    60,
+    61
+  ],
+  "pending": {
+    "58": "Human desktop dev-build corner finding required; existing 10px inset and radius preserved.",
+    "62": "Human component swap-versus-override decision required before implementation.",
+    "59": "Human design review required before merge; no merge requested."
+  },
+  "validation": {
+    "appTypecheck": "pass",
+    "mountedTests": {
+      "pass": 14,
+      "assertions": 482
+    },
+    "shortcutSuggestionTests": {
+      "pass": 4,
+      "assertions": 32
+    },
+    "scopedLint": {
+      "errors": 0,
+      "warnings": 25
+    },
+    "format": "pass",
+    "diffCheck": "pass",
+    "recordsPanels": 10,
+    "recordsScreenshotsPerBaseline": 80,
+    "menuCasesPerBaseline": 16,
+    "menuScreenshotsPerBaseline": 32,
+    "toolbarScreenshotsAfter": 56,
+    "narrowGeometryCases": 32,
+    "pageErrors": 0,
+    "tooltipHoverCases": 168,
+    "settingsGeneralScreenshotsPerBaseline": 8,
+    "conditionalTooltipControls": [
+      "accounts",
+      "go",
+      "new tab",
+      "all tabs"
+    ]
+  },
+  "evidence": [
+    "before/records-review.json",
+    "after/records-review.json",
+    "before/menu-verification.json",
+    "after/menu-verification.json",
+    "after/tooltip-verification.json",
+    "after/metrics.json",
+    "reload-proposal.svg"
+  ],
+  "limits": [
+    "Renderer Chrome fixture validates UI and viewport messages; it does not replace human Electron corner inspection.",
+    "No real account writes, app/server restart, commit, push or issue closure.",
+    "Automatic approval review rejected recursive deletion of packages/app/test-browser/.preview-a2uOVd with reason blocked by policy; folder left in place.",
+    "Tab-strip alignment CSS was preserved; TSX only wraps New tab and All tabs controls in native tooltips."
+  ]
+}

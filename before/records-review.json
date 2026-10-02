@@ -1,0 +1,565 @@
+{
+  "reports": [
+    {
+      "tag": "classic-light-ltr-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-ltr-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-light-rtl-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-ltr-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "classic-dark-rtl-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-ltr-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-light-rtl-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-ltr-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-history",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-downloads",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-passwords",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-bookmarks",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-contacts",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-import",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-settings",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-clear",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-zoom",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    },
+    {
+      "tag": "new-dark-rtl-site",
+      "search": null,
+      "row": null,
+      "nativeSwitch": [],
+      "menuOpen": false
+    }
+  ],
+  "errors": []
+}
