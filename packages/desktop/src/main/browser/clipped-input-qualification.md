@@ -34,7 +34,7 @@ The existing snapshot fixture passed its real input/textarea/contenteditable che
 
 Independent focused validation passed **170 tests / 1,647 assertions** and the desktop typecheck. Driver regressions additionally cover replacement and revocation after clearing and after native insertion. Scoped lint reports zero errors and existing warnings; formatting and whitespace checks pass. This is focused Windows qualification, not a full-repository, packaged or macOS check.
 
-## Remaining live acceptance
+## Live acceptance
 
 The earlier running process did not include these changes and its launch hashes were not pinned. Authenticated calendar reading and day navigation from that process are documented separately in [embedded-state qualification](./embedded-state-qualification.md).
 
@@ -47,4 +47,4 @@ Launch artifact SHA-256 hashes:
 
 The normal development relaunch initially failed because the relative entry path was resolved after the app changed its working directory to the home directory. Launching the same build with an absolute entry path succeeded; no startup-path source fix is claimed.
 
-Native observation of the rebuilt instance showed Microsoft's account picker and the restored tab's Agent Access off. Authentication and security permission controls require the user's clicks under Computer Use guidance. Live #40 acceptance remains pending week navigation, measured calendar scrolling and event-detail observation through the agent tools after those controls are completed. No real calendar edits or report transmission were performed for this change. Issue #40 remains open.
+Native observation of the rebuilt instance initially showed Microsoft's account picker and the restored tab's Agent Access off. The user subsequently completed sign-in and enabled access. The [authenticated embedded-input qualification](./live-embedded-input-qualification.md) records successful week navigation and restoration, measured calendar wheel movement, and opening/closing an existing event preview through the bundled agent tools. The parent independently verified those results in the native window. No additional origin grant or operation approval appeared, and no real calendar edits or report transmission were performed. This live evidence completes the remaining #40 acceptance checks alongside the synthetic/native coverage above.
