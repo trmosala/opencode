@@ -68,6 +68,7 @@ export type BrowserRegistration = {
   transferGuarded?: boolean
   frameSessions?: ReturnType<typeof createFrameSessions>
   agentAccess: boolean
+  leavePending?: boolean
   revision: number
   accessRevision?: number
   accessConsent?: AbortController

@@ -616,27 +616,40 @@ async function confirmTabLeave(
       cancel()
     }
   }
+  // An unparented macOS message box is app-modal; give only the dialog its own sheet owner.
+  const sheet =
+    process.platform === "darwin"
+      ? new BrowserWindow({
+          width: 400,
+          height: 160,
+          show: false,
+          title: nativeT("desktop.browser.leave"),
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        })
+      : undefined
+  sheet?.on("close", cancel)
   const checks = (owner.captureChecks ??= new Set())
   checks.add(validate)
   const unwatch = watchBrowserAccess(tab, cancel)
   listeners.forEach(([emitter, event]) => emitter.on(event, cancel))
-  owner.suspended++
-  layout(owner)
+  tab.leavePending = true
   try {
     return await createLeaveConfirmation({
       check,
       signal: AbortSignal.any([controller.signal, control.signal]),
       deadline: control.deadline,
       ask: async (signal) => {
-        const answer = await dialog.showMessageBox(owner.win, {
-          type: "warning",
+        sheet?.showInactive()
+        const options = {
+          type: "warning" as const,
           message: nativeT("desktop.browser.leave"),
           detail: nativeT("desktop.browser.leaveDetail"),
           buttons: [nativeT("desktop.browser.stay"), nativeT("desktop.browser.leaveConfirm")],
           defaultId: 0,
           cancelId: 0,
           signal,
-        })
+        }
+        const answer = await (sheet ? dialog.showMessageBox(sheet, options) : dialog.showMessageBox(options))
         return answer.response === 1
       },
     }).confirm()
@@ -646,8 +659,8 @@ async function confirmTabLeave(
     listeners.forEach(([emitter, event]) => emitter.removeListener(event, cancel))
     checks.delete(validate)
     unwatch()
-    owner.suspended--
-    layout(owner)
+    if (sheet && !sheet.isDestroyed()) sheet.destroy()
+    tab.leavePending = false
   }
 }
 
@@ -1215,6 +1228,7 @@ function createTab(
         owner.screenshotEpoch !== epoch ||
         owner.taskEpoch !== taskEpoch ||
         owner.suspended ||
+        tab.leavePending ||
         owner.shutting ||
         owner.win.isDestroyed() ||
         owner.win.webContents.isDestroyed() ||
@@ -1252,7 +1266,7 @@ function createTab(
     owner.win,
     contents,
     () => owner.attached === tab && owner.win.contentView.children.includes(tab.view) && !tab.agentAccess,
-    () => !tab.loginBusy && !owner.suspended,
+    () => !tab.loginBusy && !tab.leavePending && !owner.suspended,
     (value) => {
       tab.loginBusy = value
       if (value) tab.accessRevision = (tab.accessRevision ?? 0) + 1
@@ -1800,6 +1814,12 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   const tab = "tabID" in command && group.tabs.find((tab) => tab.id === command.tabID)
   if (!tab || tab.view.webContents.isDestroyed()) throw new Error("Browser tab not found")
   const contents = tab.view.webContents
+  if (
+    tab.leavePending &&
+    !(command.op === "access" && !command.enabled) &&
+    !["select", "stop", "tab-pin", "tab-move"].includes(command.op)
+  )
+    throw new Error(nativeT("desktop.browser.tabs.busy"))
   if (
     (tab.permissionReplacing ||
       tab.agentClose ||

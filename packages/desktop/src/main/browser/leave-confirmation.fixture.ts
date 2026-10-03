@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
 import { once } from "node:events"
 import { createServer } from "node:http"
-import { dialog, type BrowserWindow, type WebContents } from "electron"
-import { browserCommand, browserLinkContext, type registerBrowserOwner } from "./tabs"
+import { dialog, type BaseWindow, type BrowserWindow, type MessageBoxOptions, type WebContents } from "electron"
+import { browserCommand, browserLinkContext, browserViewport, type registerBrowserOwner } from "./tabs"
 import { browserRegistration, routeBrowserTab } from "./registry"
+import { routeBrowserRequest } from "./router"
 import { startBrowserOperation } from "./operation-state"
 import { success } from "@cookiemonster/cm-browser/protocol"
 
@@ -33,7 +34,8 @@ export async function leaveConfirmationSmoke(
       const answer = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>()
       let shown = false
       let dialogs = 0
-      dialog.showMessageBox = ((_owner, options) => {
+      dialog.showMessageBox = ((first, second) => {
+        const options = second ?? first
         shown = true
         dialogs++
         options?.signal?.addEventListener("abort", () => answer.resolve({ response: 0, checkboxChecked: false }), {
@@ -45,6 +47,7 @@ export async function leaveConfirmationSmoke(
       const target = `${url}?leave=${response}`
       const navigation = command({ op: "navigate", tabID, url: target })
       await wait(() => shown)
+      assert.equal(tab.leavePending, true)
       await assert.rejects(command({ op: "navigate", tabID, url: `${url}?competing=${response}` }))
       await new Promise((resolve) => setTimeout(resolve, 30))
       assert(progress > 0, "Main process must continue while leave confirmation is open")
@@ -59,6 +62,7 @@ export async function leaveConfirmationSmoke(
         assert.equal(contents.getURL(), url)
       }
       clearInterval(ticks)
+      assert.equal(tab.leavePending, false)
       await contents.executeJavaScript("window.onbeforeunload = null")
       await command({ op: "close", tabID })
     }
@@ -72,7 +76,8 @@ export async function leaveConfirmationSmoke(
     )
     const closeAnswer = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>()
     let closePrompt = false
-    dialog.showMessageBox = ((_owner, options) => {
+    dialog.showMessageBox = ((first, second) => {
+      const options = second ?? first
       closePrompt = true
       options?.signal?.addEventListener("abort", () => closeAnswer.resolve({ response: 0, checkboxChecked: false }), {
         once: true,
@@ -181,7 +186,8 @@ export async function leaveConfirmationSmoke(
     )
     const answer = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>()
     let shown = false
-    dialog.showMessageBox = ((_owner, options) => {
+    dialog.showMessageBox = ((first, second) => {
+      const options = second ?? first
       shown = true
       options?.signal?.addEventListener("abort", () => answer.resolve({ response: 0, checkboxChecked: false }), {
         once: true,
@@ -196,6 +202,8 @@ export async function leaveConfirmationSmoke(
     await contents.executeJavaScript("window.onbeforeunload = null")
     await command({ op: "close", tabID })
     await leaveCancellationSmoke(win, url, command, owner)
+    dialog.showMessageBox = original
+    await leaveShellSmoke(win, url, command, owner)
     await pageLeaveRequestsSmoke(win, command)
     console.log(
       "PASS native beforeunload Stay/Leave/close/history/reload/cancel, concurrent intent and untracked-page veto; main process responsive",
@@ -203,6 +211,143 @@ export async function leaveConfirmationSmoke(
   } finally {
     dialog.showMessageBox = original
     if (!win.isDestroyed()) win.hide()
+  }
+}
+
+async function leaveShellSmoke(
+  win: BrowserWindow,
+  url: string,
+  command: (value: Parameters<typeof browserCommand>[2]) => ReturnType<typeof browserCommand>,
+  owner: ReturnType<typeof registerBrowserOwner>,
+) {
+  const original = dialog.showMessageBox
+  for (const cancel of ["stop", "task"] as const) {
+    const sourceID = (await command({ op: "new" })).activeID!
+    const source = browserRegistration("smoke", sourceID)!
+    const contents = source.contents as WebContents
+    await contents.loadURL(url)
+    const otherID = (await command({ op: "new" })).activeID!
+    const otherTab = browserRegistration("smoke", otherID)!
+    const other = otherTab.contents as WebContents
+    await other.loadURL(`${url}?other`)
+    await command({ op: "select", tabID: sourceID })
+    win.show()
+    browserLinkContext(owner, "smoke", "leave-shell")
+    browserViewport(owner, {
+      sessionID: "smoke",
+      lease: "leave-shell",
+      bounds: { x: 0, y: 100, width: 800, height: 500 },
+    })
+    assert.equal(
+      await contents.executeJavaScript(
+        "document.querySelector('#input').value = 'unsaved + & ü'; window.onbeforeunload = () => 'unsaved'; navigator.userActivation.hasBeenActive",
+        true,
+      ),
+      true,
+    )
+    source.agentAccess = true
+    let signal: AbortSignal | undefined
+    let dialogs = 0
+    let settled = false
+    dialog.showMessageBox = ((first: BaseWindow | MessageBoxOptions, second?: MessageBoxOptions) => {
+      dialogs++
+      if ("message" in first) {
+        signal = first.signal
+        return original(first)
+      }
+      signal = second!.signal
+      return original(first, second!)
+    }) as typeof dialog.showMessageBox
+    const navigation = command({ op: "navigate", tabID: sourceID, url: `${url}?shell-leave` })
+    void navigation.then(() => {
+      settled = true
+    })
+    try {
+      await wait(() => signal !== undefined)
+      assert(signal)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      assert.equal(settled, false, "Actual native dialog must remain open during input checks")
+      assert.equal(signal.aborted, false)
+      assert.equal(win.isEnabled(), true, "Actual Leave dialog must not disable the shell")
+      assert.equal(owner.suspended, 0, "Leave must not suspend other browser views")
+      assert.equal(owner.attached?.id, sourceID)
+      assert.equal(owner.attached?.view.getVisible(), true)
+      await assert.rejects(command({ op: "close", tabID: sourceID }))
+      assert.equal(
+        (
+          await routeBrowserRequest({
+            type: "browser_request",
+            id: `leave-shell-${cancel}`,
+            sessionID: "smoke",
+            request: { op: "read_state", tabID: sourceID },
+          })
+        ).ok,
+        false,
+        "Agent page operations must remain excluded on the pending tab",
+      )
+      const prepared = await routeBrowserTab(
+        "smoke",
+        { op: "prepare_tab", request: { op: "close_tab", tabID: sourceID } },
+        new AbortController().signal,
+        Date.now() + 5000,
+      )
+      assert.equal(prepared.ok, false, "Agent lifecycle operations must not overlap the pending tab")
+      win.focus()
+      await win.webContents.executeJavaScript(
+        "document.querySelector('#input').value = ''; document.querySelector('#input').focus()",
+      )
+      win.webContents.focus()
+      win.webContents.sendInputEvent({ type: "char", keyCode: "S" })
+      await wait(
+        async () => (await win.webContents.executeJavaScript("document.querySelector('#input').value")) === "S",
+      )
+      await command({ op: "select", tabID: otherID })
+      assert.equal(owner.attached?.id, otherID)
+      assert.equal(owner.attached?.view.getVisible(), true)
+      await other.executeJavaScript("document.querySelector('#input').focus()")
+      other.focus()
+      await wait(async () => other.executeJavaScript("document.hasFocus()"))
+      otherTab.agentAccess = true
+      const key = { op: "press_key" as const, tabID: otherID, key: "T", modifiers: [] }
+      const preparedKey = await routeBrowserRequest({
+        type: "browser_request",
+        id: `leave-other-prepare-${cancel}`,
+        sessionID: "smoke",
+        request: { op: "prepare_write", request: key },
+      })
+      assert(preparedKey.ok && preparedKey.result.context, JSON.stringify(preparedKey))
+      const pressed = await routeBrowserRequest({
+        type: "browser_request",
+        id: `leave-other-key-${cancel}`,
+        sessionID: "smoke",
+        request: { ...key, context: preparedKey.result.context },
+      })
+      assert(pressed.ok, JSON.stringify(pressed))
+      await wait(async () => (await other.executeJavaScript("document.querySelector('#input').value")) === "T")
+      await command({ op: "navigate", tabID: otherID, url: `${url}?other-progress` })
+      assert.equal(other.getURL(), `${url}?other-progress`)
+      assert.equal(signal.aborted, false, "Other-tab progress must not borrow or dismiss source approval")
+      assert.equal(settled, false)
+      assert.equal(dialogs, 1)
+      if (cancel === "stop") await command({ op: "stop", tabID: sourceID })
+      else browserLinkContext(owner, "another-task", "another-task")
+      await navigation
+      assert.equal(signal.aborted, true, "Cancellation must dismiss the actual native dialog")
+      assert.equal(source.leavePending, false)
+      assert.equal(contents.getURL(), url)
+      assert.equal(await contents.executeJavaScript("document.querySelector('#input').value"), "unsaved + & ü")
+      console.log(
+        `PASS real ${process.platform} Leave dialog: enabled shell, visible views, shell input, other-tab agent input/navigation, ${cancel} dismissal`,
+      )
+    } finally {
+      await command({ op: "stop", tabID: sourceID }).catch(() => undefined)
+      await navigation.catch(() => undefined)
+      dialog.showMessageBox = original
+      browserLinkContext(owner, "smoke", "leave-shell")
+      await contents.executeJavaScript("window.onbeforeunload = null")
+      await command({ op: "close", tabID: sourceID })
+      await command({ op: "close", tabID: otherID })
+    }
   }
 }
 
@@ -397,9 +542,9 @@ async function pageLeaveRequestsSmoke(
   }
 }
 
-async function wait(check: () => boolean) {
+async function wait(check: () => boolean | Promise<boolean>) {
   for (let attempt = 0; attempt < 100; attempt++) {
-    if (check()) return
+    if (await check()) return
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   throw new Error("Leave confirmation fixture timed out")
@@ -409,7 +554,8 @@ async function leaveWithConfirmation(action: () => Promise<unknown>) {
   const started = Date.now()
   const answer = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>()
   let shown = false
-  dialog.showMessageBox = ((_owner, options) => {
+  dialog.showMessageBox = ((first, second) => {
+    const options = second ?? first
     shown = true
     options?.signal?.addEventListener("abort", () => answer.resolve({ response: 0, checkboxChecked: false }), {
       once: true,

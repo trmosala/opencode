@@ -430,46 +430,68 @@ test("blank creation tokens observe global epochs even with no registered tabs",
   }
 })
 
-test.each(["create_tab", "select_tab", "close_tab"] as const)(
-  "tab lifecycle %s rejects busy distinct source at preparation and admission",
-  async (op) => {
-    const { tab, route, remove, calls } = fixture()
-    const source = { ...tab, id: "distinct-source" }
-    const removeSource = registerBrowserTab(source)
-    let prompts = 0
-    setBrowserTabHandler(
-      createTabHandler(() => ({
-        owner: tab,
-        source,
-        target: op === "create_tab" ? undefined : tab,
-        check() {},
-        async confirm() {
-          prompts++
-          return true
-        },
-        run: () => tab.id,
-      })),
-    )
-    const request = op === "create_tab" ? { op } : { op, tabID: tab.id }
-    try {
-      const prepared = await route({ op: "prepare_tab", request })
-      if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing token")
-      expect(browserOperationBusy.has(source.id)).toBe(false)
-      browserOperationBusy.add(source.id)
-      expect(await route({ op: "prepare_tab", request })).toMatchObject({ code: "unavailable" })
-      expect(await route({ ...request, token: prepared.result.tabToken })).toMatchObject({ code: "unavailable" })
-      expect(prompts).toBe(0)
-      expect(browserOperationBusy.has(source.id)).toBe(true)
-      expect(browserOperationBusy.has(tab.id)).toBe(false)
-      expect(calls).toEqual([])
-    } finally {
-      browserOperationBusy.delete(source.id)
-      removeSource()
-      remove()
-      setBrowserTabHandler(undefined)
-    }
-  },
-)
+test.each(
+  (["create_tab", "select_tab", "close_tab"] as const).flatMap((op) =>
+    (["operation", "leave"] as const).map((mode) => ({ op, mode })),
+  ),
+)("tab lifecycle rejects busy distinct source at preparation and admission: %j", async ({ op, mode }) => {
+  const { tab, route, remove, calls } = fixture()
+  const source = { ...tab, id: "distinct-source" }
+  const removeSource = registerBrowserTab(source)
+  let prompts = 0
+  setBrowserTabHandler(
+    createTabHandler(() => ({
+      owner: tab,
+      source,
+      target: op === "create_tab" ? undefined : tab,
+      check() {},
+      async confirm() {
+        prompts++
+        return true
+      },
+      run: () => tab.id,
+    })),
+  )
+  const request = op === "create_tab" ? { op } : { op, tabID: tab.id }
+  try {
+    const prepared = await route({ op: "prepare_tab", request })
+    if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing token")
+    expect(browserOperationBusy.has(source.id)).toBe(false)
+    if (mode === "leave") source.leavePending = true
+    else browserOperationBusy.add(source.id)
+    expect(await route({ op: "prepare_tab", request })).toMatchObject({ code: "unavailable" })
+    expect(await route({ ...request, token: prepared.result.tabToken })).toMatchObject({ code: "unavailable" })
+    expect(prompts).toBe(0)
+    expect(mode === "leave" ? source.leavePending : browserOperationBusy.has(source.id)).toBe(true)
+    expect(browserOperationBusy.has(tab.id)).toBe(false)
+    expect(calls).toEqual([])
+  } finally {
+    browserOperationBusy.delete(source.id)
+    removeSource()
+    remove()
+    setBrowserTabHandler(undefined)
+  }
+})
+
+test("pending user Leave excludes page operations on only its tab", async () => {
+  const { tab, route, remove, calls } = fixture()
+  const other = { ...tab, id: "other-leave-tab" }
+  const removeOther = registerBrowserTab(other)
+  try {
+    tab.leavePending = true
+    expect(await route({ op: "read_state", tabID: tab.id })).toMatchObject({ code: "unavailable" })
+    expect(
+      await route({ op: "prepare_write", request: { op: "navigate", tabID: tab.id, url: "http://localhost/next" } }),
+    ).toMatchObject({ code: "unavailable" })
+    expect(calls).toHaveLength(0)
+    expect((await route({ op: "read_state", tabID: other.id })).ok).toBe(true)
+    tab.leavePending = false
+    expect((await route({ op: "read_state", tabID: tab.id })).ok).toBe(true)
+  } finally {
+    removeOther()
+    remove()
+  }
+})
 
 test.each(["consent", "close"] as const)(
   "cancelled tab %s holds busy, rendering and bridge correlation until settlement",

@@ -83,7 +83,7 @@ export function createTabHandler(resolve: (sessionID: string, request: TabReques
             throw new Error("Changed")
         }
         check()
-        if (ownersBusy.has(action.owner) || tabs.some((tab) => browserOperationBusy.has(tab.id)))
+        if (ownersBusy.has(action.owner) || tabs.some((tab) => browserOperationBusy.has(tab.id) || tab.leavePending))
           return failure("unavailable", nativeT("desktop.browser.tabs.busy"))
         // ponytail: 128 short-lived main-only approvals; evict oldest, never persist or replay.
         if (tokens.size >= 128) tokens.delete(tokens.keys().next().value!)
@@ -109,7 +109,7 @@ export function createTabHandler(resolve: (sessionID: string, request: TabReques
       }
       check()
       const tabs = entry.tabs
-      if (ownersBusy.has(action.owner) || tabs.some((tab) => browserOperationBusy.has(tab.id)))
+      if (ownersBusy.has(action.owner) || tabs.some((tab) => browserOperationBusy.has(tab.id) || tab.leavePending))
         return failure("unavailable", nativeT("desktop.browser.tabs.busy"))
       // Reserve together before native consent can detach the active source, not during plugin approval.
       ownersBusy.add(action.owner)

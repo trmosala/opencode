@@ -399,7 +399,7 @@ async function route(
     return failure("blocked_host", nativeT("desktop.browser.websiteAccessRequired"))
   if (!(request.op === "navigate" && url === "about:blank") && (!browserPageURL(url) || !isAllowed(url)))
     return failure("blocked_host", nativeT("desktop.browser.websiteAccessRequired"))
-  if (busy.has(tab.id)) return failure("unavailable", "Another operation is running on this tab.")
+  if (busy.has(tab.id) || tab.leavePending) return failure("unavailable", "Another operation is running on this tab.")
   const blocked = browserInputFailure(contents)
   if (blocked) return blocked
   if (!navigating && contents.isLoadingMainFrame())

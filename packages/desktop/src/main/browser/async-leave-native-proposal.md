@@ -2,6 +2,8 @@
 
 ## Decision and status
 
+Deferred by the user on 3 October 2026. Finish shell responsiveness on stock Electron first. No custom runtime build or production adoption is authorized by that decision.
+
 Propose an opt-in Electron API that retains Chromium's original beforeunload decision callback while main asks the user asynchronously. Leave would resume the native operation; Stay would cancel it. CookieMonster would not repeat a page click, resubmit a form, reconstruct a POST, or remove the site's beforeunload handler.
 
 This is a proposal, not an implemented or compiled native patch. Issue #48 remains open. CookieMonster's existing main-owned address, history, reload and close confirmations remain the qualified implementation; unknown page-origin requests still have the limitation recorded in [leave-confirmation-qualification.md](./leave-confirmation-qualification.md). No product adapter should be added until the runtime exposes and passes qualification for this capability.
