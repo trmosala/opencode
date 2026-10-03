@@ -236,7 +236,13 @@ export async function routeBrowserRequest(
           ? access.resolve(request.tabID)
           : browserRegistration(message.sessionID, request.tabID)
         : undefined
-    unwatch = tab ? watchBrowserAccess(tab, abort) : undefined
+    unwatch = tab
+      ? watchBrowserAccess(tab, () => {
+          // Closing a tab normally revokes access during destruction. Its native close acknowledgement owns success.
+          if (validated.op === "close_tab" && tab.contents.isDestroyed()) return
+          abort()
+        })
+      : undefined
     return route(
       message,
       policy,

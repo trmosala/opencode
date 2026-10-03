@@ -639,7 +639,7 @@ async function run() {
   const command = (value: Parameters<typeof browserCommand>[2]) => browserCommand(owner, "smoke", value)
   if (process.argv.includes("--leave-confirmation")) {
     const { leaveConfirmationSmoke } = await import("./leave-confirmation.fixture")
-    await leaveConfirmationSmoke(win, url, command)
+    await leaveConfirmationSmoke(win, url, command, owner)
     stage("PASS leave confirmation")
     win.destroy()
     return

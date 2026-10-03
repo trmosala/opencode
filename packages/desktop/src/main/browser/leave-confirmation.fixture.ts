@@ -2,8 +2,8 @@ import assert from "node:assert/strict"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import { dialog, type BrowserWindow, type WebContents } from "electron"
-import { browserCommand } from "./tabs"
-import { browserRegistration } from "./registry"
+import { browserCommand, browserLinkContext, type registerBrowserOwner } from "./tabs"
+import { browserRegistration, routeBrowserTab } from "./registry"
 import { startBrowserOperation } from "./operation-state"
 import { success } from "@cookiemonster/cm-browser/protocol"
 
@@ -11,6 +11,7 @@ export async function leaveConfirmationSmoke(
   win: BrowserWindow,
   url: string,
   command: (value: Parameters<typeof browserCommand>[2]) => ReturnType<typeof browserCommand>,
+  owner: ReturnType<typeof registerBrowserOwner>,
 ) {
   const original = dialog.showMessageBox
   let progress = 0
@@ -194,6 +195,7 @@ export async function leaveConfirmationSmoke(
     assert.equal(contents.getURL(), url)
     await contents.executeJavaScript("window.onbeforeunload = null")
     await command({ op: "close", tabID })
+    await leaveCancellationSmoke(win, url, command, owner)
     await pageLeaveRequestsSmoke(win, command)
     console.log(
       "PASS native beforeunload Stay/Leave/close/history/reload/cancel, concurrent intent and untracked-page veto; main process responsive",
@@ -201,6 +203,81 @@ export async function leaveConfirmationSmoke(
   } finally {
     dialog.showMessageBox = original
     if (!win.isDestroyed()) win.hide()
+  }
+}
+
+async function leaveCancellationSmoke(
+  win: BrowserWindow,
+  url: string,
+  command: (value: Parameters<typeof browserCommand>[2]) => ReturnType<typeof browserCommand>,
+  owner: ReturnType<typeof registerBrowserOwner>,
+) {
+  for (const mode of ["stop", "task", "access", "document", "agent-cancel", "agent-deadline"] as const) {
+    const tabID = (await command({ op: "new" })).activeID!
+    const contents = browserRegistration("smoke", tabID)!.contents as WebContents
+    await contents.loadURL(url)
+    win.show()
+    await contents.executeJavaScript(
+      "window.fixtureDraft = 'unsaved + & ü'; window.onbeforeunload = () => 'unsaved'; true",
+      true,
+    )
+    browserLinkContext(owner, "smoke", `leave-${mode}`)
+    const answer = Promise.withResolvers<{ response: number; checkboxChecked: boolean }>()
+    let signal: AbortSignal | undefined
+    let dialogs = 0
+    const agent = mode.startsWith("agent-")
+    dialog.showMessageBox = ((first, second) => {
+      dialogs++
+      // Agent close has its own initial tab consent before the unsaved-page confirmation.
+      if (agent && dialogs === 1) return Promise.resolve({ response: 1, checkboxChecked: false })
+      signal = (second ?? first).signal
+      signal?.addEventListener("abort", () => answer.resolve({ response: 0, checkboxChecked: false }), { once: true })
+      return answer.promise
+    }) as typeof dialog.showMessageBox
+    const controller = new AbortController()
+    const prepared = agent
+      ? await routeBrowserTab(
+          "smoke",
+          { op: "prepare_tab", request: { op: "close_tab", tabID } },
+          controller.signal,
+          Date.now() + 5000,
+        )
+      : undefined
+    if (prepared) assert(prepared.ok && prepared.result.tabToken)
+    const operation = agent
+      ? routeBrowserTab(
+          "smoke",
+          { op: "close_tab", tabID, token: prepared!.ok ? prepared!.result.tabToken! : "" },
+          controller.signal,
+          Date.now() + (mode === "agent-deadline" ? 300 : 5000),
+        )
+      : command({ op: "navigate", tabID, url: `${url}?cancel-${mode}` })
+    try {
+      await wait(() => !!signal)
+      if (mode === "stop") await command({ op: "stop", tabID })
+      if (mode === "task") browserLinkContext(owner, "other-task", "leave-changed")
+      if (mode === "access") await command({ op: "access", tabID, enabled: false })
+      if (mode === "document") await contents.executeJavaScript("history.pushState({}, '', '#changed')")
+      if (mode === "agent-cancel") controller.abort()
+      await wait(() => signal!.aborted)
+      await operation
+      assert.equal(contents.isDestroyed(), false, `${mode} preserves the tab`)
+      assert.equal(await contents.executeJavaScript("window.fixtureDraft"), "unsaved + & ü")
+      assert.equal(contents.getURL(), mode === "document" ? `${url}#changed` : url)
+      assert.equal(dialogs, agent ? 2 : 1)
+      assert.equal(owner.suspended, 0, `${mode} releases the native dialog suspension after settlement`)
+      assert.equal(owner.captureChecks?.size, 0, `${mode} removes its authority observer`)
+      answer.resolve({ response: 1, checkboxChecked: false })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      assert.equal(contents.getURL(), mode === "document" ? `${url}#changed` : url, "Late Leave never replays")
+      console.log("PASS native waiting leave cancellation", mode)
+    } finally {
+      answer.resolve({ response: 0, checkboxChecked: false })
+      await operation.catch(() => undefined)
+      await contents.executeJavaScript("window.onbeforeunload = null")
+      browserLinkContext(owner, "smoke", "leave-restored")
+      await command({ op: "close", tabID })
+    }
   }
 }
 

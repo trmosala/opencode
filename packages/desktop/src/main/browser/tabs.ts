@@ -42,6 +42,7 @@ import {
   browserOperationBusy,
   browserTabReserved,
   browserRegistration,
+  watchBrowserAccess,
   setBrowserHistoryHandler,
   type BrowserRegistration,
 } from "./registry"
@@ -126,6 +127,8 @@ type Tab = BrowserRegistration & {
   failure?: { kind: "load" | "crash"; code: string; message: string }
   agentClose?: {
     check: () => void
+    signal: AbortSignal
+    deadline: number
     retry?: () => void
     retrying?: boolean
     settled?: () => void
@@ -135,6 +138,8 @@ type Tab = BrowserRegistration & {
   }
   leaveIntent?: {
     navigation: boolean
+    controller: AbortController
+    deadline: number
     check: () => void
     replay: () => Promise<unknown> | unknown
     settled: Promise<void>
@@ -204,6 +209,7 @@ function advanceOwnerTask(owner: Owner) {
       tab.siteToolConsent?.abort()
     }),
   )
+  owner.captureChecks?.forEach((check) => check())
 }
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
@@ -585,20 +591,43 @@ function layout(owner: Owner) {
   }
 }
 
-async function confirmTabLeave(owner: Owner, tab: Tab, check: () => void) {
+async function confirmTabLeave(
+  owner: Owner,
+  tab: Tab,
+  check: () => void,
+  control: { signal: AbortSignal; deadline: number },
+) {
   const controller = new AbortController()
   const cancel = () => controller.abort()
   const contents = tab.view.webContents
-  owner.win.on("close", cancel)
-  owner.win.on("hide", cancel)
-  owner.win.on("minimize", cancel)
-  contents.once("destroyed", cancel)
+  const listeners: [EventEmitter, string][] = [
+    ...["close", "closed", "hide", "minimize"].map((event): [EventEmitter, string] => [owner.win, event]),
+    ...["destroyed", "render-process-gone"].flatMap((event): [EventEmitter, string][] => [
+      [contents, event],
+      [owner.win.webContents, event],
+    ]),
+    ...["did-navigate", "did-navigate-in-page", "dom-ready"].map((event): [EventEmitter, string] => [contents, event]),
+    [owner.win.webContents, "did-start-navigation"],
+  ]
+  const validate = () => {
+    try {
+      check()
+    } catch {
+      cancel()
+    }
+  }
+  const checks = (owner.captureChecks ??= new Set())
+  checks.add(validate)
+  const unwatch = watchBrowserAccess(tab, cancel)
+  listeners.forEach(([emitter, event]) => emitter.on(event, cancel))
   owner.suspended++
   layout(owner)
   try {
     return await createLeaveConfirmation({
       check,
-      ask: async () => {
+      signal: AbortSignal.any([controller.signal, control.signal]),
+      deadline: control.deadline,
+      ask: async (signal) => {
         const answer = await dialog.showMessageBox(owner.win, {
           type: "warning",
           message: nativeT("desktop.browser.leave"),
@@ -606,7 +635,7 @@ async function confirmTabLeave(owner: Owner, tab: Tab, check: () => void) {
           buttons: [nativeT("desktop.browser.stay"), nativeT("desktop.browser.leaveConfirm")],
           defaultId: 0,
           cancelId: 0,
-          signal: controller.signal,
+          signal,
         })
         return answer.response === 1
       },
@@ -614,10 +643,9 @@ async function confirmTabLeave(owner: Owner, tab: Tab, check: () => void) {
   } catch {
     return false
   } finally {
-    owner.win.removeListener("close", cancel)
-    owner.win.removeListener("hide", cancel)
-    owner.win.removeListener("minimize", cancel)
-    contents.removeListener("destroyed", cancel)
+    listeners.forEach(([emitter, event]) => emitter.removeListener(event, cancel))
+    checks.delete(validate)
+    unwatch()
     owner.suspended--
     layout(owner)
   }
@@ -640,6 +668,8 @@ async function runLeaveIntent<T>(
   const settled = Promise.withResolvers<void>()
   const intent: NonNullable<Tab["leaveIntent"]> = {
     navigation,
+    controller: new AbortController(),
+    deadline,
     check: () => {
       if (
         contents.isDestroyed() ||
@@ -650,6 +680,7 @@ async function runLeaveIntent<T>(
         (tab.revision !== revision && (!intent.vetoed || tab.revision !== intent.vetoRevision)) ||
         contents.getURL() !== sourceURL ||
         Date.now() >= deadline ||
+        intent.controller.signal.aborted ||
         tab.leaveIntent !== intent
       )
         throw new Error("Leave intent expired or changed")
@@ -682,6 +713,7 @@ async function runLeaveIntent<T>(
     if (failure) throw failure
     return result
   } finally {
+    intent.controller.abort()
     if (tab.leaveIntent === intent) tab.leaveIntent = undefined
   }
 }
@@ -1404,7 +1436,10 @@ function createTab(
     if (intent) {
       intent.vetoed = true
       intent.vetoRevision = tab.revision
-      intent.prompt ??= confirmTabLeave(owner, tab, intent.check)
+      intent.prompt ??= confirmTabLeave(owner, tab, intent.check, {
+        signal: intent.controller.signal,
+        deadline: intent.deadline,
+      })
       return
     }
     if (!pending) {
@@ -1416,7 +1451,7 @@ function createTab(
       changed()
       return
     }
-    pending.prompt ??= confirmTabLeave(owner, tab, pending.check)
+    pending.prompt ??= confirmTabLeave(owner, tab, pending.check, pending)
       .then(async (leave) => {
         await pending.settledPromise
         if (!leave) {
@@ -2501,8 +2536,10 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   } else if (command.op === "reload") {
     if (tab.permissionReload) reloadForPermissions(tab)
     else await runLeaveIntent(owner, tab, () => runPendingNavigation(contents, () => contents.reload()))
-  } else if (command.op === "stop") cancelBrowserNavigation(contents)
-  else if (command.op === "access") {
+  } else if (command.op === "stop") {
+    tab.leaveIntent?.controller.abort()
+    cancelBrowserNavigation(contents)
+  } else if (command.op === "access") {
     if (command.enabled && tab.loginBusy) throw new Error("Login operation pending")
     if (command.enabled && !browserAgentEnabled()) throw new Error("Browser agent access is disabled")
     if (typeof command.enabled !== "boolean") throw new Error("Invalid browser access")
@@ -2814,7 +2851,7 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         layout(owner)
       }
     },
-    run(authority) {
+    run(authority, signal, deadline) {
       authority()
       if (owner.suspended) throw new Error("Browser dialog pending")
       if (request.op === "create_tab") {
@@ -2858,6 +2895,8 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         const firstSettlement = Promise.withResolvers<void>()
         const pending: NonNullable<Tab["agentClose"]> = {
           check: authority,
+          signal,
+          deadline,
           settled: firstSettlement.resolve,
           settledPromise: firstSettlement.promise,
           retry: () => contents.close({ waitForBeforeUnload: true }),

@@ -21,7 +21,7 @@ export type NativeTabAction = {
   source?: BrowserRegistration
   check(): void
   confirm(signal: AbortSignal): Promise<boolean>
-  run(check: () => void): string | undefined | Promise<string | undefined>
+  run(check: () => void, signal: AbortSignal, deadline: number): string | undefined | Promise<string | undefined>
 }
 
 export function createTabHandler(resolve: (sessionID: string, request: TabRequest) => NativeTabAction | undefined) {
@@ -122,7 +122,7 @@ export function createTabHandler(resolve: (sessionID: string, request: TabReques
         check()
         if (!approved) return failure("access_denied", nativeT("desktop.browser.tabs.denied"))
         // No await between authority validation and the native mutation.
-        const tabID = await action.run(check)
+        const tabID = await action.run(check, signal, deadline)
         if (!tabID) return failure("cancelled", nativeT("desktop.browser.tabs.stay"))
         return success({ ...empty, tabResult: { op: input.op, tabID } })
       } finally {

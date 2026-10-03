@@ -12,6 +12,7 @@ import { browserOperationBusy, setBrowserAgentEnabled } from "./registry"
 import { browserCommand, browserLinkContext, browserViewport, registerBrowserOwner } from "./tabs"
 import { savedTabs, saveTabs } from "./tab-recovery"
 import { browserInputFailure } from "./driver"
+import { nativeT } from "../native-translations"
 
 const wait = async (check: () => boolean | Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
@@ -79,7 +80,6 @@ export async function tabLifecycleSmoke() {
   const owner = registerBrowserOwner(win)
   const foreign = registerBrowserOwner(other)
   const consent = dialog.showMessageBox
-  const unloadConsent = dialog.showMessageBoxSync
   const clock = Date.now
   const prompts: Electron.MessageBoxOptions[] = []
   let answer = 1
@@ -189,9 +189,9 @@ export async function tabLifecycleSmoke() {
     assert.equal(created.agentAccess, false)
     return created
   }
-  const arm = async (target: ReturnType<typeof tab>) => {
+  const arm = async (target: ReturnType<typeof tab>, navigate = true) => {
     await command({ op: "select", tabID: target.id })
-    await target.view.webContents.loadURL(url)
+    if (navigate) await target.view.webContents.loadURL(url)
     await wait(() => !target.contents.isLoadingMainFrame())
     layout()
     win.focus()
@@ -346,7 +346,7 @@ export async function tabLifecycleSmoke() {
       asks.map((input) => input.permission),
       ["browser_create_tab", "browser_create_tab", "browser_select_tab", "browser_close_tab"],
     )
-    assert.equal(prompts.length, 6)
+    assert.equal(prompts.length, 5, "Two creates, one access grant, one selection and one close")
     assert(asks.every((input) => !input.permission.includes("read")))
     const foreignID = (await browserCommand(foreign, "lifecycle-foreign", { op: "new" })).activeID!
     const before = prompts.length
@@ -500,17 +500,24 @@ export async function tabLifecycleSmoke() {
       let nativeEvents = 0
       let dialogs = 0
       target.view.webContents.on("will-prevent-unload", () => nativeEvents++)
-      dialog.showMessageBoxSync = ((_window, options) => {
+      dialog.showMessageBox = ((first, second) => {
+        const options = second ?? ("message" in first ? first : undefined)
+        assert(options)
+        if (options.message !== nativeT("desktop.browser.leave")) return controlledConsent(first, second!)
         assert.equal(options.defaultId, 0)
         assert.equal(options.cancelId, 0)
         dialogs++
         if (choice === "expired-leave") Date.now = () => clock() + 20_000
-        return choice === "stay" ? 0 : 1
-      }) as typeof dialog.showMessageBoxSync
+        return Promise.resolve({ response: choice === "stay" ? 0 : 1, checkboxChecked: false })
+      }) as typeof dialog.showMessageBox
       try {
         const request = await prepare({ op: "close_tab", tabID: target.id })
         const result = await dispatch(request)
-        assert.equal(nativeEvents, 1, "Must reach actual Chromium unload event, not emit a fake event")
+        assert.equal(
+          nativeEvents,
+          choice === "leave" ? 2 : 1,
+          "Leave retries the main-owned close once after the native veto",
+        )
         assert.equal(dialogs, 1)
         if (choice === "leave") {
           assert(result.ok)
@@ -522,14 +529,14 @@ export async function tabLifecycleSmoke() {
         }
       } finally {
         Date.now = clock
-        dialog.showMessageBoxSync = unloadConsent
+        dialog.showMessageBox = controlledConsent
         if (!target.contents.isDestroyed()) {
           await target.view.webContents.executeJavaScript("window.onbeforeunload = null")
           await plugin({ op: "close_tab", tabID: target.id })
         }
       }
       console.log(
-        `PASS real Chromium beforeunload ${choice}; controlled native answer${choice === "expired-leave" ? " and clock advance inside synchronous dialog seam" : ""}`,
+        `PASS real Chromium beforeunload ${choice}; controlled async answer${choice === "expired-leave" ? " and clock advance inside dialog seam" : ""}`,
       )
     }
 
@@ -648,10 +655,13 @@ export async function tabLifecycleSmoke() {
         nativeReload()
       }
       let dialogs = 0
-      dialog.showMessageBoxSync = (() => {
+      dialog.showMessageBox = ((first, second) => {
+        const options = second ?? ("message" in first ? first : undefined)
+        assert(options)
+        if (options.message !== nativeT("desktop.browser.leave")) return controlledConsent(first, second!)
         dialogs++
-        return 0
-      }) as typeof dialog.showMessageBoxSync
+        return Promise.resolve({ response: 0, checkboxChecked: false })
+      }) as typeof dialog.showMessageBox
       const controller = new AbortController()
       const id = `media-close-${mode}`
       const pending = dispatch(await prepare({ op: "close_tab", tabID: target.id }), task, controller.signal, id)
@@ -734,7 +744,7 @@ export async function tabLifecycleSmoke() {
           contents.reload = nativeReload
           contents.close({ waitForBeforeUnload: false })
         }
-        dialog.showMessageBoxSync = unloadConsent
+        dialog.showMessageBox = controlledConsent
       }
     }
 
@@ -770,10 +780,13 @@ export async function tabLifecycleSmoke() {
       const id = `permission-204-${heldClose}`
       let dialogs = 0
       let leave = true
-      dialog.showMessageBoxSync = (() => {
+      dialog.showMessageBox = ((first, second) => {
+        const options = second ?? ("message" in first ? first : undefined)
+        assert(options)
+        if (options.message !== nativeT("desktop.browser.leave")) return controlledConsent(first, second!)
         dialogs++
-        return leave ? 1 : 0
-      }) as typeof dialog.showMessageBoxSync
+        return Promise.resolve({ response: leave ? 1 : 0, checkboxChecked: false })
+      }) as typeof dialog.showMessageBox
       try {
         if (heldClose) {
           await command({ op: "select", tabID: first.id })
@@ -819,6 +832,8 @@ export async function tabLifecycleSmoke() {
         )
         await navigated
         assert.equal(target.permissionReload, true)
+        // A prior approved unload can suppress another native dialog until the retained page receives trusted input.
+        await arm(target, false)
         const beforeClose = dialogs
         leave = false
         const closeAcknowledged = once(contents, "-before-unload-fired")
@@ -863,7 +878,7 @@ export async function tabLifecycleSmoke() {
         )
       } finally {
         recoveryResponse = "ok"
-        dialog.showMessageBoxSync = unloadConsent
+        dialog.showMessageBox = controlledConsent
         if (!contents.isDestroyed()) {
           contents.reload = nativeReload
           contents.close({ waitForBeforeUnload: false })
@@ -1101,7 +1116,6 @@ export async function tabLifecycleSmoke() {
     owner.tabConsent?.abort()
     foreign.tabConsent?.abort()
     dialog.showMessageBox = consent
-    dialog.showMessageBoxSync = unloadConsent
     for (const current of [owner, foreign]) {
       for (const entry of current.groups.values()) {
         for (const target of entry.tabs) {

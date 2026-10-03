@@ -330,6 +330,57 @@ test("tab lifecycle tokens bind exact task, action, target and source without pr
   }
 })
 
+test.each(["destroyed", "revoked"] as const)("close distinguishes native destruction from %s access", async (mode) => {
+  const { tab, route, remove } = fixture()
+  const entered = Promise.withResolvers<void>()
+  const acknowledgement = Promise.withResolvers<string>()
+  const settled = Promise.withResolvers<void>()
+  const deadline = Date.now() + 5000
+  let signal: AbortSignal | undefined
+  setBrowserTabHandler(
+    createTabHandler(() => ({
+      owner: tab,
+      target: tab,
+      check() {},
+      confirm: async () => true,
+      run(check, current, expires) {
+        check()
+        expect(expires).toBe(deadline)
+        signal = current
+        entered.resolve()
+        return acknowledgement.promise
+      },
+    })),
+  )
+  try {
+    const request = { op: "close_tab", tabID: tab.id } as const
+    const prepared = await route({ op: "prepare_tab", request })
+    if (!prepared.ok || !prepared.result.tabToken) throw Error("Missing token")
+    const pending = route({ ...request, token: prepared.result.tabToken }, tab.sessionID, {
+      deadline,
+      onSettled: (operation) => void operation.finally(() => settled.resolve()),
+    })
+    await entered.promise
+    if (mode === "destroyed") {
+      tab.contents.isDestroyed = () => true
+      remove()
+    }
+    if (mode === "revoked") revokeBrowserAccess(tab)
+    expect(signal?.aborted).toBe(mode === "revoked")
+    expect(browserOperationBusy.has(tab.id)).toBe(true)
+    if (mode === "revoked") expect(await pending).toMatchObject({ ok: false, code: "cancelled" })
+    acknowledgement.resolve(tab.id)
+    if (mode === "destroyed")
+      expect(await pending).toMatchObject({ ok: true, result: { tabResult: { op: "close_tab", tabID: tab.id } } })
+    await settled.promise
+    expect(browserOperationBusy.has(tab.id)).toBe(false)
+  } finally {
+    acknowledgement.resolve(tab.id)
+    setBrowserTabHandler(undefined)
+    remove()
+  }
+})
+
 test("blank creation tokens observe global epochs even with no registered tabs", async () => {
   const owner = {}
   let mutations = 0
