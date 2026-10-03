@@ -92,7 +92,7 @@ export function BrowserLibrary(props: {
             class="border rounded px-2 py-1 flex-1 min-w-40"
             required
             type="url"
-            maxLength={2048}
+            maxLength={65536}
             value={state.url}
             onInput={(event) => setState("url", event.currentTarget.value)}
           />

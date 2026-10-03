@@ -1,6 +1,6 @@
 import { parse } from "parse5"
 import type { DefaultTreeAdapterMap } from "parse5"
-import { browserURL } from "./policy"
+import { browserNavigationURL } from "./policy"
 
 type Node = DefaultTreeAdapterMap["node"]
 type Bookmark = { url: string; title: string; pinned: boolean; folder: string[] }
@@ -34,7 +34,7 @@ export function parseBookmarks(html: string, counts = { unsupported: 0 }) {
   const visit = (node: Node, folder: string[]) => {
     if ("tagName" in node && node.tagName === "a") {
       const url = node.attrs.find((attr) => attr.name === "href")?.value
-      if (browserURL(url) && url !== "about:blank") {
+      if (browserNavigationURL(url) && url !== "about:blank") {
         rows.push({
           url: new URL(url).href,
           title: text(node).slice(0, 512) || url,

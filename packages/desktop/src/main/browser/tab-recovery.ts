@@ -1,4 +1,5 @@
 import { getStore } from "../store"
+import { browserNavigationURL } from "./policy"
 
 export type SavedTab = {
   url: string
@@ -28,7 +29,7 @@ export function recoveryNavigation(value: unknown): SavedTab["navigation"] {
     !Number.isInteger(activeIndex) ||
     activeIndex < 0 ||
     activeIndex >= entries.length ||
-    !entries.every((entry) => validTab(entry) && entry.url.length <= 2048)
+    !entries.every(validTab)
   )
     return
   // ponytail: keep 20 entries around the selected page, not just the newest 20.
@@ -122,7 +123,7 @@ function validTab(value: unknown): value is { url: string; title: string } {
     !!value &&
     typeof value === "object" &&
     "url" in value &&
-    typeof value.url === "string" &&
+    browserNavigationURL(value.url) &&
     value.url === recoveryURL(value.url) &&
     "title" in value &&
     typeof value.title === "string" &&

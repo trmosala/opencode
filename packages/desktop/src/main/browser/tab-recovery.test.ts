@@ -37,5 +37,5 @@ test("recovery projects URL/title only, bounds history around selection, and pre
   const long = { url: `https://example.test/${"x".repeat(4096)}`, title: "Legacy long URL" }
   const legacyGroup = { sessionID: "legacy", tabs: [long], active: 0, closed: [{ ...long, id: "old", time: 1 }] }
   expect(projectRecoveryGroups([legacyGroup, group])).toEqual([legacyGroup, group])
-  expect(recoveryNavigation({ entries: [long], activeIndex: 0 })).toBeUndefined()
+  expect(recoveryNavigation({ entries: [long], activeIndex: 0 })).toEqual({ entries: [long], activeIndex: 0 })
 })

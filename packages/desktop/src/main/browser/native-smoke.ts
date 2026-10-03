@@ -282,6 +282,12 @@ async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
   stage("Electron ready")
+  if (process.argv.includes("--long-navigation")) {
+    const { longNavigationSmoke } = await import("./long-navigation.fixture")
+    await longNavigationSmoke()
+    stage("PASS long browser navigation")
+    return
+  }
   if (process.argv.includes("--drag-regions")) {
     const { dragRegionsSmoke } = await import("./drag-regions.fixture")
     await dragRegionsSmoke()

@@ -21,7 +21,7 @@ import {
   routeBrowserTab,
   browserOperationBusy,
 } from "./registry"
-import { browserURL, browserPageURL } from "./policy"
+import { browserURL, browserNavigationURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
 import { discoverFrames, executeFrame } from "./frames"
@@ -322,7 +322,7 @@ async function route(
     ownerCheck?.()
   }
   if (!observing && !screenshot && !diagnostics && !siteRequest)
-    tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
+    tab.navigationAllowed = (url) => browserNavigationURL(url) && isAllowed(url)
   busy.add(tab.id)
   const release = keepBrowserRendering(contents)
   try {

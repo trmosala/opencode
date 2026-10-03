@@ -25,7 +25,13 @@ import type {
 import { browserShortcut, browserDeviceSize, BROWSER_DEVICE_DEFAULT } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
 import { observeNetwork } from "./network-diagnostics"
-import { browserPreferences, browserURL, browserPageURL, BROWSER_PARTITION } from "./policy"
+import {
+  browserPreferences,
+  browserNavigationURL,
+  browserPageURL,
+  MAX_BROWSER_NAVIGATION_URL_LENGTH,
+  BROWSER_PARTITION,
+} from "./policy"
 import {
   registerBrowserTab,
   revokeBrowserAccess,
@@ -294,7 +300,7 @@ export async function openBrowserLink(win: BrowserWindow, value: string, destina
   const url = typeof value === "string" && resolveExternalURL(value)
   if (
     !url ||
-    url.length > 2048 ||
+    url.length > MAX_BROWSER_NAVIGATION_URL_LENGTH ||
     (destination !== undefined && destination !== "browser" && destination !== "external")
   )
     throw new Error("Invalid link")
@@ -303,7 +309,7 @@ export async function openBrowserLink(win: BrowserWindow, value: string, destina
   if (
     !owner ||
     !sessionID ||
-    !browserURL(url) ||
+    !browserNavigationURL(url) ||
     (destination ?? linkDestination(url, browserPreferencesState())) === "external"
   ) {
     await shell.openExternal(url)
@@ -314,7 +320,7 @@ export async function openBrowserLink(win: BrowserWindow, value: string, destina
 }
 
 export function browserLinkMenu(contents: WebContents, url: string) {
-  if (!browserURL(url) || url === "about:blank") return []
+  if (!browserNavigationURL(url) || url === "about:blank") return []
   const owner = [...owners.values()].find(
     (entry) =>
       entry.win.webContents === contents ||
@@ -419,7 +425,7 @@ async function inspectSiteData(contents: WebContents, url: string, origin: strin
 }
 
 function browserDataOrigin(value: string) {
-  return !browserURL(value) || value === "about:blank" ? undefined : new URL(value).origin
+  return !browserNavigationURL(value) || value === "about:blank" ? undefined : new URL(value).origin
 }
 
 function state(group: Group): BrowserTabs {
@@ -1225,13 +1231,13 @@ function createTab(
     if (
       event.isMainFrame &&
       !(tab.permissionReplacing && event.url === "about:blank") &&
-      (tab.agentClose || !browserURL(event.url) || tab.navigationAllowed?.(event.url) === false)
+      (tab.agentClose || !browserNavigationURL(event.url) || tab.navigationAllowed?.(event.url) === false)
     )
       event.preventDefault()
   })
   contents.on("will-redirect", (event, url, _inPlace, main) => {
     if (main) revokeBrowserAccessOnNavigation(tab, url)
-    if (main && (!browserURL(url) || tab.navigationAllowed?.(url) === false)) event.preventDefault()
+    if (main && (!browserNavigationURL(url) || tab.navigationAllowed?.(url) === false)) event.preventDefault()
   })
   contents.on("did-start-navigation", (_event, url, inPlace, main) => {
     if (!main) return
@@ -1363,7 +1369,7 @@ function createTab(
     }
   })
   contents.setWindowOpenHandler(({ url }) => {
-    if (!browserURL(url || "about:blank") || group.tabs.length >= 32) return { action: "deny" }
+    if (!browserNavigationURL(url || "about:blank") || group.tabs.length >= 32) return { action: "deny" }
     return {
       action: "allow",
       outlivesOpener: true,
@@ -1461,7 +1467,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   const group = groupFor(owner, sessionID)
   if (command.op === "open-link") {
     if (
-      !browserURL(command.url) ||
+      !browserNavigationURL(command.url) ||
       command.url === "about:blank" ||
       !["browser", "external"].includes(command.destination)
     )
@@ -1794,7 +1800,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     return state(group)
   }
   if (command.op === "clear-site") {
-    if (!browserURL(contents.getURL()) || contents.getURL() === "about:blank" || owner.suspended)
+    if (!browserNavigationURL(contents.getURL()) || contents.getURL() === "about:blank" || owner.suspended)
       throw new Error("Invalid site")
     const origin = new URL(contents.getURL()).origin
     owner.suspended++
@@ -2304,7 +2310,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     layout(owner)
   } else if (command.op === "close") contents.close({ waitForBeforeUnload: true })
   else if (command.op === "navigate") {
-    if (!browserURL(command.url)) throw new Error("Invalid browser URL")
+    if (!browserNavigationURL(command.url)) throw new Error("Invalid browser URL")
     await contents.loadURL(command.url)
   } else if (command.op === "back") {
     if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()

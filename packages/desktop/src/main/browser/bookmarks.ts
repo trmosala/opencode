@@ -5,7 +5,7 @@ import type { BrowserWindow } from "electron"
 import type { BrowserBookmark } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
-import { browserURL } from "./policy"
+import { browserNavigationURL } from "./policy"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -19,7 +19,7 @@ export function bookmarks() {
     const row = value
     if (
       typeof row.id !== "string" ||
-      !browserURL(row.url) ||
+      !browserNavigationURL(row.url) ||
       row.url === "about:blank" ||
       typeof row.title !== "string" ||
       row.title.length > 512 ||
@@ -73,7 +73,7 @@ export function writeBookmarks(rows: BrowserBookmark[]) {
 
 export function saveBookmark(value: Omit<BrowserBookmark, "id" | "folder"> & { folder?: string[]; id?: string }) {
   if (
-    !browserURL(value.url) ||
+    !browserNavigationURL(value.url) ||
     value.url === "about:blank" ||
     typeof value.title !== "string" ||
     value.title.length > 512 ||
