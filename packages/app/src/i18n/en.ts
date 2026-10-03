@@ -330,6 +330,8 @@ export const browser = {
   "browser.address.searchPlaceholder": "Search {{engine}} or enter an address",
   "browser.tabs.new": "New tab",
   "browser.tabs.close": "Close tab",
+  "browser.tabs.unload": "Unload tab",
+  "browser.tabs.unloadedTitle": "{{title}} (unloaded)",
   "browser.tabs.actions": "Tab actions",
   "browser.tabs.pinned": "Pinned tab",
   "browser.tabs.pin": "Pin tab",

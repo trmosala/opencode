@@ -34,6 +34,7 @@ import {
   setBrowserAgentEnabled,
   browserAgentEnabled,
   browserOperationBusy,
+  browserTabReserved,
   browserRegistration,
   setBrowserHistoryHandler,
   type BrowserRegistration,
@@ -112,6 +113,7 @@ import { failure, hasFrameTarget, type TabRequest } from "@cookiemonster/cm-brow
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 import { transferVaultBackup } from "./vault-backup"
 import { createLeaveConfirmation } from "./leave-confirmation"
+import { browserResourceBlocker, inspectBrowserResources } from "./resource-policy"
 import { browserOwnerScopeCurrent, resolveBrowserOwnerScope, type BrowserOwnerScope } from "./session-resolver"
 
 type Tab = BrowserRegistration & {
@@ -156,6 +158,8 @@ type Tab = BrowserRegistration & {
   loginBusy?: boolean
   siteData?: BrowserSiteData
   deferredRestore?: boolean
+  resourcePending?: boolean
+  resourceReplacement?: SavedTab
   restorePromise?: Promise<void>
   restore?: () => Promise<void>
 }
@@ -514,7 +518,8 @@ function state(group: Group): BrowserTabs {
           siteData: tab.siteData?.origin === browserDataOrigin(url) ? tab.siteData : undefined,
           url: url || tab.saved.url,
           title: (tab.deferredRestore ? tab.saved.title : contents.getTitle().slice(0, 512)) || tab.saved.title,
-          loading: contents.isLoading() || tab.deferredRestore === true,
+          loading: contents.isLoading(),
+          unloaded: tab.deferredRestore === true,
           canGoBack: tab.deferredRestore
             ? (tab.saved.navigation?.activeIndex ?? 0) > 0
             : contents.navigationHistory.canGoBack(),
@@ -750,6 +755,7 @@ function updateBrowserZoom(contents: WebContents, factor: number) {
 }
 
 const sitePermissionPrompts = new WeakSet<Owner>()
+const resourceCaptures = new WeakSet<WebContents>()
 type PracticalPermission = "notifications" | "displayCapture" | "clipboard"
 
 function permissionTarget(contents: WebContents | null, requested: string, main: boolean) {
@@ -926,6 +932,7 @@ function createTab(
   saved: SavedTab = { url: "about:blank", title: "" },
   position?: number,
   deferredRestore = false,
+  activate = true,
 ) {
   if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
   if (!profileReady) {
@@ -968,14 +975,30 @@ function createTab(
               ? "clipboard"
               : undefined
       if (practical) {
-        requestPracticalPermission(contents, callback, details, practical)
+        requestPracticalPermission(
+          contents,
+          (allowed) => {
+            if (allowed && practical === "displayCapture" && contents) resourceCaptures.add(contents)
+            callback(allowed)
+          },
+          details,
+          practical,
+        )
         return
       }
       const origin = contents && mediaOrigin(contents.getURL(), details.requestingUrl, details.isMainFrame)
       const media = "mediaTypes" in details ? details.mediaTypes : undefined
       // Electron reports getDisplayMedia through this hook as media with no camera/microphone types.
       if (permission === "media" && origin && media?.length === 0) {
-        requestPracticalPermission(contents, callback, details, "displayCapture")
+        requestPracticalPermission(
+          contents,
+          (allowed) => {
+            if (allowed && contents) resourceCaptures.add(contents)
+            callback(allowed)
+          },
+          details,
+          "displayCapture",
+        )
         return
       }
       if (
@@ -988,6 +1011,7 @@ function createTab(
         return
       }
       if (media.every((type) => mediaPermission(origin, type) === "allow")) {
+        if (contents) resourceCaptures.add(contents)
         callback(true)
         return
       }
@@ -1014,13 +1038,15 @@ function createTab(
           cancelId: 0,
         })
         .then(
-          (answer) =>
-            callback(
+          (answer) => {
+            const allowed =
               answer.response === 1 &&
-                !contents.isDestroyed() &&
-                mediaOrigin(contents.getURL(), origin, true) === origin &&
-                media.every((type) => mediaPermission(origin, type) !== "block"),
-            ),
+              !contents.isDestroyed() &&
+              mediaOrigin(contents.getURL(), origin, true) === origin &&
+              media.every((type) => mediaPermission(origin, type) !== "block")
+            if (allowed) resourceCaptures.add(contents)
+            callback(allowed)
+          },
           () => callback(false),
         )
         .finally(() => {
@@ -1179,7 +1205,7 @@ function createTab(
   const firstUnpinned = group.tabs.findIndex((entry) => entry.saved.pinned !== true)
   const target = position ?? (tab.saved.pinned === true && firstUnpinned >= 0 ? firstUnpinned : group.tabs.length)
   group.tabs.splice(Math.max(0, Math.min(target, group.tabs.length)), 0, tab)
-  if (!group.restoring) group.activeID = tab.id
+  if (!group.restoring && activate) group.activeID = tab.id
   const unregister = registerBrowserTab(tab)
   tab.operationChanged = () => {
     if (!contents.isDestroyed() && owner.groups.get(group.sessionID) === group && group.tabs.includes(tab)) changed()
@@ -1294,6 +1320,7 @@ function createTab(
     return tab.restorePromise
   }
   contents.on("did-navigate", () => {
+    resourceCaptures.delete(contents)
     tab.notice = undefined
     // A main-frame document commit covers all prior requests, including ones queued before this commit.
     tab.permissionReload = false
@@ -1375,6 +1402,7 @@ function createTab(
       return
     }
     if (!pending) {
+      if (tab.resourcePending) return
       tab.notice = {
         code: "untracked_leave",
         message: nativeT("desktop.browser.untrackedLeave"),
@@ -1449,9 +1477,11 @@ function createTab(
     if (!owner.win.isDestroyed() && owner.win.contentView.children.includes(view))
       owner.win.contentView.removeChildView(view)
     const index = group.tabs.indexOf(tab)
-    if (!owner.shutting && !owner.win.isDestroyed())
+    if (!tab.resourceReplacement && !owner.shutting && !owner.win.isDestroyed())
       group.closed = [{ ...tab.saved, id: randomUUID(), time: Date.now() }, ...group.closed].slice(0, 20)
     group.tabs.splice(index, 1)
+    if (tab.resourceReplacement && !owner.shutting && !owner.win.isDestroyed())
+      createTab(owner, group, undefined, tab.resourceReplacement, index, true, false)
     if (group.activeID === tab.id) group.activeID = group.tabs[Math.max(0, index - 1)]?.id
     persistGroup(owner, group)
     if (!owner.win.isDestroyed()) {
@@ -1737,13 +1767,122 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     ["close", "close-tabs", "navigate", "back", "forward", "reload", "stop"].includes(command.op)
   )
     throw new Error(nativeT("desktop.browser.tabs.busy"))
-  if (!["tab-pin", "tab-move", "select", "close", "close-tabs"].includes(command.op)) {
+  if (tab.resourcePending && command.op !== "select" && command.op !== "access")
+    throw new Error(nativeT("desktop.browser.tabs.busy"))
+  if (!["tab-pin", "tab-move", "tab-unload", "select", "close", "close-tabs"].includes(command.op)) {
     if (command.op === "navigate" && tab.deferredRestore) {
       tab.deferredRestore = false
       tab.saved = projectSavedTab({ ...tab.saved, url: command.url, navigation: undefined })!
     } else await tab.restore?.()
   }
-  if (command.op === "tab-pin") {
+  if (command.op === "tab-unload") {
+    if (tab.deferredRestore) return state(group)
+    const revision = tab.revision
+    const taskEpoch = owner.taskEpoch
+    const sourceURL = contents.getURL()
+    const deadline = Date.now() + 60_000
+    const check = () => {
+      const origin = siteOrigin(sourceURL)
+      const reason = browserResourceBlocker({
+        active: group.activeID === tab.id,
+        loading: contents.isLoading(),
+        pinned: tab.saved.pinned === true,
+        granted: tab.agentAccess,
+        busy:
+          browserTabReserved(tab) ||
+          (browserOperationBusy.has(tab.id) && !tab.resourcePending) ||
+          !!tab.operation ||
+          !!tab.agentClose ||
+          !!tab.leaveIntent ||
+          !!tab.uploadGuard ||
+          !!tab.loginBusy ||
+          !!tab.permissionReloadPhase ||
+          !!tab.permissionReplacing ||
+          sitePermissionPrompts.has(owner),
+        transferring:
+          (group.downloads ?? []).some((entry) => entry.state === "saving") || recoveringDownloads().size > 0,
+        media: contents.isCurrentlyAudible() || contents.isBeingCaptured() || resourceCaptures.has(contents),
+        unsaved: false,
+        unknown:
+          !!origin &&
+          (mediaPermission(origin, "video") === "allow" ||
+            mediaPermission(origin, "audio") === "allow" ||
+            practicalPermissionValue(origin, "displayCapture") === "allow"),
+      })
+      if (
+        reason ||
+        contents.isDestroyed() ||
+        owner.shutting ||
+        owner.win.isDestroyed() ||
+        owner.taskEpoch !== taskEpoch ||
+        tab.revision !== revision ||
+        contents.getURL() !== sourceURL ||
+        !group.tabs.includes(tab) ||
+        Date.now() >= deadline
+      )
+        throw new Error(nativeT("desktop.browser.resources.protected"))
+    }
+    check()
+    tab.resourcePending = true
+    browserOperationBusy.add(tab.id)
+    const controller = new AbortController()
+    const cancel = () => controller.abort()
+    const timeout = setInterval(() => {
+      try {
+        check()
+      } catch {
+        cancel()
+      }
+    }, 100)
+    owner.win.on("close", cancel)
+    owner.win.on("hide", cancel)
+    owner.win.on("minimize", cancel)
+    contents.once("destroyed", cancel)
+    try {
+      const inspect = async () => {
+        const status = await inspectBrowserResources(contents)
+        check()
+        if (status.unsaved || status.media || status.unknown)
+          throw new Error(nativeT("desktop.browser.resources.protected"))
+      }
+      await inspect()
+      const answer = await dialog.showMessageBox(owner.win, {
+        type: "warning",
+        message: nativeT("desktop.browser.resources.title"),
+        detail: nativeT("desktop.browser.resources.detail"),
+        buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.resources.unload")],
+        defaultId: 0,
+        cancelId: 0,
+        signal: controller.signal,
+      })
+      if (answer.response !== 1 || controller.signal.aborted) return state(group)
+      await inspect()
+      tab.resourceReplacement = projectSavedTab({
+        ...tab.saved,
+        navigation: recoveryNavigation({
+          entries: contents.navigationHistory.getAllEntries(),
+          activeIndex: contents.navigationHistory.getActiveIndex(),
+        }),
+        url: recoveryURL(sourceURL),
+        title: contents.getTitle().slice(0, 512) || tab.saved.title,
+      })
+      if (!tab.resourceReplacement) throw new Error(nativeT("desktop.browser.resources.protected"))
+      // Native beforeunload may veto this close. Never replay or override it for resource savings.
+      await closeTabAttempt(contents)
+      if (!contents.isDestroyed())
+        tab.notice = { code: "resource_protected", message: nativeT("desktop.browser.resources.protected") }
+      return state(group)
+    } finally {
+      clearInterval(timeout)
+      owner.win.removeListener("close", cancel)
+      owner.win.removeListener("hide", cancel)
+      owner.win.removeListener("minimize", cancel)
+      if (!contents.isDestroyed()) contents.removeListener("destroyed", cancel)
+      tab.resourcePending = false
+      tab.resourceReplacement = undefined
+      browserOperationBusy.delete(tab.id)
+    }
+  } else if (command.op === "tab-pin") {
     if (typeof command.pinned !== "boolean") throw new Error("Invalid tab pin")
     if ((tab.saved.pinned === true) === command.pinned) return state(group)
     group.tabs.splice(group.tabs.indexOf(tab), 1)
@@ -1788,7 +1927,11 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       (entry, entryIndex) =>
         entry !== tab && entry.saved.pinned !== true && (command.scope === "others" || entryIndex > index),
     )
-    if (targets.some((entry) => entry.agentClose || entry.leaveIntent || entry.permissionReloadPhase))
+    if (
+      targets.some(
+        (entry) => entry.agentClose || entry.leaveIntent || entry.permissionReloadPhase || entry.resourcePending,
+      )
+    )
       throw new Error(nativeT("desktop.browser.tabs.busy"))
     if (targets.some((entry) => entry.id === group.activeID)) {
       group.activeID = tab.id

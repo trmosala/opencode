@@ -158,6 +158,7 @@ export function BrowserMenu(props: {
 export function BrowserTabMenu(props: {
   tab: BrowserTab
   tabs: BrowserTab[]
+  activeID?: string
   command(command: BrowserCommand): Promise<unknown>
 }) {
   const language = useLanguage()
@@ -199,6 +200,19 @@ export function BrowserTabMenu(props: {
             <DropdownMenu.ItemLabel>{language.t("browser.tabs.moveRight")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
+          <DropdownMenu.Item
+            disabled={
+              props.tab.id === props.activeID ||
+              props.tab.pinned ||
+              props.tab.loading ||
+              props.tab.agentAccess ||
+              props.tab.unloaded ||
+              !!props.tab.operation
+            }
+            onSelect={() => void props.command({ op: "tab-unload", tabID: props.tab.id })}
+          >
+            <DropdownMenu.ItemLabel>{language.t("browser.tabs.unload")}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
           <DropdownMenu.Item onSelect={() => void props.command({ op: "close", tabID: props.tab.id })}>
             <DropdownMenu.ItemLabel>{language.t("browser.tabs.close")}</DropdownMenu.ItemLabel>
           </DropdownMenu.Item>

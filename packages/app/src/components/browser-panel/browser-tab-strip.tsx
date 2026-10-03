@@ -24,7 +24,10 @@ export function BrowserTabStrip(props: {
   const platform = usePlatform()
   let strip!: HTMLDivElement
   let add!: HTMLButtonElement
-  const title = (tab: BrowserTab) => tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)
+  const title = (tab: BrowserTab) => {
+    const value = tab.title || (tab.url === "about:blank" ? language.t("browser.tabs.new") : tab.url)
+    return tab.unloaded ? language.t("browser.tabs.unloadedTitle", { title: value }) : value
+  }
   const reveal = () =>
     strip
       .querySelector('[data-slot="browser-tab"][data-active="true"]')
@@ -133,7 +136,12 @@ export function BrowserTabStrip(props: {
                 />
               </Show>
               <div data-slot="browser-tab-actions">
-                <BrowserTabMenu tab={tab} tabs={props.tabs.tabs} command={props.command} />
+                <BrowserTabMenu
+                  tab={tab}
+                  tabs={props.tabs.tabs}
+                  activeID={props.tabs.activeID}
+                  command={props.command}
+                />
               </div>
               <Show when={!tab.pinned}>
                 <IconButton

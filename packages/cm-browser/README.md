@@ -16,7 +16,23 @@ An aggregate tab read includes bounded document records for native nested frames
 
 Click, hover, drag, fill, key, selection and scroll tools accept an explicit `frameRef` under the same tab grant. Main binds preparation to the exact action and current native document, verifies iframe ownership and supported affine geometry, and routes input to that document. Selection uses a fixed isolated script and emits untrusted DOM events. Perspective geometry is unsupported. Keyboard input requires the actual focused child frame; it never falls back to the top document. Use refs from the latest returned observation: old refs can expire as bounded snapshots are replaced. A failed observation after dispatch remains an uncertain outcome and never causes automatic replay.
 
-The isolated `--embedded-documents` and `--embedded-input` fixtures use synthetic pages. Authenticated Teams calendar parity remains unverified; the running development instance has not been restarted with these changes.
+The isolated `--embedded-documents` and `--embedded-input` fixtures use synthetic pages. Authenticated Teams calendar parity remains unverified. On 3 October a separate current-branch desktop instance opened Teams in the embedded browser; Microsoft sign-in is pending. Existing app/server instances were not restarted.
+
+## Inactive tab resources (#47)
+
+Live pages stay intact by default. **Unload tab** in an inactive tab's action menu asks for a URL/history-only recovery decision before releasing its renderer. The default answer is Cancel. The confirmation explains that other page state, including unsaved JavaScript work, cannot be restored. There is no automatic eviction based on age or memory.
+
+Main protects active, pinned, loading, agent-accessible, busy and transferring tabs. A bounded read-only isolated-world inspection protects editable values, changed choices, selected files, playing media and unknown embedded or closed custom documents. Native capture checks and successful device permission grants protect capture sessions; those grants conservatively protect the document until navigation even if a track has stopped. Incomplete inspection protects the page. Approval is bound to the owner, exact document and deadline, and a second inspection precedes disposal. Chromium's native `beforeunload` can veto the close.
+
+Recreated tabs retain their supported URL/title/history, position and pin metadata with a fresh private ID. They show **(unloaded)** without a perpetual loading spinner and make no page request until selected. Unloading does not add the tab to Recently closed, submit forms, replay tools/providers or force a native close. DOM inspection cannot prove that application state in JavaScript has been saved; the explicit confirmation is therefore required even for an apparently idle page.
+
+See [resource qualification](../desktop/src/main/browser/resource-policy-qualification.md) for the reproducible synthetic visited-chat workload, measured memory/CPU, lifecycle checks and limits. Authenticated production workload savings, physical dialog accessibility, macOS and packaged builds remain unqualified.
+
+The 3 October integration checks passed 128 focused desktop tests / 927 assertions and 22 mounted browser tests / 565 assertions, with app and desktop typechecks passing. Native resource, navigation and leave-confirmation fixtures passed independently. Scoped lint reported zero errors and existing warnings; the mounted tests emitted the existing multiple-Solid-instance warning. This is focused qualification rather than a full-repository pass.
+
+## Page-origin leave requests (#48)
+
+Main-owned address/history/reload/close requests use asynchronous Stay/Leave confirmation. Unknown page links and forms retain the document and draft but cannot continue the original request after an asynchronous Leave answer on Electron 44.3.0. Native regression demonstrates the synchronous callback limitation and zero requests from vetoed links/GET/POST forms. Issue #48 remains open; a supported asynchronous native callback is needed to preserve original POST semantics. See [leave qualification](../desktop/src/main/browser/leave-confirmation-qualification.md).
 
 ## Bounded visual observation and input (#45)
 
@@ -52,7 +68,7 @@ The browser panel now uses native surfaces, toolbar and address metrics, suggest
 
 The commit checkpoint passed 410 tests with 6,620 assertions: 100 cm-browser tests, 275 focused desktop/browser/provider tests, 17 task-scope tests, 14 mounted browser tests and four shortcut/suggestion tests. Typechecks passed in app, desktop, cm-browser, plugin and opencode, and the browser plugin build passed. Independent native navigation and leave-confirmation reruns passed. Scoped lint has no errors; existing style warnings remain. These are focused checks, not a full-repository pass.
 
-Native Electron corner inspection (#58), human settings design review before merge (#59), and the component-choice decision before implementation (#62) remain pending. Authenticated Teams checks (#39/#40), representative visited-tab resource qualification (#47), and unsupported page-originated leave intents (#48) remain open. The implementation checkpoint does not represent a merge, release or qualification on macOS.
+Native Electron corner inspection (#58), settings implementation (#59), and the native component migration (#62) are complete and their issues are closed. Their evidence and commit checkpoint are separate from the resource work documented above. Authenticated Teams checks (#39/#40) and unsupported page-originated leave intents (#48) remain open. Human PR review is still required before merge; this checkpoint does not represent a merge, release or qualification on macOS.
 
 ## Using the browser
 

@@ -18,6 +18,7 @@ export type BrowserTab = {
   url: string
   title: string
   loading: boolean
+  unloaded?: boolean
   canGoBack: boolean
   canGoForward: boolean
   agentAccess: boolean
@@ -246,6 +247,7 @@ export type BrowserCommand =
   | { op: "state" | "new" }
   | { op: "duplicate"; tabID: string }
   | { op: "tab-pin"; tabID: string; pinned: boolean }
+  | { op: "tab-unload"; tabID: string }
   | { op: "tab-move"; tabID: string; direction: "left" | "right" }
   | { op: "close-tabs"; tabID: string; scope: "others" | "right" }
   | { op: "select" | "close" | "back" | "forward" | "reload" | "stop"; tabID: string }

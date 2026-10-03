@@ -235,6 +235,12 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Browser tab approval expired or its task, owner or source changed. Request approval again.",
   "desktop.browser.tabs.denied": "Browser tab action consent was not granted.",
   "desktop.browser.tabs.busy": "Another browser operation is still running.",
+  "desktop.browser.resources.title": "Unload inactive tab?",
+  "desktop.browser.resources.detail":
+    "Only the page URL and supported history will be retained. Other page state, including unsaved JavaScript work, cannot be restored. The page will reload only when you select the tab.",
+  "desktop.browser.resources.unload": "Unload tab",
+  "desktop.browser.resources.protected":
+    "This tab cannot be unloaded while it is active, busy, protected, or contains unsaved or unsupported content.",
   "desktop.browser.tabs.unavailable": "Browser tab action unavailable.",
   "desktop.browser.tabs.stay": "The browser tab stayed open.",
   "desktop.browser.tabs.recoveryRequired":

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import { once } from "node:events"
+import { createServer } from "node:http"
 import { dialog, type BrowserWindow, type WebContents } from "electron"
 import { browserCommand } from "./tabs"
 import { browserRegistration } from "./registry"
@@ -192,12 +194,129 @@ export async function leaveConfirmationSmoke(
     assert.equal(contents.getURL(), url)
     await contents.executeJavaScript("window.onbeforeunload = null")
     await command({ op: "close", tabID })
+    await pageLeaveRequestsSmoke(win, command)
     console.log(
       "PASS native beforeunload Stay/Leave/close/history/reload/cancel, concurrent intent and untracked-page veto; main process responsive",
     )
   } finally {
     dialog.showMessageBox = original
     if (!win.isDestroyed()) win.hide()
+  }
+}
+
+async function pageLeaveRequestsSmoke(
+  win: BrowserWindow,
+  command: (value: Parameters<typeof browserCommand>[2]) => ReturnType<typeof browserCommand>,
+) {
+  const requests: { method: string; url: string; body: string }[] = []
+  const server = createServer((request, response) => {
+    let body = ""
+    request.setEncoding("utf8")
+    request.on("data", (value: string) => (body += value))
+    request.on("end", () => {
+      requests.push({ method: request.method!, url: request.url!, body })
+      response.setHeader("Content-Type", "text/html; charset=utf-8")
+      response.end(`<!doctype html><title>Unsaved fixture</title>
+        <a id="leave" href="/target">Leave link</a>
+        <form id="form" action="/target" method="post">
+          <input name="note" value="draft"><button>Submit</button>
+        </form>`)
+    })
+  })
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  const address = server.address()
+  assert(address && typeof address !== "string")
+  const origin = `http://127.0.0.1:${address.port}`
+  try {
+    for (const action of ["link", "get", "post"]) {
+      console.log("Page leave case", action)
+      const tabID = (await command({ op: "new" })).activeID!
+      const tab = browserRegistration("smoke", tabID)!
+      const contents = tab.contents as WebContents
+      const dialogs: { method: string; type?: string; result?: boolean; hasBrowserHandler?: boolean }[] = []
+      const observed = (_event: Electron.Event, method: string, params: Record<string, unknown>) => {
+        if (method === "Page.javascriptDialogOpening")
+          dialogs.push({ method, type: String(params.type), hasBrowserHandler: params.hasBrowserHandler === true })
+        if (method === "Page.javascriptDialogClosed") dialogs.push({ method, result: params.result === true })
+      }
+      let progress = 0
+      const ticks = setInterval(() => progress++, 5)
+      try {
+        await contents.loadURL(`${origin}/source?case=${action}`)
+        if (!contents.debugger.isAttached()) contents.debugger.attach("1.3")
+        contents.debugger.on("message", observed)
+        await contents.debugger.sendCommand("Page.enable")
+        win.show()
+        contents.focus()
+        await contents.executeJavaScript(
+          `document.querySelector('input').value = 'unsaved + & ü';
+           document.querySelector('form').method = ${JSON.stringify(action === "get" ? "get" : "post")};
+           window.onbeforeunload = () => 'unsaved'; true`,
+          true,
+        )
+        const priorProgress = progress
+        const start = requests.length
+        await contents.executeJavaScript(
+          action === "link" ? "document.querySelector('a').click()" : "document.querySelector('form').requestSubmit()",
+          true,
+        )
+        await wait(() => dialogs.some((entry) => entry.method === "Page.javascriptDialogClosed"))
+        console.log("Page leave veto observed", action)
+        assert.equal(contents.getURL(), `${origin}/source?case=${action}`)
+        assert.equal(tab.notice?.code, "untracked_leave")
+        assert.equal(await contents.executeJavaScript("document.querySelector('input').value"), "unsaved + & ü")
+        assert.equal(
+          requests.slice(start).some((entry) => entry.url.startsWith("/target")),
+          false,
+        )
+        assert.deepEqual(dialogs, [
+          { method: "Page.javascriptDialogOpening", type: "beforeunload", hasBrowserHandler: true },
+          { method: "Page.javascriptDialogClosed", result: false },
+        ])
+        // Electron 44 resolves its native callback synchronously. CDP observes it but cannot retain it for Leave.
+        await assert.rejects(
+          contents.debugger.sendCommand("Page.handleJavaScriptDialog", { accept: true }),
+          /No dialog is showing/,
+        )
+        assert.equal((await fetch(`${origin}/progress`)).status, 200)
+        assert(progress > priorProgress, "Main process progresses while a page-origin request is vetoed")
+        assert.equal(
+          contents.getURL(),
+          `${origin}/source?case=${action}`,
+          "A late CDP answer must not replay a request",
+        )
+        // A new explicit fixture submission, without beforeunload, proves the witness sees the original native body.
+        await contents.executeJavaScript(
+          `window.onbeforeunload = null;
+           ${action === "link" ? "document.querySelector('a').click()" : "document.querySelector('form').requestSubmit()"}`,
+          true,
+        )
+        await wait(() => requests.slice(start).some((entry) => entry.url.startsWith("/target")))
+        await wait(() => contents.getURL().startsWith(`${origin}/target`))
+        console.log("Page leave explicit request completed", action)
+        const completed = requests.slice(start).filter((entry) => entry.url.startsWith("/target"))
+        assert.equal(completed.length, 1, "Only the new explicit page request reaches the server once")
+        assert.equal(completed[0].method, action === "post" ? "POST" : "GET")
+        if (action !== "link")
+          assert.equal(
+            new URLSearchParams(action === "post" ? completed[0].body : new URL(completed[0].url, origin).search).get(
+              "note",
+            ),
+            "unsaved + & ü",
+          )
+      } finally {
+        clearInterval(ticks)
+        contents.debugger.removeListener("message", observed)
+        if (!contents.isDestroyed()) await contents.executeJavaScript("window.onbeforeunload = null")
+        await command({ op: "close", tabID })
+      }
+    }
+    console.log(
+      "PASS native page link/GET form/POST veto preserves drafts; no late CDP replay; independent main HTTP progress",
+    )
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   }
 }
 

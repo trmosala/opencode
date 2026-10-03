@@ -271,6 +271,64 @@ test("new tab and the all-tabs picker route commands and track the selected tab"
   expect(button("New tab").disabled).toBe(false)
 })
 
+test("unloading routes an inactive tab and shows its recoverable state without a loading spinner", async () => {
+  const menu = tabs()[1]
+    .closest("[data-slot=browser-tab]")!
+    .querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!
+  key(menu, "ArrowDown")
+  await settled()
+  const unload = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === "Unload tab",
+  )!
+  expect(unload).toBeDefined()
+  expect(unload.getAttribute("aria-disabled")).not.toBe("true")
+  key(unload, "Enter")
+  await settled()
+  expect(calls).toEqual([{ op: "tab-unload", tabID: "docs" }])
+  update({ ...state, tabs: [state.tabs[0], { ...state.tabs[1], id: "recovered", unloaded: true }, state.tabs[2]] })
+  expect(tabs()[1].getAttribute("aria-label")).toBe("Docs (unloaded)")
+  expect(tabs()[1].getAttribute("aria-busy")).toBe("false")
+  expect(tabs()[1].querySelector("[data-slot=browser-tab-spinner]")).toBeNull()
+  expect(tabs()[0].getAttribute("aria-selected")).toBe("true")
+  tabs()[1].click()
+  expect(calls.at(-1)).toEqual({ op: "select", tabID: "recovered" })
+})
+
+test.each(["active", "pinned", "loading", "agentAccess", "unloaded", "operation"] as const)(
+  "Unload tab stays disabled for a %s target",
+  async (protection) => {
+    update({
+      ...state,
+      activeID: protection === "active" ? "docs" : state.activeID,
+      tabs: [
+        state.tabs[0],
+        {
+          ...state.tabs[1],
+          pinned: protection === "pinned",
+          loading: protection === "loading",
+          agentAccess: protection === "agentAccess",
+          unloaded: protection === "unloaded",
+          operation: protection === "operation" ? { id: "busy", op: "navigate", status: "running" } : undefined,
+        },
+        state.tabs[2],
+      ],
+    })
+    const menu = tabs()[1]
+      .closest("[data-slot=browser-tab]")!
+      .querySelector<HTMLButtonElement>('button[aria-label="Tab actions"]')!
+    key(menu, "ArrowDown")
+    await settled()
+    const unload = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent?.trim() === "Unload tab",
+    )!
+    expect(unload).toBeDefined()
+    expect(unload.getAttribute("aria-disabled")).toBe("true")
+    key(unload, "Enter")
+    await settled()
+    expect(calls).toEqual([])
+  },
+)
+
 test.each(["ltr", "rtl"] as const)("%s arrow, Home and End keys move selection and focus in DOM order", (direction) => {
   const list = host.querySelector<HTMLElement>('[role="tablist"]')!
   list.dir = direction
