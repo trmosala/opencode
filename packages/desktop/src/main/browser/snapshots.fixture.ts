@@ -273,7 +273,8 @@ export async function snapshotsSmoke() {
       const clicks = await contents.executeJavaScript("[fillClicks, submits]")
       approvals.length = 0
       await assert.rejects(fill(ref), /stale_ref/)
-      assert.deepEqual(approvals, ["browser_read_state", "browser_fill"])
+      // The existing whole-tab grant supplies authority without another tool approval.
+      assert.deepEqual(approvals, [])
       assert.equal(inputs, before, "Rejected fill dispatches zero input")
       assert.deepEqual(await contents.executeJavaScript("[fillClicks, submits]"), clicks)
     }

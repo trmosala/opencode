@@ -72,6 +72,43 @@ export const snapshotScript = (
       rect.top < innerHeight && rect.left < innerWidth &&
       el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
   };
+  const pointerRect = el => {
+    const rect = el.getBoundingClientRect();
+    let left = Math.max(0, rect.left), top = Math.max(0, rect.top);
+    let right = Math.min(innerWidth, rect.right), bottom = Math.min(innerHeight, rect.bottom);
+    // An editor can grow beyond its scroll container while its visible portion stays actionable.
+    for (let node = parent(el), depth = 0; node; node = parent(node)) {
+      if (++depth > 64) return null;
+      if (!(node instanceof Element)) continue;
+      const style = getComputedStyle(node), box = node.getBoundingClientRect();
+      // Non-replaced inline wrappers and display:contents do not establish overflow clips.
+      if (style.display === "inline" || style.display === "contents") continue;
+      const scaleX = node.offsetWidth ? box.width / node.offsetWidth : 1;
+      const scaleY = node.offsetHeight ? box.height / node.offsetHeight : 1;
+      if (style.overflowX !== "visible") {
+        left = Math.max(left, box.left + node.clientLeft * scaleX);
+        right = Math.min(right, box.left + (node.clientLeft + node.clientWidth) * scaleX);
+      }
+      if (style.overflowY !== "visible") {
+        top = Math.max(top, box.top + node.clientTop * scaleY);
+        bottom = Math.min(bottom, box.top + (node.clientTop + node.clientHeight) * scaleY);
+      }
+    }
+    return right > left && bottom > top ? {x:left, y:top, width:right-left, height:bottom-top} : null;
+  };
+  const pointerHit = (el, rect) => {
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    let hit = document.elementFromPoint(x, y);
+    for (let depth = 0; hit?.shadowRoot && depth < 64; depth++) {
+      const inner = hit.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === hit) break;
+      hit = inner;
+    }
+    for (let node = hit, depth = 0; node && depth < 64; node = parent(node), depth++) {
+      if (node === el) return true;
+    }
+    return false;
+  };
   const disabled = el => {
     if (el.matches(":disabled")) return true;
     for (let node = el, depth = 0; node; node = parent(node)) {
@@ -177,8 +214,8 @@ export const snapshotScript = (
     label = label || content(el, ${MAX_ELEMENT_TEXT});
     return label || (manualSlots !== omitted ? "" : attr(el, "title") || attr(el, "placeholder"));
   };
-  const describe = (el, token) => {
-    const role = roleOf(el), rect = el.getBoundingClientRect();
+  const describe = (el, token, rect = el.getBoundingClientRect()) => {
+    const role = roleOf(el);
     const element = { token, tag: el.localName, role, label: nameOf(el), text: content(el, ${MAX_ELEMENT_TEXT}),
       disabled: disabled(el), rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } };
     if (el.matches("input[type=checkbox],input[type=radio]")) element.checked = el.indeterminate ? "mixed" : el.checked;
@@ -229,19 +266,12 @@ export const snapshotScript = (
       // Keyboard identity is independent of the pointer center, which caret scrolling can move offscreen.
       return page([describe(el, reference.token)]);
     }
-    const rect = el.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
-    let hit = document.elementFromPoint(x, y);
-    for (let depth = 0; hit?.shadowRoot && depth < 64; depth++) {
-      const inner = hit.shadowRoot.elementFromPoint(x, y);
-      if (!inner || inner === hit) break;
-      hit = inner;
-    }
-    let reached = false;
-    for (let node = hit, depth = 0; node && depth < 64; node = parent(node), depth++) {
-      if (node === el) { reached = true; break; }
-    }
-    if (!reached) return null;
-    return page([describe(el, reference.token)]);
+    // Preserve an already actionable center, including positioned descendants that escape overflow clips.
+    const original = el.getBoundingClientRect();
+    if (pointerHit(el, original)) return page([describe(el, reference.token, original)]);
+    const rect = pointerRect(el);
+    if (!rect || !pointerHit(el, rect)) return null;
+    return page([describe(el, reference.token, rect)]);
   }
   const elements = [], entries = new Map(), seen = new Set();
   let visibleText = "", optionCount = 0;

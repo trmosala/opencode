@@ -838,7 +838,9 @@ export async function execute(target: Target, request: PageRequest): Promise<Res
         process.platform === "darwin" ? ["selectAll"] : undefined,
       )
       await dispatchKey(target, "Backspace")
-      for (const character of request.text) await dispatchKey(target, character)
+      // Insert text in one guarded native edit, matching embedded fill. Enter can submit a chat,
+      // and per-character identity round trips can leave a long draft partially filled at timeout.
+      if (request.text) await send(target, "Input.insertText", { text: request.text })
     }
 
     target.onActionObservation?.()

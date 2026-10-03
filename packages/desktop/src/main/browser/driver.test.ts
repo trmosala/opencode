@@ -908,10 +908,13 @@ describe("browser driver", () => {
     expect(view.calls.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false)
   })
 
-  test("fill selects, clears, and types every character with trusted key events", async () => {
+  test("fill selects, clears, and inserts multiline text without page keyboard actions", async () => {
     const view = fake()
-    await execute(view.target, { tabID: "one", op: "fill", ref: await firstRef(view), text: "hi" })
-    expect(view.calls.some((call) => call.method === "Input.insertText")).toBe(false)
+    const text = "First line\nSecond\tline"
+    await execute(view.target, { tabID: "one", op: "fill", ref: await firstRef(view), text })
+    expect(view.calls.filter((call) => call.method === "Input.insertText")).toEqual([
+      { method: "Input.insertText", params: { text } },
+    ])
     expect(
       view.calls.some((call) => call.params?.contextId === 8 && String(call.params.expression).includes('"fill":true')),
     ).toBe(true)
@@ -921,9 +924,46 @@ describe("browser driver", () => {
     expect(down).toMatchObject([
       { key: "a", modifiers: process.platform === "darwin" ? 4 : 2 },
       { key: "Backspace", modifiers: 0 },
-      { key: "h", text: "h" },
-      { key: "i", text: "i" },
     ])
+    expect(down).toHaveLength(2)
+  })
+
+  test.each([
+    ["clear", "replacement"],
+    ["clear", "revocation"],
+    ["insert", "replacement"],
+    ["insert", "revocation"],
+  ] as const)("fill checks %s completion for %s before continuing", async (boundary, reason) => {
+    const view = fake()
+    const ref = await firstRef(view)
+    let revoked = false
+    const send = view.target.contents.debugger.sendCommand.bind(view.target.contents.debugger)
+    view.target.contents.debugger.sendCommand = async (method, params) => {
+      const result = await send(method, params)
+      if (
+        (boundary === "insert" && method === "Input.insertText") ||
+        (boundary === "clear" && params?.key === "Backspace" && params.type === "keyUp")
+      ) {
+        if (reason === "replacement") view.setElements([element("replacement")])
+        if (reason === "revocation") revoked = true
+      }
+      return result
+    }
+    await expect(
+      execute(
+        {
+          ...view.target,
+          check: () => {
+            if (revoked) throw new Error("Access revoked")
+          },
+        },
+        { op: "fill", tabID: "one", ref, text: "Draft\ntext" },
+      ),
+    ).rejects.toThrow()
+    expect(view.calls.filter((call) => call.method === "Input.insertText")).toHaveLength(boundary === "insert" ? 1 : 0)
+    expect(
+      view.calls.filter((call) => call.method === "Input.dispatchKeyEvent" && call.params?.type === "keyDown"),
+    ).toHaveLength(2)
   })
 
   test("press_key supports modifiers including Ctrl+Enter", async () => {

@@ -331,6 +331,13 @@ async function run() {
     stage("PASS targeted read")
     return
   }
+  if (process.argv.includes("--clipped-editor")) {
+    const { clippedEditorSmoke } = await import("./clipped-editor.fixture")
+    stage("clipped multiline editor")
+    await clippedEditorSmoke()
+    stage("PASS clipped multiline editor")
+    return
+  }
   if (process.argv.includes("--embedded-input")) {
     const { embeddedInputSmoke } = await import("./embedded-input.fixture")
     await embeddedInputSmoke()
