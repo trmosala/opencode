@@ -36,4 +36,15 @@ Independent focused validation passed **170 tests / 1,647 assertions** and the d
 
 ## Remaining live acceptance
 
-The running CookieMonster process was not restarted and does not include these new on-disk changes. Its exact launch hashes were not pinned. Authenticated calendar reading and day navigation are documented separately in [embedded-state qualification](./embedded-state-qualification.md). Live #40 acceptance still needs event-detail opening and verification of the rebuilt input/scroll behavior when the desktop is available. The last desktop observation was locked; no live account interaction or report transmission was performed for this change. Issue #40 remains open.
+The earlier running process did not include these changes and its launch hashes were not pinned. Authenticated calendar reading and day navigation from that process are documented separately in [embedded-state qualification](./embedded-state-qualification.md).
+
+After explicit user authorization to override the restart restriction, the updated desktop build passed and a development instance started on 3 October 2026 at `07:27:00.9290398Z` from checkout `2d582ec4484fad03b3f6792c1eab2275e682d1cf`. The launch uses the absolute built entry path, the same persistent profile and an isolated bridge on port 8791. The bridge returned healthy. The exact unsent draft text was saved locally before shutdown; it was not transmitted or committed.
+
+Launch artifact SHA-256 hashes:
+
+- `packages/desktop/out/main/index.js`: `CBAD9964C463B9EDB24CDEC891F510879BA764633CD178A87FF3885C122F450E`
+- `packages/cm-browser/dist/plugin.mjs`: `108D97E4867231360C39216A316F019B778B64D7C8FC0199E2D04BAA1FB1AE94`
+
+The normal development relaunch initially failed because the relative entry path was resolved after the app changed its working directory to the home directory. Launching the same build with an absolute entry path succeeded; no startup-path source fix is claimed.
+
+Native observation of the rebuilt instance showed Microsoft's account picker and the restored tab's Agent Access off. Authentication and security permission controls require the user's clicks under Computer Use guidance. Live #40 acceptance remains pending week navigation, measured calendar scrolling and event-detail observation through the agent tools after those controls are completed. No real calendar edits or report transmission were performed for this change. Issue #40 remains open.
