@@ -361,6 +361,12 @@ async function run() {
     stage("PASS navigation")
     return
   }
+  if (process.argv.includes("--long-navigation")) {
+    const { longNavigationSmoke } = await import("./long-navigation.fixture")
+    await longNavigationSmoke()
+    stage("PASS long navigation")
+    return
+  }
   if (process.argv.includes("--overlays")) {
     const { overlaysSmoke } = await import("./overlays.fixture")
     await overlaysSmoke()

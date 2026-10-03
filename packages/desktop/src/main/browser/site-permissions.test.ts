@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test"
 import { permissionValue, siteOrigin, sitePermissionRows } from "./site-permissions"
 
+test("long native page URLs resolve site rules to their exact secure origin", () => {
+  expect(siteOrigin(`https://example.test/?state=${"x".repeat(8192)}`)).toBe("https://example.test")
+  expect(siteOrigin(`https://user:pass@example.test/?state=${"x".repeat(8192)}`)).toBeUndefined()
+  expect(siteOrigin(`https://example.test/?state=${"x".repeat(65536)}`)).toBeUndefined()
+})
+
 test("site rules validate exact origins and preserve legacy media settings", () => {
   const legacy = { origin: "https://example.com:8443", camera: "allow", microphone: "ask" }
   expect(sitePermissionRows([legacy])).toEqual([

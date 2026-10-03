@@ -13,6 +13,24 @@ test("browser bookmark HTML round-trips Unicode, escaped text, URLs and pin stat
   expect(parseBookmarks(bookmarkHTML(rows, "Bookmarks"))).toEqual(rows)
 })
 
+test("long native bookmarks round-trip and keep an empty-title fallback within its metadata limit", () => {
+  const url = `https://example.test/?state=${"x".repeat(8192)}`
+  const rows = [{ url, title: "Long page", pinned: false, folder: [] }]
+  expect(parseBookmarks(bookmarkHTML(rows, "Bookmarks"))).toEqual(rows)
+  expect(parseBookmarks(`<A HREF="${url}"></A>`)[0]).toEqual({ ...rows[0], title: url.slice(0, 512) })
+})
+
+test("bookmark import rejects Unicode URLs whose encoded representation exceeds the native limit", () => {
+  const counts = { unsupported: 0 }
+  expect(
+    parseBookmarks(
+      `<A HREF="https://example.test/${"é".repeat(12000)}">Oversized</A><A HREF="https://example.test">Supported</A>`,
+      counts,
+    ),
+  ).toEqual([{ url: "https://example.test/", title: "Supported", pinned: false, folder: [] }])
+  expect(counts.unsupported).toBe(1)
+})
+
 test("nested browser exports preserve supported folder paths and traversal order", () => {
   expect(
     parseBookmarks(

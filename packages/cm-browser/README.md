@@ -16,7 +16,11 @@ An aggregate tab read includes bounded document records for native nested frames
 
 Click, hover, drag, fill, key, selection and scroll tools accept an explicit `frameRef` under the same tab grant. Main binds preparation to the exact action and current native document, verifies iframe ownership and supported affine geometry, and routes input to that document. Selection uses a fixed isolated script and emits untrusted DOM events. Perspective geometry is unsupported. Keyboard input requires the actual focused child frame; it never falls back to the top document. Use refs from the latest returned observation: old refs can expire as bounded snapshots are replaced. A failed observation after dispatch remains an uncertain outcome and never causes automatic replay.
 
-The isolated `--embedded-documents` and `--embedded-input` fixtures use synthetic pages. Authenticated Teams calendar parity remains unverified. On 3 October a separate current-branch desktop instance opened Teams in the embedded browser; Microsoft sign-in is pending. Existing app/server instances were not restarted.
+The isolated `--embedded-documents` and `--embedded-input` fixtures use synthetic pages. Authenticated Teams calendar agent parity remains unverified. On 3 October a separate current-branch desktop instance opened Teams in the embedded browser. Sign-in completed; a blank Microsoft handoff recovered after normal fresh Teams navigation, and the signed-in interface was visually confirmed. Existing app/server instances were not restarted.
+
+## Long authentication redirects
+
+Native browsing supports HTTP(S) destinations through 65,536 characters, including redirects and page-originated navigation that follows an agent action. Explicit agent URL inputs retain their 2,048-character protocol bound. Supported long URL/history metadata and bookmarks remain usable, with the same origin, scheme and credential restrictions. See [long-navigation qualification](../desktop/src/main/browser/long-navigation-qualification.md) for the native POST/302 regression, omitted-fix provenance and limits of the real Microsoft observation.
 
 ## Inactive tab resources (#47)
 

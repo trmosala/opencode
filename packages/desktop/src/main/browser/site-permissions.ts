@@ -1,12 +1,13 @@
 import type { BrowserPermission } from "@opencode-ai/app/browser-panel"
 import { release } from "node:os"
+import { browserNavigationURL } from "./policy"
 
 export const displayCaptureSupported = () =>
   // Darwin 24 is macOS 15, the first release supported by Electron's native system picker.
   process.platform === "darwin" && Number.parseInt(release().split(".")[0] ?? "0", 10) >= 24
 
 export function siteOrigin(value: unknown) {
-  if (typeof value !== "string" || value.length > 2048 || !URL.canParse(value)) return
+  if (!browserNavigationURL(value)) return
   const url = new URL(value)
   if (url.username || url.password) return
   if (

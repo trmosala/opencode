@@ -1,3 +1,5 @@
+export const MAX_BROWSER_NAVIGATION_URL_LENGTH = 65_536
+
 export type BrowserTab = {
   notice?: { code: string; message: string }
   operation?: BrowserOperationState

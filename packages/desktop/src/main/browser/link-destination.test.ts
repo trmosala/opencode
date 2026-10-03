@@ -14,3 +14,10 @@ test("link defaults distinguish loopback from lookalike remote hosts", () => {
     expect(linkDestination(url, preferences)).toBe("external")
   expect(linkDestination("http://localhost", { webLinks: "browser", localLinks: "external" })).toBe("external")
 })
+
+test("long native links retain the configured internal destination", () => {
+  const preferences = { webLinks: "browser", localLinks: "browser" } as const
+  expect(linkDestination(`https://example.test/?state=${"x".repeat(8192)}`, preferences)).toBe("browser")
+  expect(linkDestination(`http://localhost/?state=${"x".repeat(8192)}`, preferences)).toBe("browser")
+  expect(linkDestination(`https://example.test/?state=${"x".repeat(65536)}`, preferences)).toBe("external")
+})

@@ -5,6 +5,7 @@ import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import type { BrowserBookmark, BrowserCommand } from "@/browser-panel"
+import { MAX_BROWSER_NAVIGATION_URL_LENGTH } from "@/browser-panel"
 
 const folderLabel = (folder: string[]) => folder.join(" › ")
 const folderValue = (value: string) => (value.trim() ? value.split("›").map((name) => name.trim()) : [])
@@ -95,7 +96,7 @@ export function BrowserLibrary(props: {
             required
             type="url"
             dir="ltr"
-            maxLength={2048}
+            maxLength={MAX_BROWSER_NAVIGATION_URL_LENGTH}
             value={state.url}
             onInput={(event) => setState("url", event.currentTarget.value)}
           />

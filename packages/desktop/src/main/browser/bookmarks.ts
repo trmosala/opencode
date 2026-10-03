@@ -5,7 +5,7 @@ import type { BrowserWindow } from "electron"
 import type { BrowserBookmark } from "@opencode-ai/app/browser-panel"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
-import { browserURL } from "./policy"
+import { browserNavigationURL } from "./policy"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -19,7 +19,7 @@ export function bookmarks() {
     const row = value
     if (
       typeof row.id !== "string" ||
-      !browserURL(row.url) ||
+      !browserNavigationURL(row.url) ||
       row.url === "about:blank" ||
       typeof row.title !== "string" ||
       row.title.length > 512 ||
@@ -29,7 +29,7 @@ export function bookmarks() {
     return {
       id: row.id,
       url: new URL(row.url).href,
-      title: row.title.trim() || new URL(row.url).href,
+      title: row.title.trim() || new URL(row.url).href.slice(0, 512),
       pinned: row.pinned === true,
       folder: bookmarkFolder(row.folder),
     }
@@ -73,7 +73,7 @@ export function writeBookmarks(rows: BrowserBookmark[]) {
 
 export function saveBookmark(value: Omit<BrowserBookmark, "id" | "folder"> & { folder?: string[]; id?: string }) {
   if (
-    !browserURL(value.url) ||
+    !browserNavigationURL(value.url) ||
     value.url === "about:blank" ||
     typeof value.title !== "string" ||
     value.title.length > 512 ||
@@ -88,7 +88,13 @@ export function saveBookmark(value: Omit<BrowserBookmark, "id" | "folder"> & { f
   if (value.id && !previous) throw new Error("Bookmark not found")
   const remaining = rows.filter((row) => row.id !== previous?.id && row.url !== url)
   if (remaining.length >= 2000) throw new Error("Bookmark limit reached")
-  const next = { id: previous?.id ?? randomUUID(), url, title: value.title.trim() || url, pinned: value.pinned, folder }
+  const next = {
+    id: previous?.id ?? randomUUID(),
+    url,
+    title: value.title.trim() || url.slice(0, 512),
+    pinned: value.pinned,
+    folder,
+  }
   if (!previous) {
     const result = [next, ...remaining]
     writeBookmarks(result)

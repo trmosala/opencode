@@ -26,7 +26,7 @@ import {
   watchBrowserAccess,
 } from "./registry"
 import type { BrowserAuthority } from "./delegation"
-import { browserURL, browserPageURL } from "./policy"
+import { browserURL, browserNavigationURL, browserPageURL } from "./policy"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
 import { discoverDocuments, executeFrame } from "./frames"
@@ -497,7 +497,7 @@ async function route(
     ownerCheck?.()
   }
   if (!observing && !screenshot && !diagnostics && !siteRequest)
-    tab.navigationAllowed = (url) => browserURL(url) && isAllowed(url)
+    tab.navigationAllowed = (url) => browserNavigationURL(url) && isAllowed(url)
   busy.add(tab.id)
   const operationState = startBrowserOperation(tab, request.op, signal)
   onOperationStart?.(operationState)

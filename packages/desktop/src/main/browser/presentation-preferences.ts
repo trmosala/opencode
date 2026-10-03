@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto"
 import type { BrowserDevicePreset, BrowserZoomRule } from "@opencode-ai/app/browser-panel"
 import { browserDeviceSize } from "@opencode-ai/app/browser-panel"
+import { browserNavigationURL } from "./policy"
 
 export const MAX_ZOOM_RULES = 200
 export const MAX_DEVICE_PRESETS = 20
 
 export function presentationOrigin(value: unknown) {
-  if (typeof value !== "string" || value.length > 2048 || !URL.canParse(value)) return
+  if (!browserNavigationURL(value)) return
   const url = new URL(value)
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return
   return url.origin
