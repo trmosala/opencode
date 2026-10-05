@@ -1,0 +1,3869 @@
+{
+  "checks": [
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 655,
+        "y": 3,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 3,
+        "right": 771.796875,
+        "bottom": 28.5,
+        "left": 655
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 692,
+        "y": 3,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 3,
+        "right": 785.96875,
+        "bottom": 28.5,
+        "left": 692
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 714,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 816.640625,
+        "bottom": 28.5,
+        "left": 714
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 20,
+        "y": 53,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 53,
+        "right": 65.578125,
+        "bottom": 78.5,
+        "left": 20
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 37,
+        "y": 53,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 53,
+        "right": 103.75,
+        "bottom": 78.5,
+        "left": 37
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 43,
+        "y": 53,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 53,
+        "right": 151.40625,
+        "bottom": 78.5,
+        "left": 43
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 81,
+        "y": 53,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 53,
+        "right": 172.203125,
+        "bottom": 78.5,
+        "left": 81
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 457,
+        "y": 53,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 53,
+        "right": 606.46875,
+        "bottom": 78.5,
+        "left": 457
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 532,
+        "y": 53,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 53,
+        "right": 582.15625,
+        "bottom": 78.5,
+        "left": 532
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 530,
+        "y": 53,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 53,
+        "right": 636.09375,
+        "bottom": 78.5,
+        "left": 530
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 579,
+        "y": 53,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 53,
+        "right": 648.5625,
+        "bottom": 78.5,
+        "left": 579
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 591,
+        "y": 53,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 53,
+        "right": 690.8125,
+        "bottom": 78.5,
+        "left": 591
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 612,
+        "y": 53,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 53,
+        "right": 722.890625,
+        "bottom": 78.5,
+        "left": 612
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 512,
+        "y": 33,
+        "width": 320,
+        "height": 45,
+        "top": 33,
+        "right": 832,
+        "bottom": 78,
+        "left": 512
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 285,
+        "y": 3,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 3,
+        "right": 401.796875,
+        "bottom": 28.5,
+        "left": 285
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 322,
+        "y": 3,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 3,
+        "right": 415.96875,
+        "bottom": 28.5,
+        "left": 322
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 344,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 446.640625,
+        "bottom": 28.5,
+        "left": 344
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 20,
+        "y": 53,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 53,
+        "right": 65.578125,
+        "bottom": 78.5,
+        "left": 20
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 37,
+        "y": 53,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 53,
+        "right": 103.75,
+        "bottom": 78.5,
+        "left": 37
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 43,
+        "y": 53,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 53,
+        "right": 151.40625,
+        "bottom": 78.5,
+        "left": 43
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 81,
+        "y": 53,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 53,
+        "right": 172.203125,
+        "bottom": 78.5,
+        "left": 81
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 114,
+        "y": 53,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 53,
+        "right": 263.46875,
+        "bottom": 78.5,
+        "left": 114
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 190,
+        "y": 53,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 53,
+        "right": 240.15625,
+        "bottom": 78.5,
+        "left": 190
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 188,
+        "y": 53,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 53,
+        "right": 294.09375,
+        "bottom": 78.5,
+        "left": 188
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 236,
+        "y": 53,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 53,
+        "right": 305.5625,
+        "bottom": 78.5,
+        "left": 236
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 248,
+        "y": 53,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 53,
+        "right": 347.8125,
+        "bottom": 78.5,
+        "left": 248
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 270,
+        "y": 53,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 53,
+        "right": 380.890625,
+        "bottom": 78.5,
+        "left": 270
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 206,
+        "y": 33,
+        "width": 320,
+        "height": 45,
+        "top": 33,
+        "right": 526,
+        "bottom": 78,
+        "left": 206
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 175,
+        "y": 3,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 3,
+        "right": 291.796875,
+        "bottom": 28.5,
+        "left": 175
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 212,
+        "y": 3,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 3,
+        "right": 305.96875,
+        "bottom": 28.5,
+        "left": 212
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 234,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 336.640625,
+        "bottom": 28.5,
+        "left": 234
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 20,
+        "y": 53,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 53,
+        "right": 65.578125,
+        "bottom": 78.5,
+        "left": 20
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 37,
+        "y": 53,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 53,
+        "right": 103.75,
+        "bottom": 78.5,
+        "left": 37
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 43,
+        "y": 53,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 53,
+        "right": 151.40625,
+        "bottom": 78.5,
+        "left": 43
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 81,
+        "y": 53,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 53,
+        "right": 172.203125,
+        "bottom": 78.5,
+        "left": 81
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 114,
+        "y": 53,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 53,
+        "right": 263.46875,
+        "bottom": 78.5,
+        "left": 114
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 190,
+        "y": 53,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 53,
+        "right": 240.15625,
+        "bottom": 78.5,
+        "left": 190
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 188,
+        "y": 53,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 53,
+        "right": 294.09375,
+        "bottom": 78.5,
+        "left": 188
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 236,
+        "y": 53,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 53,
+        "right": 305.5625,
+        "bottom": 78.5,
+        "left": 236
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 241,
+        "y": 53,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 53,
+        "right": 340.8125,
+        "bottom": 78.5,
+        "left": 241
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 133,
+        "y": 53,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 53,
+        "right": 243.890625,
+        "bottom": 78.5,
+        "left": 133
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "classic",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 90,
+        "y": 33,
+        "width": 320,
+        "height": 45,
+        "top": 33,
+        "right": 410,
+        "bottom": 78,
+        "left": 90
+      },
+      "bounds": {
+        "x": 25,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 69,
+        "y": 3,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 3,
+        "right": 185.796875,
+        "bottom": 28.5,
+        "left": 69
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 54,
+        "y": 3,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 3,
+        "right": 147.96875,
+        "bottom": 28.5,
+        "left": 54
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 24,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 126.640625,
+        "bottom": 28.5,
+        "left": 24
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 774,
+        "y": 53,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 53,
+        "right": 819.578125,
+        "bottom": 78.5,
+        "left": 774
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 737,
+        "y": 53,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 53,
+        "right": 803.75,
+        "bottom": 78.5,
+        "left": 737
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 689,
+        "y": 53,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 53,
+        "right": 797.40625,
+        "bottom": 78.5,
+        "left": 689
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 667,
+        "y": 53,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 53,
+        "right": 758.203125,
+        "bottom": 78.5,
+        "left": 667
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 234,
+        "y": 53,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 53,
+        "right": 383.46875,
+        "bottom": 78.5,
+        "left": 234
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 257,
+        "y": 53,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 53,
+        "right": 307.15625,
+        "bottom": 78.5,
+        "left": 257
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 203,
+        "y": 53,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 53,
+        "right": 309.09375,
+        "bottom": 78.5,
+        "left": 203
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 192,
+        "y": 53,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 53,
+        "right": 261.5625,
+        "bottom": 78.5,
+        "left": 192
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 150,
+        "y": 53,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 53,
+        "right": 249.8125,
+        "bottom": 78.5,
+        "left": 150
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 117,
+        "y": 53,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 53,
+        "right": 227.890625,
+        "bottom": 78.5,
+        "left": 117
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 8,
+        "y": 33,
+        "width": 320,
+        "height": 45,
+        "top": 33,
+        "right": 328,
+        "bottom": 78,
+        "left": 8
+      },
+      "bounds": {
+        "x": 57,
+        "y": 119,
+        "width": 758,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 439,
+        "y": 3,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 3,
+        "right": 555.796875,
+        "bottom": 28.5,
+        "left": 439
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 424,
+        "y": 3,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 3,
+        "right": 517.96875,
+        "bottom": 28.5,
+        "left": 424
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 394,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 496.640625,
+        "bottom": 28.5,
+        "left": 394
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 774,
+        "y": 53,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 53,
+        "right": 819.578125,
+        "bottom": 78.5,
+        "left": 774
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 737,
+        "y": 53,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 53,
+        "right": 803.75,
+        "bottom": 78.5,
+        "left": 737
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 689,
+        "y": 53,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 53,
+        "right": 797.40625,
+        "bottom": 78.5,
+        "left": 689
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 667,
+        "y": 53,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 53,
+        "right": 758.203125,
+        "bottom": 78.5,
+        "left": 667
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 576,
+        "y": 53,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 53,
+        "right": 725.46875,
+        "bottom": 78.5,
+        "left": 576
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 600,
+        "y": 53,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 53,
+        "right": 650.15625,
+        "bottom": 78.5,
+        "left": 600
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 546,
+        "y": 53,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 53,
+        "right": 652.09375,
+        "bottom": 78.5,
+        "left": 546
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 534,
+        "y": 53,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 53,
+        "right": 603.5625,
+        "bottom": 78.5,
+        "left": 534
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 492,
+        "y": 53,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 53,
+        "right": 591.8125,
+        "bottom": 78.5,
+        "left": 492
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 460,
+        "y": 53,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 53,
+        "right": 570.890625,
+        "bottom": 78.5,
+        "left": 460
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 314,
+        "y": 33,
+        "width": 320,
+        "height": 45,
+        "top": 33,
+        "right": 634,
+        "bottom": 78,
+        "left": 314
+      },
+      "bounds": {
+        "x": 427,
+        "y": 119,
+        "width": 388,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 549,
+        "y": 3,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 3,
+        "right": 665.796875,
+        "bottom": 28.5,
+        "left": 549
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 534,
+        "y": 3,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 3,
+        "right": 627.96875,
+        "bottom": 28.5,
+        "left": 534
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 504,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 606.640625,
+        "bottom": 28.5,
+        "left": 504
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 774,
+        "y": 53,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 53,
+        "right": 819.578125,
+        "bottom": 78.5,
+        "left": 774
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 737,
+        "y": 53,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 53,
+        "right": 803.75,
+        "bottom": 78.5,
+        "left": 737
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 689,
+        "y": 53,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 53,
+        "right": 797.40625,
+        "bottom": 78.5,
+        "left": 689
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 667,
+        "y": 53,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 53,
+        "right": 758.203125,
+        "bottom": 78.5,
+        "left": 667
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 576,
+        "y": 53,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 53,
+        "right": 725.46875,
+        "bottom": 78.5,
+        "left": 576
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 600,
+        "y": 53,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 53,
+        "right": 650.15625,
+        "bottom": 78.5,
+        "left": 600
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 546,
+        "y": 53,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 53,
+        "right": 652.09375,
+        "bottom": 78.5,
+        "left": 546
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 534,
+        "y": 53,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 53,
+        "right": 603.5625,
+        "bottom": 78.5,
+        "left": 534
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 499,
+        "y": 53,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 53,
+        "right": 598.8125,
+        "bottom": 78.5,
+        "left": 499
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 597,
+        "y": 53,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 53,
+        "right": 707.890625,
+        "bottom": 78.5,
+        "left": 597
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "classic",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 430,
+        "y": 33,
+        "width": 320,
+        "height": 45,
+        "top": 33,
+        "right": 750,
+        "bottom": 78,
+        "left": 430
+      },
+      "bounds": {
+        "x": 537,
+        "y": 119,
+        "width": 278,
+        "height": 505.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 655,
+        "y": 8,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 8,
+        "right": 771.796875,
+        "bottom": 33.5,
+        "left": 655
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 692,
+        "y": 8,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 8,
+        "right": 785.96875,
+        "bottom": 33.5,
+        "left": 692
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 714,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 816.640625,
+        "bottom": 28.5,
+        "left": 714
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 20,
+        "y": 54,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 54,
+        "right": 65.578125,
+        "bottom": 79.5,
+        "left": 20
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 37,
+        "y": 54,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 54,
+        "right": 103.75,
+        "bottom": 79.5,
+        "left": 37
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 43,
+        "y": 54,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 54,
+        "right": 151.40625,
+        "bottom": 79.5,
+        "left": 43
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 79,
+        "y": 56,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 56,
+        "right": 170.203125,
+        "bottom": 81.5,
+        "left": 79
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 467,
+        "y": 56,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 56,
+        "right": 616.46875,
+        "bottom": 81.5,
+        "left": 467
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 538,
+        "y": 56,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 56,
+        "right": 588.15625,
+        "bottom": 81.5,
+        "left": 538
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 532,
+        "y": 56,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 56,
+        "right": 638.09375,
+        "bottom": 81.5,
+        "left": 532
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 579,
+        "y": 54,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 54,
+        "right": 648.5625,
+        "bottom": 79.5,
+        "left": 579
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 591,
+        "y": 54,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 54,
+        "right": 690.8125,
+        "bottom": 79.5,
+        "left": 591
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 612,
+        "y": 54,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 54,
+        "right": 722.890625,
+        "bottom": 79.5,
+        "left": 612
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 760,
+      "tooltip": {
+        "x": 512,
+        "y": 34,
+        "width": 320,
+        "height": 45,
+        "top": 34,
+        "right": 832,
+        "bottom": 79,
+        "left": 512
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 285,
+        "y": 8,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 8,
+        "right": 401.796875,
+        "bottom": 33.5,
+        "left": 285
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 322,
+        "y": 8,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 8,
+        "right": 415.96875,
+        "bottom": 33.5,
+        "left": 322
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 344,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 446.640625,
+        "bottom": 28.5,
+        "left": 344
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 20,
+        "y": 54,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 54,
+        "right": 65.578125,
+        "bottom": 79.5,
+        "left": 20
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 37,
+        "y": 54,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 54,
+        "right": 103.75,
+        "bottom": 79.5,
+        "left": 37
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 43,
+        "y": 54,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 54,
+        "right": 151.40625,
+        "bottom": 79.5,
+        "left": 43
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 79,
+        "y": 56,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 56,
+        "right": 170.203125,
+        "bottom": 81.5,
+        "left": 79
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 124,
+        "y": 56,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 56,
+        "right": 273.46875,
+        "bottom": 81.5,
+        "left": 124
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 196,
+        "y": 56,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 56,
+        "right": 246.15625,
+        "bottom": 81.5,
+        "left": 196
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 190,
+        "y": 56,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 56,
+        "right": 296.09375,
+        "bottom": 81.5,
+        "left": 190
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 236,
+        "y": 54,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 54,
+        "right": 305.5625,
+        "bottom": 79.5,
+        "left": 236
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 248,
+        "y": 54,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 54,
+        "right": 347.8125,
+        "bottom": 79.5,
+        "left": 248
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 270,
+        "y": 54,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 54,
+        "right": 380.890625,
+        "bottom": 79.5,
+        "left": 270
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 390,
+      "tooltip": {
+        "x": 206,
+        "y": 34,
+        "width": 320,
+        "height": 45,
+        "top": 34,
+        "right": 526,
+        "bottom": 79,
+        "left": 206
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 175,
+        "y": 8,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 8,
+        "right": 291.796875,
+        "bottom": 33.5,
+        "left": 175
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 212,
+        "y": 8,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 8,
+        "right": 305.96875,
+        "bottom": 33.5,
+        "left": 212
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 234,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 336.640625,
+        "bottom": 28.5,
+        "left": 234
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 20,
+        "y": 54,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 54,
+        "right": 65.578125,
+        "bottom": 79.5,
+        "left": 20
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 37,
+        "y": 54,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 54,
+        "right": 103.75,
+        "bottom": 79.5,
+        "left": 37
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 43,
+        "y": 54,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 54,
+        "right": 151.40625,
+        "bottom": 79.5,
+        "left": 43
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 79,
+        "y": 56,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 56,
+        "right": 170.203125,
+        "bottom": 81.5,
+        "left": 79
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 124,
+        "y": 56,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 56,
+        "right": 273.46875,
+        "bottom": 81.5,
+        "left": 124
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 196,
+        "y": 56,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 56,
+        "right": 246.15625,
+        "bottom": 81.5,
+        "left": 196
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 190,
+        "y": 56,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 56,
+        "right": 296.09375,
+        "bottom": 81.5,
+        "left": 190
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 236,
+        "y": 54,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 54,
+        "right": 305.5625,
+        "bottom": 79.5,
+        "left": 236
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 241,
+        "y": 54,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 54,
+        "right": 340.8125,
+        "bottom": 79.5,
+        "left": 241
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 133,
+        "y": 54,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 54,
+        "right": 243.890625,
+        "bottom": 79.5,
+        "left": 133
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "new",
+      "direction": "ltr",
+      "width": 280,
+      "tooltip": {
+        "x": 90,
+        "y": 34,
+        "width": 320,
+        "height": 45,
+        "top": 34,
+        "right": 410,
+        "bottom": 79,
+        "left": 90
+      },
+      "bounds": {
+        "x": 25,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 69,
+        "y": 8,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 8,
+        "right": 185.796875,
+        "bottom": 33.5,
+        "left": 69
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 54,
+        "y": 8,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 8,
+        "right": 147.96875,
+        "bottom": 33.5,
+        "left": 54
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 24,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 126.640625,
+        "bottom": 28.5,
+        "left": 24
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 774,
+        "y": 54,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 54,
+        "right": 819.578125,
+        "bottom": 79.5,
+        "left": 774
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 737,
+        "y": 54,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 54,
+        "right": 803.75,
+        "bottom": 79.5,
+        "left": 737
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 689,
+        "y": 54,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 54,
+        "right": 797.40625,
+        "bottom": 79.5,
+        "left": 689
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 669,
+        "y": 56,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 56,
+        "right": 760.203125,
+        "bottom": 81.5,
+        "left": 669
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 224,
+        "y": 56,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 56,
+        "right": 373.46875,
+        "bottom": 81.5,
+        "left": 224
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 251,
+        "y": 56,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 56,
+        "right": 301.15625,
+        "bottom": 81.5,
+        "left": 251
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 201,
+        "y": 56,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 56,
+        "right": 307.09375,
+        "bottom": 81.5,
+        "left": 201
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 192,
+        "y": 54,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 54,
+        "right": 261.5625,
+        "bottom": 79.5,
+        "left": 192
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 150,
+        "y": 54,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 54,
+        "right": 249.8125,
+        "bottom": 79.5,
+        "left": 150
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 117,
+        "y": 54,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 54,
+        "right": 227.890625,
+        "bottom": 79.5,
+        "left": 117
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 760,
+      "tooltip": {
+        "x": 8,
+        "y": 34,
+        "width": 320,
+        "height": 45,
+        "top": 34,
+        "right": 328,
+        "bottom": 79,
+        "left": 8
+      },
+      "bounds": {
+        "x": 57,
+        "y": 120,
+        "width": 758,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 439,
+        "y": 8,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 8,
+        "right": 555.796875,
+        "bottom": 33.5,
+        "left": 439
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 424,
+        "y": 8,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 8,
+        "right": 517.96875,
+        "bottom": 33.5,
+        "left": 424
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 394,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 496.640625,
+        "bottom": 28.5,
+        "left": 394
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 774,
+        "y": 54,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 54,
+        "right": 819.578125,
+        "bottom": 79.5,
+        "left": 774
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 737,
+        "y": 54,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 54,
+        "right": 803.75,
+        "bottom": 79.5,
+        "left": 737
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 689,
+        "y": 54,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 54,
+        "right": 797.40625,
+        "bottom": 79.5,
+        "left": 689
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 669,
+        "y": 56,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 56,
+        "right": 760.203125,
+        "bottom": 81.5,
+        "left": 669
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 566,
+        "y": 56,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 56,
+        "right": 715.46875,
+        "bottom": 81.5,
+        "left": 566
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 594,
+        "y": 56,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 56,
+        "right": 644.15625,
+        "bottom": 81.5,
+        "left": 594
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 544,
+        "y": 56,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 56,
+        "right": 650.09375,
+        "bottom": 81.5,
+        "left": 544
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 534,
+        "y": 54,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 54,
+        "right": 603.5625,
+        "bottom": 79.5,
+        "left": 534
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 492,
+        "y": 54,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 54,
+        "right": 591.8125,
+        "bottom": 79.5,
+        "left": 492
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 460,
+        "y": 54,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 54,
+        "right": 570.890625,
+        "bottom": 79.5,
+        "left": 460
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 390,
+      "tooltip": {
+        "x": 314,
+        "y": 34,
+        "width": 320,
+        "height": 45,
+        "top": 34,
+        "right": 634,
+        "bottom": 79,
+        "left": 314
+      },
+      "bounds": {
+        "x": 427,
+        "y": 120,
+        "width": 388,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 549,
+        "y": 8,
+        "width": 116.796875,
+        "height": 25.5,
+        "top": 8,
+        "right": 665.796875,
+        "bottom": 33.5,
+        "left": 549
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "New tabCtrl+T"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 534,
+        "y": 8,
+        "width": 93.96875,
+        "height": 25.5,
+        "top": 8,
+        "right": 627.96875,
+        "bottom": 33.5,
+        "left": 534
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser tabs"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 504,
+        "y": 3,
+        "width": 102.640625,
+        "height": 25.5,
+        "top": 3,
+        "right": 606.640625,
+        "bottom": 28.5,
+        "left": 504
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Browser menu"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 774,
+        "y": 54,
+        "width": 45.578125,
+        "height": 25.5,
+        "top": 54,
+        "right": 819.578125,
+        "bottom": 79.5,
+        "left": 774
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Back"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 737,
+        "y": 54,
+        "width": 66.75,
+        "height": 25.5,
+        "top": 54,
+        "right": 803.75,
+        "bottom": 79.5,
+        "left": 737
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Forward"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 689,
+        "y": 54,
+        "width": 108.40625,
+        "height": 25.5,
+        "top": 54,
+        "right": 797.40625,
+        "bottom": 79.5,
+        "left": 689
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "ReloadCtrl+R"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 669,
+        "y": 56,
+        "width": 91.203125,
+        "height": 25.5,
+        "top": 56,
+        "right": 760.203125,
+        "bottom": 81.5,
+        "left": 669
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Site controls"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 566,
+        "y": 56,
+        "width": 149.46875,
+        "height": 25.5,
+        "top": 56,
+        "right": 715.46875,
+        "bottom": 81.5,
+        "left": 566
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Passwords and autofill"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 594,
+        "y": 56,
+        "width": 50.15625,
+        "height": 25.5,
+        "top": 56,
+        "right": 644.15625,
+        "bottom": 81.5,
+        "left": 594
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Open"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 544,
+        "y": 56,
+        "width": 106.09375,
+        "height": 25.5,
+        "top": 56,
+        "right": 650.09375,
+        "bottom": 81.5,
+        "left": 544
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add bookmark"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 534,
+        "y": 54,
+        "width": 69.5625,
+        "height": 25.5,
+        "top": 54,
+        "right": 603.5625,
+        "bottom": 79.5,
+        "left": 534
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add URL"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 499,
+        "y": 54,
+        "width": 99.8125,
+        "height": 25.5,
+        "top": 54,
+        "right": 598.8125,
+        "bottom": 79.5,
+        "left": 499
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Selection"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 597,
+        "y": 54,
+        "width": 110.890625,
+        "height": 25.5,
+        "top": 54,
+        "right": 707.890625,
+        "bottom": 79.5,
+        "left": 597
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Add Screenshot"
+    },
+    {
+      "layout": "new",
+      "direction": "rtl",
+      "width": 280,
+      "tooltip": {
+        "x": 430,
+        "y": 34,
+        "width": 320,
+        "height": 45,
+        "top": 34,
+        "right": 750,
+        "bottom": 79,
+        "left": 430
+      },
+      "bounds": {
+        "x": 537,
+        "y": 120,
+        "width": 278,
+        "height": 504.5
+      },
+      "hidden": false,
+      "text": "Agent Access is on for this entire tab. Page tools need no further approval."
+    }
+  ],
+  "errors": []
+}
