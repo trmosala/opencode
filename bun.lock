@@ -156,6 +156,14 @@
         "@typescript/native-preview": "catalog:",
       },
     },
+    "packages/cm-ui-prototype": {
+      "name": "@cookiemonster/ui-prototype",
+      "version": "0.0.0",
+      "devDependencies": {
+        "typescript": "catalog:",
+        "vite": "catalog:",
+      },
+    },
     "packages/codemode": {
       "name": "@opencode-ai/codemode",
       "version": "1.18.34",
@@ -1488,6 +1496,8 @@
     "@cloudflare/workers-types": ["@cloudflare/workers-types@4.20251008.0", "", {}, "sha512-dZLkO4PbCL0qcCSKzuW7KE4GYe49lI12LCfQ5y9XeSwgYBoAUbwH4gmJ6A0qUIURiTJTkGkRkhVPqpq2XNgYRA=="],
 
     "@cookiemonster/cm-browser": ["@cookiemonster/cm-browser@workspace:packages/cm-browser"],
+
+    "@cookiemonster/ui-prototype": ["@cookiemonster/ui-prototype@workspace:packages/cm-ui-prototype"],
 
     "@corvu/dialog": ["@corvu/dialog@0.2.4", "", { "dependencies": { "@corvu/utils": "~0.4.2", "solid-dismissible": "~0.1.1", "solid-focus-trap": "~0.1.8", "solid-presence": "~0.2.0", "solid-prevent-scroll": "~0.1.10" }, "peerDependencies": { "solid-js": "^1.8" } }, "sha512-n54vJq+fOy8GVrnYBdJpD6JXNuyx7LOeMrRxwzAvZnYGpW8+AA12tnb/P/2emJj/HjOO5otheGKb0breshdFlA=="],
 
