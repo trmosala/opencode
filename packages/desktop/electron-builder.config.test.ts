@@ -117,18 +117,23 @@ test("bundles the CLI outside the dev app archive", async () => {
 test("bundles the CLI in branded prod builds", async () => {
   const previousChannel = process.env.OPENCODE_CHANNEL
   const previousBrand = process.env.CM_BRAND
+  const previousVersion = process.env.CM_VERSION
   process.env.OPENCODE_CHANNEL = "prod"
   process.env.CM_BRAND = "1"
+  process.env.CM_VERSION = "1.18.34-cm.2"
   const module = await import("./electron-builder.config.ts?branded-prod-cli-resource")
   const config = module.default as Configuration
   if (previousChannel === undefined) delete process.env.OPENCODE_CHANNEL
   else process.env.OPENCODE_CHANNEL = previousChannel
   if (previousBrand === undefined) delete process.env.CM_BRAND
   else process.env.CM_BRAND = previousBrand
+  if (previousVersion === undefined) delete process.env.CM_VERSION
+  else process.env.CM_VERSION = previousVersion
 
   expect(config.appId).toBe("com.ogilvy.cookiemonster")
   expect(config.productName).toBe("CookieMonster")
-  expect(config.publish).toBeNull()
+  expect(config.extraMetadata?.version).toBe("1.18.34-cm.2")
+  expect(config.publish).toEqual({ provider: "github", owner: "trmosala", repo: "opencode", channel: "latest" })
   expect(config.extraResources).toContainEqual({
     from: "resources/",
     to: "",

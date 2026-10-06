@@ -173,7 +173,8 @@ const main = Effect.gen(function* () {
   initCrashReporter()
 
   const wslServers = createWslServersController(
-    app.getVersion(),
+    // WSL installs upstream opencode by version, which has no -cm.N builds
+    app.getVersion().replace(/-cm\.\d+$/, ""),
     async (distro) => {
       logger.log("spawning wsl sidecar", { distro })
       return spawnWslSidecar(distro, {

@@ -178,14 +178,21 @@ const getBase = (appId: string): Configuration => ({
 })
 
 // Optional fork branding (CM_BRAND=1): rename the app so it never collides with a real OpenCode
-// install and strip publish so a fork build can never auto-update to upstream.
+// install, and point auto-update at the fork's public releases instead of upstream.
 function applyBranding(cfg: Configuration): Configuration {
   if (!branded) return cfg
   return {
     ...cfg,
     appId: "com.ogilvy.cookiemonster",
     productName: "CookieMonster",
-    extraMetadata: { ...cfg.extraMetadata, cmUserInstall: true, cmSystemCli: systemCli },
+    // CM_VERSION is <base>-cm.<revision>, set at package time. Each _NN revision needs its own
+    // semver or electron-updater treats it as already installed (+build metadata is ignored by eq).
+    extraMetadata: {
+      ...cfg.extraMetadata,
+      cmUserInstall: true,
+      cmSystemCli: systemCli,
+      ...(process.env.CM_VERSION ? { version: process.env.CM_VERSION } : {}),
+    },
     nsis: { ...cfg.nsis, include: "resources/windows/cli-install.nsh" },
     dmg: {
       ...cfg.dmg,
@@ -197,7 +204,8 @@ function applyBranding(cfg: Configuration): Configuration {
       ],
     },
     artifactName: "cookiemonster-${os}-${arch}.${ext}",
-    publish: null,
+    // channel pinned so a -cm.N prerelease version still emits latest*.yml, not cm*.yml
+    publish: { provider: "github", owner: "trmosala", repo: "opencode", channel: "latest" },
   }
 }
 
