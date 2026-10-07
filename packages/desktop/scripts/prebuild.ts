@@ -6,7 +6,7 @@ import "./stage-cm-ae"
 import "./build-vault-auth"
 
 const channel = resolveChannel()
-const assetChannel = process.env.CM_BRAND === "1" ? "dev" : channel
+const assetChannel = process.env.CM_BRAND === "1" && channel !== "dev" ? "prod" : channel
 await $`bun ./scripts/copy-icons.ts ${assetChannel}`
 await $`bun ./scripts/copy-metainfo.ts ${channel}`
 

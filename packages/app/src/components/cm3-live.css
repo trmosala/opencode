@@ -203,6 +203,25 @@ html[data-color-scheme="dark"] .cm3-live {
   scrollbar-width: thin;
 }
 
+.cm3-sidebar-tabs [data-titlebar-tab-slot] {
+  width: 100%;
+  max-width: none;
+  flex-shrink: 0;
+}
+
+.cm3-sidebar-tabs [data-titlebar-tab-slot]::before {
+  display: none;
+}
+
+.cm3-sidebar-tabs [data-titlebar-tab] {
+  height: 31px;
+  --tab-base: var(--cm3-nav);
+}
+
+.cm3-sidebar-tabs [data-titlebar-tab][data-active="true"] {
+  --tab-base: var(--cm3-selected);
+}
+
 .cm3-sidebar-section {
   display: flex;
   align-items: center;

@@ -8,6 +8,29 @@ import { LanguageProvider, useLanguage } from "../src/context/language"
 import { PlatformProvider, type Platform } from "../src/context/platform"
 import { SettingsProvider, useSettings } from "../src/context/settings"
 import { QuietCompanionControls, QuietCompanionSwitch } from "../src/components/quiet-companion-switch"
+import { WppAuthControl } from "../src/components/wpp-auth-control"
+import type { WppAuthState } from "../src/wpp-auth"
+
+export function createAuthPlatform() {
+  const [state, setState] = createStore<WppAuthState>({ status: "signed-out", checkedAt: null, loginVisible: false })
+  const counts = { checks: 0, toggles: 0 }
+  return {
+    counts,
+    update: setState,
+    platform: {
+      state: () => state,
+      check: async () => {
+        counts.checks++
+        setState({ status: "signed-in", checkedAt: Date.now() })
+        return { ...state }
+      },
+      toggleLogin: async () => {
+        counts.toggles++
+        setState("loginVisible", !state.loginVisible)
+      },
+    },
+  }
+}
 
 export function mount(host: HTMLElement, platform: Platform) {
   const counts = { mounts: 0, cleanups: 0, commands: 0 }
@@ -42,6 +65,7 @@ export function mount(host: HTMLElement, platform: Platform) {
     return (
       <QuietCompanionSwitch>
         <Draft />
+        <WppAuthControl />
         <Show when={refs.settings.general.quietCompanion()}>
           <QuietCompanionControls />
         </Show>

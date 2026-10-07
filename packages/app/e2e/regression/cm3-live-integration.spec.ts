@@ -7,6 +7,85 @@ import {
 } from "../performance/timeline/timeline-test-helpers"
 import { expectSessionTitle } from "../utils/waits"
 
+test("CM3 moves the live tabs into the sidebar and keeps their lifecycle", async ({ page }) => {
+  await mockStressTimeline(page)
+  await installStressSessionTabs(page, { draftID: "draft_cm3_tabs" })
+  await page.addInitScript(() => {
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
+  })
+  await page.goto("/new-session?draftId=draft_cm3_tabs")
+  const sidebar = page.locator(".cm3-sidebar-tabs")
+  const strip = page.locator('[data-slot="titlebar-tabs"]')
+  const slots = sidebar.locator("[data-titlebar-tab-slot]")
+  await expect(strip).toHaveCount(1)
+  await expect(page.locator('[data-slot="titlebar-v2"] [data-slot="titlebar-tabs"]')).toHaveCount(0)
+  await expect(slots).toHaveCount(3)
+  await expect(sidebar.getByRole("link", { name: "New session", exact: true })).toBeVisible()
+  const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
+  await input.fill("Keep this unsent tab")
+  const originalStrip = await strip.elementHandle()
+  await page.getByRole("switch", { name: "CM3 UI", exact: true }).click()
+  await expect(page.locator('[data-slot="titlebar-v2"] [data-slot="titlebar-tabs"]')).toBeVisible()
+  await expect(input).toHaveText("Keep this unsent tab")
+  await page.getByRole("switch", { name: "CM3 UI", exact: true }).click()
+  await expect(sidebar.locator('[data-slot="titlebar-tabs"]')).toBeVisible()
+  expect(await strip.evaluate((element, original) => element === original, originalStrip)).toBe(true)
+
+  await sidebar.locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"]`).click()
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+  await page.getByRole("button", { name: fixture.expected.sourceTitle, exact: true }).click()
+  await expect(slots).toHaveCount(3)
+  await page.getByRole("button", { name: "New chat", exact: true }).click()
+  await expect(slots).toHaveCount(4)
+  await expect(input).toHaveText("")
+  await sidebar
+    .locator('[data-titlebar-tab-slot][data-active="true"]')
+    .getByRole("button", { name: "Close tab", exact: true })
+    .click()
+  await expect(slots).toHaveCount(3)
+  await expect(page).toHaveURL(/draftId=draft_cm3_tabs/)
+  await expect(input).toHaveText("Keep this unsent tab")
+
+  const target = sidebar.locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`)
+  await target.click({ button: "middle" })
+  await expect(slots).toHaveCount(2)
+  await page.getByRole("button", { name: "Reopen closed tab", exact: true }).click()
+  await expect(slots).toHaveCount(3)
+  await expect(page).toHaveURL(new RegExp(fixture.targetID))
+  await page.keyboard.press("Control+1")
+  await expect(page).toHaveURL(new RegExp(fixture.sourceID))
+  await page.keyboard.press("Control+Tab")
+  await expect(page).toHaveURL(new RegExp(fixture.targetID))
+
+  const renamed = page.waitForRequest(
+    (request) => request.method() === "PATCH" && new URL(request.url()).pathname === `/session/${fixture.targetID}`,
+  )
+  await target.locator("[data-titlebar-tab-title]").dblclick()
+  const title = target.locator('[contenteditable="true"]')
+  await title.fill("Renamed sidebar tab")
+  await title.press("Enter")
+  expect((await renamed).postDataJSON()).toEqual({ title: "Renamed sidebar tab" })
+  await expect(target).toContainText("Renamed sidebar tab")
+
+  const sourceBox = await sidebar
+    .locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"]`)
+    .boundingBox()
+  const targetBox = await sidebar
+    .locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`)
+    .boundingBox()
+  expect(sourceBox).not.toBeNull()
+  expect(targetBox).not.toBeNull()
+  await page.mouse.move(sourceBox!.x + 30, sourceBox!.y + sourceBox!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox!.x + 30, targetBox!.y + targetBox!.height - 2, { steps: 10 })
+  await page.mouse.up()
+  await expect(slots.locator("[data-titlebar-tab-title]")).toHaveText([
+    "Renamed sidebar tab",
+    fixture.expected.sourceTitle,
+    "New session",
+  ])
+})
+
 test("cold CM3 sessions hydrate their project before starting a new chat", async ({ page }) => {
   await mockStressTimeline(page)
   await installStressSessionTabs(page, { sessionIDs: [fixture.sourceID] })

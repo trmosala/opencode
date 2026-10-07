@@ -37,6 +37,7 @@ function createSession() {
       onErrorOccurred: noop,
     },
     cookies: {
+      on: noop,
       get: async () => [],
       set: async () => {},
       remove: async () => {},

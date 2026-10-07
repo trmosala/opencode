@@ -7,6 +7,7 @@
 
 import { BrowserWindow, session, type Session } from "electron"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
+import { createWppAuthState, readWppAuthResponse } from "./auth-state"
 
 export const WPP_PARTITION = "persist:wpp"
 
@@ -21,6 +22,16 @@ export const WPP_ASSISTANT_ORIGINS = [
 
 const configuredSessions = new WeakSet<Session>()
 const recoveredWebContents = new Set<number>()
+export const wppAuth = createWppAuthState(async () =>
+  readWppAuthResponse(
+    await wppSession().fetch(`${WPP_WORKSPACE_ORIGIN}/api/users/me`, {
+      credentials: "include",
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+    }),
+  ),
+)
 
 export function wppSession(): Session {
   const current = session.fromPartition(WPP_PARTITION)
@@ -28,6 +39,12 @@ export function wppSession(): Session {
   configuredSessions.add(current)
 
   current.webRequest.onResponseStarted((details) => {
+    const url = URL.parse(details.url)
+    if (url?.origin === WPP_WORKSPACE_ORIGIN && url.pathname === "/api/users/me") {
+      if (details.statusCode === 401 && details.webContents) wppAuth.observe("signed-out")
+      // Session.fetch has no page WebContents; don't recursively probe our own checks.
+      if (details.statusCode === 200 && !details.fromCache && details.webContents) void wppAuth.check()
+    }
     if (!isExpiredWppSession(details) || !details.webContents || recoveredWebContents.has(details.webContents.id)) {
       return
     }
@@ -41,6 +58,17 @@ export function wppSession(): Session {
         if (!webContents.isDestroyed()) webContents.reloadIgnoringCache()
       })
       .catch((error) => console.error("cookiemonster: failed to reset expired WPP session", error))
+  })
+
+  current.cookies.on("changed", (_event, cookie, cause, removed) => {
+    const domain = cookie.domain?.replace(/^\./, "") ?? ""
+    if (
+      !cookie.httpOnly ||
+      !(domain === "wpp.com" || domain.endsWith(".wpp.com") || domain === "wpp.ai" || domain.endsWith(".wpp.ai"))
+    )
+      return
+    if (removed && cause !== "overwrite") return wppAuth.invalidate()
+    if (!removed && wppAuth.get().status !== "checking") void wppAuth.check()
   })
 
   return current
@@ -68,6 +96,7 @@ let loginWindow: BrowserWindow | null = null
 
 export function openWppLogin(url = WPP_COOKIE_MONSTER_PROJECT_URL) {
   if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.show()
     loginWindow.focus()
     return loginWindow
   }
@@ -76,16 +105,25 @@ export function openWppLogin(url = WPP_COOKIE_MONSTER_PROJECT_URL) {
     action: "allow",
     overrideBrowserWindowOptions: { webPreferences: { partition: WPP_PARTITION } },
   }))
-  win.on("closed", () => { if (loginWindow === win) loginWindow = null })
+  win.on("show", () => wppAuth.setLoginVisible(true))
+  win.on("hide", () => wppAuth.setLoginVisible(false))
+  win.on("closed", () => {
+    if (loginWindow !== win) return
+    loginWindow = null
+    wppAuth.setLoginVisible(false)
+    void wppAuth.check()
+  })
+  win.webContents.on("did-finish-load", () => void wppAuth.check())
   void win.loadURL(url)
   loginWindow = win
+  wppAuth.setLoginVisible(true)
   return win
 }
 
-// View-menu toggle: close the login window if it's open, else open it.
+// Preserve an unfinished SSO flow when the login window is hidden.
 export function toggleWppLogin(url = WPP_COOKIE_MONSTER_PROJECT_URL) {
-  if (loginWindow && !loginWindow.isDestroyed()) {
-    loginWindow.close()
+  if (loginWindow && !loginWindow.isDestroyed() && loginWindow.isVisible()) {
+    loginWindow.hide()
     return
   }
   openWppLogin(url)

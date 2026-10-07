@@ -52,7 +52,7 @@ import { cleanupStoreFiles } from "./store-cleanup"
 import { createTray, destroyTray } from "./tray"
 import { startWppBridge } from "./wpp-bridge"
 import { ensureO1CodeProvider } from "./wpp-bridge/proxy/providerConfig.mjs"
-import { openWppLogin } from "./wpp-bridge/session"
+import { openWppLogin, wppAuth } from "./wpp-bridge/session"
 import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
 
@@ -396,6 +396,7 @@ const main = Effect.gen(function* () {
       openWppLogin()
     },
   }).catch((error) => logger.error("wpp bridge proxy failed to start", error))
+  void wppAuth.check()
   // ponytail: one-time Phase-3 gate scaffolding (dev only). WPP_LOGIN=1 opens a visible
   // persist:wpp window for interactive SSO; WPP_RECORDER_URL=<chat url> runs the recorder probe
   // against the now-authenticated partition. Separate runs — log in first, probe on a later

@@ -1,8 +1,10 @@
 import { createStore } from "solid-js/store"
-import { createEffect, createMemo, For, on, Show } from "solid-js"
+import { createEffect, createMemo, For, on, onCleanup, Show } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { useLayout } from "@/context/layout"
+import { useCommand } from "@/context/command"
 import { ServerConnection, serverName, useServer } from "@/context/server"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
@@ -15,6 +17,7 @@ import { useDirectoryPicker } from "./directory-picker"
 import { useSettingsDialog } from "./settings-dialog"
 import { Cm3Icon } from "./cm3-icon"
 import { QuietCompanionControls } from "./quiet-companion-switch"
+import { WppAuthControl } from "./wpp-auth-control"
 
 export function Cm3Shell() {
   const home = createHomeController()
@@ -24,6 +27,8 @@ export function Cm3Shell() {
   const server = useServer()
   const location = useLocation()
   const tabs = useTabs()
+  const layout = useLayout()
+  const command = useCommand()
   const navigate = useNavigate()
   const pickDirectory = useDirectoryPicker()
   const openSettings = useSettingsDialog()
@@ -33,6 +38,7 @@ export function Cm3Shell() {
     setState("navigation", false)
     refs.toggle?.focus({ preventScroll: true })
   }
+  createEffect(on(() => `${location.pathname}${location.search}`, closeNavigation, { defer: true }))
   const routeProject = createMemo(
     () => {
       const path = `${location.pathname}${location.search}`
@@ -104,6 +110,7 @@ export function Cm3Shell() {
       })
       return
     }
+    if (settings.general.newLayoutDesigns()) return command.trigger("tab.new")
     openTask(conn, project.worktree)
   }
 
@@ -190,6 +197,20 @@ export function Cm3Shell() {
           />
         </label>
         <div class="cm3-sidebar-scroll">
+          <Show when={settings.general.newLayoutDesigns()}>
+            <p class="cm3-sidebar-section">{language.t("quietCompanion.openTabs")}</p>
+            <div
+              class="cm3-sidebar-tabs"
+              ref={(element) => {
+                layout.tabStrip.setMount(element)
+                onCleanup(() => layout.tabStrip.setMount(undefined))
+              }}
+            />
+            <button class="cm3-sidebar-action" type="button" onClick={() => command.trigger("tab.reopenClosed")}>
+              <Cm3Icon name="chats" />
+              {language.t("command.tab.reopenClosed")}
+            </button>
+          </Show>
           <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
           <Show when={!sessions.data.loading()} fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}>
             <For each={records()}>
@@ -280,6 +301,7 @@ export function Cm3Shell() {
         </div>
         <div class="cm3-sidebar-footer">
           <QuietCompanionControls />
+          <WppAuthControl />
           <button type="button" onClick={openSettings}>
             <Cm3Icon name="gear" />
             {language.t("quietCompanion.settings")}

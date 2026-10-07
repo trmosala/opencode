@@ -2,6 +2,8 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { Cm3Icon } from "./cm3-icon"
+import { Show } from "solid-js"
+import { WppAuthControl } from "./wpp-auth-control"
 
 export function TitlebarAppearance() {
   const settings = useSettings()
@@ -13,6 +15,9 @@ export function TitlebarAppearance() {
       data-component="titlebar-appearance"
       style={{ "-webkit-app-region": "no-drag" }}
     >
+      <Show when={!settings.general.quietCompanion()}>
+        <WppAuthControl compact />
+      </Show>
       <button
         type="button"
         role="switch"

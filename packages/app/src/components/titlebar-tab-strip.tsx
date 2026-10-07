@@ -4,7 +4,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { DragDropProvider, PointerSensor } from "@dnd-kit/solid"
 import { isSortable, useSortable } from "@dnd-kit/solid/sortable"
 import { Accessibility, AutoScroller, Feedback, PointerActivationConstraints } from "@dnd-kit/dom"
-import { RestrictToHorizontalAxis } from "@dnd-kit/abstract/modifiers"
+import { RestrictToHorizontalAxis, RestrictToVerticalAxis } from "@dnd-kit/abstract/modifiers"
 import { RestrictToElement } from "@dnd-kit/dom/modifiers"
 import { arrayMove } from "@dnd-kit/helpers"
 import { tabHref, tabKey, type SessionTab, type Tab } from "@/context/tabs"
@@ -210,6 +210,7 @@ function DraftTabSlot(props: {
 }
 
 export function TitlebarTabStrip(props: {
+  vertical?: boolean
   tabs: Tab[]
   currentTab: () => Tab | undefined
   forceTruncate: boolean
@@ -288,7 +289,8 @@ export function TitlebarTabStrip(props: {
     <div data-slot="titlebar-tabs" class="relative min-w-0">
       <div
         data-slot="titlebar-tabs-scroll"
-        class="flex min-w-0 flex-row items-center gap-1.5 overflow-x-auto no-scrollbar [app-region:no-drag]"
+        class="flex min-w-0 gap-1.5 no-scrollbar [app-region:no-drag]"
+        classList={{ "flex-row items-center overflow-x-auto": !props.vertical, "flex-col": props.vertical }}
         ref={scrollRef}
       >
         <DragDropProvider
@@ -301,10 +303,16 @@ export function TitlebarTabStrip(props: {
                 (event.target instanceof Element && !!event.target.closest('[contenteditable="true"]')),
             }),
           ]}
-          modifiers={[RestrictToHorizontalAxis, RestrictToElement.configure({ element: () => listRef })]}
+          modifiers={[
+            props.vertical ? RestrictToVerticalAxis : RestrictToHorizontalAxis,
+            RestrictToElement.configure({ element: () => listRef }),
+          ]}
           plugins={(defaults) => [
             ...defaults.filter((plugin) => plugin !== Accessibility),
-            AutoScroller.configure({ acceleration: 8, threshold: { x: 0.05, y: 0 } }),
+            AutoScroller.configure({
+              acceleration: 8,
+              threshold: props.vertical ? { x: 0, y: 0.05 } : { x: 0.05, y: 0 },
+            }),
             Feedback.configure({ dropAnimation: null }),
           ]}
           onDragStart={(event) => {
@@ -332,7 +340,12 @@ export function TitlebarTabStrip(props: {
             }
           }}
         >
-          <div data-titlebar-tab-list class="flex w-full min-w-0 flex-row items-center" ref={listRef}>
+          <div
+            data-titlebar-tab-list
+            class="flex w-full min-w-0"
+            classList={{ "flex-row items-center": !props.vertical, "flex-col": props.vertical }}
+            ref={listRef}
+          >
             <For each={props.tabs}>
               {(tab) => {
                 const id = tabKey(tab)
@@ -387,11 +400,13 @@ export function TitlebarTabStrip(props: {
         data-slot="titlebar-tabs-fade-left"
         aria-hidden="true"
         class="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-[linear-gradient(to_right,var(--v2-background-bg-deep),transparent)]"
+        classList={{ hidden: props.vertical }}
       />
       <div
         data-slot="titlebar-tabs-fade-right"
         aria-hidden="true"
         class="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-[linear-gradient(to_left,var(--v2-background-bg-deep),transparent)]"
+        classList={{ hidden: props.vertical }}
       />
     </div>
   )

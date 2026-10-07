@@ -1,6 +1,7 @@
 import { WorkerPool } from "../worker-pool";
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs";
 import { DEFAULT_MODEL_ID } from "./modelProfiles.mjs";
+import { wppAuth } from "../session";
 
 const DEFAULT_EXTENSION_TIMEOUT_MS = Number(process.env.O1_CODE_EXTENSION_TIMEOUT_MS || process.env.O1_CODE_TIMEOUT_MS || 900000);
 const DEFAULT_CLIENT_TTL_MS = Number(process.env.O1_CODE_CLIENT_TTL_MS || 10 * 60 * 1000);
@@ -260,6 +261,7 @@ export class ExtensionBridge {
         throw error;
       }
       this.clearAuthRequired();
+      wppAuth.observe("signed-in");
       this.jobs.delete(job.id);
       this.teardownProgress(job.id);
       this.finishJob(job, "succeeded", result);
@@ -285,6 +287,7 @@ export class ExtensionBridge {
   }
 
   markAuthRequired(reason) {
+    wppAuth.observe("signed-out");
     const wasRequired = this.auth.required;
     this.auth = { required: true, reason, detectedAt: new Date().toISOString() };
     // Fire only on the false->true edge so repeated failed jobs don't spawn a window each.

@@ -307,6 +307,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }),
     )
     const [ephemeral, setEphemeral] = createStore({
+      tabStripMount: undefined as HTMLElement | undefined,
       reviewPanelSource: "other" as ReviewPanelSource,
       sessionTabPreview: {} as Record<string, string | undefined>,
     })
@@ -614,6 +615,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     return {
       route,
       ready,
+      tabStrip: {
+        mount: () => ephemeral.tabStripMount,
+        setMount: (element: HTMLElement | undefined) => setEphemeral("tabStripMount", element),
+      },
       home: {
         selection: createMemo(() => store.home.selection),
         setSelection(selection: HomeProjectSelection) {

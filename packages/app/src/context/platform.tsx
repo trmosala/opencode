@@ -7,6 +7,7 @@ import type { WslServersPlatform } from "../wsl/types"
 import type { UpdaterPlatform } from "../updater"
 import type { DraftStore } from "@/utils/draft-store"
 import type { BrowserPanelPlatform } from "../browser-panel"
+import type { WppAuthPlatform } from "../wpp-auth"
 
 type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
@@ -74,6 +75,7 @@ type PlatformBase = {
 
   /** Application-global desktop updater */
   updater?: UpdaterPlatform
+  wppAuth?: WppAuthPlatform
 
   /** Fetch override */
   fetch?: typeof fetch

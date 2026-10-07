@@ -83,13 +83,14 @@ afterAll(async () => {
   if (state.directory) await rm(state.directory, { recursive: true, force: true })
 })
 
-function setup(stored?: string) {
+function setup(stored?: string, wppAuth?: Platform["wppAuth"]) {
   const storage = new Map<string, string>()
   if (stored) storage.set("default:settings.v3", stored)
   const external: string[] = []
   const platform: Platform = {
     platform: "desktop",
     os: "windows",
+    wppAuth,
     openExternal(url) {
       external.push(url)
     },
@@ -127,6 +128,40 @@ async function ready(mounted: ReturnType<ReturnType<typeof setup>["mount"]>) {
 }
 
 describe("CM3 live shell", () => {
+  test("WPP status updates from events and explicit controls without polling", async () => {
+    const auth = state.fixture!.createAuthPlatform()
+    const mounted = setup(undefined, auth.platform).mount()
+    await ready(mounted)
+    const trigger = mounted.host.querySelector<HTMLButtonElement>('button[aria-label="WPP: Sign-in required"]')!
+    expect(trigger).toBeDefined()
+    expect(auth.counts.checks).toBe(0)
+    trigger.click()
+    await Bun.sleep(0)
+    const controls = document.querySelector<HTMLElement>('[data-component="wpp-auth-controls"]')!
+    const button = (label: string) =>
+      Array.from(controls.querySelectorAll("button")).find((item) => item.textContent?.trim() === label)!
+    button("Show login window").click()
+    expect(auth.counts.toggles).toBe(1)
+    expect(button("Hide login window")).toBeDefined()
+    button("Hide login window").click()
+    expect(auth.counts.toggles).toBe(2)
+    expect(auth.counts.checks).toBe(0)
+    button("Check status").click()
+    expect(auth.counts.checks).toBe(1)
+    expect(trigger.textContent).toContain("Signed in")
+    auth.update("checkedAt", Date.UTC(2026, 9, 7, 10, 0))
+    const previousCheck = controls.textContent
+    auth.update("checkedAt", Date.UTC(2026, 9, 7, 11, 0))
+    expect(controls.textContent).not.toBe(previousCheck)
+    auth.update("status", "signed-out")
+    expect(trigger.textContent).toContain("Sign-in required")
+    auth.update("status", "checking")
+    expect(button("Check status").disabled).toBe(true)
+    expect(auth.counts.checks).toBe(1)
+    auth.update("status", "unknown")
+    expect(trigger.textContent).toContain("Status unavailable")
+  })
+
   test("keeps one live child mounted and its draft across UI switches", async () => {
     const mounted = setup().mount()
     await ready(mounted)

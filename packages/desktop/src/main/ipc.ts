@@ -33,6 +33,7 @@ import {
 import { createDesktopDraftStore } from "./draft-store"
 import { nativeT } from "./native-translations"
 import { repairSystemCli } from "./system-cli"
+import { toggleWppLogin, wppAuth } from "./wpp-bridge/session"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -66,6 +67,8 @@ type Deps = {
 export function registerIpcHandlers(deps: Deps) {
   const drafts = createDesktopDraftStore(join(app.getPath("userData"), "drafts.sqlite"))
   const updaterSubscriptions = createUpdaterSubscriptions()
+  const wppSubscriptions = createUpdaterSubscriptions()
+  app.once("will-quit", () => wppSubscriptions.clear())
   app.once("will-quit", updaterSubscriptions.clear)
   app.on("before-quit", () => drafts.flush())
   app.once("will-quit", () => drafts.close())
@@ -80,6 +83,29 @@ export function registerIpcHandlers(deps: Deps) {
     return repairSystemCli()
   })
   ipcMain.handle("await-initialization", () => deps.awaitInitialization())
+  ipcMain.handle("wpp-auth-subscribe", (event) => {
+    requireWppAuthSender(event)
+    wppSubscriptions.set(
+      event.sender.id,
+      wppAuth.subscribe((state) => {
+        if (event.sender.isDestroyed()) return wppSubscriptions.delete(event.sender.id)
+        event.sender.send("wpp-auth-state", state)
+      }),
+    )
+    event.sender.once("destroyed", () => wppSubscriptions.delete(event.sender.id))
+  })
+  ipcMain.handle("wpp-auth-unsubscribe", (event) => {
+    requireWppAuthSender(event)
+    wppSubscriptions.delete(event.sender.id)
+  })
+  ipcMain.handle("wpp-auth-check", (event) => {
+    requireWppAuthSender(event)
+    return wppAuth.check()
+  })
+  ipcMain.handle("wpp-auth-toggle-login", (event) => {
+    requireWppAuthSender(event)
+    toggleWppLogin()
+  })
   ipcMain.handle("consume-initial-deep-links", () => deps.consumeInitialDeepLinks())
   ipcMain.handle("get-default-server-url", () => deps.getDefaultServerUrl())
   ipcMain.handle("set-default-server-url", (_event: IpcMainInvokeEvent, url: string | null) =>
@@ -347,6 +373,19 @@ export function registerIpcHandlers(deps: Deps) {
 
 export function sendMenuCommand(win: BrowserWindow, id: string) {
   win.webContents.send("menu-command", id)
+}
+
+function requireWppAuthSender(event: IpcMainInvokeEvent) {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (
+    !win ||
+    win.isDestroyed() ||
+    win.webContents !== event.sender ||
+    event.senderFrame !== event.sender.mainFrame ||
+    !getWindowID(win)
+  ) {
+    throw new Error("wpp_auth_invalid_sender")
+  }
 }
 
 export function sendDeepLinks(win: BrowserWindow, urls: string[]) {

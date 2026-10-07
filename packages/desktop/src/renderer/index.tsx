@@ -16,11 +16,13 @@ import {
   useLanguage,
 } from "@opencode-ai/app"
 import type { UpdaterState } from "@opencode-ai/app/updater"
+import type { WppAuthState } from "@opencode-ai/app/wpp-auth"
 import * as Sentry from "@sentry/solid"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { createMemoryHistory, MemoryRouter, type BaseRouterProps } from "@solidjs/router"
 import { createEffect, createMemo, createResource, createSignal, onCleanup, Show } from "solid-js"
 import { render } from "solid-js/web"
+import { createStore } from "solid-js/store"
 import pkg from "../../package.json"
 import { t } from "./i18n"
 import { initializationData } from "./initialization"
@@ -62,6 +64,12 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 
 const [updaterState, setUpdaterState] = createSignal<UpdaterState>({ status: "disabled" })
 void window.api.updater.subscribe(setUpdaterState)
+const [wppAuthState, setWppAuthState] = createStore<WppAuthState>({
+  status: "unknown",
+  checkedAt: null,
+  loginVisible: false,
+})
+window.api.wppAuth.subscribe((state) => setWppAuthState(state))
 
 const deepLinkEvent = "opencode:deep-link"
 
@@ -169,6 +177,11 @@ const createPlatform = (windowState: DesktopWindowState): Platform => {
     platform: "desktop",
     os,
     browserPanel: window.api.browserPanel,
+    wppAuth: {
+      state: () => wppAuthState,
+      check: () => window.api.wppAuth.check(),
+      toggleLogin: () => window.api.wppAuth.toggleLogin(),
+    },
     version: pkg.version,
     windowID: windowState.id,
 
