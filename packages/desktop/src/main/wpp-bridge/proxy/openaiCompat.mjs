@@ -22,7 +22,7 @@ import { collectImageInputs } from "./imageInputs.mjs";
 import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs";
 import { estimateTokens } from "./tokenEstimate.mjs";
 import { resolveUsage } from "./usage.mjs";
-import { DEFAULT_MODEL_ID, MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs";
+import { DEFAULT_MODEL_ID, MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs";
 const DEFAULT_MAX_PROMPT_CHARS = 600000;
 const STREAM_KEEP_ALIVE_MS = 10000;
 
@@ -91,6 +91,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const id = `chatcmpl_${crypto.randomUUID().replace(/-/g, "")}`;
   const created = Math.floor(Date.now() / 1000);
   const model = body.model || DEFAULT_MODEL_ID;
+  const profile = resolveRequestModelProfile(body);
   const startedAt = new Date().toISOString();
   const target = body.o1_code_target || "coding-agent";
 
@@ -137,10 +138,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
   const serializableMessages = serializableMessagesForRequest(body);
 
-  // Route the OpenCode model name to the identically named CookieMonster WPP project agent. An explicit
-  // o1_code_model still overrides the mapping for diagnostics and custom deployments.
-  const agentName = body.o1_code_model || resolveModelProfile(model).agentName;
-  const commentaryPhase = resolveModelProfile(agentName).commentaryPhase === true;
+  // Route the model and effort to their validated WPP agent. An explicit o1_code_model still
+  // overrides the mapping for diagnostics and custom deployments.
+  const agentName = profile.agentName;
+  const commentaryPhase = profile.commentaryPhase === true;
   // Pin client+runtime+session+agent to one WPP worker so its thread holds context across turns.
   // A separate backend or a mid-session model switch starts its own WPP conversation.
   // Compaction is a one-shot summarization: route it to an unpinned worker (sessionKey "") so it
@@ -683,7 +684,7 @@ function hasExplicitIncompleteTaskClaim(content, { forwardLooking = false } = {}
 }
 
 function commentaryPhaseEnabled(body) {
-  return resolveModelProfile(body?.o1_code_model || body?.model).commentaryPhase === true;
+  return resolveRequestModelProfile(body).commentaryPhase === true;
 }
 
 function hasTaskCompleteMarker(content) {

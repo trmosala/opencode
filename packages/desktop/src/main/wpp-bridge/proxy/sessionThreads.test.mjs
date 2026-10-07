@@ -25,6 +25,19 @@ const toolResult = (id, text) => ({ role: "tool", tool_call_id: id, content: tex
 afterEach(() => resetThread(KEY))
 
 describe("decideThreadMode", () => {
+  test("Sol 6.1 continues for the same effective effort and replays after a route change", () => {
+    const first = { ...body(sys(), user("hello")), model: "CM_GPT6.1_Sol" }
+    commitThread(KEY, first, assistant("answer"))
+    const next = {
+      ...first,
+      reasoning_effort: "medium",
+      messages: [sys(), user("hello"), assistant("answer"), user("more")],
+    }
+    expect(decideThreadMode(KEY, next, true)).toEqual({ mode: "continue", sinceIndex: 2 })
+    expect(decideThreadMode(KEY, { ...next, reasoning_effort: "high" }, true)).toEqual({ mode: "fresh", sinceIndex: 0 })
+    expect(decideThreadMode(KEY, { ...next, o1_code_model: "CM_GPT6.1_Sol_High" }, true)).toEqual({ mode: "fresh", sinceIndex: 0 })
+  })
+
   test("first turn (no mirror) is fresh", () => {
     expect(decideThreadMode(KEY, body(sys(), user("hello")), true)).toEqual({ mode: "fresh", sinceIndex: 0 })
   })

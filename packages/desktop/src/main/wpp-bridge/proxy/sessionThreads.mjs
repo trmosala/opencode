@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { resolveModelProfile } from "./modelProfiles.mjs"
+import { resolveRequestModelProfile } from "./modelProfiles.mjs"
 import { CM_REQUEST_TYPE, CM_REQUEST_VERSION, toolCallProtocol } from "./protocol.mjs"
 
 // In-memory session -> WPP-thread mirror. OpenCode resends the full logical transcript on every
@@ -77,7 +77,7 @@ function isPrefix(prev, next) {
 
 function contextHash(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : []
-  const profile = resolveModelProfile(body?.model)
+  const profile = resolveRequestModelProfile(body)
   return hashValue({
     protocol: { type: CM_REQUEST_TYPE, version: CM_REQUEST_VERSION },
     model: body?.model || "",

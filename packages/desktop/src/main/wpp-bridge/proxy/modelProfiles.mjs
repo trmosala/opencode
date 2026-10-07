@@ -116,6 +116,15 @@ export const MODEL_PROFILES = {
     agentName: "CM_Gemini-3.7-Flash_High",
     toolFormat: "xml",
   },
+  "CM_GPT6.1_Sol": {
+    defaultReasoningEffort: "medium",
+    reasoningEfforts: {
+      medium: "CM_GPT6.1_Sol_Medium",
+      high: "CM_GPT6.1_Sol_High",
+    },
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
 }
 
 export const DEFAULT_MODEL_ID = "CM_GPT-5.6-Sol_High"
@@ -132,8 +141,40 @@ export const RENAMED_MODEL_IDS = new Map([
 
 export function resolveModelProfile(modelId) {
   const id = RENAMED_MODEL_IDS.get(modelId) ?? modelId
-  // Own keys only: inherited names like "constructor" must fall back instead of resolving to a builtin.
-  return Object.hasOwn(MODEL_PROFILES, id) ? MODEL_PROFILES[id] : MODEL_PROFILES[DEFAULT_MODEL_ID]
+  const profile = Object.hasOwn(MODEL_PROFILES, id) ? MODEL_PROFILES[id] : undefined
+  if (profile) {
+    if (!Object.hasOwn(profile, "reasoningEfforts")) return profile
+    return { ...profile, agentName: profile.reasoningEfforts[profile.defaultReasoningEffort] }
+  }
+
+  const sol = MODEL_PROFILES["CM_GPT6.1_Sol"]
+  if (Object.values(sol.reasoningEfforts).includes(id)) {
+    return { agentName: id, toolFormat: sol.toolFormat, commentaryPhase: sol.commentaryPhase }
+  }
+  if (typeof id === "string" && (id === "CM_GPT6.1" || id.startsWith("CM_GPT6.1_"))) {
+    const error = new Error(`Unknown model: ${id}`)
+    error.statusCode = 400
+    error.type = "invalid_model"
+    throw error
+  }
+  return MODEL_PROFILES[DEFAULT_MODEL_ID]
+}
+
+export function resolveRequestModelProfile(body) {
+  const override = body?.o1_code_model
+  const profile = resolveModelProfile(override || body?.model)
+  if (!Object.hasOwn(profile, "reasoningEfforts")) {
+    return override ? { ...profile, agentName: override } : profile
+  }
+
+  const effort = Object.hasOwn(body, "reasoning_effort") ? body.reasoning_effort : profile.defaultReasoningEffort
+  if (typeof effort !== "string" || !Object.hasOwn(profile.reasoningEfforts, effort)) {
+    const error = new Error(`reasoning_effort must be one of: ${Object.keys(profile.reasoningEfforts).join(", ")}`)
+    error.statusCode = 400
+    error.type = "invalid_reasoning_effort"
+    throw error
+  }
+  return { ...profile, agentName: profile.reasoningEfforts[effort] }
 }
 
 export const MODEL_IDS = Object.keys(MODEL_PROFILES)

@@ -105,6 +105,61 @@ describe("Opus High routing compatibility", () => {
   }
 });
 
+describe("Sol 6.1 effort routing", () => {
+  test("dispatches both efforts to distinct agents and threads while retaining the family response ID", async () => {
+    const calls = [];
+    const bridge = {
+      hasSession: () => false,
+      run: async (prompt, options) => {
+        calls.push({ prompt: JSON.parse(prompt), options });
+        return bridgeRun("Resolved.");
+      },
+    };
+    try {
+      for (const reasoning_effort of [undefined, "medium", "high"]) {
+        const response = fakeResponse();
+        await withNoRunLogs(() => handleChatCompletions(
+          { headers: {
+            "x-opencode-session-id": "sol61-routing",
+            "x-session-affinity": "sol61-routing",
+            "x-opencode-client": "desktop",
+            "x-opencode-runtime-id": "sol61-test",
+          } },
+          response,
+          {
+            model: "CM_GPT6.1_Sol",
+            ...(reasoning_effort === undefined ? {} : { reasoning_effort }),
+            messages: [user("hello")],
+          },
+          { bridge },
+        ));
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).model).toBe("CM_GPT6.1_Sol");
+      }
+      expect(calls.map((call) => call.options.model)).toEqual([
+        "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
+      ]);
+      expect(calls[0].options.sessionKey).toContain("CM_GPT6.1_Sol_Medium");
+      expect(calls[0].options.sessionKey).toBe(calls[1].options.sessionKey);
+      expect(calls[2].options.sessionKey).not.toBe(calls[1].options.sessionKey);
+      expect(calls.every((call) => call.prompt.toolCallProtocol === "CM_XML_TOOL_CALL_V1")).toBe(true);
+    } finally {
+      for (const call of calls) resetThread(call.options.sessionKey);
+    }
+  });
+
+  test("rejects an unavailable effort before any WPP dispatch", async () => {
+    let calls = 0;
+    await expect(handleChatCompletions(
+      { headers: {} },
+      fakeResponse(),
+      { model: "CM_GPT6.1_Sol", reasoning_effort: "low", messages: [user("hello")] },
+      { bridge: { run: async () => { calls += 1; return bridgeRun("wrong route"); } } },
+    )).rejects.toMatchObject({ statusCode: 400, type: "invalid_reasoning_effort" });
+    expect(calls).toBe(0);
+  });
+});
+
 describe("handleChatCompletions capture retry", () => {
   test("retries a capture failure once as a fresh replay", async () => {
     commitThread(KEY, body(user("hello")), assistant("previous"));

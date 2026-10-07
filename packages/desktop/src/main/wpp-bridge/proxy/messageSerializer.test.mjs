@@ -16,6 +16,22 @@ const framed = (model = "CM_Opus 5 - Extra High") => ({
 })
 
 describe("CookieMonster request envelope", () => {
+  for (const reasoning_effort of ["medium", "high"]) {
+    test(`preserves Sol 6.1 ${reasoning_effort} phase and tool contracts`, () => {
+      const body = { ...framed("CM_GPT6.1_Sol"), reasoning_effort }
+      body.messages.push(
+        { role: "assistant", content: "Complete." },
+        { role: "user", content: "Continue." },
+      )
+      const out = JSON.parse(serializeChatCompletionRequest(body))
+      expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
+      expect(out.messages[1].phase).toBe("final_answer")
+      const continuation = JSON.parse(serializeIncompleteTaskContinuationRequest(body))
+      expect(continuation.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
+      expect(continuation.instructions[0]).toContain("messages[].toolCalls")
+    })
+  }
+
   test("preserves fresh instructions, tools, and message roles without privileged-looking prose", () => {
     const raw = serializeChatCompletionRequest(framed())
     const out = JSON.parse(raw)
