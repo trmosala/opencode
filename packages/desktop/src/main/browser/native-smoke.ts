@@ -288,6 +288,12 @@ async function vaultCapabilitySmoke(win: BrowserWindow) {
 async function run() {
   stage("waiting for Electron ready")
   await app.whenReady()
+  if (process.argv.includes("--wpp-auth")) {
+    const { wppAuthSmoke } = await import("../wpp-bridge/auth-state.fixture")
+    await wppAuthSmoke()
+    stage("PASS WPP authentication")
+    return
+  }
   stage("Electron ready")
   if (process.argv.includes("--drag-regions")) {
     const { dragRegionsSmoke } = await import("./drag-regions.fixture")

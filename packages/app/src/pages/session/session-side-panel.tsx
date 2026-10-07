@@ -179,7 +179,7 @@ export function SessionSidePanel(props: {
     fileBrowser: () => !!props.fileBrowserState,
   })
   const contextOpen = tabState.contextOpen
-  const browserOpen = createMemo(() => !!platform.browserPanel && tabState.browserOpen())
+  const browserOpen = createMemo(() => !!platform.browserPanel && reviewOpen() && tabState.browserOpen())
   const open = createMemo(() => reviewOpen() || fileOpen() || browserOpen())
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"

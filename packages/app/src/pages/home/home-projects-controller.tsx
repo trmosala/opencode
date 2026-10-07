@@ -15,13 +15,13 @@ import { createResource } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { HomeController } from "./home-controller"
 
-export function createHomeProjectsController(home: HomeController) {
+export function createHomeProjectsController(home: HomeController, options?: { openSettings?: () => void }) {
   const platform = usePlatform()
   const pickDirectory = useDirectoryPicker()
   const dialog = useDialog()
   const language = useLanguage()
   const notification = useNotification()
-  const openSettings = useSettingsCommand()
+  const openSettings = options?.openSettings ?? useSettingsCommand()
   const serverManagement = useServerManagementController({ navigateOnAdd: false })
   const [_state, setState, _, ready] = persisted(
     Persist.global("home.servers", ["home.servers.v1"]),

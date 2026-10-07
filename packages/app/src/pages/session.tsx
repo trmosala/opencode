@@ -2269,10 +2269,14 @@ export default function Page() {
             <button
               type="button"
               aria-label={language.t("command.review.toggle")}
-              aria-pressed={isDesktop() ? view().reviewPanel.opened() && tabs().active() === "review" : mobileChanges()}
+              aria-pressed={isDesktop() ? view().reviewPanel.opened() && activeTab() === "review" : mobileChanges()}
               onClick={() => {
                 if (!isDesktop()) {
                   setStore("mobileTab", mobileChanges() ? "session" : "changes")
+                  return
+                }
+                if (view().reviewPanel.opened() && activeTab() === "review") {
+                  view().reviewPanel.close()
                   return
                 }
                 view().reviewPanel.open()
@@ -2286,10 +2290,16 @@ export default function Page() {
               <button
                 type="button"
                 aria-label={language.t("command.browser.toggle")}
-                aria-pressed={view().reviewPanel.opened() && tabs().active() === "browser"}
+                aria-pressed={view().reviewPanel.opened() && activeTab() === "browser"}
                 onClick={() => {
-                  view().reviewPanel.open()
-                  void tabs().open("browser")
+                  if (view().reviewPanel.opened() && activeTab() === "browser") {
+                    view().reviewPanel.close()
+                    return
+                  }
+                  batch(() => {
+                    view().reviewPanel.open()
+                    void tabs().open("browser")
+                  })
                 }}
               >
                 <Cm3Icon name="browser" />

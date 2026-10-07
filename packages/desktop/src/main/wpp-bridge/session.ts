@@ -7,7 +7,8 @@
 
 import { BrowserWindow, session, type Session } from "electron"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
-import { createWppAuthState, readWppAuthResponse } from "./auth-state"
+import { createWppAuthState, wppAuthProbeScript } from "./auth-state"
+import { classifyWppAuthState } from "./worker-startup"
 
 export const WPP_PARTITION = "persist:wpp"
 
@@ -22,16 +23,21 @@ export const WPP_ASSISTANT_ORIGINS = [
 
 const configuredSessions = new WeakSet<Session>()
 const recoveredWebContents = new Set<number>()
-export const wppAuth = createWppAuthState(async () =>
-  readWppAuthResponse(
-    await wppSession().fetch(`${WPP_WORKSPACE_ORIGIN}/api/users/me`, {
-      credentials: "include",
-      cache: "no-store",
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    }),
-  ),
-)
+export const wppAuth = createWppAuthState(async () => {
+  const contents = BrowserWindow.getAllWindows()
+    .map((win) => win.webContents)
+    .find(
+      (contents) =>
+        !contents.isDestroyed() &&
+        contents.session === wppSession() &&
+        contents.getURL().startsWith(`${WPP_WORKSPACE_ORIGIN}/`),
+    )
+  // ponytail: reuse live WPP windows; add a bounded probe window if startup status without one is required.
+  if (!contents) return "unknown"
+  if (classifyWppAuthState({ url: contents.getURL() })) return "signed-out"
+  const status: unknown = await contents.executeJavaScript(wppAuthProbeScript())
+  return status === "signed-in" || status === "signed-out" ? status : "unknown"
+})
 
 export function wppSession(): Session {
   const current = session.fromPartition(WPP_PARTITION)
@@ -68,7 +74,7 @@ export function wppSession(): Session {
     )
       return
     if (removed && cause !== "overwrite") return wppAuth.invalidate()
-    if (!removed && wppAuth.get().status !== "checking") void wppAuth.check()
+    if (!removed) wppAuth.refresh()
   })
 
   return current

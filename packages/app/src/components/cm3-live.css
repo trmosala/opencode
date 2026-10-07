@@ -203,6 +203,14 @@ html[data-color-scheme="dark"] .cm3-live {
   scrollbar-width: thin;
 }
 
+.cm3-sidebar-project-slot {
+  height: 31px;
+}
+
+.cm3-sidebar-projects .cm3-sidebar-project {
+  padding-inline-end: 64px;
+}
+
 .cm3-sidebar-tabs [data-titlebar-tab-slot] {
   width: 100%;
   max-width: none;

@@ -5,18 +5,18 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useLayout } from "@/context/layout"
 import { useCommand } from "@/context/command"
-import { ServerConnection, serverName, useServer } from "@/context/server"
+import { ServerConnection, useServer } from "@/context/server"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { tabKey, useTabs } from "@/context/tabs"
 import { legacySessionHref } from "@/utils/session-route"
 import { createHomeController } from "@/pages/home/home-controller"
 import { createHomeSessionsController } from "@/pages/home/home-sessions-controller"
-import { displayName } from "@/pages/layout/helpers"
+import { createHomeProjectsController } from "@/pages/home/home-projects-controller"
+import { HomeProjects } from "@/pages/home/home-projects"
 import { useDirectoryPicker } from "./directory-picker"
 import { useSettingsDialog } from "./settings-dialog"
 import { Cm3Icon } from "./cm3-icon"
-import { QuietCompanionControls } from "./quiet-companion-switch"
 import { WppAuthControl } from "./wpp-auth-control"
 
 export function Cm3Shell() {
@@ -32,6 +32,7 @@ export function Cm3Shell() {
   const navigate = useNavigate()
   const pickDirectory = useDirectoryPicker()
   const openSettings = useSettingsDialog()
+  const projects = createHomeProjectsController(home, { openSettings })
   const [state, setState] = createStore({ search: "", navigation: false })
   const refs: { toggle?: HTMLButtonElement; nav?: HTMLElement } = {}
   const closeNavigation = () => {
@@ -110,7 +111,6 @@ export function Cm3Shell() {
       })
       return
     }
-    if (settings.general.newLayoutDesigns()) return command.trigger("tab.new")
     openTask(conn, project.worktree)
   }
 
@@ -120,7 +120,7 @@ export function Cm3Shell() {
         ref={(element) => (refs.toggle = element)}
         class="cm3-navigation-toggle"
         type="button"
-        aria-label={language.t("quietCompanion.openNavigation")}
+        aria-label={language.t("command.sidebar.toggle")}
         aria-expanded={state.navigation}
         onClick={() => {
           setState("navigation", true)
@@ -167,7 +167,9 @@ export function Cm3Shell() {
         }}
       >
         <div class="cm3-sidebar-brand">
-          {language.t("quietCompanion.title")}
+          <span role="img" aria-label={language.t("quietCompanion.title")}>
+            <Cm3Icon name="cookie" size={24} />
+          </span>
           <button
             class="cm3-navigation-close"
             type="button"
@@ -244,40 +246,15 @@ export function Cm3Shell() {
             </Show>
           </Show>
           <p class="cm3-sidebar-section">{language.t("quietCompanion.projects")}</p>
-          <For each={home.server.list()}>
-            {(conn) => (
-              <div>
-                <button
-                  class="cm3-sidebar-project"
-                  type="button"
-                  data-active={home.selection.value().server === ServerConnection.key(conn)}
-                  onClick={() => home.selection.focusServer(conn)}
-                >
-                  {serverName(conn)}
-                </button>
-                <For each={home.project.forServer(conn)}>
-                  {(project) => (
-                    <button
-                      class="cm3-sidebar-project"
-                      type="button"
-                      data-active={
-                        home.selection.value().server === ServerConnection.key(conn) &&
-                        home.selection.value().directory === project.worktree
-                      }
-                      title={project.worktree}
-                      onClick={() => {
-                        home.project.select(conn, project.worktree)
-                        closeNavigation()
-                      }}
-                    >
-                      <Cm3Icon name="folder" />
-                      <span>{displayName(project)}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-            )}
-          </For>
+          <HomeProjects
+            projects={projects}
+            sidebar
+            onOpenProjectNewSession={openTask}
+            onSelectProject={(conn, directory) => {
+              home.project.select(conn, directory)
+              closeNavigation()
+            }}
+          />
           <button
             class="cm3-sidebar-action"
             type="button"
@@ -300,7 +277,6 @@ export function Cm3Shell() {
           </button>
         </div>
         <div class="cm3-sidebar-footer">
-          <QuietCompanionControls />
           <WppAuthControl />
           <button type="button" onClick={openSettings}>
             <Cm3Icon name="gear" />
