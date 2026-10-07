@@ -46,9 +46,11 @@ export namespace Flock {
     baseDelayMs?: number
     maxDelayMs?: number
     onWait?: Wait
+    protectLiveOwner?: boolean
   }
 
   type Opts = {
+    protectLiveOwner: boolean
     staleMs: number
     timeoutMs: number
     baseDelayMs: number
@@ -124,25 +126,33 @@ export namespace Flock {
     }
   }
 
-  async function stale(lockDir: string, heartbeatPath: string, metaPath: string, staleMs: number) {
+  async function stale(lockDir: string, heartbeatPath: string, metaPath: string, opts: Opts) {
     // Stale detection allows automatic recovery after crashed owners.
     const now = wall()
     const heartbeat = await stats(heartbeatPath)
-    if (heartbeat) {
-      return now - heartbeat.mtimeMs > staleMs
-    }
-
     const meta = await stats(metaPath)
-    if (meta) {
-      return now - meta.mtimeMs > staleMs
-    }
-
     const dir = await stats(lockDir)
-    if (!dir) {
+    const timestamp = heartbeat?.mtimeMs ?? meta?.mtimeMs ?? dir?.mtimeMs
+    if (timestamp === undefined || now - timestamp <= opts.staleMs) return false
+    if (!opts.protectLiveOwner) return true
+    // A stalled event loop is not a dead session owner. Fail closed if ownership is unverifiable.
+    const owner: unknown = await readFile(metaPath, "utf8")
+      .then((raw) => JSON.parse(raw))
+      .catch(() => undefined)
+    if (typeof owner !== "object" || owner === null || !("hostname" in owner) || !("pid" in owner)) return false
+    if (
+      owner.hostname !== os.hostname() ||
+      typeof owner.pid !== "number" ||
+      !Number.isInteger(owner.pid) ||
+      owner.pid <= 0
+    )
       return false
+    try {
+      process.kill(owner.pid, 0)
+      return false
+    } catch (error) {
+      return code(error) === "ESRCH"
     }
-
-    return now - dir.mtimeMs > staleMs
   }
 
   async function tryAcquireLockDir(lockDir: string, opts: Opts): Promise<Owned | { acquired: false }> {
@@ -157,7 +167,7 @@ export namespace Flock {
         throw err
       }
 
-      if (!(await stale(lockDir, heartbeatPath, metaPath, opts.staleMs))) {
+      if (!(await stale(lockDir, heartbeatPath, metaPath, opts))) {
         return { acquired: false }
       }
 
@@ -183,7 +193,7 @@ export namespace Flock {
 
       try {
         // Breaker ownership ensures only one contender performs stale cleanup.
-        if (!(await stale(lockDir, heartbeatPath, metaPath, opts.staleMs))) {
+        if (!(await stale(lockDir, heartbeatPath, metaPath, opts))) {
           return { acquired: false }
         }
 
@@ -310,6 +320,7 @@ export namespace Flock {
   export async function acquire(key: string, input: Options = {}): Promise<Lease> {
     input.signal?.throwIfAborted()
     const cfg: Opts = {
+      protectLiveOwner: input.protectLiveOwner ?? false,
       staleMs: input.staleMs ?? defaultOpts.staleMs,
       timeoutMs: input.timeoutMs ?? defaultOpts.timeoutMs,
       baseDelayMs: input.baseDelayMs ?? defaultOpts.baseDelayMs,
@@ -329,6 +340,10 @@ export namespace Flock {
       cfg,
     )
     lock.startHeartbeat()
+    if (input.signal?.aborted) {
+      await lock.release()
+      input.signal.throwIfAborted()
+    }
 
     const release = () => lock.release()
     return {

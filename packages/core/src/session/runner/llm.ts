@@ -10,6 +10,9 @@ import {
 } from "@opencode-ai/llm"
 import { Cause, DateTime, Effect, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
+import { Flag } from "../../flag/flag"
+import { RequestIdentity } from "../../util/request-identity"
+import { SessionOwnership } from "../ownership"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
@@ -105,7 +108,8 @@ const layer = Layer.effect(
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
-    const db = (yield* Database.Service).db
+    const database = yield* Database.Service
+    const db = database.db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
       const session = yield* store.get(sessionID)
@@ -206,6 +210,10 @@ const layer = Layer.effect(
         model,
         http: {
           headers: {
+            // CookieMonster keys WPP thread ownership on client + runtime; other providers keep upstream headers.
+            ...(model.provider === "cookiemonster"
+              ? { "x-opencode-client": Flag.OPENCODE_CLIENT, "x-opencode-runtime-id": RequestIdentity.id }
+              : {}),
             "x-opencode-session-id": session.id,
             ...(session.parentID ? { "x-opencode-parent-session-id": session.parentID } : {}),
             "x-session-affinity": session.id,
@@ -415,7 +423,7 @@ const layer = Layer.effect(
     })
 
     return Service.of({
-      run,
+      run: (input) => SessionOwnership.withLock(run(input), input.sessionID, database.filename),
     })
   }),
 )

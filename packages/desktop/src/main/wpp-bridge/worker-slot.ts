@@ -14,10 +14,7 @@ export type WorkerView = {
   lastUsed: number
 }
 
-export type Slot =
-  | { action: "reuse"; id: number }
-  | { action: "grow" }
-  | { action: "wait"; id: number }
+export type Slot = { action: "reuse"; id: number } | { action: "grow" } | { action: "wait"; id: number }
 
 // Which worker (if any) runs the next job. A `sessionKey` pins a worker to one OpenCode session so
 // its WPP thread holds that session's context across turns: the session's own pinned tab is reused
@@ -28,9 +25,7 @@ export type Slot =
 // preferring the requested agent (or an untagged one); else grow so parallel jobs never fail on a
 // local tab cap.
 export function selectWorkerSlot(workers: WorkerView[], agent: string, sessionKey?: string): Slot {
-  const free = workers
-    .filter((worker) => !worker.busy)
-    .sort((a, b) => a.lastUsed - b.lastUsed)
+  const free = workers.filter((worker) => !worker.busy).sort((a, b) => a.lastUsed - b.lastUsed)
 
   if (sessionKey) {
     const pinned = free.find((worker) => worker.sessionKey === sessionKey)
@@ -41,8 +36,9 @@ export function selectWorkerSlot(workers: WorkerView[], agent: string, sessionKe
   }
 
   const adoptable = free.filter((worker) => !worker.sessionKey)
-  const preferred = (agent ? adoptable.find((worker) => worker.agent === agent) : undefined)
-    ?? adoptable.find((worker) => !worker.agent)
+  const preferred =
+    (agent ? adoptable.find((worker) => worker.agent === agent) : undefined) ??
+    adoptable.find((worker) => !worker.agent)
   if (preferred) return { action: "reuse", id: preferred.id }
 
   return { action: "grow" }
@@ -55,10 +51,16 @@ export function shouldReapWorker(worker: WorkerView, now: number, idleTtlMs: num
 // Idle TTL for a worker by its pin tier. Unpinned workers are pure LRU scratch (shortest reuse
 // window is fine). A session-pinned tab holds that session's WPP thread, so it earns a long grace —
 // unless it serves a throw-away sub-agent, which never resumes once done and so is reaped sooner.
-export function ttlForWorker(
-  worker: WorkerView,
-  ttls: { idle: number; pinned: number; subagent: number },
-): number {
+//
+// Only GUI-owned (desktop client) tabs earn the long grace: that backend lives for the app run. Other
+// clients (CLI, ACP) mint a new runtime identity per process, so a restart strands their pinned tabs,
+// and an idle runtime cannot be told apart from a dead one. They take the short sub-agent TTL; every
+// turn still refreshes lastUsed, so a live runtime keeps its tab while it keeps working.
+export function ttlForWorker(worker: WorkerView, ttls: { idle: number; pinned: number; subagent: number }): number {
   if (!worker.sessionKey) return ttls.idle
-  return worker.subagent ? ttls.subagent : ttls.pinned
+  if (worker.subagent || !worker.sessionKey.startsWith(DESKTOP_SESSION_KEY_PREFIX)) return ttls.subagent
+  return ttls.pinned
 }
+
+// openaiCompat builds session keys as JSON.stringify([client, runtimeId, sessionId, agent]).
+const DESKTOP_SESSION_KEY_PREFIX = '["desktop",'

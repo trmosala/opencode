@@ -1,11 +1,24 @@
 import { describe, expect, test } from "bun:test"
-import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppProjectAccessState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError, wppProjectAccessError } from "./worker-startup"
+import {
+  cleanupWindowOnFailure,
+  classifyWppAuthState,
+  classifyWppProjectAccessState,
+  classifyWppSessionProbe,
+  isWppFrameUrl,
+  wppAuthRequiredError,
+  wppProjectAccessError,
+} from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 import { WorkerPool, openAssistantPopover } from "./worker-pool"
 import vm from "node:vm"
 import type { WebContents } from "electron"
 import { runLogRecord } from "./proxy/logging.mjs"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
+import { commitThread, resetThread, threadContextUsage } from "./proxy/sessionThreads.mjs"
+
+const DESKTOP_KEY = JSON.stringify(["desktop", "runtime-D", "sess-A", "CM_Opus5.5-High"])
+const CLI_KEY = JSON.stringify(["cli", "runtime-A", "sess-A", "CM_Opus5.5-High"])
+const OTHER_CLI_KEY = JSON.stringify(["cli", "runtime-B", "sess-A", "CM_Opus5.5-High"])
 
 const worker = (
   id: number,
@@ -108,19 +121,12 @@ describe("selectWorkerSlot", () => {
   })
 
   test("adopts an unpinned agent-matching worker when the session has no tab yet", () => {
-    const slot = selectWorkerSlot(
-      [worker(1, "GPT", false, 1), worker(2, "Opus", false, 2)],
-      "Opus",
-      "sess-A::Opus",
-    )
+    const slot = selectWorkerSlot([worker(1, "GPT", false, 1), worker(2, "Opus", false, 2)], "Opus", "sess-A::Opus")
     expect(slot).toEqual({ action: "reuse", id: 2 })
   })
 
   test("a sessionless request does not steal a session-pinned worker", () => {
-    const slot = selectWorkerSlot(
-      [worker(1, "Opus", false, 1, "sess-A::Opus"), worker(2, "", false, 5)],
-      "Opus",
-    )
+    const slot = selectWorkerSlot([worker(1, "Opus", false, 1, "sess-A::Opus"), worker(2, "", false, 5)], "Opus")
     expect(slot).toEqual({ action: "reuse", id: 2 })
   })
 
@@ -140,8 +146,13 @@ describe("ttlForWorker", () => {
     expect(ttlForWorker(worker(1, "Opus", false, 0), ttls)).toBe(10)
   })
 
-  test("session-pinned worker uses the pinned TTL", () => {
-    expect(ttlForWorker(worker(1, "Opus", false, 0, "sess-A::Opus"), ttls)).toBe(30)
+  test("desktop session-pinned worker uses the pinned TTL", () => {
+    expect(ttlForWorker(worker(1, "Opus", false, 0, DESKTOP_KEY), ttls)).toBe(30)
+  })
+
+  test("non-desktop runtime-pinned workers use the short TTL", () => {
+    expect(ttlForWorker(worker(1, "Opus", false, 0, CLI_KEY), ttls)).toBe(5)
+    expect(ttlForWorker(worker(1, "Opus", false, 0, JSON.stringify(["acp", "r", "s", "Opus"])), ttls)).toBe(5)
   })
 
   test("sub-agent pinned worker uses the shorter subagent TTL", () => {
@@ -161,7 +172,7 @@ describe("ttlForWorker", () => {
     const subagent = 5 * 60 * 1000
 
     const sub = worker(1, "Opus", false, lastUsed, "sub-A::Opus", true)
-    const interactive = worker(2, "Opus", false, lastUsed, "sess-A::Opus")
+    const interactive = worker(2, "Opus", false, lastUsed, DESKTOP_KEY)
 
     expect(shouldReapWorker(sub, now, ttlForWorker(sub, { idle, pinned, subagent }))).toBe(true)
     expect(shouldReapWorker(interactive, now, ttlForWorker(interactive, { idle, pinned, subagent }))).toBe(false)
@@ -194,17 +205,23 @@ describe("WorkerPool cancellation", () => {
     Reflect.get(pool, "workers").set(worker.id, worker)
     Reflect.set(pool, "acquire", async () => worker)
     const controller = new AbortController()
-    const run = pool.run({
-      id: "job",
-      payload: {
-        model: worker.agent,
-        sessionKey: worker.sessionKey,
-        continueThread: true,
-      },
-    }, undefined, controller.signal).then(
-      () => "resolved",
-      (error) => Reflect.get(error, "type"),
-    )
+    const run = pool
+      .run(
+        {
+          id: "job",
+          payload: {
+            model: worker.agent,
+            sessionKey: worker.sessionKey,
+            continueThread: true,
+          },
+        },
+        undefined,
+        controller.signal,
+      )
+      .then(
+        () => "resolved",
+        (error) => Reflect.get(error, "type"),
+      )
 
     controller.abort()
     const outcome = await Promise.race([
@@ -307,22 +324,115 @@ describe("WorkerPool capture failures", () => {
     Reflect.get(pool, "workers").set(worker.id, worker)
     Reflect.set(pool, "acquire", async () => worker)
 
-    const error = await pool.run({
-      id: "job",
-      payload: {
-        model: worker.agent,
-        sessionKey: worker.sessionKey,
-        continueThread: true,
-      },
-    }).then(
-      () => null,
-      (failure) => failure,
-    )
+    const error = await pool
+      .run({
+        id: "job",
+        payload: {
+          model: worker.agent,
+          sessionKey: worker.sessionKey,
+          continueThread: true,
+        },
+      })
+      .then(
+        () => null,
+        (failure) => failure,
+      )
 
     expect(Reflect.get(error, "type")).toBe("o1_code_capture_failure")
     expect(Reflect.get(error, "kind")).toBe("wpp_request_failed")
     expect(destroyed).toBe(true)
     pool.destroy()
+  })
+})
+
+describe("WorkerPool retirement", () => {
+  const mirrorBody = { model: "CM_Opus5.5-High", messages: [{ role: "user", content: "hi" }] }
+  const mirror = (key: string) =>
+    commitThread(key, mirrorBody, { role: "assistant", content: "ok" }, { totalTokens: 10 })
+  const fakeWorker = (id: number, sessionKey: string, lastUsed: number, busy = false) => {
+    const state = { destroyed: false }
+    return {
+      state,
+      worker: {
+        id,
+        window: {
+          isDestroyed: () => state.destroyed,
+          destroy: () => {
+            state.destroyed = true
+          },
+        },
+        controller: { runJob: async () => ({ ok: false, type: "o1_code_thread_desync", error: "lost" }) },
+        netWitness: { summarizeWindow: () => ({}) },
+        agent: "CM_Opus5.5-High",
+        protocolAgent: "CM_Opus5.5-High",
+        sessionKey,
+        subagent: false,
+        busy,
+        lastUsed,
+      },
+    }
+  }
+  const keys = [DESKTOP_KEY, CLI_KEY, OTHER_CLI_KEY]
+
+  test("prune retires an idle non-desktop runtime tab and its mirror, keeping live and busy tabs", () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    const stale = Date.now() - 6 * 60 * 1000
+    const abandoned = fakeWorker(1, CLI_KEY, stale)
+    const desktop = fakeWorker(2, DESKTOP_KEY, stale)
+    const otherRuntime = fakeWorker(3, OTHER_CLI_KEY, Date.now())
+    const busy = fakeWorker(4, JSON.stringify(["cli", "runtime-C", "sess-A", "CM_Opus5.5-High"]), stale, true)
+    const workers = Reflect.get(pool, "workers")
+    for (const entry of [abandoned, desktop, otherRuntime, busy]) workers.set(entry.worker.id, entry.worker)
+    keys.forEach(mirror)
+
+    expect(pool.hasSession(CLI_KEY)).toBe(false)
+    expect(abandoned.state.destroyed).toBe(true)
+    expect(threadContextUsage(CLI_KEY)).toBeUndefined()
+    expect(desktop.state.destroyed).toBe(false)
+    expect(threadContextUsage(DESKTOP_KEY)?.totalTokens).toBe(10)
+    expect(otherRuntime.state.destroyed).toBe(false)
+    expect(threadContextUsage(OTHER_CLI_KEY)?.totalTokens).toBe(10)
+    expect(busy.state.destroyed).toBe(false)
+    expect(pool.hasSession(busy.worker.sessionKey)).toBe(true)
+
+    pool.destroy()
+    keys.forEach(resetThread)
+  })
+
+  test("discard after a pre-submit failure clears that tab's mirror", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    const entry = fakeWorker(5, CLI_KEY, Date.now(), true)
+    Reflect.get(pool, "workers").set(entry.worker.id, entry.worker)
+    Reflect.set(pool, "acquire", async () => entry.worker)
+    mirror(CLI_KEY)
+
+    const error = await pool.run({ id: "job", payload: { model: entry.worker.agent, sessionKey: CLI_KEY } }).then(
+      () => null,
+      (failure) => failure,
+    )
+
+    expect(Reflect.get(error, "type")).toBe("o1_code_thread_desync")
+    expect(entry.state.destroyed).toBe(true)
+    expect(threadContextUsage(CLI_KEY)).toBeUndefined()
+    pool.destroy()
+  })
+
+  test("destroy clears every live tab's mirror", () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    const desktop = fakeWorker(6, DESKTOP_KEY, Date.now())
+    const cli = fakeWorker(7, CLI_KEY, Date.now())
+    const workers = Reflect.get(pool, "workers")
+    workers.set(desktop.worker.id, desktop.worker)
+    workers.set(cli.worker.id, cli.worker)
+    keys.forEach(mirror)
+
+    pool.destroy()
+
+    expect(desktop.state.destroyed && cli.state.destroyed).toBe(true)
+    expect(threadContextUsage(DESKTOP_KEY)).toBeUndefined()
+    expect(threadContextUsage(CLI_KEY)).toBeUndefined()
+    expect(threadContextUsage(OTHER_CLI_KEY)?.totalTokens).toBe(10)
+    keys.forEach(resetThread)
   })
 })
 
@@ -358,7 +468,10 @@ describe("assistant popover startup", () => {
     const h = popoverHarness()
     h.state.openAfter = 3500
     await h.run()
-    expect(h.clicks).toEqual([{ time: 0, x: 120 }, { time: 3000, x: 120 }])
+    expect(h.clicks).toEqual([
+      { time: 0, x: 120 },
+      { time: 3000, x: 120 },
+    ])
     expect(h.state.time).toBe(3500)
   })
 
@@ -375,7 +488,9 @@ describe("assistant popover startup", () => {
   test("waits for an overlay to clear and accepts a child hit target", async () => {
     const h = popoverHarness()
     h.state.covered = true
-    h.state.onPoll = () => { h.state.covered = h.state.time < 1000 }
+    h.state.onPoll = () => {
+      h.state.covered = h.state.time < 1000
+    }
     await h.run()
     expect(h.clicks).toEqual([{ time: 1000, x: 120 }])
   })
@@ -502,11 +617,17 @@ function popoverHarness() {
     mainFrame: { framesInSubtree: [] },
   }
   return {
-    state, clicks, button, fallback,
-    run: () => openAssistantPopover(contents, {
-      now: () => state.time,
-      sleep: async (ms: number) => { state.time += ms },
-    }),
+    state,
+    clicks,
+    button,
+    fallback,
+    run: () =>
+      openAssistantPopover(contents, {
+        now: () => state.time,
+        sleep: async (ms: number) => {
+          state.time += ms
+        },
+      }),
   }
 }
 
@@ -519,14 +640,24 @@ function popoverButton(left: number) {
     innerText: "AI Assistant",
     textContent: "AI Assistant",
     rect: { left, top: 0, width: 40, height: 20 },
-    getAttribute(name: string) { return attributes[name] ?? null },
-    hasAttribute(name: string) { return Object.hasOwn(attributes, name) },
-    matches() { return Object.hasOwn(attributes, "disabled") },
+    getAttribute(name: string) {
+      return attributes[name] ?? null
+    },
+    hasAttribute(name: string) {
+      return Object.hasOwn(attributes, name)
+    },
+    matches() {
+      return Object.hasOwn(attributes, "disabled")
+    },
     closest() {
       return Object.hasOwn(attributes, "disabled") || attributes["aria-disabled"] === "true" ? this : null
     },
-    contains(node: unknown) { return node === child },
-    getBoundingClientRect() { return this.rect },
+    contains(node: unknown) {
+      return node === child
+    },
+    getBoundingClientRect() {
+      return this.rect
+    },
   }
 }
 
@@ -540,9 +671,11 @@ describe("worker startup helpers", () => {
       },
     }
 
-    await expect(cleanupWindowOnFailure(window, async () => {
-      throw new Error("startup failed")
-    })).rejects.toThrow("startup failed")
+    await expect(
+      cleanupWindowOnFailure(window, async () => {
+        throw new Error("startup failed")
+      }),
+    ).rejects.toThrow("startup failed")
 
     expect(destroyed).toBe(true)
   })

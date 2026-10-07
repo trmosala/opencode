@@ -65,7 +65,14 @@ export namespace HttpOptions {
 
 export const mergeHttpOptions = (...items: ReadonlyArray<HttpOptions | undefined>): HttpOptions | undefined => {
   const body = mergeJsonRecords(...items.map((item) => item?.body))
-  const headers = mergeStringRecords(...items.map((item) => item?.headers))
+  // HTTP names are case-insensitive. Normalize before merging so later request headers always win.
+  const headers = mergeStringRecords(
+    ...items.map((item) =>
+      item?.headers === undefined
+        ? undefined
+        : Object.fromEntries(Object.entries(item.headers).map(([key, value]) => [key.toLowerCase(), value])),
+    ),
+  )
   const query = mergeStringRecords(...items.map((item) => item?.query))
   if (!body && !headers && !query) return undefined
   return new HttpOptions({ body, headers, query })
