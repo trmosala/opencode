@@ -59,6 +59,8 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
+import { Cm3Icon } from "@/components/cm3-icon"
+import { Cm3Starters } from "@/components/cm3-starters"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import { useSettingsCommand } from "@/components/settings-dialog"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
@@ -185,7 +187,7 @@ export function SessionRouteErrorBoundary(
     <ErrorBoundary
       fallback={(error) =>
         settings.general.newLayoutDesigns() ? (
-          <SessionRouteFrame padded={props.padded}>
+          <SessionRouteFrame padded={props.padded} thread={!!props.sessionID}>
             <SessionPanelFrame newLayout raised={!!props.sessionID}>
               <SessionErrorFallback error={error} sessionID={props.sessionID} serverKey={props.serverKey} />
             </SessionPanelFrame>
@@ -326,9 +328,14 @@ function SessionProviders(props: ParentProps) {
   )
 }
 
-function SessionRouteFrame(props: ParentProps<{ padded?: boolean }>) {
+function SessionRouteFrame(props: ParentProps<{ padded?: boolean; thread?: boolean }>) {
   return (
-    <div class="relative size-full overflow-hidden flex flex-col" classList={{ "p-2": props.padded }}>
+    <div
+      data-cm3-region="session"
+      data-cm3-thread={props.thread ? "true" : "false"}
+      class="relative size-full overflow-hidden flex flex-col"
+      classList={{ "p-2": props.padded }}
+    >
       {props.children}
     </div>
   )
@@ -337,6 +344,7 @@ function SessionRouteFrame(props: ParentProps<{ padded?: boolean }>) {
 function SessionPanelFrame(props: ParentProps<{ newLayout: boolean; raised?: boolean }>) {
   return (
     <div
+      data-cm3-region="session-panel"
       classList={{
         "flex-1 min-h-0 flex flex-col": true,
         "bg-v2-background-bg-base": props.newLayout,
@@ -2242,13 +2250,55 @@ export default function Page() {
           )
         }}
       </Show>
+      <Show when={settings.general.quietCompanion() && !params.id && !newSessionDesign()}>
+        <Cm3Starters onSelect={() => inputRef?.focus()} />
+      </Show>
       <Show when={!!params.id && mobileTabsBottom()}>{mobileTabs(true, true)}</Show>
     </>
   )
 
   return (
-    <SessionRouteFrame>
+    <SessionRouteFrame thread={!!params.id}>
       <SessionHeader />
+      <Show when={settings.general.quietCompanion() && params.id}>
+        <header data-cm3-region="header" class="cm3-thread-header">
+          <span class="cm3-thread-project" dir="auto">
+            {sync().project?.name || getFilename(sdk().directory)}
+          </span>
+          <div class="cm3-thread-actions">
+            <button
+              type="button"
+              aria-label={language.t("command.review.toggle")}
+              aria-pressed={isDesktop() ? view().reviewPanel.opened() && tabs().active() === "review" : mobileChanges()}
+              onClick={() => {
+                if (!isDesktop()) {
+                  setStore("mobileTab", mobileChanges() ? "session" : "changes")
+                  return
+                }
+                view().reviewPanel.open()
+                tabs().setActive("review")
+              }}
+            >
+              <Cm3Icon name="git-diff" />
+              <span>{language.t("session.tab.review")}</span>
+            </button>
+            <Show when={platform.browserPanel && isDesktop()}>
+              <button
+                type="button"
+                aria-label={language.t("command.browser.toggle")}
+                aria-pressed={view().reviewPanel.opened() && tabs().active() === "browser"}
+                onClick={() => {
+                  view().reviewPanel.open()
+                  void tabs().open("browser")
+                }}
+              >
+                <Cm3Icon name="browser" />
+                <span>{language.t("session.tab.browser")}</span>
+              </button>
+            </Show>
+          </div>
+        </header>
+      </Show>
       <div
         ref={panelRow}
         class="flex-1 min-h-0 flex flex-col md:flex-row"

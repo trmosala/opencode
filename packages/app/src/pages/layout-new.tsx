@@ -1,3 +1,6 @@
+import { Show } from "solid-js"
+import { Cm3Shell } from "@/components/cm3-shell"
+import { useSettings } from "@/context/settings"
 import { createEffect, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DebugBar } from "@/components/debug-bar"
@@ -8,6 +11,7 @@ import { setV2Toast, ToastRegion } from "@/utils/toast"
 
 export default function NewLayout(props: ParentProps) {
   const platform = usePlatform()
+  const settings = useSettings()
   const [state, setState] = createStore({ debugTools: true })
 
   createEffect(() => setV2Toast(true))
@@ -38,9 +42,14 @@ export default function NewLayout(props: ParentProps) {
             : undefined
         }
       />
-      <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
-        <Suspense>{props.children}</Suspense>
-      </main>
+      <div class="cm3-live-workspace flex-1 min-h-0 min-w-0 flex w-full">
+        <Show when={settings.general.quietCompanion()}>
+          <Cm3Shell />
+        </Show>
+        <main class="cm3-live-route flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
+          <Suspense>{props.children}</Suspense>
+        </main>
+      </div>
       {import.meta.env.DEV && state.debugTools && <DebugBar inline />}
       <TabsInfoPopup />
       <ToastRegion v2 />

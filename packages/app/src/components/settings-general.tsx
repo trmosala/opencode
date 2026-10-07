@@ -301,6 +301,25 @@ export const SettingsGeneral: Component = () => {
     <div class="flex flex-col gap-1">
       <SettingsList>
         <SettingsRow
+          title={language.t("settings.general.row.quietCompanion.title")}
+          description={language.t("settings.general.row.quietCompanion.description")}
+        >
+          <div data-action="settings-quiet-companion">
+            <Switch
+              hideLabel
+              disabled={!settings.ready()}
+              checked={settings.general.quietCompanion()}
+              onChange={(checked) => {
+                dialog.close()
+                settings.general.setQuietCompanion(checked)
+              }}
+            >
+              {language.t("settings.general.row.quietCompanion.title")}
+            </Switch>
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.language.title")}
           description={language.t("settings.general.row.language.description")}
         >

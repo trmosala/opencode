@@ -332,6 +332,7 @@ export function SessionSidePanel(props: {
     <Show when={isDesktop() && !(settings.general.newLayoutDesigns() && !params.id)}>
       <aside
         id="review-panel"
+        data-cm3-region="side-panel"
         aria-label={language.t("session.panel.reviewAndFiles")}
         aria-hidden={!open()}
         inert={!open()}

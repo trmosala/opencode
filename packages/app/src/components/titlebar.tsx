@@ -39,6 +39,7 @@ import type { PromptSession } from "@/context/prompt"
 import "./titlebar.css"
 import { newTabTooltipKeybind } from "./command-tooltip-keybind"
 import { normalizeSessionInfo } from "@/utils/session"
+import { TitlebarAppearance } from "./titlebar-appearance"
 
 const legacyTitlebarHeight = 40
 const v2TitlebarHeight = 36
@@ -581,6 +582,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
               data-tauri-drag-region
             >
               <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
+              <TitlebarAppearance />
               <Show when={windows()}>
                 <div class="shrink-0" style={{ width: windowsControlsWidth() }} />
               </Show>
@@ -612,6 +614,7 @@ function TitlebarV2Right(props: { state: TitlebarV2RightState }) {
         <TitlebarUpdateIconButton state={props.state.update} />
       </Show>
       <div id="opencode-titlebar-right" class="flex shrink-0 items-center justify-end gap-0" />
+      <TitlebarAppearance />
     </div>
   )
 }

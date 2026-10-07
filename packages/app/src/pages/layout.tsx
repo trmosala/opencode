@@ -1,3 +1,4 @@
+import { Cm3Shell } from "@/components/cm3-shell"
 import {
   createEffect,
   createMemo,
@@ -2261,10 +2262,14 @@ export default function LegacyLayout(props: ParentProps) {
       </Show>
       <div class="flex-1 min-h-0 min-w-0 flex">
         <div class="flex-1 min-h-0 relative">
-          <div class="size-full relative overflow-x-hidden">
+          <div class="size-full relative overflow-x-hidden" data-cm3-legacy-layout>
+            <Show when={settings.general.quietCompanion()}>
+              <Cm3Shell />
+            </Show>
             <nav
               aria-label={language.t("sidebar.nav.projectsAndSessions")}
               data-component="sidebar-nav-desktop"
+              inert={settings.general.quietCompanion()}
               classList={{
                 "hidden xl:block": true,
                 "absolute inset-y-0 start-0": true,
@@ -2327,6 +2332,7 @@ export default function LegacyLayout(props: ParentProps) {
               <nav
                 aria-label={language.t("sidebar.nav.projectsAndSessions")}
                 data-component="sidebar-nav-mobile"
+                inert={settings.general.quietCompanion()}
                 classList={{
                   "@container fixed top-10 bottom-0 start-0 z-50 w-full max-w-[400px] overflow-hidden border-e border-border-weaker-base bg-background-base transition-transform duration-200 ease-out": true,
                   "translate-x-0": layout.mobileSidebar.opened(),

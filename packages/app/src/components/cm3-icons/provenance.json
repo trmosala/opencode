@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/phosphor-icons/core",
+  "tag": "v2.0.8",
+  "commit": "d42782b2abe747d904b971ccab48b182a1455f86",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2023 Phosphor Icons",
+  "licenseFile": "LICENSE",
+  "weight": "bold",
+  "viewBox": "0 0 256 256",
+  "source": "https://raw.githubusercontent.com/phosphor-icons/core/d42782b2abe747d904b971ccab48b182a1455f86/assets/bold/{name}-bold.svg",
+  "transformation": "paths.ts keys are upstream icon names. Each value is the unmodified d attribute of the source SVG's single path. Renderers retain the upstream viewBox and currentColor fill, adding size, decorative accessibility attributes and CM3 selectors.",
+  "consumers": ["packages/app/src/components/cm3-icon.tsx", "packages/cm-ui-prototype/src/icon.ts"]
+}

@@ -327,6 +327,24 @@ export const SettingsGeneralV2: Component<{
   const GeneralSection = () => (
     <div class="settings-v2-section">
       <SettingsListV2>
+        <SettingsRowV2
+          title={language.t("settings.general.row.quietCompanion.title")}
+          description={language.t("settings.general.row.quietCompanion.description")}
+        >
+          <div data-action="settings-quiet-companion">
+            <Switch
+              hideLabel
+              disabled={!settings.ready()}
+              checked={settings.general.quietCompanion()}
+              onChange={(checked) => {
+                dialog.close()
+                settings.general.setQuietCompanion(checked)
+              }}
+            >
+              {language.t("settings.general.row.quietCompanion.title")}
+            </Switch>
+          </div>
+        </SettingsRowV2>
         <LanguageSetting />
 
         <PermissionScopeSetting controller={permissionScope} />

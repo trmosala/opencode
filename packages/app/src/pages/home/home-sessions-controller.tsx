@@ -38,7 +38,7 @@ export type HomeSessionGroup = {
 
 export type OpenSessionOptions = { background?: boolean }
 
-export function createHomeSessionsController(home: HomeController) {
+export function createHomeSessionsController(home: HomeController, options?: { registerPalette?: boolean }) {
   const tabs = useTabs()
   const command = useCommand()
   const dialog = useDialog()
@@ -131,37 +131,38 @@ export function createHomeSessionsController(home: HomeController) {
       })
   })
 
-  command.register("home.palette", () => [
-    {
-      id: "command.palette",
-      title: language.t("command.palette"),
-      hidden: true,
-      onSelect: async () => {
-        const conn = home.server.focused()
-        if (!conn) return
-        const ctx = home.server.focusedContext()
-        if (!ctx) return
-        const { DialogHomeCommandPaletteV2 } = await import("@/components/dialog-command-palette-v2")
-        void dialog.show(() => (
-          <DialogHomeCommandPaletteV2
-            server={conn}
-            onSelectSession={(entry) => {
-              if (!entry.sessionID || !entry.directory || !entry.server) return
-              const sessionID = entry.sessionID
-              const server = entry.server
-              const directory = entry.project?.worktree ?? entry.directory
-              ctx.projects.open(directory)
-              ctx.projects.touch(directory)
-              void startTransition(() => {
-                const tab = tabs.addSessionTab({ server, sessionId: sessionID })
-                tabs.select(tab)
-              })
-            }}
-          />
-        ))
+  if (options?.registerPalette !== false)
+    command.register("home.palette", () => [
+      {
+        id: "command.palette",
+        title: language.t("command.palette"),
+        hidden: true,
+        onSelect: async () => {
+          const conn = home.server.focused()
+          if (!conn) return
+          const ctx = home.server.focusedContext()
+          if (!ctx) return
+          const { DialogHomeCommandPaletteV2 } = await import("@/components/dialog-command-palette-v2")
+          void dialog.show(() => (
+            <DialogHomeCommandPaletteV2
+              server={conn}
+              onSelectSession={(entry) => {
+                if (!entry.sessionID || !entry.directory || !entry.server) return
+                const sessionID = entry.sessionID
+                const server = entry.server
+                const directory = entry.project?.worktree ?? entry.directory
+                ctx.projects.open(directory)
+                ctx.projects.touch(directory)
+                void startTransition(() => {
+                  const tab = tabs.addSessionTab({ server, sessionId: sessionID })
+                  tabs.select(tab)
+                })
+              }}
+            />
+          ))
+        },
       },
-    },
-  ])
+    ])
 
   return {
     copy: {
@@ -171,6 +172,8 @@ export function createHomeSessionsController(home: HomeController) {
       records,
       groups,
       loading: () => sessionLoad.isLoading,
+      error: () => sessionLoad.error,
+      retry: () => sessionLoad.refetch(),
       searchRecords: allRecords,
     },
     session: {
