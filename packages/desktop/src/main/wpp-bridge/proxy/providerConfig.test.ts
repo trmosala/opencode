@@ -57,16 +57,23 @@ test("advertises only the Sol 6.1 family with explicit native variants and a med
   expect(family.name).toBe("CM_GPT6.1_Sol")
   expect(family.options).toEqual({ reasoningEffort: "medium" })
   expect(family.variants).toEqual({
+    low: { reasoningEffort: "low" },
     medium: { reasoningEffort: "medium" },
     high: { reasoningEffort: "high" },
+    xhigh: { reasoningEffort: "xhigh" },
+    max: { reasoningEffort: "max" },
   })
+  expect(Object.keys(family.variants)).toEqual(["low", "medium", "high", "xhigh", "max"])
   expect(family.reasoning).toBeUndefined()
   expect(resolveRequestModelProfile({ model: family.name, reasoning_effort: family.options.reasoningEffort })).toMatchObject({
     agentName: "CM_GPT6.1_Sol_Medium",
   })
   for (const [effort, agentName] of [
+    ["low", "CM_GPT6.1_Sol_Low"],
     ["medium", "CM_GPT6.1_Sol_Medium"],
     ["high", "CM_GPT6.1_Sol_High"],
+    ["xhigh", "CM_GPT6.1_Sol_XHigh"],
+    ["max", "CM_GPT6.1_Sol_Max"],
   ]) {
     expect(
       resolveRequestModelProfile({ model: family.name, reasoning_effort: family.variants[effort].reasoningEffort }),

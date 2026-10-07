@@ -46,7 +46,9 @@ describe("CookieMonster protocol capability", () => {
   test("requests and requires phase support for declared GPT profiles", () => {
     for (const model of [
       "CM_GPT-5.6 Sol - High", "CM_GPT6_Sol_High", "CM_GPT6_Astra_High",
-      "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
+      "CM_GPT6.1_Sol",
+      "CM_GPT6.1_Sol_Low", "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
+      "CM_GPT6.1_Sol_XHigh", "CM_GPT6.1_Sol_Max",
     ]) {
       const probe = buildCapabilityProbeJob({ payload: { model } })
 

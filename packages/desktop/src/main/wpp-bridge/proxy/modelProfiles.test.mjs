@@ -77,8 +77,11 @@ describe("CookieMonster model profiles", () => {
       agentName: "CM_GPT6.1_Sol_Medium",
       defaultReasoningEffort: "medium",
       reasoningEfforts: {
+        low: "CM_GPT6.1_Sol_Low",
         medium: "CM_GPT6.1_Sol_Medium",
         high: "CM_GPT6.1_Sol_High",
+        xhigh: "CM_GPT6.1_Sol_XHigh",
+        max: "CM_GPT6.1_Sol_Max",
       },
       toolFormat: "xml",
       commentaryPhase: true,
@@ -86,8 +89,11 @@ describe("CookieMonster model profiles", () => {
   })
 
   for (const [effort, agentName] of [
+    ["low", "CM_GPT6.1_Sol_Low"],
     ["medium", "CM_GPT6.1_Sol_Medium"],
     ["high", "CM_GPT6.1_Sol_High"],
+    ["xhigh", "CM_GPT6.1_Sol_XHigh"],
+    ["max", "CM_GPT6.1_Sol_Max"],
   ]) {
     test(`routes Sol 6.1 ${effort} without changing the API model ID`, () => {
       const body = Object.freeze({ model: "CM_GPT6.1_Sol", reasoning_effort: effort })
@@ -104,7 +110,7 @@ describe("CookieMonster model profiles", () => {
       expect(resolveModelProfile(agentName)).toEqual(profile)
       expect(MODEL_IDS).not.toContain(agentName)
       expect(resolveRequestModelProfile({ model: agentName })).toEqual(profile)
-      for (const reasoning_effort of ["medium", "high", "low", null, 1, [], "constructor"]) {
+      for (const reasoning_effort of ["low", "medium", "high", "xhigh", "max", "unsupported", null, 1, [], "constructor"]) {
         expect(resolveRequestModelProfile({ model: agentName, reasoning_effort })).toEqual(profile)
         expect(
           resolveRequestModelProfile({ model: "CM_GPT6.1_Sol", o1_code_model: agentName, reasoning_effort }),
@@ -132,9 +138,9 @@ describe("CookieMonster model profiles", () => {
     {},
     { toString: () => "medium" },
     "",
-    "low",
-    "xhigh",
-    "max",
+    "minimal",
+    "none",
+    "extra_high",
     "auto",
     "Medium",
     " high ",
@@ -160,8 +166,8 @@ describe("CookieMonster model profiles", () => {
     "CM_GPT6.1",
     "CM_GPT6.1_Unknown",
     "CM_GPT6.1_Astra",
-    "CM_GPT6.1_Sol_Low",
-    "CM_GPT6.1_Sol_XHigh",
+    "CM_GPT6.1_Sol_Auto",
+    "CM_GPT6.1_Sol_Unknown",
     "CM_GPT6.1_Sol_constructor",
   ]) {
     test(`rejects unknown 6.1 model ${model} rather than using the legacy fallback`, () => {
@@ -178,7 +184,7 @@ describe("CookieMonster model profiles", () => {
   test("resolves the effective diagnostic override before the request model and effort", () => {
     expect(
       resolveRequestModelProfile({
-        model: "CM_GPT6.1_Sol_Low",
+        model: "CM_GPT6.1_Sol_Unknown",
         o1_code_model: "CM_GPT6.1_Sol",
         reasoning_effort: "high",
       }),

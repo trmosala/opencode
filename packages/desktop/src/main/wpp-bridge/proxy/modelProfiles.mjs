@@ -119,8 +119,11 @@ export const MODEL_PROFILES = {
   "CM_GPT6.1_Sol": {
     defaultReasoningEffort: "medium",
     reasoningEfforts: {
+      low: "CM_GPT6.1_Sol_Low",
       medium: "CM_GPT6.1_Sol_Medium",
       high: "CM_GPT6.1_Sol_High",
+      xhigh: "CM_GPT6.1_Sol_XHigh",
+      max: "CM_GPT6.1_Sol_Max",
     },
     toolFormat: "xml",
     commentaryPhase: true,

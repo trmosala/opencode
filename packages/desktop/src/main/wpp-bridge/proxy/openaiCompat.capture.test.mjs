@@ -106,7 +106,7 @@ describe("Opus High routing compatibility", () => {
 });
 
 describe("Sol 6.1 effort routing", () => {
-  test("dispatches both efforts to distinct agents and threads while retaining the family response ID", async () => {
+  test("dispatches all five efforts to distinct agents and threads while retaining the family response ID", async () => {
     const calls = [];
     const bridge = {
       hasSession: () => false,
@@ -116,7 +116,7 @@ describe("Sol 6.1 effort routing", () => {
       },
     };
     try {
-      for (const reasoning_effort of [undefined, "medium", "high"]) {
+      for (const reasoning_effort of [undefined, "low", "medium", "high", "xhigh", "max"]) {
         const response = fakeResponse();
         await withNoRunLogs(() => handleChatCompletions(
           { headers: {
@@ -137,12 +137,16 @@ describe("Sol 6.1 effort routing", () => {
         expect(JSON.parse(response.body).model).toBe("CM_GPT6.1_Sol");
       }
       expect(calls.map((call) => call.options.model)).toEqual([
-        "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
+        "CM_GPT6.1_Sol_Medium",
+        "CM_GPT6.1_Sol_Low", "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
+        "CM_GPT6.1_Sol_XHigh", "CM_GPT6.1_Sol_Max",
       ]);
-      expect(calls[0].options.sessionKey).toContain("CM_GPT6.1_Sol_Medium");
-      expect(calls[0].options.sessionKey).toBe(calls[1].options.sessionKey);
-      expect(calls[2].options.sessionKey).not.toBe(calls[1].options.sessionKey);
-      expect(calls.every((call) => call.prompt.toolCallProtocol === "CM_XML_TOOL_CALL_V1")).toBe(true);
+      for (const call of calls) {
+        expect(call.options.sessionKey).toBe(JSON.stringify(["desktop", "sol61-test", "sol61-routing", call.options.model]));
+        expect(call.prompt.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1");
+      }
+      expect(calls[0].options.sessionKey).toBe(calls[2].options.sessionKey);
+      expect(new Set(calls.map((call) => call.options.sessionKey)).size).toBe(5);
     } finally {
       for (const call of calls) resetThread(call.options.sessionKey);
     }
@@ -153,7 +157,7 @@ describe("Sol 6.1 effort routing", () => {
     await expect(handleChatCompletions(
       { headers: {} },
       fakeResponse(),
-      { model: "CM_GPT6.1_Sol", reasoning_effort: "low", messages: [user("hello")] },
+      { model: "CM_GPT6.1_Sol", reasoning_effort: "auto", messages: [user("hello")] },
       { bridge: { run: async () => { calls += 1; return bridgeRun("wrong route"); } } },
     )).rejects.toMatchObject({ statusCode: 400, type: "invalid_reasoning_effort" });
     expect(calls).toBe(0);

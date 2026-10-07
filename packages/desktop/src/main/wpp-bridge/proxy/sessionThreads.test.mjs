@@ -25,7 +25,7 @@ const toolResult = (id, text) => ({ role: "tool", tool_call_id: id, content: tex
 afterEach(() => resetThread(KEY))
 
 describe("decideThreadMode", () => {
-  test("Sol 6.1 continues for the same effective effort and replays after a route change", () => {
+  test("Sol 6.1 continues from the default to explicit medium", () => {
     const first = { ...body(sys(), user("hello")), model: "CM_GPT6.1_Sol" }
     commitThread(KEY, first, assistant("answer"))
     const next = {
@@ -34,9 +34,31 @@ describe("decideThreadMode", () => {
       messages: [sys(), user("hello"), assistant("answer"), user("more")],
     }
     expect(decideThreadMode(KEY, next, true)).toEqual({ mode: "continue", sinceIndex: 2 })
-    expect(decideThreadMode(KEY, { ...next, reasoning_effort: "high" }, true)).toEqual({ mode: "fresh", sinceIndex: 0 })
-    expect(decideThreadMode(KEY, { ...next, o1_code_model: "CM_GPT6.1_Sol_High" }, true)).toEqual({ mode: "fresh", sinceIndex: 0 })
   })
+
+  const routes = [
+    ["low", "CM_GPT6.1_Sol_Low"],
+    ["medium", "CM_GPT6.1_Sol_Medium"],
+    ["high", "CM_GPT6.1_Sol_High"],
+    ["xhigh", "CM_GPT6.1_Sol_XHigh"],
+    ["max", "CM_GPT6.1_Sol_Max"],
+  ]
+  for (const [effort] of routes) {
+    test(`Sol 6.1 ${effort} continues only for the same effective route`, () => {
+      const first = { ...body(sys(), user("hello")), model: "CM_GPT6.1_Sol", reasoning_effort: effort }
+      commitThread(KEY, first, assistant("answer"))
+      const next = {
+        ...first,
+        messages: [sys(), user("hello"), assistant("answer"), user("more")],
+      }
+      for (const [reasoning_effort, agentName] of routes) {
+        const expected =
+          reasoning_effort === effort ? { mode: "continue", sinceIndex: 2 } : { mode: "fresh", sinceIndex: 0 }
+        expect(decideThreadMode(KEY, { ...next, reasoning_effort }, true)).toEqual(expected)
+        expect(decideThreadMode(KEY, { ...next, o1_code_model: agentName }, true)).toEqual(expected)
+      }
+    })
+  }
 
   test("first turn (no mirror) is fresh", () => {
     expect(decideThreadMode(KEY, body(sys(), user("hello")), true)).toEqual({ mode: "fresh", sinceIndex: 0 })
