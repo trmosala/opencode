@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "Check the build",
+  "prompt": "Check the build discussed in this session. Report a failure or its final result. Once the build finishes, pause this schedule using the schedule management tool. If that tool is unavailable, ask me to pause it.",
+  "target": {
+    "type": "existing_session",
+    "sessionID": "ses_example_build_review"
+  },
+  "schedule": {
+    "type": "interval",
+    "everyMinutes": 10,
+    "startsAt": "2026-10-07T10:00:00+02:00"
+  },
+  "maxRuns": 12,
+  "endsAt": "2026-10-07T12:00:00+02:00",
+  "misfire": { "type": "catch_up_once", "withinMinutes": 15 },
+  "notification": "all_runs"
+}

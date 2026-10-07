@@ -72,11 +72,21 @@ export let url: URL | undefined
 
 export async function listen(opts: ListenOptions): Promise<Listener> {
   const listener = await Effect.runPromise(listenEffect(opts))
+  const scheduling = process.env.OPENCODE_CLIENT === "desktop" ? await import("../schedule/runtime") : undefined
+  try {
+    await scheduling?.startScheduler()
+  } catch (error) {
+    // A damaged scheduling store must not prevent ordinary chats from opening.
+    console.error("CookieMonster scheduler could not start", error)
+  }
   return {
     hostname: listener.hostname,
     port: listener.port,
     url: listener.url,
-    stop: (close?: boolean) => Effect.runPromiseExit(listener.stop(close)).then(() => undefined),
+    stop: async (close?: boolean) => {
+      await scheduling?.stopScheduler()
+      await Effect.runPromiseExit(listener.stop(close))
+    },
   }
 }
 

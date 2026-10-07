@@ -12,11 +12,11 @@ export async function startServer(options = {}) {
   return startServerWithActions(options);
 }
 
-export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAULT_PORT, openLogin = null } = {}) {
+export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAULT_PORT, openLogin = null, checkAuth = null } = {}) {
   if (typeof openLogin === "function") extensionBridge.onAuthRequired = openLogin;
   const server = http.createServer(async (request, response) => {
     try {
-      await route(request, response, { openLogin });
+      await route(request, response, { openLogin, checkAuth });
     } catch (error) {
       writeJson(response, error.statusCode || 500, {
         error: {
@@ -45,6 +45,7 @@ export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAU
   }
 
   console.log(`o1-code-openai-proxy listening on http://${host}:${port}/v1`);
+  return server;
 }
 
 async function route(request, response, actions = {}) {
@@ -74,6 +75,12 @@ async function route(request, response, actions = {}) {
 
   if (request.method === "GET" && url.pathname === "/bridge/health") {
     writeJson(response, 200, extensionBridge.health());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/bridge/auth") {
+    const state = typeof actions.checkAuth === "function" ? await actions.checkAuth() : { status: "unknown" };
+    writeJson(response, 200, { status: state.status });
     return;
   }
 
