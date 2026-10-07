@@ -83,8 +83,13 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
     show,
     width: 1440,
     height: 1000,
+    useContentSize: true,
+    // WPP blocks viewports below 1200 CSS px; leave room for native window borders.
+    minWidth: 1280,
+    enableLargerThanScreen: true,
     webPreferences: {
       session: current,
+      backgroundThrottling: false,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
