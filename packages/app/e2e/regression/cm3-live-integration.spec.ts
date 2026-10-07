@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
-import { fixture } from "../performance/timeline/session-timeline-stress.fixture"
+import { fixture, pageMessages } from "../performance/timeline/session-timeline-stress.fixture"
+import { mockOpenCodeServer } from "../utils/mock-server"
 import {
   installStressSessionTabs,
   mockStressTimeline,
@@ -33,7 +34,10 @@ test("CM3 moves the live tabs into the sidebar and keeps their lifecycle", async
 
   await sidebar.locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"]`).click()
   await expectSessionTitle(page, fixture.expected.sourceTitle)
-  await page.getByRole("button", { name: fixture.expected.sourceTitle, exact: true }).click()
+  await page
+    .locator(".cm3-sidebar-scroll > .cm3-sidebar-task")
+    .filter({ hasText: fixture.expected.sourceTitle })
+    .click()
   await expect(slots).toHaveCount(3)
   await page.getByRole("button", { name: "New chat", exact: true }).click()
   await expect(slots).toHaveCount(4)
@@ -238,6 +242,59 @@ test("CM3 projects retain editing, closing, and persistent drag ordering", async
     fixture.project.name,
     "Renamed project",
   ])
+})
+
+test("CM3 recent sessions stay chronological when a project reveals its chats", async ({ page }) => {
+  const other = {
+    ...fixture.sessions[0],
+    id: "ses_cm3_other",
+    projectID: "proj_cm3_OtherProject",
+    directory: "C:/OpenCode/OtherProject",
+    title: "Most recent other project chat",
+    time: { created: 1700000003000, updated: 1700000003000 },
+  }
+  await mockOpenCodeServer(page, {
+    sessions: [...fixture.sessions, other],
+    provider: fixture.provider,
+    directory: fixture.directory,
+    project: fixture.project,
+    pageMessages,
+  })
+  await mockCm3Projects(page)
+  await installStressSessionTabs(page, { sessionIDs: [] })
+  await page.addInitScript(
+    ({ directory }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
+      localStorage.setItem(
+        "opencode.global.dat:server",
+        JSON.stringify({
+          projects: {
+            local: [
+              { worktree: directory, expanded: true },
+              { worktree: "C:/OpenCode/OtherProject", expanded: true },
+            ],
+          },
+          lastProject: { local: directory },
+        }),
+      )
+    },
+    { directory: fixture.directory },
+  )
+  await page.goto("/")
+  const recent = page.locator(".cm3-sidebar-scroll > .cm3-sidebar-task")
+  const expected = [other.title, fixture.expected.targetTitle, fixture.expected.sourceTitle]
+  await expect(recent).toHaveText(expected)
+  const project = page.locator('.cm3-sidebar-project[title="C:/OpenCode/OtherProject"]')
+  await project.click()
+  await expect(recent).toHaveText(expected)
+  const children = page.locator(".cm3-sidebar-project-sessions")
+  await expect(children.getByRole("button", { name: other.title, exact: true })).toBeVisible()
+  await expect(children.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })).toHaveCount(0)
+  await expect(project).toHaveAttribute("aria-expanded", "true")
+  await project.click()
+  await expect(project).toHaveAttribute("aria-expanded", "false")
+  await expect(children).toHaveCount(0)
+  await expect(recent).toHaveText(expected)
 })
 
 async function mockCm3Projects(page: Page) {
@@ -528,7 +585,9 @@ test("CM3 desktop Review and sidebar search use live session state", async ({ pa
   const navigation = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
   const search = navigation.getByRole("searchbox", { name: "Search threads", exact: true })
   await search.fill(fixture.expected.targetTitle)
-  const target = navigation.getByRole("button", { name: fixture.expected.targetTitle, exact: true })
+  const target = navigation
+    .locator(".cm3-sidebar-scroll > .cm3-sidebar-task")
+    .filter({ hasText: fixture.expected.targetTitle })
   await expect(target).toBeVisible()
   await expect(navigation.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })).toHaveCount(0)
   await target.click()

@@ -38,14 +38,17 @@ export type HomeSessionGroup = {
 
 export type OpenSessionOptions = { background?: boolean }
 
-export function createHomeSessionsController(home: HomeController, options?: { registerPalette?: boolean }) {
+export function createHomeSessionsController(
+  home: HomeController,
+  options?: { registerPalette?: boolean; allProjects?: boolean },
+) {
   const tabs = useTabs()
   const command = useCommand()
   const dialog = useDialog()
   const language = useLanguage()
   const projectDirectories = createMemo(() => {
     const project = home.project.selected()
-    if (!project) return home.project.list().flatMap(directories)
+    if (!project || options?.allProjects) return home.project.list().flatMap(directories)
     return directories(project)
   })
   const projectByID = createMemo(

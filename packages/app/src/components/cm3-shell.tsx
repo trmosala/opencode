@@ -9,9 +9,10 @@ import { ServerConnection, useServer } from "@/context/server"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { tabKey, useTabs } from "@/context/tabs"
+import { pathKey } from "@/utils/path-key"
 import { legacySessionHref } from "@/utils/session-route"
 import { createHomeController } from "@/pages/home/home-controller"
-import { createHomeSessionsController } from "@/pages/home/home-sessions-controller"
+import { createHomeSessionsController, type HomeSessionRecord } from "@/pages/home/home-sessions-controller"
 import { createHomeProjectsController } from "@/pages/home/home-projects-controller"
 import { HomeProjects } from "@/pages/home/home-projects"
 import { useDirectoryPicker } from "./directory-picker"
@@ -21,7 +22,7 @@ import { WppAuthControl } from "./wpp-auth-control"
 
 export function Cm3Shell() {
   const home = createHomeController()
-  const sessions = createHomeSessionsController(home, { registerPalette: false })
+  const sessions = createHomeSessionsController(home, { registerPalette: false, allProjects: true })
   const language = useLanguage()
   const settings = useSettings()
   const server = useServer()
@@ -80,12 +81,13 @@ export function Cm3Shell() {
     }),
   )
   const projectPending = () => /^\/server\/[^/]+\/session\/[^/]+$/.test(location.pathname) && !routeProject()
-  const records = createMemo(() => {
+  const searchRecords = createMemo(() => {
     const value = state.search.trim().toLowerCase()
-    return (value ? sessions.data.searchRecords() : sessions.data.records()).filter((record) =>
-      `${record.session.title} ${record.projectName}`.toLowerCase().includes(value),
-    )
+    return sessions.data
+      .searchRecords()
+      .filter((record) => `${record.session.title} ${record.projectName}`.toLowerCase().includes(value))
   })
+  const records = createMemo(() => (state.search.trim() ? searchRecords() : sessions.data.records()))
   const openTask = (conn: ServerConnection.Any, directory: string) => {
     if (settings.general.newLayoutDesigns()) return home.project.openProjectNewSession(conn, directory)
     home.server.context(conn).projects.open(directory)
@@ -113,6 +115,25 @@ export function Cm3Shell() {
     }
     openTask(conn, project.worktree)
   }
+
+  const task = (record: HomeSessionRecord) => (
+    <button
+      class="cm3-sidebar-task"
+      type="button"
+      data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
+      onClick={() => {
+        closeNavigation()
+        if (settings.general.newLayoutDesigns()) return sessions.session.open(record.session)
+        const conn = home.server.focused()
+        if (!conn) return
+        server.setActive(ServerConnection.key(conn))
+        navigate(legacySessionHref(record.session.directory, record.session.id))
+      }}
+    >
+      <Cm3Icon name="chats" />
+      <span>{record.session.title}</span>
+    </button>
+  )
 
   return (
     <>
@@ -215,26 +236,7 @@ export function Cm3Shell() {
           </Show>
           <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
           <Show when={!sessions.data.loading()} fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}>
-            <For each={records()}>
-              {(record) => (
-                <button
-                  class="cm3-sidebar-task"
-                  type="button"
-                  data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
-                  onClick={() => {
-                    closeNavigation()
-                    if (settings.general.newLayoutDesigns()) return sessions.session.open(record.session)
-                    const conn = home.server.focused()
-                    if (!conn) return
-                    server.setActive(ServerConnection.key(conn))
-                    navigate(legacySessionHref(record.session.directory, record.session.id))
-                  }}
-                >
-                  <Cm3Icon name="chats" />
-                  <span>{record.session.title}</span>
-                </button>
-              )}
-            </For>
+            <For each={records()}>{task}</For>
             <Show when={sessions.data.error()}>
               <p role="alert">{language.t("common.requestFailed")}</p>
               <button type="button" onClick={() => void sessions.data.retry()}>
@@ -249,11 +251,19 @@ export function Cm3Shell() {
           <HomeProjects
             projects={projects}
             sidebar
+            renderProjectSessions={(project) => (
+              <div class="cm3-sidebar-project-sessions pl-6">
+                <For
+                  each={searchRecords().filter(
+                    (record) => pathKey(record.project.worktree) === pathKey(project.worktree),
+                  )}
+                >
+                  {task}
+                </For>
+              </div>
+            )}
             onOpenProjectNewSession={openTask}
-            onSelectProject={(conn, directory) => {
-              home.project.select(conn, directory)
-              closeNavigation()
-            }}
+            onSelectProject={home.project.select}
           />
           <button
             class="cm3-sidebar-action"

@@ -29,6 +29,7 @@ const projectContextMenuID = (server: ServerConnection.Any, directory: string) =
 
 export type HomeProjectsViewProps = {
   sidebar?: boolean
+  renderProjectSessions?: (project: LocalProject) => JSX.Element
   language: ReturnType<typeof useLanguage>
   servers: Accessor<ServerConnection.Any[]>
   projects: Accessor<LocalProject[]>
@@ -373,25 +374,28 @@ function HomeProjectSlot(
   },
 ) {
   const initial = props.items.find((item) => item.worktree === props.worktree)
-  if (!initial) return
+  if (!initial) return null
   const project = createMemo<LocalProject>(
     (previous) => props.items.find((item) => item.worktree === props.worktree) ?? previous,
     initial,
   )
 
+  const selected = () =>
+    props.selection().server === ServerConnection.key(props.server) && props.selection().directory === props.worktree
+
   return (
-    <HomeProjectRow
-      {...props}
-      project={project()}
-      server={props.server}
-      index={props.index}
-      serverSelected={props.selection().server === ServerConnection.key(props.server)}
-      selected={
-        props.selection().server === ServerConnection.key(props.server) &&
-        props.selection().directory === props.worktree
-      }
-      unseen={props.unseenCount(props.server, project())}
-    />
+    <>
+      <HomeProjectRow
+        {...props}
+        project={project()}
+        server={props.server}
+        index={props.index}
+        serverSelected={props.selection().server === ServerConnection.key(props.server)}
+        selected={selected()}
+        unseen={props.unseenCount(props.server, project())}
+      />
+      <Show when={props.sidebar && selected()}>{props.renderProjectSessions?.(project())}</Show>
+    </>
   )
 }
 
@@ -504,6 +508,7 @@ function HomeProjectRow(
         data-active={props.sidebar ? props.selected : undefined}
         data-selected={props.selected ? "" : undefined}
         aria-current={props.selected ? "page" : undefined}
+        aria-expanded={props.sidebar && props.renderProjectSessions ? props.selected : undefined}
         disabled={serverUnreachable()}
         onPointerDown={(event) => {
           // Same-server mouse selection happens on pointerdown (like tabs),
