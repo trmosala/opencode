@@ -25,6 +25,7 @@
     "src/**/*.css",
     "src/theme/themes/*.json",
     "src/components/app-icons/sprite.svg",
+    "src/components/phosphor/*",
     "src/components/file-icons/sprite.svg",
     "src/components/provider-icons/sprite.svg",
     "src/assets/icons/app/*",
@@ -34,6 +35,7 @@
   ],
   "exports": {
     "./package.json": "./package.json",
+    "./phosphor": "./src/components/phosphor.ts",
     "./*": "./src/components/*.tsx",
     "./i18n/*": "./src/i18n/*.ts",
     "./hooks": "./src/hooks/index.ts",

@@ -1,3 +1,4 @@
+import { paths } from "../../components/phosphor"
 import { Tabs as Kobalte } from "@kobalte/core/tabs"
 import { Show, splitProps, type JSX } from "solid-js"
 import type { ComponentProps, ParentProps, Component } from "solid-js"
@@ -112,9 +113,8 @@ function TabsV2CloseButton(props: TabsV2CloseButtonProps) {
         e.stopPropagation()
       }}
     >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10.8889 3.11108L3.11108 10.8889" stroke="currentColor" stroke-linejoin="round" />
-        <path d="M3.11108 3.11108L10.8889 10.8889" stroke="currentColor" stroke-linejoin="round" />
+      <svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d={paths["x"]} />
       </svg>
     </div>
   )

@@ -37,3 +37,7 @@
 :dir(rtl) [data-slot="menu-v2-item-chevron"] {
   transform: scaleX(-1);
 }
+
+[data-slot="icon-svg"][data-active="true"] {
+  color: var(--v2-icon-icon-accent, var(--icon-interactive-base));
+}

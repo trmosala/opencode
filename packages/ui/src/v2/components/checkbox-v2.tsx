@@ -1,3 +1,4 @@
+import { paths } from "../../components/phosphor"
 import { Checkbox as Kobalte } from "@kobalte/core/checkbox"
 import { Show, splitProps, type JSX } from "solid-js"
 import type { ComponentProps } from "solid-js"
@@ -29,23 +30,23 @@ export function CheckboxV2(props: CheckboxV2Props) {
                 class="checkbox-v2-icon checkbox-v2-icon--check"
                 width="16"
                 height="16"
-                viewBox="0 0 16 16"
-                fill="none"
+                viewBox="0 0 256 256"
+                fill="var(--v2-icon-icon-contrast, #FAFAFA)"
                 xmlns="http://www.w3.org/2000/svg"
                 aria-hidden="true"
               >
-                <path d="M3.53564 8.17857L6.39279 11.75L12.4642 4.25" stroke="#FAFAFA" stroke-width="1" />
+                <path d={paths["check"]} />
               </svg>
               <svg
                 class="checkbox-v2-icon checkbox-v2-icon--minus"
                 width="16"
                 height="16"
-                viewBox="0 0 16 16"
-                fill="none"
+                viewBox="0 0 256 256"
+                fill="var(--v2-icon-icon-contrast, #FAFAFA)"
                 xmlns="http://www.w3.org/2000/svg"
                 aria-hidden="true"
               >
-                <path d="M12.75 8H3.25" stroke="#FAFAFA" stroke-linejoin="round" stroke-width="1" />
+                <path d={paths["minus"]} />
               </svg>
             </Kobalte.Indicator>
           </Kobalte.Control>

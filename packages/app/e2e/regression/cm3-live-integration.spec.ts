@@ -431,7 +431,7 @@ test("CM3 uses the live session and preserves its editor across UI switches", as
   await expect(page.locator(".cm3-live")).toHaveCount(0)
   await expect(input).toHaveText("Preserve this live draft")
   expect(await input.evaluate((element, original) => element === original, editor)).toBe(true)
-  await page.keyboard.press("Control+Comma")
+  await page.keyboard.press("ControlOrMeta+Comma")
   const toggle = page.locator('[data-action="settings-quiet-companion"]').getByRole("switch")
   await expect(toggle).toBeVisible()
   await toggle.press("Space")
