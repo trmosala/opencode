@@ -1,6 +1,36 @@
 import { expect, test } from "bun:test"
 import { createWppAuthState, readWppAuthResponse } from "./auth-state"
 
+test("background checks preserve confirmed login status until the result changes it", async () => {
+  const resolve: { probe?: (value: "signed-in" | "signed-out") => void } = {}
+  let calls = 0
+  const auth = createWppAuthState(() => {
+    calls++
+    return new Promise<"signed-in" | "signed-out">((done) => {
+      resolve.probe = done
+    })
+  })
+  auth.observe("signed-in")
+  const seen: string[] = []
+  auth.subscribe((state) => seen.push(state.status))
+  void auth.check()
+  const pending = auth.check()
+  void auth.check()
+  await Promise.resolve()
+  expect(auth.get().status).toBe("signed-in")
+  expect(calls).toBe(1)
+  resolve.probe!("signed-in")
+  await pending
+  expect(seen).toEqual(["signed-in", "signed-in"])
+
+  const logout = auth.check()
+  await Promise.resolve()
+  expect(auth.get().status).toBe("signed-in")
+  resolve.probe!("signed-out")
+  await logout
+  expect(auth.get().status).toBe("signed-out")
+})
+
 test("checks only on demand, coalesces requests, and publishes state without credentials", async () => {
   const resolve: { probe?: (value: "signed-in") => void } = {}
   let calls = 0

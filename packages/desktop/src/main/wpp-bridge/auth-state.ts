@@ -13,7 +13,7 @@ export function createWppAuthState(probe: () => Promise<WppAuthStatus>) {
   const check = (): Promise<WppAuthState> => {
     if (pending) return pending
     const current = ++revision
-    publish({ ...state, status: "checking" })
+    if (state.status !== "signed-in" && state.status !== "signed-out") publish({ ...state, status: "checking" })
     pending = Promise.resolve()
       .then(probe)
       .catch(() => "unknown" as const)
