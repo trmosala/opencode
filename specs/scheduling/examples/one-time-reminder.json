@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "Review the rollout",
+  "prompt": "Remind me to review the rollout notes discussed in this session and list any unresolved items from those notes.",
+  "target": {
+    "type": "existing_session",
+    "sessionID": "ses_example_rollout"
+  },
+  "schedule": { "type": "once", "at": "2026-10-08T09:00:00+02:00" },
+  "misfire": { "type": "catch_up_once", "withinMinutes": 60 }
+}

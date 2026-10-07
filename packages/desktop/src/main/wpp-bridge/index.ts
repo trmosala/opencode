@@ -20,6 +20,7 @@ export type WppBridgeOptions = {
   host?: string
   port?: number
   openLogin?: () => void | Promise<void>
+  checkAuth?: () => Promise<{ status: string }>
 }
 
 // Boot the proxy exactly once. Safe to call repeatedly — concurrent/late callers await the same
@@ -31,7 +32,7 @@ export function startWppBridge(options: WppBridgeOptions = {}): Promise<void> {
   const host = options.host ?? DEFAULT_HOST
   const port = options.port ?? DEFAULT_PORT
 
-  starting = startServer({ host, port, openLogin: options.openLogin }).catch((error) => {
+  starting = startServer({ host, port, openLogin: options.openLogin, checkAuth: options.checkAuth }).catch((error) => {
     // Reset so a later retry can re-attempt instead of being pinned to a rejected promise.
     starting = null
     throw error

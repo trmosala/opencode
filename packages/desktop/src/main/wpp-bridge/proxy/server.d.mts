@@ -5,4 +5,5 @@ export function startServer(options?: {
   host?: string
   port?: number
   openLogin?: () => void | Promise<void>
+  checkAuth?: () => Promise<{ status: string }>
 }): Promise<void>
