@@ -7,6 +7,49 @@ import {
 } from "../performance/timeline/timeline-test-helpers"
 import { expectSessionTitle } from "../utils/waits"
 
+test("cold CM3 sessions hydrate their project before starting a new chat", async ({ page }) => {
+  await mockStressTimeline(page)
+  await installStressSessionTabs(page, { sessionIDs: [fixture.sourceID] })
+  await page.addInitScript(
+    ({ directory }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
+      localStorage.setItem(
+        "opencode.global.dat:server",
+        JSON.stringify({
+          projects: {
+            local: [
+              { worktree: "C:/OpenCode/OtherProject", expanded: true },
+              { worktree: directory, expanded: true },
+            ],
+          },
+          lastProject: { local: "C:/OpenCode/OtherProject" },
+        }),
+      )
+      const tabs = JSON.parse(localStorage.getItem("opencode.window.browser.dat:tabs") ?? "[]")
+      localStorage.setItem(
+        "opencode.window.browser.dat:tabs",
+        JSON.stringify(
+          tabs.map((tab: { type: string; server: string; sessionId: string }) => ({
+            type: tab.type,
+            server: tab.server,
+            sessionId: tab.sessionId,
+          })),
+        ),
+      )
+    },
+    { directory: fixture.directory },
+  )
+  await page.goto(stressSessionHref(fixture.sourceID))
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+  const project = page.locator(`.cm3-sidebar-project[title="${fixture.directory}"]`)
+  await expect(project).toHaveAttribute("data-active", "true")
+  const projectName = (await project.innerText()).trim()
+  await page.getByRole("button", { name: "New chat", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: `What should we build in ${projectName}?`, exact: true }),
+  ).toBeVisible()
+})
+
 test("titlebar UI and color switches persist across reloads", async ({ page }) => {
   await mockStressTimeline(page)
   await installStressSessionTabs(page)

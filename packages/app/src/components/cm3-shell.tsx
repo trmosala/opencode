@@ -33,37 +33,46 @@ export function Cm3Shell() {
     setState("navigation", false)
     refs.toggle?.focus({ preventScroll: true })
   }
-  createEffect(
-    on(
-      () => `${location.pathname}${location.search}`,
-      () => {
-        const target = location.pathname.match(/^\/server\/([^/]+)\/session\/([^/]+)$/)
-        if (target) {
-          const key = decode64(target[1])
-          const conn = home.server.list().find((item) => ServerConnection.key(item) === key)
-          if (!conn) return
-          const tab = tabs.store.find(
-            (item) => item.type === "session" && item.server === key && item.sessionId === target[2],
-          )
-          home.selection.set({
-            server: ServerConnection.key(conn),
-            directory: tab ? tabs.info[tabKey(tab)]?.directory : undefined,
-          })
-          return
-        }
-        const legacy = location.pathname.match(/^\/([^/]+)\/session(?:\/[^/]+)?$/)
-        if (legacy) {
-          const directory = decode64(legacy[1])
-          if (directory) home.selection.set({ server: server.key, directory })
-          return
-        }
-        if (location.pathname !== "/new-session") return
-        const draftID = new URLSearchParams(location.search).get("draftId")
-        const draft = tabs.store.find((item) => item.type === "draft" && item.draftID === draftID)
-        if (draft?.type === "draft") home.selection.set({ server: draft.server, directory: draft.directory })
-      },
-    ),
+  const routeProject = createMemo(
+    () => {
+      const path = `${location.pathname}${location.search}`
+      const target = location.pathname.match(/^\/server\/([^/]+)\/session\/([^/]+)$/)
+      if (target) {
+        const key = decode64(target[1])
+        const conn = home.server.list().find((item) => ServerConnection.key(item) === key)
+        if (!conn) return undefined
+        const tab = tabs.store.find(
+          (item) => item.type === "session" && item.server === key && item.sessionId === target[2],
+        )
+        const directory = tab ? tabs.info[tabKey(tab)]?.directory : undefined
+        if (!directory) return undefined
+        return { path, server: ServerConnection.key(conn), directory }
+      }
+      const legacy = location.pathname.match(/^\/([^/]+)\/session(?:\/[^/]+)?$/)
+      if (legacy) {
+        const directory = decode64(legacy[1])
+        if (directory) return { path, server: server.key, directory }
+        return undefined
+      }
+      if (location.pathname !== "/new-session") return undefined
+      const draftID = new URLSearchParams(location.search).get("draftId")
+      const draft = tabs.store.find((item) => item.type === "draft" && item.draftID === draftID)
+      if (draft?.type === "draft") return { path, server: draft.server, directory: draft.directory }
+      return undefined
+    },
+    undefined,
+    {
+      // Unrelated tab hydration must not undo a project explicitly selected in the sidebar.
+      equals: (previous, next) =>
+        previous?.path === next?.path && previous?.server === next?.server && previous?.directory === next?.directory,
+    },
   )
+  createEffect(
+    on(routeProject, (project) => {
+      if (project) home.selection.set({ server: project.server, directory: project.directory })
+    }),
+  )
+  const projectPending = () => /^\/server\/[^/]+\/session\/[^/]+$/.test(location.pathname) && !routeProject()
   const records = createMemo(() => {
     const value = state.search.trim().toLowerCase()
     return (value ? sessions.data.searchRecords() : sessions.data.records()).filter((record) =>
@@ -78,6 +87,7 @@ export function Cm3Shell() {
     navigate(`/${base64Encode(directory)}/session`)
   }
   const create = () => {
+    if (projectPending()) return
     const conn = home.server.focused()
     const project = home.project.newSession()
     if (!conn) return
@@ -160,7 +170,12 @@ export function Cm3Shell() {
             <Cm3Icon name="x" />
           </button>
         </div>
-        <button class="cm3-sidebar-action" type="button" onClick={create} disabled={!home.server.focused()}>
+        <button
+          class="cm3-sidebar-action"
+          type="button"
+          onClick={create}
+          disabled={!home.server.focused() || projectPending()}
+        >
           <Cm3Icon name="note-pencil" />
           {language.t("quietCompanion.newTask")}
         </button>
