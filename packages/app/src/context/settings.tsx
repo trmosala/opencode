@@ -196,7 +196,7 @@ const defaultSettings: Settings = {
     editToolPartsExpanded: false,
     showCustomAgents: false,
     mobileTitlebarPosition: "top",
-    quietCompanion: false,
+    quietCompanion: true,
   },
   appearance: {
     fontSize: 14,

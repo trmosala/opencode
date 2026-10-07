@@ -194,9 +194,10 @@ describe("CM3 live shell", () => {
   })
 
   test("persists CM3 preference and returns through its visible control", async () => {
-    const fixture = setup()
+    const fixture = setup(JSON.stringify({ general: { quietCompanion: false } }))
     const first = fixture.mount()
     await ready(first)
+    expect(first.enabled()).toBe(false)
     first.enable(true)
     await Bun.sleep(0)
     expect(JSON.parse(fixture.storage.get("default:settings.v3")!).general.quietCompanion).toBe(true)
@@ -208,6 +209,11 @@ describe("CM3 live shell", () => {
     await Bun.sleep(0)
     expect(second.enabled()).toBe(false)
     expect(JSON.parse(fixture.storage.get("default:settings.v3")!).general.quietCompanion).toBe(false)
+    second.dispose()
+    const third = fixture.mount()
+    await ready(third)
+    expect(third.enabled()).toBe(false)
+    expect(third.host.querySelector(".cm3-live")).toBeNull()
   })
 
   test("uses the shared theme controls", async () => {
@@ -222,14 +228,16 @@ describe("CM3 live shell", () => {
     expect(mounted.theme().mode()).toBe("dark")
   })
 
-  test.each([undefined, JSON.stringify({ general: { autoSave: false } })])(
-    "defaults existing users to Current UI",
-    async (stored) => {
-      const mounted = setup(stored).mount()
-      await ready(mounted)
-      expect(mounted.enabled()).toBe(false)
-      expect(mounted.host.querySelector(".cm3-live")).toBeNull()
-      expect(mounted.host.querySelector<HTMLElement>('[data-component="current-ui"]')!.style.display).toBe("contents")
-    },
-  )
+  test.each([
+    { name: "fresh settings", stored: undefined, enabled: true },
+    { name: "missing preference", stored: JSON.stringify({ general: { autoSave: false } }), enabled: true },
+    { name: "saved false", stored: JSON.stringify({ general: { quietCompanion: false } }), enabled: false },
+  ])("resolves CM3 for $name", async ({ stored, enabled }) => {
+    const mounted = setup(stored).mount()
+    await ready(mounted)
+    expect(mounted.enabled()).toBe(enabled)
+    const current = mounted.host.querySelector<HTMLElement>('[data-component="current-ui"]')!
+    expect(current.classList.contains("cm3-live")).toBe(enabled)
+    expect(current.style.display).toBe(enabled ? "flex" : "contents")
+  })
 })
