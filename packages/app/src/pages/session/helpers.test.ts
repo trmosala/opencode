@@ -235,4 +235,21 @@ describe("createSessionTabs", () => {
       dispose()
     })
   })
+  test("keeps browser pages and generic tabs out of file state", () => {
+    for (const active of ["new-tab:one", "browser:a"])
+      createRoot((dispose) => {
+        const [state] = createStore({ active, all: ["browser:a", "new-tab:one", "file://a.ts"] })
+        const result = createSessionTabs({
+          tabs: () => ({ active: () => state.active, all: () => state.all }),
+          pathFromTab: (tab) => (tab.startsWith("file://") ? tab.slice(7) : undefined),
+          normalizeTab: (tab) => tab,
+        })
+        expect(result.panelTabs()).toEqual(state.all)
+        expect(result.openedTabs()).toEqual(["file://a.ts"])
+        expect(result.activeTab()).toBe(active)
+        expect(result.closableTab()).toBe(active)
+        expect(result.activeFileTab()).toBeUndefined()
+        dispose()
+      })
+  })
 })

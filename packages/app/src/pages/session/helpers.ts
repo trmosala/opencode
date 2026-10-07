@@ -33,7 +33,14 @@ export const createSessionTabs = (input: TabsInput) => {
   const hasReview = input.hasReview ?? (() => false)
   const fileBrowser = input.fileBrowser ?? (() => false)
   const contextOpen = createMemo(() => input.tabs().active() === "context" || input.tabs().all().includes("context"))
-  const browserOpen = createMemo(() => input.tabs().active() === "browser" || input.tabs().all().includes("browser"))
+  const browserOpen = createMemo(
+    () =>
+      input.tabs().active() === "browser" ||
+      input
+        .tabs()
+        .all()
+        .some((tab) => tab === "browser" || tab.startsWith("browser:")),
+  )
   const openFileOpen = createMemo(
     () =>
       fileBrowser() &&
@@ -57,18 +64,25 @@ export const createSessionTabs = (input: TabsInput) => {
     emptyTabs,
     { equals: same },
   )
-  const openedTabs = createMemo(() => panelTabs().filter((tab) => tab !== SESSION_OPEN_FILE_TAB), emptyTabs, {
-    equals: same,
-  })
+  const openedTabs = createMemo(
+    () =>
+      panelTabs().filter(
+        (tab) => tab !== SESSION_OPEN_FILE_TAB && !tab.startsWith("browser:") && !tab.startsWith("new-tab:"),
+      ),
+    emptyTabs,
+    {
+      equals: same,
+    },
+  )
   const activeTab = createMemo(() => {
     const active = input.tabs().active()
     if (active === "context") return active
-    if (active === "browser") return active
+    if (active === "browser" || active?.startsWith("browser:") || active?.startsWith("new-tab:")) return active
     if (active === SESSION_OPEN_FILE_TAB && openFileOpen()) return active
     if (active === "review" && review()) return active
     if (active && input.pathFromTab(active)) return input.normalizeTab(active)
 
-    const first = openedTabs()[0]
+    const first = panelTabs().find((tab) => tab !== SESSION_OPEN_FILE_TAB)
     if (first) return first
     if (contextOpen()) return "context"
     if (browserOpen()) return "browser"
@@ -83,7 +97,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const closableTab = createMemo(() => {
     const active = activeTab()
     if (active === "context") return active
-    if (active === "browser") return active
+    if (active === "browser" || active?.startsWith("browser:") || active?.startsWith("new-tab:")) return active
     if (active === SESSION_OPEN_FILE_TAB && openFileOpen()) return active
     if (!openedTabs().includes(active)) return
     return active

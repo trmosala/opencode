@@ -2290,9 +2290,14 @@ export default function Page() {
               <button
                 type="button"
                 aria-label={language.t("command.browser.toggle")}
-                aria-pressed={view().reviewPanel.opened() && activeTab() === "browser"}
+                aria-pressed={
+                  view().reviewPanel.opened() && (activeTab() === "browser" || activeTab().startsWith("browser:"))
+                }
                 onClick={() => {
-                  if (view().reviewPanel.opened() && activeTab() === "browser") {
+                  if (
+                    view().reviewPanel.opened() &&
+                    (activeTab() === "browser" || activeTab().startsWith("browser:"))
+                  ) {
                     view().reviewPanel.close()
                     return
                   }

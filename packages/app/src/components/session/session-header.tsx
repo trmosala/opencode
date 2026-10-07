@@ -218,7 +218,9 @@ export function SessionHeader() {
     focusTerminalById(id)
   }
 
-  const browserOpen = createMemo(() => view().reviewPanel.opened() && tabs().active() === "browser")
+  const browserOpen = createMemo(
+    () => view().reviewPanel.opened() && (tabs().active() === "browser" || !!tabs().active()?.startsWith("browser:")),
+  )
   const openBrowser = () => {
     view().reviewPanel.open()
     void tabs().open("browser")
