@@ -88,6 +88,8 @@ import { controlPlaneHandlers } from "./handlers/control-plane"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
 import { globalHandlers } from "./handlers/global"
+import { scheduleHandlers } from "./handlers/schedule"
+import { ScheduleApi } from "./groups/schedule"
 import { instanceHandlers } from "./handlers/instance"
 import { mcpHandlers } from "./handlers/mcp"
 import { permissionHandlers } from "./handlers/permission"
@@ -142,6 +144,10 @@ const rootApiRoutes = HttpApiBuilder.layer(RootHttpApi).pipe(
   Layer.provide([controlHandlers, controlPlaneHandlers, globalHandlers]),
   Layer.provide(schemaErrorLayer),
   Layer.provide(httpApiAuthLayer),
+)
+const scheduleApiRoutes = HttpApiBuilder.layer(ScheduleApi).pipe(
+  Layer.provide(scheduleHandlers),
+  Layer.provide([schemaErrorLayer, httpApiAuthLayer]),
 )
 const eventApiRoutes = HttpApiBuilder.layer(EventApi).pipe(
   Layer.provide(eventHandlers),
@@ -275,6 +281,7 @@ export function createRoutes(
 
   return Layer.mergeAll(
     rootApiRoutes,
+    scheduleApiRoutes,
     eventApiRoutes,
     ptyConnectApiRoutes,
     instanceRoutes,

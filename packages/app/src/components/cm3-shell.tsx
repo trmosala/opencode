@@ -238,6 +238,16 @@ export function Cm3Shell() {
           <Cm3Icon name="note-pencil" />
           {language.t("quietCompanion.newTask")}
         </button>
+        <button
+          class="cm3-sidebar-action"
+          type="button"
+          data-active={location.pathname === "/scheduled"}
+          aria-current={location.pathname === "/scheduled" ? "page" : undefined}
+          onClick={() => navigate("/scheduled")}
+        >
+          <Cm3Icon name="clock" />
+          {language.t("schedules.title")}
+        </button>
         <label class="cm3-sidebar-search">
           <Cm3Icon name="magnifying-glass" />
           <input
