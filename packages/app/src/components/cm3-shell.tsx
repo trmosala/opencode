@@ -165,6 +165,42 @@ export function Cm3Shell() {
     }
     openTask(conn, project.worktree)
   }
+  const renderSession = (record: HomeSessionRecord, recent = false) => (
+    <button
+      class="cm3-sidebar-task"
+      data-action={recent ? "recent-session" : "project-session"}
+      type="button"
+      data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
+      onKeyDown={navigateSearch}
+      onMouseDown={(event) => {
+        if (event.button === 1) event.preventDefault()
+      }}
+      onClick={(event) => openSession(record, backgroundOpen(event))}
+      onAuxClick={(event) => {
+        if (!backgroundOpen(event)) return
+        event.preventDefault()
+        openSession(record, true)
+      }}
+    >
+      <div class="size-4 shrink-0" aria-hidden="true">
+        <SessionTabAvatar
+          project={record.project}
+          directory={record.session.directory}
+          sessionId={record.session.id}
+          server={sessions.session.server()}
+          revealProjectOnHover={false}
+        />
+      </div>
+      <span class="cm3-sidebar-task-copy">
+        <span dir="auto">{record.session.title}</span>
+        <Show when={recent}>
+          <span class="cm3-sidebar-task-project" dir="auto">
+            {record.projectName}
+          </span>
+        </Show>
+      </span>
+    </button>
+  )
 
   return (
     <>
@@ -270,53 +306,12 @@ export function Cm3Shell() {
               <Show when={ServerConnection.key(conn) === sessions.session.server()}>
                 <div class="cm3-sidebar-project-sessions">
                   <For each={projectSessions().get(pathKey(project.worktree)) ?? []}>
-                    {(record) => (
-                      <button
-                        class="cm3-sidebar-task"
-                        data-action="project-session"
-                        type="button"
-                        data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
-                        onKeyDown={navigateSearch}
-                        onMouseDown={(event) => {
-                          if (event.button === 1) event.preventDefault()
-                        }}
-                        onClick={(event) => openSession(record, backgroundOpen(event))}
-                        onAuxClick={(event) => {
-                          if (!backgroundOpen(event)) return
-                          event.preventDefault()
-                          openSession(record, true)
-                        }}
-                      >
-                        <div class="size-4 shrink-0" aria-hidden="true">
-                          <SessionTabAvatar
-                            project={record.project}
-                            directory={record.session.directory}
-                            sessionId={record.session.id}
-                            server={sessions.session.server()}
-                            revealProjectOnHover={false}
-                          />
-                        </div>
-                        <span class="cm3-sidebar-task-copy">
-                          <span dir="auto">{record.session.title}</span>
-                        </span>
-                      </button>
-                    )}
+                    {(record) => renderSession(record)}
                   </For>
                 </div>
               </Show>
             )}
           />
-          <Show when={!sessions.data.loading()} fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}>
-            <Show when={sessions.data.error()}>
-              <p role="alert">{language.t("common.requestFailed")}</p>
-              <button type="button" onClick={() => void sessions.data.retry()}>
-                {language.t("browser.action.reload")}
-              </button>
-            </Show>
-            <Show when={!records().length && !sessions.data.error()}>
-              <p role="status">{language.t("quietCompanion.noThreads")}</p>
-            </Show>
-          </Show>
           <button
             class="cm3-sidebar-action"
             type="button"
@@ -337,6 +332,24 @@ export function Cm3Shell() {
             <Cm3Icon name="plus" />
             {language.t("command.project.open")}
           </button>
+          <section aria-label={language.t("sidebar.project.recentSessions")}>
+            <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
+            <For each={records()}>{(record) => renderSession(record, true)}</For>
+            <Show
+              when={!sessions.data.loading()}
+              fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}
+            >
+              <Show when={sessions.data.error()}>
+                <p role="alert">{language.t("common.requestFailed")}</p>
+                <button type="button" onClick={() => void sessions.data.retry()}>
+                  {language.t("browser.action.reload")}
+                </button>
+              </Show>
+              <Show when={!records().length && !sessions.data.error()}>
+                <p role="status">{language.t("quietCompanion.noThreads")}</p>
+              </Show>
+            </Show>
+          </section>
         </div>
         <div class="cm3-sidebar-footer">
           <WppAuthControl />
