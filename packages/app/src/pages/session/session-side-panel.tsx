@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, on, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -358,7 +359,12 @@ export function SessionSidePanel(props: {
               : language.t("browser.tabs.new")}
           </span>
           <Show when={item()?.loading}>
-            <span class="size-2 rounded-full bg-text-weak animate-pulse" />
+            <Show
+              when={import.meta.env.VITE_CM_BRAND}
+              fallback={<span class="size-2 rounded-full bg-text-weak animate-pulse" />}
+            >
+              <CMLoading class="size-3.5" />
+            </Show>
           </Show>
           <Show when={item()?.agentAccess}>
             <span
@@ -1019,6 +1025,7 @@ export function SessionSidePanel(props: {
                               when={props.diffsReady()}
                               fallback={
                                 <div class="px-2 py-2 text-12-regular text-text-weak">
+                                  <CMLoading class="size-4 inline-block align-middle mr-2" />
                                   {language.t("common.loading")}
                                   {language.t("common.loading.ellipsis")}
                                 </div>

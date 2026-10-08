@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
@@ -497,7 +498,10 @@ function SessionFileViewV1(props: { tab: string }) {
         <Switch>
           <Match when={state()?.loaded}>{renderFile(contents())}</Match>
           <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+            <div class="px-6 py-4 text-text-weak">
+              <CMLoading class="size-4 inline-block align-middle mr-2" />
+              {language.t("common.loading")}...
+            </div>
           </Match>
           <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
         </Switch>
@@ -788,7 +792,10 @@ function SessionFileViewV2(props: { tab: string }) {
         <Switch>
           <Match when={state()?.loaded}>{renderFile(contents())}</Match>
           <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+            <div class="px-6 py-4 text-text-weak">
+              <CMLoading class="size-4 inline-block align-middle mr-2" />
+              {language.t("common.loading")}...
+            </div>
           </Match>
           <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
         </Switch>

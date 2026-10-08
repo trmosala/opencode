@@ -1,6 +1,7 @@
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { createEffect, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import {
@@ -110,7 +111,14 @@ export function BrowserTabStrip(props: {
                 }}
               >
                 <span data-slot="browser-tab-icon" aria-hidden="true">
-                  <Show when={!tab.loading} fallback={<span data-slot="browser-tab-spinner" />}>
+                  <Show
+                    when={!tab.loading}
+                    fallback={
+                      <Show when={import.meta.env.VITE_CM_BRAND} fallback={<span data-slot="browser-tab-spinner" />}>
+                        <Spinner class="size-3.5" />
+                      </Show>
+                    }
+                  >
                     <Show when={!tab.loadFailed} fallback={<Icon name="warning" size="small" />}>
                       <Show when={tab.url !== "about:blank"} fallback={<Icon name="plus-small" size="small" />}>
                         <span data-slot="browser-tab-initial" dir="auto">
