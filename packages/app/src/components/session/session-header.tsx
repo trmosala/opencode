@@ -270,7 +270,7 @@ export function SessionHeader() {
     reviewVisible: isDesktop(),
     reviewOpened: view().reviewPanel.opened(),
     onReviewToggle: () => view().reviewPanel.toggle(),
-    browserVisible: isDesktop() && !!platform.browserPanel && !!params.id,
+    browserVisible: isDesktop() && !!platform.browserPanel && !!params.id && !settings.general.quietCompanion(),
     browserOpened: browserOpen(),
     browserLabel: language.t("command.browser.toggle"),
     onBrowserToggle: openBrowser,
@@ -494,7 +494,7 @@ export function SessionHeader() {
                     </TooltipKeybind>
 
                     <div class="hidden md:flex items-center gap-1 shrink-0">
-                      <Show when={platform.browserPanel && params.id}>
+                      <Show when={platform.browserPanel && params.id && !settings.general.quietCompanion()}>
                         <Tooltip placement="bottom" value={language.t("command.browser.toggle")}>
                           <Button
                             variant="ghost"

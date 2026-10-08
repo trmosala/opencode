@@ -2307,7 +2307,7 @@ export default function Page() {
                   })
                 }}
               >
-                <Cm3Icon name="browser" />
+                <Cm3Icon name="globe" />
                 <span>{language.t("session.tab.browser")}</span>
               </button>
             </Show>
