@@ -433,58 +433,146 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
   }
 })
 
-test("CM3 recent sessions stay chronological when a project reveals its chats", async ({ page }) => {
-  const other = {
-    ...fixture.sessions[0],
-    id: "ses_cm3_other",
-    projectID: "proj_cm3_OtherProject",
-    directory: "C:/OpenCode/OtherProject",
-    title: "Most recent other project chat",
-    time: { created: 1700000003000, updated: 1700000003000 },
-  }
-  await mockOpenCodeServer(page, {
-    sessions: [...fixture.sessions, other],
-    provider: fixture.provider,
-    directory: fixture.directory,
-    project: fixture.project,
-    pageMessages,
-  })
-  await mockCm3Projects(page)
-  await installStressSessionTabs(page, { sessionIDs: [] })
-  await page.addInitScript(
-    ({ directory }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
-      localStorage.setItem(
-        "opencode.global.dat:server",
-        JSON.stringify({
-          projects: {
-            local: [
-              { worktree: directory, expanded: true },
-              { worktree: "C:/OpenCode/OtherProject", expanded: true },
-            ],
-          },
-          lastProject: { local: directory },
-        }),
+for (const width of [1280, 390]) {
+  for (const direction of ["ltr", "rtl"]) {
+    test(`CM3 pinned and unpinned project groups expand independently and persist at ${width}px ${direction}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 })
+      const other = {
+        ...fixture.sessions[0],
+        id: "ses_cm3_other",
+        projectID: "proj_cm3_OtherProject",
+        directory: "C:/OpenCode/OtherProject",
+        title: "Most recent other project chat",
+        time: { created: 1700000003000, updated: 1700000003000 },
+      }
+      await mockOpenCodeServer(page, {
+        sessions: [...fixture.sessions, other],
+        provider: fixture.provider,
+        directory: fixture.directory,
+        project: fixture.project,
+        pageMessages,
+      })
+      await mockCm3Projects(page)
+      await page.addInitScript(
+        ({ directory, other }) => {
+          // Do not reseed project expansion on reload.
+          if (localStorage.getItem("settings.v3")) return
+          localStorage.setItem(
+            "settings.v3",
+            JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }),
+          )
+          localStorage.setItem(
+            "opencode.global.dat:server",
+            JSON.stringify({
+              projects: {
+                local: [
+                  { worktree: directory, expanded: true, pinned: true },
+                  { worktree: other, expanded: false },
+                ],
+              },
+              lastProject: { local: directory },
+            }),
+          )
+        },
+        { directory: fixture.directory, other: other.directory },
       )
-    },
-    { directory: fixture.directory },
-  )
-  await page.goto("/")
-  const recent = page.locator(".cm3-sidebar-scroll > .cm3-sidebar-task")
-  const expected = [other.title, fixture.expected.targetTitle, fixture.expected.sourceTitle]
-  await expect(recent).toHaveText(expected)
-  const project = page.locator('.cm3-sidebar-project[title="C:/OpenCode/OtherProject"]')
-  await project.click()
-  await expect(recent).toHaveText(expected)
-  const children = page.locator(".cm3-sidebar-project-sessions")
-  await expect(children.getByRole("button", { name: other.title, exact: true })).toBeVisible()
-  await expect(children.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })).toHaveCount(0)
-  await expect(project).toHaveAttribute("aria-expanded", "true")
-  await project.click()
-  await expect(project).toHaveAttribute("aria-expanded", "false")
-  await expect(children).toHaveCount(0)
-  await expect(recent).toHaveText(expected)
-})
+      await page.goto("/")
+      const navigation = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
+      const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+      if (width === 390) await toggle.click()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      const projects = navigation.getByRole("complementary", { name: "Projects", exact: true })
+      const pinned = projects.getByRole("region", { name: "Pinned", exact: true })
+      const titles = ".cm3-sidebar-session .cm3-sidebar-task-copy > span:first-child"
+      const recent = navigation.getByRole("region", { name: "Recent sessions", exact: true }).locator(titles)
+      const expected = [other.title, fixture.expected.targetTitle, fixture.expected.sourceTitle]
+      const groups = [
+        {
+          directory: fixture.directory,
+          name: fixture.project.name,
+          expanded: true,
+          titles: [fixture.expected.targetTitle, fixture.expected.sourceTitle],
+        },
+        { directory: other.directory, name: "OtherProject", expanded: false, titles: [other.title] },
+      ].map((group) => {
+        const row = projects.getByTitle(group.directory, { exact: true })
+        return { ...group, row, button: row.locator("..").locator('button[data-action="home-project-expand"]') }
+      })
+      const assertGroup = async (group: (typeof groups)[number], expanded: boolean) => {
+        await expect(group.button).toHaveAccessibleName(`${expanded ? "Collapse" : "Expand"} ${group.name}`)
+        await expect(group.button).toHaveAttribute("aria-expanded", String(expanded))
+        await expect(group.button.locator("svg use")).toHaveAttribute(
+          "href",
+          `#opencode-v2-icon-folder${expanded ? "-open" : ""}`,
+        )
+        await expect(group.button).toHaveAttribute("aria-controls", /\S+/)
+        const children = projects.locator(`[id=${JSON.stringify(await group.button.getAttribute("aria-controls"))}]`)
+        await expect(children).toBeAttached()
+        if (expanded) {
+          await expect(children).toBeVisible()
+          await expect(children.locator(titles)).toHaveText(group.titles)
+        } else {
+          await expect(children).toBeHidden()
+          await expect(children.locator(":scope > *")).toHaveCount(0)
+        }
+        await expect(recent).toHaveText(expected)
+        if (width === 390) await expect(toggle).toHaveAttribute("aria-expanded", "true")
+      }
+      await expect(pinned.getByTitle(fixture.directory, { exact: true })).toBeVisible()
+      await expect(pinned.getByTitle(other.directory, { exact: true })).toHaveCount(0)
+      await expect(projects.locator('[data-component="home-project-row"][data-active="true"]')).toHaveCount(0)
+      for (const group of groups) {
+        await assertGroup(group, group.expanded)
+        await expect(group.row).toHaveAttribute("data-active", "false")
+        const controls = await group.button.getAttribute("aria-controls")
+        await group.button.click()
+        await assertGroup(group, !group.expanded)
+        await expect(group.row).toHaveAttribute("data-active", "false")
+
+        await group.row.click()
+        if (width === 390) {
+          await expect(toggle).toHaveAttribute("aria-expanded", "false")
+          await toggle.click()
+        }
+        await expect(group.row).toHaveAttribute("data-active", "true")
+        await assertGroup(group, !group.expanded)
+        await group.button.focus()
+        await group.button.press("Tab")
+        await expect(group.row).toBeFocused()
+        await group.row.press("Shift+Tab")
+        await expect(group.button).toBeFocused()
+        await group.button.press("Enter")
+        await assertGroup(group, group.expanded)
+        await expect(group.button).toBeFocused()
+        await expect(group.row).toHaveAttribute("data-active", "true")
+        await group.button.press("Space")
+        await assertGroup(group, !group.expanded)
+        await expect(group.button).toBeFocused()
+        await expect(group.row).toHaveAttribute("data-active", "true")
+        await expect(group.button).toHaveAttribute("aria-controls", controls!)
+      }
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const store = JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}")
+            return store.projects?.local
+          }),
+        )
+        .toEqual([
+          { worktree: fixture.directory, expanded: false, pinned: true },
+          { worktree: other.directory, expanded: true },
+        ])
+      await page.reload()
+      if (width === 390) await toggle.click()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      await expect(pinned.getByTitle(fixture.directory, { exact: true })).toBeVisible()
+      for (const group of groups) await assertGroup(group, !group.expanded)
+      await expect(page).toHaveURL("/")
+    })
+  }
+}
 
 async function mockCm3Projects(page: Page, names = ["OtherProject", "ThirdProject"]) {
   const projects = [

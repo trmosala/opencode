@@ -1,4 +1,4 @@
-import { type Accessor, createMemo, For, type JSX, onCleanup, Show, splitProps } from "solid-js"
+import { type Accessor, createMemo, createUniqueId, For, type JSX, onCleanup, Show, splitProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DragDropProvider, PointerSensor } from "@dnd-kit/solid"
 import { isSortable, useSortable } from "@dnd-kit/solid/sortable"
@@ -52,6 +52,7 @@ export type HomeProjectsViewProps = {
   onRemoveServer: (server: ServerConnection.Any) => void
   onMoveProject: (server: ServerConnection.Any, worktree: string, index: number) => void
   onPinProject: (server: ServerConnection.Any, project: LocalProject) => void
+  onToggleProjectExpanded: (server: ServerConnection.Any, project: LocalProject) => void
   onSelectProject: (server: ServerConnection.Any, directory: string) => void
   onAddProjects: (server: ServerConnection.Any, directories: string[]) => void
   onOpenProjectNewSession: (server: ServerConnection.Any, directory: string) => void
@@ -412,6 +413,7 @@ function HomeProjectSlot(
 ) {
   const initial = props.items.find((item) => item.worktree === props.worktree)
   if (!initial) return null
+  const sessionsID = createUniqueId()
   const project = createMemo<LocalProject>(
     (previous) => props.items.find((item) => item.worktree === props.worktree) ?? previous,
     initial,
@@ -430,8 +432,15 @@ function HomeProjectSlot(
           props.selection().directory === props.worktree
         }
         unseen={props.unseenCount(props.server, project())}
+        sessionsID={sessionsID}
       />
-      {props.renderProjectSessions?.(props.server, project())}
+      <Show when={props.renderProjectSessions}>
+        <div id={sessionsID} hidden={props.sidebar && !project().expanded}>
+          <Show when={!props.sidebar || project().expanded}>
+            {props.renderProjectSessions?.(props.server, project())}
+          </Show>
+        </div>
+      </Show>
     </>
   )
 }
@@ -489,7 +498,9 @@ function HomeRecentlyClosedRow(
         disabled={unreachable()}
         onClick={() => props.onAddProjects(props.server, [props.project.worktree])}
       >
-        <HomeProjectAvatar project={props.project} outline />
+        <Show when={props.sidebar} fallback={<HomeProjectAvatar project={props.project} outline />}>
+          <IconV2 name="folder" class="shrink-0" />
+        </Show>
         <span class={HOME_PROJECT_NAV_LABEL}>{displayName(props.project)}</span>
       </HomeProjectNavButton>
     </TooltipV2>
@@ -505,6 +516,7 @@ function HomeProjectRow(
       serverSelected: boolean
       selected: boolean
       unseen: number
+      sessionsID: string
     },
 ) {
   const platform = usePlatform()
@@ -533,6 +545,24 @@ function HomeProjectRow(
         props.onSetContextMenuOpen(contextMenuID(), true)
       }}
     >
+      <Show when={props.sidebar}>
+        <button
+          type="button"
+          data-action="home-project-expand"
+          class="cm3-sidebar-project-toggle"
+          aria-expanded={props.project.expanded}
+          aria-controls={props.renderProjectSessions ? props.sessionsID : undefined}
+          aria-label={props.language.t(props.project.expanded ? "sidebar.project.collapse" : "sidebar.project.expand", {
+            project: displayName(props.project),
+          })}
+          title={props.language.t(props.project.expanded ? "sidebar.project.collapse" : "sidebar.project.expand", {
+            project: displayName(props.project),
+          })}
+          onClick={() => props.onToggleProjectExpanded(props.server, props.project)}
+        >
+          <IconV2 name={props.project.expanded ? "folder-open" : "folder"} />
+        </button>
+      </Show>
       <HomeProjectNavButton
         type="button"
         data-component="home-project-row"
@@ -574,8 +604,12 @@ function HomeProjectRow(
           pointerDownSelected = undefined
         }}
       >
-        <HomeProjectAvatar project={props.project} />
-        <span class={HOME_PROJECT_NAV_LABEL}>{displayName(props.project)}</span>
+        <Show when={!props.sidebar}>
+          <HomeProjectAvatar project={props.project} />
+        </Show>
+        <span class={HOME_PROJECT_NAV_LABEL} dir="auto">
+          {displayName(props.project)}
+        </span>
       </HomeProjectNavButton>
       <div
         class={`

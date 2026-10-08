@@ -1103,6 +1103,8 @@ export const dict = {
   "home.projects": "Projects",
   "sidebar.project.pin": "Pin project",
   "sidebar.project.unpin": "Unpin project",
+  "sidebar.project.collapse": "Collapse {{project}}",
+  "sidebar.project.expand": "Expand {{project}}",
   "sidebar.session.pin": "Pin session",
   "sidebar.session.unpin": "Unpin session",
   "sidebar.session.pinned": "Pinned sessions",

@@ -324,7 +324,26 @@ html[data-color-scheme="dark"] .cm3-sidebar {
 }
 
 .cm3-sidebar-projects .cm3-sidebar-project {
+  flex: 1;
+  width: 0;
+  padding-inline-start: 0;
   padding-inline-end: 80px;
+}
+
+.cm3-sidebar .cm3-sidebar-project-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 31px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cm3-sidebar-project-toggle:focus-visible {
+  outline: 1px solid var(--cm3-border-strong);
+  outline-offset: -1px;
 }
 
 .cm3-sidebar-tabs [data-titlebar-tab-slot] {
