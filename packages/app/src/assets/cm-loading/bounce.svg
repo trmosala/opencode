@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="-5 -6 32 34" role="img" aria-labelledby="title">
+  <title id="title">Loading</title>
+  <style>
+    .cookie { transform-origin:11px 18px; animation:bounce 2.4s ease-in-out infinite; }
+    .chip { animation:chip 1.8s ease-in-out infinite; }
+    .shadow { transform-origin:11px 25px; animation:shadow 2.4s ease-in-out infinite; }
+    @keyframes bounce {
+      0%,100% { transform:translateY(0) rotate(-6deg); }
+      25% { transform:translateY(-2px) rotate(4deg); }
+      50% { transform:translateY(0) rotate(6deg) scale(1.04,.96); }
+      75% { transform:translateY(-2px) rotate(-4deg); }
+    }
+    @keyframes chip {
+      0%,60%,100% { transform:scale(1) rotate(0deg); opacity:1; }
+      25% { transform:scale(.55) rotate(90deg); opacity:.35; }
+      42% { transform:scale(1.15) rotate(90deg); opacity:1; }
+    }
+    @keyframes shadow {
+      0%,50%,100% { transform:scaleX(1); opacity:.18; }
+      25%,75% { transform:scaleX(.65); opacity:.08; }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .cookie,.chip,.shadow { animation:none; }
+    }
+  </style>
+  <g fill="currentColor">
+    <ellipse class="shadow" cx="11" cy="25" rx="7" ry=".65" opacity=".18"/>
+    <g class="cookie">
+    <path d="M0,7h1v1h-1ZM0,8h1v1h-1ZM0,9h1v1h-1ZM0,10h1v1h-1ZM0,11h1v1h-1ZM0,12h1v1h-1ZM0,13h1v1h-1ZM0,14h1v1h-1ZM1,5h1v1h-1ZM1,6h1v1h-1ZM1,11h1v1h-1ZM1,12h1v1h-1ZM1,13h1v1h-1ZM1,15h1v1h-1ZM1,16h1v1h-1ZM2,4h1v1h-1ZM2,12h1v1h-1ZM2,17h1v1h-1ZM3,3h1v1h-1ZM3,18h1v1h-1ZM4,2h1v1h-1ZM4,19h1v1h-1ZM5,1h1v1h-1ZM5,20h1v1h-1ZM6,1h1v1h-1ZM6,20h1v1h-1ZM7,0h1v1h-1ZM7,19h1v1h-1ZM7,21h1v1h-1ZM8,0h1v1h-1ZM8,21h1v1h-1ZM9,0h1v1h-1ZM9,21h1v1h-1ZM10,0h1v1h-1ZM10,21h1v1h-1ZM11,0h1v1h-1ZM11,21h1v1h-1ZM12,1h1v1h-1ZM12,2h1v1h-1ZM12,4h1v1h-1ZM12,5h1v1h-1ZM12,21h1v1h-1ZM13,3h1v1h-1ZM13,4h1v1h-1ZM13,5h1v1h-1ZM13,6h1v1h-1ZM13,21h1v1h-1ZM14,6h1v1h-1ZM14,7h1v1h-1ZM14,9h1v1h-1ZM14,10h1v1h-1ZM14,21h1v1h-1ZM15,8h1v1h-1ZM15,9h1v1h-1ZM15,10h1v1h-1ZM15,11h1v1h-1ZM15,20h1v1h-1ZM16,9h1v1h-1ZM16,10h1v1h-1ZM16,11h1v1h-1ZM16,20h1v1h-1ZM17,9h1v1h-1ZM17,10h1v1h-1ZM17,19h1v1h-1ZM18,10h1v1h-1ZM18,18h1v1h-1ZM19,10h1v1h-1ZM19,12h1v1h-1ZM19,17h1v1h-1ZM20,10h1v1h-1ZM20,11h1v1h-1ZM20,13h1v1h-1ZM20,15h1v1h-1ZM20,16h1v1h-1ZM21,11h1v1h-1ZM21,12h1v1h-1ZM21,13h1v1h-1ZM21,14h1v1h-1Z"/>
+    <path class="chip" style="transform-origin:7.5px 4.5px;animation-delay:0.0s" d="M6,4h1v1h-1ZM7,3h1v1h-1ZM7,4h1v1h-1ZM7,5h1v1h-1ZM8,4h1v1h-1Z"/>
+    <path class="chip" style="transform-origin:5.0px 9.0px;animation-delay:-0.24s" d="M3,8h1v1h-1ZM3,9h1v1h-1ZM4,7h1v1h-1ZM4,8h1v1h-1ZM4,9h1v1h-1ZM4,10h1v1h-1ZM5,7h1v1h-1ZM5,8h1v1h-1ZM5,9h1v1h-1ZM5,10h1v1h-1ZM6,8h1v1h-1ZM6,9h1v1h-1Z"/>
+    <path class="chip" style="transform-origin:10.5px 9.5px;animation-delay:-0.48s" d="M9,9h1v1h-1ZM10,8h1v1h-1ZM10,9h1v1h-1ZM10,10h1v1h-1ZM11,9h1v1h-1Z"/>
+    <path class="chip" style="transform-origin:7.0px 15.0px;animation-delay:-0.72s" d="M5,14h1v1h-1ZM5,15h1v1h-1ZM6,13h1v1h-1ZM6,14h1v1h-1ZM6,15h1v1h-1ZM6,16h1v1h-1ZM7,13h1v1h-1ZM7,14h1v1h-1ZM7,15h1v1h-1ZM7,16h1v1h-1ZM8,14h1v1h-1ZM8,15h1v1h-1Z"/>
+    <path class="chip" style="transform-origin:11.5px 17.5px;animation-delay:-0.96s" d="M10,17h1v1h-1ZM11,16h1v1h-1ZM11,17h1v1h-1ZM11,18h1v1h-1ZM12,17h1v1h-1Z"/>
+    <path class="chip" style="transform-origin:17.0px 16.0px;animation-delay:-1.2s" d="M15,15h1v1h-1ZM15,16h1v1h-1ZM16,14h1v1h-1ZM16,15h1v1h-1ZM16,16h1v1h-1ZM16,17h1v1h-1ZM17,14h1v1h-1ZM17,15h1v1h-1ZM17,16h1v1h-1ZM17,17h1v1h-1ZM18,15h1v1h-1ZM18,16h1v1h-1Z"/>
+    </g>
+  </g>
+</svg>

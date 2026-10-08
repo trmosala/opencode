@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { For, Show, createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -254,7 +255,10 @@ export function TerminalPanel() {
                   {language.t("common.loading.ellipsis")}
                 </div>
               </div>
-              <div class="flex-1 flex items-center justify-center text-text-weak">{language.t("terminal.loading")}</div>
+              <div class="flex-1 flex flex-col items-center justify-center gap-3 text-text-weak">
+                <CMLoading class="size-12" />
+                {language.t("terminal.loading")}
+              </div>
             </div>
           }
         >

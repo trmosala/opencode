@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -209,6 +210,9 @@ function CommandPaletteView(props: {
               when={visibleEntries().length > 0}
               fallback={
                 <div class="command-palette-v2-state">
+                  <Show when={entries.loading}>
+                    <CMLoading class="size-4 inline-block align-middle mr-2" />
+                  </Show>
                   {entries.loading ? language.t("common.loading") : language.t("palette.empty")}
                 </div>
               }

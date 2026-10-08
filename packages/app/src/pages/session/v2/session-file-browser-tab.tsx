@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { createMemo, createSignal, createUniqueId, Show } from "solid-js"
 import { createQuery, keepPreviousData } from "@tanstack/solid-query"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -126,6 +127,7 @@ export function SessionFileBrowserTab(props: {
               when={!loading()}
               fallback={
                 <div role="status" class="px-2 py-2 text-12-regular text-text-weak">
+                  <CMLoading class="size-4 inline-block align-middle mr-2" />
                   {language.t("common.loading")}
                   {language.t("common.loading.ellipsis")}
                 </div>

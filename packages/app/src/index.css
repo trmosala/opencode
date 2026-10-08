@@ -158,6 +158,10 @@
     transform-origin: 50% 50%;
   }
 
+  [data-slot="titlebar-update-loader"]:has([data-loading-animation]) {
+    animation: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     [data-slot="titlebar-update-loader"] {
       animation: none;

@@ -1,5 +1,5 @@
 import { type ComponentProps } from "solid-js"
-import { paths } from "./phosphor"
+import { Loading } from "./loading"
 
 export function Spinner(props: {
   class?: string
@@ -7,15 +7,13 @@ export function Spinner(props: {
   style?: ComponentProps<"div">["style"]
 }) {
   return (
-    <svg
+    <Loading
       {...props}
-      viewBox="0 0 256 256"
+      width={18}
+      height={18}
       data-component="spinner"
       classList={{ ...props.classList, [props.class ?? ""]: !!props.class }}
-      fill="currentColor"
       aria-hidden="true"
-    >
-      <path d={paths.spinner} />
-    </svg>
+    />
   )
 }

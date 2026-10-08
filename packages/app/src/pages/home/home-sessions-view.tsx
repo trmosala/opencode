@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { type Accessor, createMemo, For, Show, Suspense } from "solid-js"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -540,7 +541,10 @@ function HomeSessionSkeleton(props: { label: string }) {
   return (
     <div class="flex min-w-0 flex-col gap-4">
       <div class="flex h-7 min-w-0 items-center justify-between px-4">
-        <div class={HOME_SECTION_LABEL}>{props.label}</div>
+        <div class={HOME_SECTION_LABEL}>
+          <CMLoading class="size-6 inline-block align-middle mr-2" />
+          {props.label}
+        </div>
       </div>
       <div class="flex min-w-0 flex-col gap-px" aria-hidden="true">
         <For each={[0, 1, 2, 3]}>{() => <div class="h-10 rounded-[6px] bg-v2-background-bg-deep opacity-70" />}</For>

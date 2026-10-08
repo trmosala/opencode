@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="-4 -4 30 30" overflow="hidden" role="img" aria-labelledby="title">
+  <title id="title">Loading: cookie eaten and rebuilt from pixels</title>
+  <style>
+/* Six-second loop: five chomps, then a staggered pixel reconstruction. */
+.fresh { animation:fresh 6s steps(1,end) infinite; }
+@keyframes fresh { 0% {opacity:1} 18% {opacity:0} 98%,100% {opacity:1} }
+.stage-0 {opacity:0;animation:stage0 6s steps(1,end) infinite;}
+@keyframes stage0 {0% {opacity:0} 18% {opacity:1} 31%,100% {opacity:0}}
+.jolt-0 {transform-origin:11px 11px;animation:jolt0 6s ease-out infinite;}
+@keyframes jolt0 {0%,18% {transform:translateX(-.5px) rotate(-2deg)} 20.5%,100% {transform:translateX(0) rotate(0deg)}}
+.stage-1 {opacity:0;animation:stage1 6s steps(1,end) infinite;}
+@keyframes stage1 {0% {opacity:0} 31% {opacity:1} 44%,100% {opacity:0}}
+.jolt-1 {transform-origin:11px 11px;animation:jolt1 6s ease-out infinite;}
+@keyframes jolt1 {0%,31% {transform:translateX(-.5px) rotate(-2deg)} 33.5%,100% {transform:translateX(0) rotate(0deg)}}
+.stage-2 {opacity:0;animation:stage2 6s steps(1,end) infinite;}
+@keyframes stage2 {0% {opacity:0} 44% {opacity:1} 57%,100% {opacity:0}}
+.jolt-2 {transform-origin:11px 11px;animation:jolt2 6s ease-out infinite;}
+@keyframes jolt2 {0%,44% {transform:translateX(-.5px) rotate(-2deg)} 46.5%,100% {transform:translateX(0) rotate(0deg)}}
+.stage-3 {opacity:0;animation:stage3 6s steps(1,end) infinite;}
+@keyframes stage3 {0% {opacity:0} 57% {opacity:1} 68%,100% {opacity:0}}
+.jolt-3 {transform-origin:11px 11px;animation:jolt3 6s ease-out infinite;}
+@keyframes jolt3 {0%,57% {transform:translateX(-.5px) rotate(-2deg)} 59.5%,100% {transform:translateX(0) rotate(0deg)}}
+.tile-0 {opacity:0;transform-origin:5px 1px;animation:tile0 6s ease-out infinite;}
+@keyframes tile0 {0%,81.531% {opacity:0;transform:translate(-0.333px,-0.556px) scale(.1)} 83.731% {opacity:1;transform:translate(0,0) scale(1.12)} 85.231%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-1 {opacity:0;transform-origin:7px 1px;animation:tile1 6s ease-out infinite;}
+@keyframes tile1 {0%,76.797% {opacity:0;transform:translate(-0.222px,-0.556px) scale(.1)} 78.997% {opacity:1;transform:translate(0,0) scale(1.12)} 80.497%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-2 {opacity:0;transform-origin:9px 1px;animation:tile2 6s ease-out infinite;}
+@keyframes tile2 {0%,80.062% {opacity:0;transform:translate(-0.111px,-0.556px) scale(.1)} 82.262% {opacity:1;transform:translate(0,0) scale(1.12)} 83.762%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-3 {opacity:0;transform-origin:11px 1px;animation:tile3 6s ease-out infinite;}
+@keyframes tile3 {0%,83.328% {opacity:0;transform:translate(0.000px,-0.556px) scale(.1)} 85.528% {opacity:1;transform:translate(0,0) scale(1.12)} 87.028%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-4 {opacity:0;transform-origin:13px 1px;animation:tile4 6s ease-out infinite;}
+@keyframes tile4 {0%,78.593% {opacity:0;transform:translate(0.111px,-0.556px) scale(.1)} 80.793% {opacity:1;transform:translate(0,0) scale(1.12)} 82.293%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-5 {opacity:0;transform-origin:15px 1px;animation:tile5 6s ease-out infinite;}
+@keyframes tile5 {0%,81.859% {opacity:0;transform:translate(0.222px,-0.556px) scale(.1)} 84.059% {opacity:1;transform:translate(0,0) scale(1.12)} 85.559%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-6 {opacity:0;transform-origin:17px 1px;animation:tile6 6s ease-out infinite;}
+@keyframes tile6 {0%,85.124% {opacity:0;transform:translate(0.333px,-0.556px) scale(.1)} 87.324% {opacity:1;transform:translate(0,0) scale(1.12)} 88.824%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-7 {opacity:0;transform-origin:3px 3px;animation:tile7 6s ease-out infinite;}
+@keyframes tile7 {0%,83.215% {opacity:0;transform:translate(-0.444px,-0.444px) scale(.1)} 85.415% {opacity:1;transform:translate(0,0) scale(1.12)} 86.915%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-8 {opacity:0;transform-origin:5px 3px;animation:tile8 6s ease-out infinite;}
+@keyframes tile8 {0%,78.481% {opacity:0;transform:translate(-0.333px,-0.444px) scale(.1)} 80.681% {opacity:1;transform:translate(0,0) scale(1.12)} 82.181%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-9 {opacity:0;transform-origin:7px 3px;animation:tile9 6s ease-out infinite;}
+@keyframes tile9 {0%,81.746% {opacity:0;transform:translate(-0.222px,-0.444px) scale(.1)} 83.946% {opacity:1;transform:translate(0,0) scale(1.12)} 85.446%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-10 {opacity:0;transform-origin:11px 3px;animation:tile10 6s ease-out infinite;}
+@keyframes tile10 {0%,80.278% {opacity:0;transform:translate(0.000px,-0.444px) scale(.1)} 82.478% {opacity:1;transform:translate(0,0) scale(1.12)} 83.978%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-11 {opacity:0;transform-origin:15px 3px;animation:tile11 6s ease-out infinite;}
+@keyframes tile11 {0%,78.809% {opacity:0;transform:translate(0.222px,-0.444px) scale(.1)} 81.009% {opacity:1;transform:translate(0,0) scale(1.12)} 82.509%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-12 {opacity:0;transform-origin:17px 3px;animation:tile12 6s ease-out infinite;}
+@keyframes tile12 {0%,82.074% {opacity:0;transform:translate(0.333px,-0.444px) scale(.1)} 84.274% {opacity:1;transform:translate(0,0) scale(1.12)} 85.774%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-13 {opacity:0;transform-origin:19px 3px;animation:tile13 6s ease-out infinite;}
+@keyframes tile13 {0%,85.340% {opacity:0;transform:translate(0.444px,-0.444px) scale(.1)} 87.540% {opacity:1;transform:translate(0,0) scale(1.12)} 89.040%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-14 {opacity:0;transform-origin:1px 5px;animation:tile14 6s ease-out infinite;}
+@keyframes tile14 {0%,76.900% {opacity:0;transform:translate(-0.556px,-0.333px) scale(.1)} 79.100% {opacity:1;transform:translate(0,0) scale(1.12)} 80.600%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-15 {opacity:0;transform-origin:3px 5px;animation:tile15 6s ease-out infinite;}
+@keyframes tile15 {0%,80.165% {opacity:0;transform:translate(-0.444px,-0.333px) scale(.1)} 82.365% {opacity:1;transform:translate(0,0) scale(1.12)} 83.865%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-16 {opacity:0;transform-origin:7px 5px;animation:tile16 6s ease-out infinite;}
+@keyframes tile16 {0%,78.696% {opacity:0;transform:translate(-0.222px,-0.333px) scale(.1)} 80.896% {opacity:1;transform:translate(0,0) scale(1.12)} 82.396%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-17 {opacity:0;transform-origin:9px 5px;animation:tile17 6s ease-out infinite;}
+@keyframes tile17 {0%,81.962% {opacity:0;transform:translate(-0.111px,-0.333px) scale(.1)} 84.162% {opacity:1;transform:translate(0,0) scale(1.12)} 85.662%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-18 {opacity:0;transform-origin:13px 5px;animation:tile18 6s ease-out infinite;}
+@keyframes tile18 {0%,80.493% {opacity:0;transform:translate(0.111px,-0.333px) scale(.1)} 82.693% {opacity:1;transform:translate(0,0) scale(1.12)} 84.193%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-19 {opacity:0;transform-origin:15px 5px;animation:tile19 6s ease-out infinite;}
+@keyframes tile19 {0%,83.758% {opacity:0;transform:translate(0.222px,-0.333px) scale(.1)} 85.958% {opacity:1;transform:translate(0,0) scale(1.12)} 87.458%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-20 {opacity:0;transform-origin:19px 5px;animation:tile20 6s ease-out infinite;}
+@keyframes tile20 {0%,82.289% {opacity:0;transform:translate(0.444px,-0.333px) scale(.1)} 84.489% {opacity:1;transform:translate(0,0) scale(1.12)} 85.989%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-21 {opacity:0;transform-origin:21px 5px;animation:tile21 6s ease-out infinite;}
+@keyframes tile21 {0%,85.555% {opacity:0;transform:translate(0.556px,-0.333px) scale(.1)} 87.755% {opacity:1;transform:translate(0,0) scale(1.12)} 89.255%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-22 {opacity:0;transform-origin:1px 7px;animation:tile22 6s ease-out infinite;}
+@keyframes tile22 {0%,81.849% {opacity:0;transform:translate(-0.556px,-0.222px) scale(.1)} 84.049% {opacity:1;transform:translate(0,0) scale(1.12)} 85.549%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-23 {opacity:0;transform-origin:5px 7px;animation:tile23 6s ease-out infinite;}
+@keyframes tile23 {0%,80.380% {opacity:0;transform:translate(-0.333px,-0.222px) scale(.1)} 82.580% {opacity:1;transform:translate(0,0) scale(1.12)} 84.080%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-24 {opacity:0;transform-origin:17px 7px;animation:tile24 6s ease-out infinite;}
+@keyframes tile24 {0%,83.974% {opacity:0;transform:translate(0.333px,-0.222px) scale(.1)} 86.174% {opacity:1;transform:translate(0,0) scale(1.12)} 87.674%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-25 {opacity:0;transform-origin:19px 7px;animation:tile25 6s ease-out infinite;}
+@keyframes tile25 {0%,79.239% {opacity:0;transform:translate(0.444px,-0.222px) scale(.1)} 81.439% {opacity:1;transform:translate(0,0) scale(1.12)} 82.939%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-26 {opacity:0;transform-origin:21px 7px;animation:tile26 6s ease-out infinite;}
+@keyframes tile26 {0%,82.505% {opacity:0;transform:translate(0.556px,-0.222px) scale(.1)} 84.705% {opacity:1;transform:translate(0,0) scale(1.12)} 86.205%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-27 {opacity:0;transform-origin:1px 9px;animation:tile27 6s ease-out infinite;}
+@keyframes tile27 {0%,78.799% {opacity:0;transform:translate(-0.556px,-0.111px) scale(.1)} 80.999% {opacity:1;transform:translate(0,0) scale(1.12)} 82.499%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-28 {opacity:0;transform-origin:3px 9px;animation:tile28 6s ease-out infinite;}
+@keyframes tile28 {0%,82.065% {opacity:0;transform:translate(-0.444px,-0.111px) scale(.1)} 84.265% {opacity:1;transform:translate(0,0) scale(1.12)} 85.765%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-29 {opacity:0;transform-origin:5px 9px;animation:tile29 6s ease-out infinite;}
+@keyframes tile29 {0%,77.330% {opacity:0;transform:translate(-0.333px,-0.111px) scale(.1)} 79.530% {opacity:1;transform:translate(0,0) scale(1.12)} 81.030%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-30 {opacity:0;transform-origin:7px 9px;animation:tile30 6s ease-out infinite;}
+@keyframes tile30 {0%,80.596% {opacity:0;transform:translate(-0.222px,-0.111px) scale(.1)} 82.796% {opacity:1;transform:translate(0,0) scale(1.12)} 84.296%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-31 {opacity:0;transform-origin:9px 9px;animation:tile31 6s ease-out infinite;}
+@keyframes tile31 {0%,83.861% {opacity:0;transform:translate(-0.111px,-0.111px) scale(.1)} 86.061% {opacity:1;transform:translate(0,0) scale(1.12)} 87.561%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-32 {opacity:0;transform-origin:11px 9px;animation:tile32 6s ease-out infinite;}
+@keyframes tile32 {0%,79.127% {opacity:0;transform:translate(0.000px,-0.111px) scale(.1)} 81.327% {opacity:1;transform:translate(0,0) scale(1.12)} 82.827%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-33 {opacity:0;transform-origin:17px 9px;animation:tile33 6s ease-out infinite;}
+@keyframes tile33 {0%,80.923% {opacity:0;transform:translate(0.333px,-0.111px) scale(.1)} 83.123% {opacity:1;transform:translate(0,0) scale(1.12)} 84.623%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-34 {opacity:0;transform-origin:19px 9px;animation:tile34 6s ease-out infinite;}
+@keyframes tile34 {0%,84.189% {opacity:0;transform:translate(0.444px,-0.111px) scale(.1)} 86.389% {opacity:1;transform:translate(0,0) scale(1.12)} 87.889%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-35 {opacity:0;transform-origin:21px 9px;animation:tile35 6s ease-out infinite;}
+@keyframes tile35 {0%,79.455% {opacity:0;transform:translate(0.556px,-0.111px) scale(.1)} 81.655% {opacity:1;transform:translate(0,0) scale(1.12)} 83.155%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-36 {opacity:0;transform-origin:1px 11px;animation:tile36 6s ease-out infinite;}
+@keyframes tile36 {0%,83.749% {opacity:0;transform:translate(-0.556px,0.000px) scale(.1)} 85.949% {opacity:1;transform:translate(0,0) scale(1.12)} 87.449%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-37 {opacity:0;transform-origin:5px 11px;animation:tile37 6s ease-out infinite;}
+@keyframes tile37 {0%,82.280% {opacity:0;transform:translate(-0.333px,0.000px) scale(.1)} 84.480% {opacity:1;transform:translate(0,0) scale(1.12)} 85.980%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-38 {opacity:0;transform-origin:11px 11px;animation:tile38 6s ease-out infinite;}
+@keyframes tile38 {0%,84.077% {opacity:0;transform:translate(0.000px,0.000px) scale(.1)} 86.277% {opacity:1;transform:translate(0,0) scale(1.12)} 87.777%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-39 {opacity:0;transform-origin:21px 11px;animation:tile39 6s ease-out infinite;}
+@keyframes tile39 {0%,84.404% {opacity:0;transform:translate(0.556px,0.000px) scale(.1)} 86.604% {opacity:1;transform:translate(0,0) scale(1.12)} 88.104%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-40 {opacity:0;transform-origin:1px 13px;animation:tile40 6s ease-out infinite;}
+@keyframes tile40 {0%,80.699% {opacity:0;transform:translate(-0.556px,0.111px) scale(.1)} 82.899% {opacity:1;transform:translate(0,0) scale(1.12)} 84.399%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-41 {opacity:0;transform-origin:7px 13px;animation:tile41 6s ease-out infinite;}
+@keyframes tile41 {0%,82.495% {opacity:0;transform:translate(-0.222px,0.111px) scale(.1)} 84.695% {opacity:1;transform:translate(0,0) scale(1.12)} 86.195%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-42 {opacity:0;transform-origin:21px 13px;animation:tile42 6s ease-out infinite;}
+@keyframes tile42 {0%,81.354% {opacity:0;transform:translate(0.556px,0.111px) scale(.1)} 83.554% {opacity:1;transform:translate(0,0) scale(1.12)} 85.054%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-43 {opacity:0;transform-origin:1px 15px;animation:tile43 6s ease-out infinite;}
+@keyframes tile43 {0%,77.648% {opacity:0;transform:translate(-0.556px,0.222px) scale(.1)} 79.848% {opacity:1;transform:translate(0,0) scale(1.12)} 81.348%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-44 {opacity:0;transform-origin:5px 15px;animation:tile44 6s ease-out infinite;}
+@keyframes tile44 {0%,84.179% {opacity:0;transform:translate(-0.333px,0.222px) scale(.1)} 86.379% {opacity:1;transform:translate(0,0) scale(1.12)} 87.879%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-45 {opacity:0;transform-origin:7px 15px;animation:tile45 6s ease-out infinite;}
+@keyframes tile45 {0%,79.445% {opacity:0;transform:translate(-0.222px,0.222px) scale(.1)} 81.645% {opacity:1;transform:translate(0,0) scale(1.12)} 83.145%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-46 {opacity:0;transform-origin:9px 15px;animation:tile46 6s ease-out infinite;}
+@keyframes tile46 {0%,82.711% {opacity:0;transform:translate(-0.111px,0.222px) scale(.1)} 84.911% {opacity:1;transform:translate(0,0) scale(1.12)} 86.411%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-47 {opacity:0;transform-origin:15px 15px;animation:tile47 6s ease-out infinite;}
+@keyframes tile47 {0%,84.507% {opacity:0;transform:translate(0.222px,0.222px) scale(.1)} 86.707% {opacity:1;transform:translate(0,0) scale(1.12)} 88.207%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-48 {opacity:0;transform-origin:17px 15px;animation:tile48 6s ease-out infinite;}
+@keyframes tile48 {0%,79.773% {opacity:0;transform:translate(0.333px,0.222px) scale(.1)} 81.973% {opacity:1;transform:translate(0,0) scale(1.12)} 83.473%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-49 {opacity:0;transform-origin:19px 15px;animation:tile49 6s ease-out infinite;}
+@keyframes tile49 {0%,83.038% {opacity:0;transform:translate(0.444px,0.222px) scale(.1)} 85.238% {opacity:1;transform:translate(0,0) scale(1.12)} 86.738%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-50 {opacity:0;transform-origin:21px 15px;animation:tile50 6s ease-out infinite;}
+@keyframes tile50 {0%,86.304% {opacity:0;transform:translate(0.556px,0.222px) scale(.1)} 88.504% {opacity:1;transform:translate(0,0) scale(1.12)} 90.004%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-51 {opacity:0;transform-origin:1px 17px;animation:tile51 6s ease-out infinite;}
+@keyframes tile51 {0%,82.598% {opacity:0;transform:translate(-0.556px,0.333px) scale(.1)} 84.798% {opacity:1;transform:translate(0,0) scale(1.12)} 86.298%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-52 {opacity:0;transform-origin:3px 17px;animation:tile52 6s ease-out infinite;}
+@keyframes tile52 {0%,77.864% {opacity:0;transform:translate(-0.444px,0.333px) scale(.1)} 80.064% {opacity:1;transform:translate(0,0) scale(1.12)} 81.564%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-53 {opacity:0;transform-origin:7px 17px;animation:tile53 6s ease-out infinite;}
+@keyframes tile53 {0%,84.395% {opacity:0;transform:translate(-0.222px,0.333px) scale(.1)} 86.595% {opacity:1;transform:translate(0,0) scale(1.12)} 88.095%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-54 {opacity:0;transform-origin:11px 17px;animation:tile54 6s ease-out infinite;}
+@keyframes tile54 {0%,82.926% {opacity:0;transform:translate(0.000px,0.333px) scale(.1)} 85.126% {opacity:1;transform:translate(0,0) scale(1.12)} 86.626%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-55 {opacity:0;transform-origin:13px 17px;animation:tile55 6s ease-out infinite;}
+@keyframes tile55 {0%,86.191% {opacity:0;transform:translate(0.111px,0.333px) scale(.1)} 88.391% {opacity:1;transform:translate(0,0) scale(1.12)} 89.891%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-56 {opacity:0;transform-origin:15px 17px;animation:tile56 6s ease-out infinite;}
+@keyframes tile56 {0%,81.457% {opacity:0;transform:translate(0.222px,0.333px) scale(.1)} 83.657% {opacity:1;transform:translate(0,0) scale(1.12)} 85.157%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-57 {opacity:0;transform-origin:17px 17px;animation:tile57 6s ease-out infinite;}
+@keyframes tile57 {0%,84.722% {opacity:0;transform:translate(0.333px,0.333px) scale(.1)} 86.922% {opacity:1;transform:translate(0,0) scale(1.12)} 88.422%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-58 {opacity:0;transform-origin:19px 17px;animation:tile58 6s ease-out infinite;}
+@keyframes tile58 {0%,87.988% {opacity:0;transform:translate(0.444px,0.333px) scale(.1)} 90.188% {opacity:1;transform:translate(0,0) scale(1.12)} 91.688%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-59 {opacity:0;transform-origin:21px 17px;animation:tile59 6s ease-out infinite;}
+@keyframes tile59 {0%,83.254% {opacity:0;transform:translate(0.556px,0.333px) scale(.1)} 85.454% {opacity:1;transform:translate(0,0) scale(1.12)} 86.954%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-60 {opacity:0;transform-origin:3px 19px;animation:tile60 6s ease-out infinite;}
+@keyframes tile60 {0%,82.813% {opacity:0;transform:translate(-0.444px,0.444px) scale(.1)} 85.013% {opacity:1;transform:translate(0,0) scale(1.12)} 86.513%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-61 {opacity:0;transform-origin:5px 19px;animation:tile61 6s ease-out infinite;}
+@keyframes tile61 {0%,86.079% {opacity:0;transform:translate(-0.333px,0.444px) scale(.1)} 88.279% {opacity:1;transform:translate(0,0) scale(1.12)} 89.779%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-62 {opacity:0;transform-origin:11px 19px;animation:tile62 6s ease-out infinite;}
+@keyframes tile62 {0%,79.876% {opacity:0;transform:translate(0.000px,0.444px) scale(.1)} 82.076% {opacity:1;transform:translate(0,0) scale(1.12)} 83.576%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-63 {opacity:0;transform-origin:17px 19px;animation:tile63 6s ease-out infinite;}
+@keyframes tile63 {0%,81.672% {opacity:0;transform:translate(0.333px,0.444px) scale(.1)} 83.872% {opacity:1;transform:translate(0,0) scale(1.12)} 85.372%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-64 {opacity:0;transform-origin:19px 19px;animation:tile64 6s ease-out infinite;}
+@keyframes tile64 {0%,84.938% {opacity:0;transform:translate(0.444px,0.444px) scale(.1)} 87.138% {opacity:1;transform:translate(0,0) scale(1.12)} 88.638%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-65 {opacity:0;transform-origin:5px 21px;animation:tile65 6s ease-out infinite;}
+@keyframes tile65 {0%,83.029% {opacity:0;transform:translate(-0.333px,0.556px) scale(.1)} 85.229% {opacity:1;transform:translate(0,0) scale(1.12)} 86.729%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-66 {opacity:0;transform-origin:7px 21px;animation:tile66 6s ease-out infinite;}
+@keyframes tile66 {0%,86.294% {opacity:0;transform:translate(-0.222px,0.556px) scale(.1)} 88.494% {opacity:1;transform:translate(0,0) scale(1.12)} 89.994%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-67 {opacity:0;transform-origin:9px 21px;animation:tile67 6s ease-out infinite;}
+@keyframes tile67 {0%,81.560% {opacity:0;transform:translate(-0.111px,0.556px) scale(.1)} 83.760% {opacity:1;transform:translate(0,0) scale(1.12)} 85.260%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-68 {opacity:0;transform-origin:11px 21px;animation:tile68 6s ease-out infinite;}
+@keyframes tile68 {0%,84.825% {opacity:0;transform:translate(0.000px,0.556px) scale(.1)} 87.025% {opacity:1;transform:translate(0,0) scale(1.12)} 88.525%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-69 {opacity:0;transform-origin:13px 21px;animation:tile69 6s ease-out infinite;}
+@keyframes tile69 {0%,80.091% {opacity:0;transform:translate(0.111px,0.556px) scale(.1)} 82.291% {opacity:1;transform:translate(0,0) scale(1.12)} 83.791%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-70 {opacity:0;transform-origin:15px 21px;animation:tile70 6s ease-out infinite;}
+@keyframes tile70 {0%,83.356% {opacity:0;transform:translate(0.222px,0.556px) scale(.1)} 85.556% {opacity:1;transform:translate(0,0) scale(1.12)} 87.056%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.tile-71 {opacity:0;transform-origin:17px 21px;animation:tile71 6s ease-out infinite;}
+@keyframes tile71 {0%,86.622% {opacity:0;transform:translate(0.333px,0.556px) scale(.1)} 88.822% {opacity:1;transform:translate(0,0) scale(1.12)} 90.322%,97.999% {opacity:1;transform:translate(0,0) scale(1)} 98%,100% {opacity:0;transform:translate(0,0) scale(1)}}
+.crumb-0-0 {opacity:0;animation:crumb0_0 6s linear infinite;}
+@keyframes crumb0_0 {0%,17.99% {opacity:0;transform:translate(0,0)} 18% {opacity:1;transform:translate(0,0)} 21% {opacity:1;transform:translate(2.5px,-3.2px)} 25%,100% {opacity:0;transform:translate(3.5px,-1.2000000000000002px)}}
+.crumb-0-1 {opacity:0;animation:crumb0_1 6s linear infinite;}
+@keyframes crumb0_1 {0%,17.99% {opacity:0;transform:translate(0,0)} 18% {opacity:1;transform:translate(0,0)} 21% {opacity:1;transform:translate(3.5px,0.5px)} 25%,100% {opacity:0;transform:translate(4.5px,2.5px)}}
+.crumb-0-2 {opacity:0;animation:crumb0_2 6s linear infinite;}
+@keyframes crumb0_2 {0%,17.99% {opacity:0;transform:translate(0,0)} 18% {opacity:1;transform:translate(0,0)} 21% {opacity:1;transform:translate(4.5px,3.5px)} 25%,100% {opacity:0;transform:translate(5.5px,5.5px)}}
+.crumb-1-0 {opacity:0;animation:crumb1_0 6s linear infinite;}
+@keyframes crumb1_0 {0%,30.99% {opacity:0;transform:translate(0,0)} 31% {opacity:1;transform:translate(0,0)} 34% {opacity:1;transform:translate(2.5px,-3.2px)} 38%,100% {opacity:0;transform:translate(3.5px,-1.2000000000000002px)}}
+.crumb-1-1 {opacity:0;animation:crumb1_1 6s linear infinite;}
+@keyframes crumb1_1 {0%,30.99% {opacity:0;transform:translate(0,0)} 31% {opacity:1;transform:translate(0,0)} 34% {opacity:1;transform:translate(3.5px,0.5px)} 38%,100% {opacity:0;transform:translate(4.5px,2.5px)}}
+.crumb-1-2 {opacity:0;animation:crumb1_2 6s linear infinite;}
+@keyframes crumb1_2 {0%,30.99% {opacity:0;transform:translate(0,0)} 31% {opacity:1;transform:translate(0,0)} 34% {opacity:1;transform:translate(4.5px,3.5px)} 38%,100% {opacity:0;transform:translate(5.5px,5.5px)}}
+.crumb-2-0 {opacity:0;animation:crumb2_0 6s linear infinite;}
+@keyframes crumb2_0 {0%,43.99% {opacity:0;transform:translate(0,0)} 44% {opacity:1;transform:translate(0,0)} 47% {opacity:1;transform:translate(2.5px,-3.2px)} 51%,100% {opacity:0;transform:translate(3.5px,-1.2000000000000002px)}}
+.crumb-2-1 {opacity:0;animation:crumb2_1 6s linear infinite;}
+@keyframes crumb2_1 {0%,43.99% {opacity:0;transform:translate(0,0)} 44% {opacity:1;transform:translate(0,0)} 47% {opacity:1;transform:translate(3.5px,0.5px)} 51%,100% {opacity:0;transform:translate(4.5px,2.5px)}}
+.crumb-2-2 {opacity:0;animation:crumb2_2 6s linear infinite;}
+@keyframes crumb2_2 {0%,43.99% {opacity:0;transform:translate(0,0)} 44% {opacity:1;transform:translate(0,0)} 47% {opacity:1;transform:translate(4.5px,3.5px)} 51%,100% {opacity:0;transform:translate(5.5px,5.5px)}}
+.crumb-3-0 {opacity:0;animation:crumb3_0 6s linear infinite;}
+@keyframes crumb3_0 {0%,56.99% {opacity:0;transform:translate(0,0)} 57% {opacity:1;transform:translate(0,0)} 60% {opacity:1;transform:translate(2.5px,-3.2px)} 64%,100% {opacity:0;transform:translate(3.5px,-1.2000000000000002px)}}
+.crumb-3-1 {opacity:0;animation:crumb3_1 6s linear infinite;}
+@keyframes crumb3_1 {0%,56.99% {opacity:0;transform:translate(0,0)} 57% {opacity:1;transform:translate(0,0)} 60% {opacity:1;transform:translate(3.5px,0.5px)} 64%,100% {opacity:0;transform:translate(4.5px,2.5px)}}
+.crumb-3-2 {opacity:0;animation:crumb3_2 6s linear infinite;}
+@keyframes crumb3_2 {0%,56.99% {opacity:0;transform:translate(0,0)} 57% {opacity:1;transform:translate(0,0)} 60% {opacity:1;transform:translate(4.5px,3.5px)} 64%,100% {opacity:0;transform:translate(5.5px,5.5px)}}
+.crumb-4-0 {opacity:0;animation:crumb4_0 6s linear infinite;}
+@keyframes crumb4_0 {0%,67.99% {opacity:0;transform:translate(0,0)} 68% {opacity:1;transform:translate(0,0)} 71% {opacity:1;transform:translate(2.5px,-3.2px)} 75%,100% {opacity:0;transform:translate(3.5px,-1.2000000000000002px)}}
+.crumb-4-1 {opacity:0;animation:crumb4_1 6s linear infinite;}
+@keyframes crumb4_1 {0%,67.99% {opacity:0;transform:translate(0,0)} 68% {opacity:1;transform:translate(0,0)} 71% {opacity:1;transform:translate(3.5px,0.5px)} 75%,100% {opacity:0;transform:translate(4.5px,2.5px)}}
+.crumb-4-2 {opacity:0;animation:crumb4_2 6s linear infinite;}
+@keyframes crumb4_2 {0%,67.99% {opacity:0;transform:translate(0,0)} 68% {opacity:1;transform:translate(0,0)} 71% {opacity:1;transform:translate(4.5px,3.5px)} 75%,100% {opacity:0;transform:translate(5.5px,5.5px)}}
+.spark-0 {opacity:0;transform-origin:-2px 5px;animation:spark0 6s ease-in-out infinite;}
+@keyframes spark0 {0%,74.0% {opacity:0;transform:scale(.2) rotate(0deg)} 77.0% {opacity:1;transform:scale(1) rotate(90deg)} 81.0%,100% {opacity:0;transform:scale(.2) rotate(180deg)}}
+.spark-1 {opacity:0;transform-origin:5px -2px;animation:spark1 6s ease-in-out infinite;}
+@keyframes spark1 {0%,76.8% {opacity:0;transform:scale(.2) rotate(0deg)} 79.8% {opacity:1;transform:scale(1) rotate(90deg)} 83.8%,100% {opacity:0;transform:scale(.2) rotate(180deg)}}
+.spark-2 {opacity:0;transform-origin:15px -2px;animation:spark2 6s ease-in-out infinite;}
+@keyframes spark2 {0%,79.6% {opacity:0;transform:scale(.2) rotate(0deg)} 82.6% {opacity:1;transform:scale(1) rotate(90deg)} 86.6%,100% {opacity:0;transform:scale(.2) rotate(180deg)}}
+.spark-3 {opacity:0;transform-origin:24px 8px;animation:spark3 6s ease-in-out infinite;}
+@keyframes spark3 {0%,82.4% {opacity:0;transform:scale(.2) rotate(0deg)} 85.4% {opacity:1;transform:scale(1) rotate(90deg)} 89.4%,100% {opacity:0;transform:scale(.2) rotate(180deg)}}
+.spark-4 {opacity:0;transform-origin:23px 23px;animation:spark4 6s ease-in-out infinite;}
+@keyframes spark4 {0%,85.2% {opacity:0;transform:scale(.2) rotate(0deg)} 88.2% {opacity:1;transform:scale(1) rotate(90deg)} 92.2%,100% {opacity:0;transform:scale(.2) rotate(180deg)}}
+.spark-5 {opacity:0;transform-origin:6px 24px;animation:spark5 6s ease-in-out infinite;}
+@keyframes spark5 {0%,88.0% {opacity:0;transform:scale(.2) rotate(0deg)} 91.0% {opacity:1;transform:scale(1) rotate(90deg)} 95.0%,100% {opacity:0;transform:scale(.2) rotate(180deg)}}
+@media (prefers-reduced-motion:reduce) {
+  .fresh {animation:none;opacity:1;}
+  .stage,.tile,.crumb,.spark {display:none;}
+}</style>
+  <g fill="currentColor" stroke="currentColor" stroke-width=".1" stroke-linejoin="miter">
+
+<path class="fresh" d="M7,0h8v1h-8ZM5,1h2v1h-2ZM15,1h2v1h-2ZM4,2h1v1h-1ZM11,2h1v1h-1ZM17,2h1v1h-1ZM3,3h1v1h-1ZM7,3h1v1h-1ZM14,3h1v1h-1ZM18,3h1v1h-1ZM2,4h1v1h-1ZM6,4h3v1h-3ZM13,4h3v1h-3ZM19,4h1v1h-1ZM1,5h1v1h-1ZM7,5h1v1h-1ZM14,5h1v1h-1ZM20,5h1v1h-1ZM1,6h1v1h-1ZM20,6h1v1h-1ZM0,7h1v1h-1ZM4,7h2v1h-2ZM17,7h2v1h-2ZM21,7h1v1h-1ZM0,8h1v1h-1ZM3,8h4v1h-4ZM10,8h1v1h-1ZM16,8h3v1h-3ZM21,8h1v1h-1ZM0,9h1v1h-1ZM3,9h4v1h-4ZM9,9h3v1h-3ZM17,9h2v1h-2ZM21,9h1v1h-1ZM0,10h1v1h-1ZM4,10h2v1h-2ZM10,10h1v1h-1ZM21,10h1v1h-1ZM0,11h1v1h-1ZM21,11h1v1h-1ZM0,12h1v1h-1ZM21,12h1v1h-1ZM0,13h1v1h-1ZM6,13h2v1h-2ZM21,13h1v1h-1ZM0,14h1v1h-1ZM5,14h4v1h-4ZM16,14h2v1h-2ZM21,14h1v1h-1ZM1,15h1v1h-1ZM5,15h4v1h-4ZM15,15h4v1h-4ZM20,15h1v1h-1ZM1,16h1v1h-1ZM6,16h2v1h-2ZM11,16h1v1h-1ZM15,16h4v1h-4ZM20,16h1v1h-1ZM2,17h1v1h-1ZM10,17h3v1h-3ZM16,17h2v1h-2ZM19,17h1v1h-1ZM3,18h1v1h-1ZM11,18h1v1h-1ZM18,18h1v1h-1ZM4,19h1v1h-1ZM17,19h1v1h-1ZM5,20h2v1h-2ZM15,20h2v1h-2ZM7,21h8v1h-8Z"/>    <g class="stage stage-0"><g class="jolt-0"><path d="M7,0h8v1h-8ZM5,1h2v1h-2ZM14,1h1v1h-1ZM4,2h1v1h-1ZM11,2h1v1h-1ZM13,2h1v1h-1ZM3,3h1v1h-1ZM7,3h1v1h-1ZM12,3h1v1h-1ZM2,4h1v1h-1ZM6,4h3v1h-3ZM12,4h1v1h-1ZM1,5h1v1h-1ZM7,5h1v1h-1ZM11,5h1v1h-1ZM1,6h1v1h-1ZM12,6h1v1h-1ZM0,7h1v1h-1ZM4,7h2v1h-2ZM12,7h1v1h-1ZM0,8h1v1h-1ZM3,8h4v1h-4ZM10,8h1v1h-1ZM13,8h1v1h-1ZM0,9h1v1h-1ZM3,9h4v1h-4ZM9,9h3v1h-3ZM14,9h1v1h-1ZM0,10h1v1h-1ZM4,10h2v1h-2ZM10,10h1v1h-1ZM15,10h2v1h-2ZM0,11h1v1h-1ZM17,11h2v1h-2ZM0,12h1v1h-1ZM19,12h3v1h-3ZM0,13h1v1h-1ZM6,13h2v1h-2ZM21,13h1v1h-1ZM0,14h1v1h-1ZM5,14h4v1h-4ZM16,14h2v1h-2ZM21,14h1v1h-1ZM1,15h1v1h-1ZM5,15h4v1h-4ZM15,15h4v1h-4ZM20,15h1v1h-1ZM1,16h1v1h-1ZM6,16h2v1h-2ZM11,16h1v1h-1ZM15,16h4v1h-4ZM20,16h1v1h-1ZM2,17h1v1h-1ZM10,17h3v1h-3ZM16,17h2v1h-2ZM19,17h1v1h-1ZM3,18h1v1h-1ZM11,18h1v1h-1ZM18,18h1v1h-1ZM4,19h1v1h-1ZM17,19h1v1h-1ZM5,20h2v1h-2ZM15,20h2v1h-2ZM7,21h8v1h-8Z"/></g></g>    <g class="stage stage-1"><g class="jolt-1"><path d="M7,0h8v1h-8ZM5,1h2v1h-2ZM14,1h1v1h-1ZM4,2h1v1h-1ZM11,2h1v1h-1ZM13,2h1v1h-1ZM3,3h1v1h-1ZM7,3h1v1h-1ZM12,3h1v1h-1ZM2,4h1v1h-1ZM6,4h3v1h-3ZM12,4h1v1h-1ZM1,5h1v1h-1ZM7,5h1v1h-1ZM11,5h1v1h-1ZM1,6h1v1h-1ZM12,6h1v1h-1ZM0,7h1v1h-1ZM4,7h2v1h-2ZM12,7h1v1h-1ZM0,8h1v1h-1ZM3,8h4v1h-4ZM10,8h1v1h-1ZM13,8h1v1h-1ZM0,9h1v1h-1ZM3,9h4v1h-4ZM9,9h3v1h-3ZM14,9h1v1h-1ZM0,10h1v1h-1ZM4,10h2v1h-2ZM10,10h1v1h-1ZM13,10h2v1h-2ZM0,11h1v1h-1ZM12,11h1v1h-1ZM0,12h1v1h-1ZM11,12h1v1h-1ZM0,13h1v1h-1ZM6,13h2v1h-2ZM10,13h1v1h-1ZM0,14h1v1h-1ZM5,14h5v1h-5ZM1,15h1v1h-1ZM5,15h5v1h-5ZM1,16h1v1h-1ZM6,16h2v1h-2ZM10,16h1v1h-1ZM2,17h1v1h-1ZM10,17h1v1h-1ZM3,18h1v1h-1ZM11,18h1v1h-1ZM4,19h1v1h-1ZM12,19h1v1h-1ZM5,20h2v1h-2ZM13,20h2v1h-2ZM7,21h8v1h-8Z"/></g></g>    <g class="stage stage-2"><g class="jolt-2"><path d="M7,0h1v1h-1ZM5,1h2v1h-2ZM4,2h2v1h-2ZM3,3h2v1h-2ZM2,4h1v1h-1ZM4,4h1v1h-1ZM1,5h1v1h-1ZM3,5h1v1h-1ZM1,6h1v1h-1ZM3,6h1v1h-1ZM0,7h1v1h-1ZM4,7h1v1h-1ZM0,8h1v1h-1ZM3,8h2v1h-2ZM0,9h1v1h-1ZM3,9h3v1h-3ZM0,10h1v1h-1ZM4,10h2v1h-2ZM0,11h1v1h-1ZM6,11h1v1h-1ZM0,12h1v1h-1ZM7,12h1v1h-1ZM0,13h1v1h-1ZM6,13h3v1h-3ZM0,14h1v1h-1ZM5,14h5v1h-5ZM1,15h1v1h-1ZM5,15h5v1h-5ZM1,16h1v1h-1ZM6,16h2v1h-2ZM10,16h1v1h-1ZM2,17h1v1h-1ZM10,17h1v1h-1ZM3,18h1v1h-1ZM11,18h1v1h-1ZM4,19h1v1h-1ZM12,19h1v1h-1ZM5,20h2v1h-2ZM13,20h2v1h-2ZM7,21h8v1h-8Z"/></g></g>    <g class="stage stage-3"><g class="jolt-3"><path d="M7,0h1v1h-1ZM5,1h2v1h-2ZM4,2h2v1h-2ZM3,3h2v1h-2ZM2,4h1v1h-1ZM4,4h1v1h-1ZM1,5h1v1h-1ZM3,5h1v1h-1ZM1,6h1v1h-1ZM3,6h1v1h-1ZM0,7h1v1h-1ZM4,7h1v1h-1ZM0,8h1v1h-1ZM3,8h2v1h-2ZM0,9h1v1h-1ZM3,9h3v1h-3ZM0,10h1v1h-1ZM4,10h1v1h-1ZM0,11h1v1h-1ZM3,11h1v1h-1ZM0,12h1v1h-1ZM2,12h1v1h-1ZM0,13h2v1h-2ZM0,14h2v1h-2Z"/></g></g>    <path class="tile tile-0" d="M5,1h1v1h-1Z"/>    <path class="tile tile-1" d="M7,0h1v1h-1ZM6,1h1v1h-1Z"/>    <path class="tile tile-2" d="M8,0h2v1h-2Z"/>    <path class="tile tile-3" d="M10,0h2v1h-2Z"/>    <path class="tile tile-4" d="M12,0h2v1h-2Z"/>    <path class="tile tile-5" d="M14,0h1v1h-1ZM15,1h1v1h-1Z"/>    <path class="tile tile-6" d="M16,1h1v1h-1Z"/>    <path class="tile tile-7" d="M3,3h1v1h-1Z"/>    <path class="tile tile-8" d="M4,2h1v1h-1Z"/>    <path class="tile tile-9" d="M7,3h1v1h-1Z"/>    <path class="tile tile-10" d="M11,2h1v1h-1Z"/>    <path class="tile tile-11" d="M14,3h1v1h-1Z"/>    <path class="tile tile-12" d="M17,2h1v1h-1Z"/>    <path class="tile tile-13" d="M18,3h1v1h-1Z"/>    <path class="tile tile-14" d="M1,5h1v1h-1Z"/>    <path class="tile tile-15" d="M2,4h1v1h-1Z"/>    <path class="tile tile-16" d="M6,4h2v1h-2ZM7,5h1v1h-1Z"/>    <path class="tile tile-17" d="M8,4h1v1h-1Z"/>    <path class="tile tile-18" d="M13,4h1v1h-1Z"/>    <path class="tile tile-19" d="M14,4h2v1h-2ZM14,5h1v1h-1Z"/>    <path class="tile tile-20" d="M19,4h1v1h-1Z"/>    <path class="tile tile-21" d="M20,5h1v1h-1Z"/>    <path class="tile tile-22" d="M1,6h1v1h-1ZM0,7h1v1h-1Z"/>    <path class="tile tile-23" d="M4,7h2v1h-2Z"/>    <path class="tile tile-24" d="M17,7h1v1h-1Z"/>    <path class="tile tile-25" d="M18,7h1v1h-1Z"/>    <path class="tile tile-26" d="M20,6h1v1h-1ZM21,7h1v1h-1Z"/>    <path class="tile tile-27" d="M0,8h1v1h-1ZM0,9h1v1h-1Z"/>    <path class="tile tile-28" d="M3,8h1v1h-1ZM3,9h1v1h-1Z"/>    <path class="tile tile-29" d="M4,8h2v1h-2ZM4,9h2v1h-2Z"/>    <path class="tile tile-30" d="M6,8h1v1h-1ZM6,9h1v1h-1Z"/>    <path class="tile tile-31" d="M9,9h1v1h-1Z"/>    <path class="tile tile-32" d="M10,8h1v1h-1ZM10,9h2v1h-2Z"/>    <path class="tile tile-33" d="M16,8h2v1h-2ZM17,9h1v1h-1Z"/>    <path class="tile tile-34" d="M18,8h1v1h-1ZM18,9h1v1h-1Z"/>    <path class="tile tile-35" d="M21,8h1v1h-1ZM21,9h1v1h-1Z"/>    <path class="tile tile-36" d="M0,10h1v1h-1ZM0,11h1v1h-1Z"/>    <path class="tile tile-37" d="M4,10h2v1h-2Z"/>    <path class="tile tile-38" d="M10,10h1v1h-1Z"/>    <path class="tile tile-39" d="M21,10h1v1h-1ZM21,11h1v1h-1Z"/>    <path class="tile tile-40" d="M0,12h1v1h-1ZM0,13h1v1h-1Z"/>    <path class="tile tile-41" d="M6,13h2v1h-2Z"/>    <path class="tile tile-42" d="M21,12h1v1h-1ZM21,13h1v1h-1Z"/>    <path class="tile tile-43" d="M0,14h1v1h-1ZM1,15h1v1h-1Z"/>    <path class="tile tile-44" d="M5,14h1v1h-1ZM5,15h1v1h-1Z"/>    <path class="tile tile-45" d="M6,14h2v1h-2ZM6,15h2v1h-2Z"/>    <path class="tile tile-46" d="M8,14h1v1h-1ZM8,15h1v1h-1Z"/>    <path class="tile tile-47" d="M15,15h1v1h-1Z"/>    <path class="tile tile-48" d="M16,14h2v1h-2ZM16,15h2v1h-2Z"/>    <path class="tile tile-49" d="M18,15h1v1h-1Z"/>    <path class="tile tile-50" d="M21,14h1v1h-1ZM20,15h1v1h-1Z"/>    <path class="tile tile-51" d="M1,16h1v1h-1Z"/>    <path class="tile tile-52" d="M2,17h1v1h-1Z"/>    <path class="tile tile-53" d="M6,16h2v1h-2Z"/>    <path class="tile tile-54" d="M11,16h1v1h-1ZM10,17h2v1h-2Z"/>    <path class="tile tile-55" d="M12,17h1v1h-1Z"/>    <path class="tile tile-56" d="M15,16h1v1h-1Z"/>    <path class="tile tile-57" d="M16,16h2v1h-2ZM16,17h2v1h-2Z"/>    <path class="tile tile-58" d="M18,16h1v1h-1ZM19,17h1v1h-1Z"/>    <path class="tile tile-59" d="M20,16h1v1h-1Z"/>    <path class="tile tile-60" d="M3,18h1v1h-1Z"/>    <path class="tile tile-61" d="M4,19h1v1h-1Z"/>    <path class="tile tile-62" d="M11,18h1v1h-1Z"/>    <path class="tile tile-63" d="M17,19h1v1h-1Z"/>    <path class="tile tile-64" d="M18,18h1v1h-1Z"/>    <path class="tile tile-65" d="M5,20h1v1h-1Z"/>    <path class="tile tile-66" d="M6,20h1v1h-1ZM7,21h1v1h-1Z"/>    <path class="tile tile-67" d="M8,21h2v1h-2Z"/>    <path class="tile tile-68" d="M10,21h2v1h-2Z"/>    <path class="tile tile-69" d="M12,21h2v1h-2Z"/>    <path class="tile tile-70" d="M15,20h1v1h-1ZM14,21h1v1h-1Z"/>    <path class="tile tile-71" d="M16,20h1v1h-1Z"/>    <rect class="crumb crumb-0-0" x="15.0" y="6.0" width="1" height="1"/>    <rect class="crumb crumb-0-1" x="15.8" y="6.7" width="1" height="1"/>    <rect class="crumb crumb-0-2" x="15.0" y="7.4" width="1" height="1"/>    <rect class="crumb crumb-1-0" x="13.0" y="16.0" width="1" height="1"/>    <rect class="crumb crumb-1-1" x="13.8" y="16.7" width="1" height="1"/>    <rect class="crumb crumb-1-2" x="13.0" y="17.4" width="1" height="1"/>    <rect class="crumb crumb-2-0" x="6.0" y="6.0" width="1" height="1"/>    <rect class="crumb crumb-2-1" x="6.8" y="6.7" width="1" height="1"/>    <rect class="crumb crumb-2-2" x="6.0" y="7.4" width="1" height="1"/>    <rect class="crumb crumb-3-0" x="4.0" y="16.0" width="1" height="1"/>    <rect class="crumb crumb-3-1" x="4.8" y="16.7" width="1" height="1"/>    <rect class="crumb crumb-3-2" x="4.0" y="17.4" width="1" height="1"/>    <rect class="crumb crumb-4-0" x="2.0" y="10.0" width="1" height="1"/>    <rect class="crumb crumb-4-1" x="2.8" y="10.7" width="1" height="1"/>    <rect class="crumb crumb-4-2" x="2.0" y="11.4" width="1" height="1"/>    <path class="spark spark-0" d="M-2.5,3.5h1v1h1v1h-1v1h-1v-1h-1v-1h1Z"/>    <path class="spark spark-1" d="M4.5,-3.5h1v1h1v1h-1v1h-1v-1h-1v-1h1Z"/>    <path class="spark spark-2" d="M14.5,-3.5h1v1h1v1h-1v1h-1v-1h-1v-1h1Z"/>    <path class="spark spark-3" d="M23.5,6.5h1v1h1v1h-1v1h-1v-1h-1v-1h1Z"/>    <path class="spark spark-4" d="M22.5,21.5h1v1h1v1h-1v1h-1v-1h-1v-1h1Z"/>    <path class="spark spark-5" d="M5.5,22.5h1v1h1v1h-1v1h-1v-1h-1v-1h1Z"/>
+  </g>
+</svg>

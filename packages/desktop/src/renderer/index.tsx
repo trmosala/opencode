@@ -4,6 +4,7 @@ import {
   ACCEPTED_FILE_EXTENSIONS,
   AppBaseProviders,
   AppInterface,
+  cmLoading,
   loadLocaleDict,
   normalizeLocale,
   type Locale,
@@ -33,6 +34,8 @@ import { windowFullscreen } from "./window-fullscreen"
 import { availableStartupServer, readyWslConnections } from "./wsl/connections"
 import "./styles.css"
 import { useTheme } from "@opencode-ai/ui/theme/context"
+import { LoadingAnimationProvider } from "@opencode-ai/ui/loading"
+import { Spinner } from "@opencode-ai/ui/spinner"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
@@ -340,7 +343,12 @@ listenForDeepLinks()
 function LoadingSplash() {
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
-      <img src={cookieMonsterIcon} alt="" class="w-20 h-20 animate-pulse" />
+      <Show
+        when={import.meta.env.VITE_CM_BRAND}
+        fallback={<img src={cookieMonsterIcon} alt="" class="w-20 h-20 animate-pulse" />}
+      >
+        <Spinner class="size-20 text-icon-base" />
+      </Show>
     </div>
   )
 }
@@ -459,8 +467,10 @@ render(() => {
   })
 
   return (
-    <Show when={windowState.latest} fallback={<LoadingSplash />} keyed>
-      {(state) => <DesktopRoot windowState={state} />}
-    </Show>
+    <LoadingAnimationProvider value={import.meta.env.VITE_CM_BRAND ? cmLoading : undefined}>
+      <Show when={windowState.latest} fallback={<LoadingSplash />} keyed>
+        {(state) => <DesktopRoot windowState={state} />}
+      </Show>
+    </LoadingAnimationProvider>
   )
 }, root!)

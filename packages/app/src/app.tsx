@@ -6,6 +6,9 @@ import { FileComponentProvider } from "@opencode-ai/ui/context/file"
 import { File } from "@opencode-ai/session-ui/file"
 import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
+import { LoadingAnimationProvider } from "@opencode-ai/ui/loading"
+import { Spinner } from "@opencode-ai/ui/spinner"
+import { cmLoading } from "@/components/cm-loading"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
 import {
@@ -407,33 +410,35 @@ export function AppBaseProviders(
   }>,
 ) {
   return (
-    <MetaProvider>
-      <Font />
-      <ThemeProvider
-        onThemeApplied={(_, mode, scheme) => {
-          void window.api?.setTitlebar?.({ mode, scheme })
-        }}
-      >
-        <LanguageProvider locale={props.locale} onNativeTranslations={props.onNativeTranslations}>
-          <UiI18nBridge>
-            <ErrorBoundary
-              fallback={(error) => {
-                Sentry.captureException(error)
-                return <ErrorPage error={error} />
-              }}
-            >
-              <QueryProvider>
-                <WslServersProvider>
-                  <DialogProvider>
-                    <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
-                  </DialogProvider>
-                </WslServersProvider>
-              </QueryProvider>
-            </ErrorBoundary>
-          </UiI18nBridge>
-        </LanguageProvider>
-      </ThemeProvider>
-    </MetaProvider>
+    <LoadingAnimationProvider value={import.meta.env.VITE_CM_BRAND ? cmLoading : undefined}>
+      <MetaProvider>
+        <Font />
+        <ThemeProvider
+          onThemeApplied={(_, mode, scheme) => {
+            void window.api?.setTitlebar?.({ mode, scheme })
+          }}
+        >
+          <LanguageProvider locale={props.locale} onNativeTranslations={props.onNativeTranslations}>
+            <UiI18nBridge>
+              <ErrorBoundary
+                fallback={(error) => {
+                  Sentry.captureException(error)
+                  return <ErrorPage error={error} />
+                }}
+              >
+                <QueryProvider>
+                  <WslServersProvider>
+                    <DialogProvider>
+                      <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
+                    </DialogProvider>
+                  </WslServersProvider>
+                </QueryProvider>
+              </ErrorBoundary>
+            </UiI18nBridge>
+          </LanguageProvider>
+        </ThemeProvider>
+      </MetaProvider>
+    </LoadingAnimationProvider>
   )
 }
 
@@ -501,7 +506,9 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean; start
       </Show>
       <Show when={loading()}>
         <div class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background-base">
-          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+          <Show when={import.meta.env.VITE_CM_BRAND} fallback={<Splash class="w-16 h-20 opacity-50 animate-pulse" />}>
+            <Spinner class="size-20 text-icon-base" />
+          </Show>
         </div>
       </Show>
     </>

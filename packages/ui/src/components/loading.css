@@ -1,0 +1,34 @@
+[data-component="loading"] {
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
+  animation: loading-spin 900ms linear infinite;
+}
+
+[data-loading-animation] {
+  animation: none !important;
+}
+
+[data-slot="loading-still"] {
+  display: none;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="loading"] {
+    animation: none;
+  }
+
+  [data-slot="loading-motion"] {
+    display: none;
+  }
+
+  [data-slot="loading-still"] {
+    display: block;
+  }
+}

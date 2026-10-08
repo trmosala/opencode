@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
@@ -16,6 +17,7 @@ type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
 const ListLoadingState: Component<{ label: string }> = (props) => {
   return (
     <div class="flex flex-col items-center justify-center py-12 text-center">
+      <CMLoading class="size-10 mb-3 text-icon-weak-base" />
       <span class="text-14-regular text-text-weak">{props.label}</span>
     </div>
   )

@@ -6,6 +6,7 @@ import { useI18n } from "../context/i18n"
 import { Icon, type IconProps } from "./icon"
 import { IconButton } from "./icon-button"
 import { TextField } from "./text-field"
+import { Loading, useLoadingAnimations } from "./loading"
 
 function findByKey(container: HTMLElement, key: string) {
   const nodes = container.querySelectorAll<HTMLElement>('[data-slot="list-item"][data-key]')
@@ -56,6 +57,7 @@ export interface ListRef {
 }
 
 export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) {
+  const loading = useLoadingAnimations()
   const i18n = useI18n()
   let inputRef: HTMLInputElement | HTMLTextAreaElement | undefined
   const [store, setStore] = createStore({
@@ -320,6 +322,9 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
           when={flat().length > 0 || showAdd()}
           fallback={
             <div data-slot="list-empty-state">
+              <Show when={grouped.loading && loading}>
+                <Loading width={32} height={32} />
+              </Show>
               <div data-slot="list-message">{emptyMessage()}</div>
             </div>
           }

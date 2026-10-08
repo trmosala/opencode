@@ -1,3 +1,4 @@
+import { CMLoading } from "@/components/cm-loading"
 import { createMemo, createResource, createSignal, Show, type JSX } from "solid-js"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import type { FileDiffInfo } from "@opencode-ai/client/promise"
@@ -216,6 +217,7 @@ function ReviewPanelV2Sidebar(props: {
         when={props.diffsReady()}
         fallback={
           <div class="px-2 py-2 text-12-regular text-text-weak">
+            <CMLoading class="size-4 inline-block align-middle mr-2" />
             {language.t("common.loading")}
             {language.t("common.loading.ellipsis")}
           </div>

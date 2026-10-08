@@ -1,4 +1,5 @@
 import { paths } from "@opencode-ai/ui/phosphor"
+import { Loading } from "@opencode-ai/ui/loading"
 import { Collapsible } from "@kobalte/core/collapsible"
 import { type ComponentProps, type JSX, Show, createMemo, splitProps } from "solid-js"
 import "./tool-error-card-v2.css"
@@ -20,19 +21,7 @@ function BanIcon() {
 }
 
 function LoaderIcon() {
-  return (
-    <svg
-      data-slot="tool-error-card-loader"
-      width="16"
-      height="16"
-      viewBox="0 0 256 256"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path d={paths.spinner} />
-    </svg>
-  )
+  return <Loading data-slot="tool-error-card-loader" width="16" height="16" aria-hidden="true" />
 }
 
 function ChevronIcon() {

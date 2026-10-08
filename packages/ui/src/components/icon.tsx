@@ -1,4 +1,5 @@
-import { onMount, splitProps, type ComponentProps } from "solid-js"
+import { onMount, Show, splitProps, type ComponentProps } from "solid-js"
+import { Loading, useLoadingAnimations } from "./loading"
 
 import { icons } from "./phosphor"
 
@@ -39,6 +40,7 @@ export interface IconProps extends ComponentProps<"svg"> {
 }
 
 export function Icon(props: IconProps) {
+  const loading = useLoadingAnimations()
   const [local, others] = splitProps(props, ["name", "size", "class", "classList"])
   onMount(ensureSprite)
 
@@ -55,20 +57,32 @@ export function Icon(props: IconProps) {
           : undefined
       }
     >
-      <svg
-        data-slot="icon-svg"
-        data-active={local.name.endsWith("-active") || local.name === "star-filled" ? true : undefined}
-        classList={{
-          ...local.classList,
-          [local.class ?? ""]: !!local.class,
-        }}
-        fill="none"
-        viewBox="0 0 256 256"
-        aria-hidden="true"
-        {...others}
+      <Show
+        when={local.name === "spinner" && loading}
+        fallback={
+          <svg
+            data-slot="icon-svg"
+            data-active={local.name.endsWith("-active") || local.name === "star-filled" ? true : undefined}
+            classList={{
+              ...local.classList,
+              [local.class ?? ""]: !!local.class,
+            }}
+            fill="none"
+            viewBox="0 0 256 256"
+            aria-hidden="true"
+            {...others}
+          >
+            <use href={`#${symbol(local.name)}`} />
+          </svg>
+        }
       >
-        <use href={`#${symbol(local.name)}`} />
-      </svg>
+        <Loading
+          {...others}
+          data-component="icon-loading"
+          data-slot="icon-svg"
+          classList={{ ...local.classList, [local.class ?? ""]: !!local.class }}
+        />
+      </Show>
     </div>
   )
 }

@@ -1,4 +1,5 @@
-import { onMount, type ComponentProps, splitProps } from "solid-js"
+import { onMount, Show, type ComponentProps, splitProps } from "solid-js"
+import { Loading, useLoadingAnimations } from "../../components/loading"
 
 import { icons } from "../../components/phosphor"
 
@@ -37,24 +38,32 @@ export interface IconProps extends ComponentProps<"svg"> {
 }
 
 export function Icon(props: IconProps) {
+  const loading = useLoadingAnimations()
   const [split, rest] = splitProps(props, ["name", "size"])
   const iconName = () => (icons[split.name as keyof typeof icons] ? (split.name as keyof typeof icons) : "plus")
   const pixelSize = split.size === "small" ? 14 : split.size === "large" ? 20 : 16
   onMount(ensureSprite)
 
   return (
-    <svg
-      {...rest}
-      data-slot="icon-svg"
-      data-active={split.name.endsWith("-active") || split.name === "star-filled" ? true : undefined}
-      width={pixelSize}
-      height={pixelSize}
-      viewBox="0 0 256 256"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden={rest["aria-hidden"] ?? "true"}
+    <Show
+      when={split.name === "spinner" && loading}
+      fallback={
+        <svg
+          {...rest}
+          data-slot="icon-svg"
+          data-active={split.name.endsWith("-active") || split.name === "star-filled" ? true : undefined}
+          width={pixelSize}
+          height={pixelSize}
+          viewBox="0 0 256 256"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden={rest["aria-hidden"] ?? "true"}
+        >
+          <use href={`#${symbol(iconName())}`} />
+        </svg>
+      }
     >
-      <use href={`#${symbol(iconName())}`} />
-    </svg>
+      <Loading {...rest} data-component="icon-loading" data-slot="icon-svg" width={pixelSize} height={pixelSize} />
+    </Show>
   )
 }
