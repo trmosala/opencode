@@ -4,21 +4,30 @@ body:has(.cm3-live),
 .cm3-live,
 [data-component="session-tab-popover"][data-cm3] {
   --cm3-bg: #ffffff;
-  --cm3-nav: #eaf0f6;
+  --cm3-nav: #fcfcfc;
   --cm3-surface: #ffffff;
-  --cm3-subtle: #f8f9fa;
-  --cm3-selected: #dce4ed;
+  --cm3-subtle: #f7f7f7;
+  --cm3-selected: #efefef;
   --cm3-bubble: #f3f3f3;
-  --cm3-border: #e9ebee;
-  --cm3-border-strong: #d9dde2;
-  --cm3-text: #292d32;
-  --cm3-muted: #68717d;
-  --cm3-action: #32373d;
+  --cm3-border: #e8e8e8;
+  --cm3-border-strong: #d4d4d4;
+  --cm3-text: #0d0d0d;
+  --cm3-muted: #666666;
+  --cm3-action: #0d0d0d;
   --cm3-on-action: #ffffff;
-  --cm3-focus: #50769e;
+  --cm3-focus: #0169cc;
   --cm3-landing-bg: var(--cm3-bg);
   --cm3-landing-surface: var(--cm3-surface);
   --cm3-landing-border: var(--cm3-border);
+}
+
+html:not([data-color-scheme="dark"]) body:has(.cm3-live),
+html:not([data-color-scheme="dark"]) .cm3-live {
+  --text-interactive-base: #0169cc;
+  --syntax-diff-add: #00a240;
+  --syntax-diff-delete: #e02e2a;
+  --icon-diff-add-base: #00a240;
+  --icon-diff-delete-base: #e02e2a;
 }
 
 body:has(.cm3-live),
@@ -36,6 +45,10 @@ body:has(.cm3-live),
   --surface-inset-base: var(--cm3-subtle);
   --surface-interactive-base: var(--cm3-subtle);
   --surface-interactive-hover: var(--cm3-selected);
+  --surface-interactive-weak: var(--cm3-subtle);
+  --surface-interactive-weak-hover: var(--cm3-selected);
+  --input-active: var(--cm3-surface);
+  --input-focus: var(--cm3-surface);
   --text-base: var(--cm3-text);
   --text-strong: var(--cm3-text);
   --text-weak: var(--cm3-muted);
@@ -49,12 +62,17 @@ body:has(.cm3-live),
   --v2-background-bg-deep: var(--cm3-bg);
   --v2-background-bg-layer-01: var(--cm3-subtle);
   --v2-background-bg-layer-02: var(--cm3-selected);
+  --v2-background-bg-layer-03: var(--cm3-border);
+  --v2-background-bg-layer-04: var(--cm3-border-strong);
   --v2-background-bg-button-neutral: var(--cm3-surface);
   --v2-text-text-base: var(--cm3-text);
   --v2-text-text-muted: var(--cm3-muted);
   --v2-text-text-faint: var(--cm3-muted);
   --v2-icon-icon-base: var(--cm3-muted);
+  --v2-icon-icon-muted: var(--cm3-muted);
+  --v2-border-border-muted: var(--cm3-border);
   --v2-border-border-base: var(--cm3-border);
+  --v2-border-border-strong: var(--cm3-border-strong);
 }
 
 .cm3-live {
@@ -71,19 +89,24 @@ body:has(.cm3-live),
 html[data-color-scheme="dark"] body:has(.cm3-live),
 html[data-color-scheme="dark"] .cm3-live,
 html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] {
-  --cm3-bg: #1e2024;
-  --cm3-nav: #252b34;
-  --cm3-surface: #24272c;
-  --cm3-subtle: #24272b;
-  --cm3-selected: #38424f;
-  --cm3-bubble: #2b2e33;
-  --cm3-border: #30343b;
-  --cm3-border-strong: #454b55;
-  --cm3-text: #e3e6eb;
-  --cm3-muted: #a2aab5;
-  --cm3-action: #dce1e8;
-  --cm3-on-action: #22262c;
-  --cm3-focus: #91b5de;
+  --cm3-bg: #181818;
+  --cm3-nav: #171717;
+  --cm3-surface: #242424;
+  --cm3-subtle: #222222;
+  --cm3-selected: #292929;
+  --cm3-bubble: #1b3d6d;
+  --cm3-border: #303030;
+  --cm3-border-strong: #454545;
+  --cm3-text: #ffffff;
+  --cm3-muted: #a3a3a3;
+  --cm3-action: #ededed;
+  --cm3-on-action: #181818;
+  --cm3-focus: #3a83f7;
+  --text-interactive-base: #3a83f7;
+  --syntax-diff-add: #40c977;
+  --syntax-diff-delete: #fa423e;
+  --icon-diff-add-base: #40c977;
+  --icon-diff-delete-base: #fa423e;
   color-scheme: dark;
 }
 
@@ -160,6 +183,10 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
   padding: 0 10px 10px;
   border-inline-end: 1px solid var(--cm3-border);
   background: var(--cm3-nav);
+}
+
+html[data-color-scheme="dark"] .cm3-sidebar {
+  --cm3-selected: #292929;
 }
 
 .cm3-sidebar-brand {
