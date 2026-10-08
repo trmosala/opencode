@@ -13,6 +13,26 @@ import {
 } from "./desktop-native"
 
 describe("desktop native translations", () => {
+  test("installer copy explains replacement, backup retention and failure recovery", () => {
+    const destination = "/Users/me/Applications/CookieMonster.app"
+    const detail = formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.install.replaceDetail"], { destination })
+    expect(detail).toContain(destination)
+    expect(detail).toContain("will be replaced after the new copy is complete")
+    expect(detail).toContain("CookieMonster Backup-")
+    expect(detail).toContain("Only the immediately previous app")
+    expect(detail).toContain("removed after successful replacement")
+    expect(detail).toContain("Failed-install recovery copies are left alone")
+    expect(detail).toContain("cleanup failures can leave extra backups")
+    expect(detail).toContain("Settings and sign-in data are not changed")
+    expect(DESKTOP_NATIVE_ENGLISH["desktop.install.replaceManual"]).toContain("choose Replace in Finder")
+    const failed = formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.install.replaceFailed"], { destination })
+    expect(failed).toContain(destination)
+    expect(failed).toContain("existing app was not moved")
+    expect(failed).toContain("CookieMonster Install-")
+    expect(failed).toContain("CookieMonster Backup-")
+    expect(failed).toContain("Failed installation does not prune backups")
+    expect(failed).toContain("installation succeeded but opening failed")
+  })
   test("describes the complete tab grant in its English fallback", () => {
     const detail = formatDesktopNativeMessage(DESKTOP_NATIVE_ENGLISH["desktop.browser.tabGrantDetail"], {
       origin: "https://example.test",

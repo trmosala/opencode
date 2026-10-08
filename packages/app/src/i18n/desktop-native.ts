@@ -599,6 +599,12 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "The observed browser image is no longer current. Take a fresh screenshot before visual input.",
   "desktop.browser.visualUnsupported":
     "The browser cannot verify this visual target's document and layout. Use a semantic control or a fresh supported view.",
+  "desktop.install.replaceDetail":
+    "Install CookieMonster at {{destination}} and open it there? Quit any installed copy first. An existing app at this location will be replaced after the new copy is complete. Only the immediately previous app is kept in a CookieMonster Backup- folder beside it. Older installer-owned backups are removed after successful replacement. Failed-install recovery copies are left alone, and cleanup failures can leave extra backups. No administrator access is needed. Settings and sign-in data are not changed.",
+  "desktop.install.replaceManual":
+    "Automatic installation cannot safely identify the original disk-image app. Quit CookieMonster, open the mounted disk image in Finder, and copy CookieMonster.app into your home Applications folder (Go > Go to Folder: ~/Applications). Create that folder if needed. If an app is already there, move it aside before copying or choose Replace in Finder. Then open the copied app and eject the disk image.",
+  "desktop.install.replaceFailed":
+    "CookieMonster could not be installed or opened at {{destination}}. If copying failed, the existing app was not moved. If replacement started, look for the previous app in a CookieMonster Backup- folder beside this location. A partial new copy may remain in a CookieMonster Install- folder. Failed installation does not prune backups. If installation succeeded but opening failed, older installer-owned backups may already have been removed; the immediately previous app is retained. Inspect these folders in Finder before removing anything or retrying. If the installed copy is complete, open it in Finder. Follow any macOS security prompts or contact your administrator.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

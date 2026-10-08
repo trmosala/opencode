@@ -247,7 +247,7 @@ const main = Effect.gen(function* () {
               type: "question",
               title: nativeT("desktop.install.title"),
               message: nativeT("desktop.install.title"),
-              detail: nativeT("desktop.install.detail", { destination }),
+              detail: nativeT("desktop.install.replaceDetail", { destination }),
               buttons: [nativeT("desktop.install.confirm"), nativeT("desktop.recovery.action.quit")],
               defaultId: 0,
               cancelId: 1,
@@ -259,7 +259,7 @@ const main = Effect.gen(function* () {
             await dialog.showMessageBox({
               type: "warning",
               message: nativeT("desktop.install.title"),
-              detail: nativeT("desktop.install.manual"),
+              detail: nativeT("desktop.install.replaceManual"),
               buttons: [nativeT("desktop.recovery.action.quit")],
             })
           },
@@ -267,7 +267,7 @@ const main = Effect.gen(function* () {
             await dialog.showMessageBox({
               type: "error",
               message: nativeT("desktop.install.title"),
-              detail: nativeT("desktop.install.failed", { destination }),
+              detail: nativeT("desktop.install.replaceFailed", { destination }),
               buttons: [nativeT("desktop.recovery.action.quit")],
             })
           },

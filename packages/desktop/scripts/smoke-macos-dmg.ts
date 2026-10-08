@@ -1,7 +1,19 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { access, lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, rmdir } from "node:fs/promises"
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readlink,
+  realpath,
+  rm,
+  rmdir,
+  writeFile,
+} from "node:fs/promises"
 import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
@@ -40,7 +52,14 @@ try {
   const expected = await fingerprint(source)
 
   for (const attempt of [1, 2]) {
-    assert.equal(await copyUserApp(source, applications), destination)
+    // Exercise ditto preserving a read-only bundle root without modifying the mounted source.
+    const copy = async (file: string, args: string[]) => {
+      const result = await macCommand(file, args)
+      await chmod(args[4], 0o555)
+      return result
+    }
+    assert.equal(await copyUserApp(source, applications, copy), destination)
+    assert.equal((await lstat(destination)).mode & 0o777, 0o555, "Installed root mode was not restored")
     assert.equal(await fingerprint(destination), expected, "Installed bundle differs from the mounted app")
     const resources = join(destination, "Contents", "Resources")
     const cli = join(resources, "opencode-cli")
@@ -61,8 +80,34 @@ try {
     assert(version.length > 0, "The private CLI returned an empty version")
     console.log(`Install ${attempt}: private CLI --version: ${version}`)
 
-    await assert.rejects(copyUserApp(source, applications), { code: "EEXIST" })
-    assert.equal(await fingerprint(destination), expected, "Refused reinstall changed the installed bundle")
+    for (const replacement of [1, 2, 3]) {
+      await chmod(destination, 0o755)
+      await writeFile(join(destination, "stale-install-sentinel"), `previous bundle ${replacement}`)
+      await chmod(destination, 0o555)
+      const previous = await fingerprint(destination)
+      const backupsBefore = (await readdir(applications)).filter((name) => name.startsWith("CookieMonster Backup-"))
+      assert.equal(await copyUserApp(source, applications, copy), destination)
+      assert.equal((await lstat(destination)).mode & 0o777, 0o555, "Replacement root mode was not restored")
+      assert.equal(await fingerprint(destination), expected, "Replacement differs from the mounted app")
+      const backups = (await readdir(applications)).filter((name) => name.startsWith("CookieMonster Backup-"))
+      assert.equal(backups.length, 1, "Replacement must retain exactly one immediately previous bundle")
+      const backup = join(applications, backups[0])
+      assert.equal(await fingerprint(join(backup, "CookieMonster.app")), previous, "Previous bundle was not preserved")
+      assert.equal(
+        (await lstat(join(backup, "CookieMonster.app"))).mode & 0o777,
+        0o555,
+        "Backup root mode was not restored",
+      )
+      for (const name of backupsBefore) {
+        await assert.rejects(lstat(join(applications, name)), { code: "ENOENT" })
+      }
+      await assert.rejects(lstat(join(destination, "stale-install-sentinel")), { code: "ENOENT" })
+    }
+    const backups = (await readdir(applications)).filter((name) => name.startsWith("CookieMonster Backup-"))
+    assert.equal(backups.length, 1)
+    await chmod(join(applications, backups[0], "CookieMonster.app"), 0o755)
+    await rm(join(applications, backups[0]), { recursive: true })
+    await chmod(destination, 0o755)
     await rm(destination, { recursive: true })
     await assert.rejects(lstat(destination), { code: "ENOENT" })
     assert.deepEqual(await readdir(applications), [], "App removal left files in the install directory")
@@ -72,6 +117,7 @@ try {
   await macCommand("/usr/bin/hdiutil", ["detach", mount]).catch((cause) => {
     throw new Error(`Could not detach ${mount}; retained smoke directory ${root}`, { cause })
   })
+  await chmod(destination, 0o755).catch(() => {})
   await rm(destination, { recursive: true, force: true })
   await rmdir(applications).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error
@@ -83,7 +129,9 @@ try {
   await rmdir(root)
 }
 await assert.rejects(lstat(root), { code: "ENOENT" })
-console.log("DMG copy, refusal, removal, recopy and cleanup passed. App startup and WPP were not tested.")
+console.log(
+  "DMG copy, repeated replacement, one-backup retention, removal, recopy and cleanup passed. App startup and WPP were not tested.",
+)
 
 // Include names, modes, file bytes and symlink targets without following bundle symlinks.
 async function fingerprint(directory: string): Promise<string> {
