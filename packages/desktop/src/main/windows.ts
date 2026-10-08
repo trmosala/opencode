@@ -140,7 +140,7 @@ export function setPinchZoomEnabled(enabled: boolean) {
 }
 
 export function getPinchZoomEnabled() {
-  return getStore().get(PINCH_ZOOM_ENABLED_KEY) === true
+  return (getStore().get(PINCH_ZOOM_ENABLED_KEY) ?? true) === true
 }
 
 export function getWindowID(win: BrowserWindow) {
