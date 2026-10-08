@@ -183,6 +183,24 @@ html[data-color-scheme="dark"] .cm3-live {
   text-overflow: ellipsis;
 }
 
+.cm3-sidebar-task-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cm3-sidebar-task-copy > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cm3-sidebar-task-project {
+  color: var(--cm3-muted);
+  font-size: 10px;
+}
+
 .cm3-sidebar :is(button, a):hover {
   background: var(--cm3-selected);
 }
