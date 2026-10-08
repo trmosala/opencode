@@ -528,9 +528,11 @@ describe("assistant popover startup", () => {
     h.state.iframeSrc = "about:blank"
     const error = await h.run().catch((failure) => failure)
     expect(error.message).toBe("Timed out opening WPP AI Assistant popover.")
+    expect(error.type).toBe("o1_code_assistant_popover_timeout")
+    expect(error.statusCode).toBe(502)
     expect(error.diagnostics).toEqual({
       phase: "assistant-popover",
-      elapsedMs: 60000,
+      elapsedMs: 180000,
       clickCount: 1,
       inspectionFailures: 0,
       popover: {

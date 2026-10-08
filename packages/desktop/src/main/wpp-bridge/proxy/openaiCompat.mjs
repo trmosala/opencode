@@ -566,6 +566,7 @@ export async function waitForBridgeWithKeepAlive(bridgePromise, response, interv
 // request was sent), and a protocol incompatibility only sent the harmless capability probe.
 // The retry path resets thread continuity and replays the full transcript into a fresh worker.
 const FRESH_REPLAY_RETRY_TYPES = new Set([
+  "o1_code_assistant_popover_timeout",
   "o1_code_capture_failure",
   "o1_code_recorder_not_armed",
   "o1_code_thread_desync",

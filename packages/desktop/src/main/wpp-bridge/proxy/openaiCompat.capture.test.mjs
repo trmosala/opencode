@@ -344,7 +344,7 @@ describe("handleChatCompletions capture retry", () => {
   // Pre-submit worker failures (recorder never armed; pinned thread lost) are duplicate-safe to
   // replay because no model request was sent — the worker pool discards the dead tab and throws,
   // and the proxy replays once on a fresh worker exactly like a capture failure.
-  for (const type of ["o1_code_recorder_not_armed", "o1_code_thread_desync", "o1_code_image_attachment_desync"]) {
+  for (const type of ["o1_code_assistant_popover_timeout", "o1_code_recorder_not_armed", "o1_code_thread_desync", "o1_code_image_attachment_desync"]) {
     test(`retries a ${type} failure once as a fresh replay`, async () => {
       commitThread(KEY, body(user("hello")), assistant("previous"));
       const calls = [];
@@ -378,6 +378,7 @@ describe("shouldRetryFreshReplay", () => {
 
   test("retries every fresh-replay-healable failure type", () => {
     for (const type of [
+      "o1_code_assistant_popover_timeout",
       "o1_code_capture_failure",
       "o1_code_recorder_not_armed",
       "o1_code_thread_desync",

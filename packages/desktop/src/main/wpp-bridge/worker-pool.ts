@@ -477,7 +477,7 @@ export async function openAssistantPopover(
   { now = Date.now, sleep = wait } = {},
 ) {
   const startedAt = now()
-  const deadline = startedAt + 60000
+  const deadline = startedAt + 180000
   let nextClickAt = startedAt
   let clickCount = 0
   let inspectionFailures = 0
@@ -560,6 +560,10 @@ export async function openAssistantPopover(
     } : null,
   }
   const error = new Error("Timed out opening WPP AI Assistant popover.")
+  // Startup has not submitted a prompt. The failed window is destroyed by spawn's cleanup,
+  // so the proxy can safely retry once with a fresh worker.
+  Reflect.set(error, "type", "o1_code_assistant_popover_timeout")
+  Reflect.set(error, "statusCode", 502)
   Reflect.set(error, "diagnostics", diagnostics)
   Reflect.set(error, "bridgeResult", { diagnostics })
   throw error
