@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="packages/desktop/icons/prod/icon.png" width="112" alt="CookieMonster cookie logo" />
+  <img src="packages/desktop/icons/prod/cm-logos/CookieMonster-01.svg" width="112" alt="CookieMonster cookie logo" />
 </p>
 
-<h1 align="center">CookieMonster</h1>
+<p align="center">
+  <img src="packages/desktop/icons/prod/cm-logos/CookieMonster-02.svg" width="354" alt="CookieMonster" />
+</p>
 <p align="center">A desktop AI agent for creative production and development at Ogilvy One.</p>
 <p align="center">
   <a href="https://github.com/trmosala/opencode/releases/latest">Download for macOS</a> ·
