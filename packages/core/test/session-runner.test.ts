@@ -2537,6 +2537,22 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("adds runtime identity only for CookieMonster requests", () =>
+    Effect.gen(function* () {
+      yield* setup
+      currentModel = Model.make({ id: "cm-test", provider: "cookiemonster", route: OpenAIChat.route })
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "CM identity" }), resume: false })
+      requests.length = 0
+      yield* session.resume(sessionID)
+      expect(requests[0]?.http?.headers).toMatchObject({
+        "x-opencode-client": "cli",
+        "x-opencode-session-id": sessionID,
+      })
+      expect(requests[0]?.http?.headers?.["x-opencode-runtime-id"]).toMatch(/^[0-9a-f-]{36}$/)
+    }),
+  )
+
   it.effect("adds the parent session header to child model requests", () =>
     Effect.gen(function* () {
       yield* setup

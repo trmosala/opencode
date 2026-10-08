@@ -16,6 +16,36 @@ const framed = (model = "CM_Opus 5 - Extra High") => ({
 })
 
 describe("CookieMonster request envelope", () => {
+  for (const reasoning_effort of ["low", "medium", "high", "xhigh", "max"]) {
+    test(`preserves Sol 6.1 ${reasoning_effort} phase and tool contracts`, () => {
+      const body = { ...framed("CM_GPT6.1_Sol"), reasoning_effort }
+      body.messages.push(
+        { role: "assistant", content: "Complete." },
+        { role: "user", content: "Continue." },
+        {
+          role: "assistant",
+          content: "Inspecting.",
+          tool_calls: [{ id: "call-1", function: { name: "bash", arguments: '{"command":"git status"}' } }],
+        },
+        { role: "tool", tool_call_id: "call-1", content: "clean" },
+      )
+      const out = JSON.parse(serializeChatCompletionRequest(body))
+      expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
+      expect(out.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
+      expect(out.messages[1].phase).toBe("final_answer")
+      expect(out.messages[3]).toMatchObject({
+        phase: "commentary",
+        toolCalls: [{ id: "call-1", name: "bash", arguments: '{"command":"git status"}' }],
+      })
+      expect(out.messages[4]).toEqual({ role: "tool", content: "clean", toolCallId: "call-1" })
+      const continuation = JSON.parse(serializeIncompleteTaskContinuationRequest(body))
+      expect(continuation.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
+      expect(continuation.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
+      expect(continuation.tools).toEqual(out.tools)
+      expect(continuation.instructions[0]).toContain("messages[].toolCalls")
+    })
+  }
+
   test("preserves fresh instructions, tools, and message roles without privileged-looking prose", () => {
     const raw = serializeChatCompletionRequest(framed())
     const out = JSON.parse(raw)

@@ -6,7 +6,7 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { eq } from "drizzle-orm"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { expect } from "bun:test"
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -467,6 +467,98 @@ const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
 })
 
 // Loop semantics
+
+it.instance(
+  "scheduled prompt admits once, preserves agent/model, and refuses exact replay",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const id = SessionID.descending()
+      const chat = yield* sessions.create({
+        id,
+        title: "Scheduled",
+        agent: "build",
+        model: { providerID: ref.providerID, id: ref.modelID },
+      })
+      expect(chat.id).toBe(id)
+      const messageID = MessageID.ascending()
+      const admissions: string[] = []
+      yield* llm.text("Scheduled result")
+      const result = yield* prompt.scheduled(
+        {
+          sessionID: chat.id,
+          messageID,
+          parts: [{ type: "text", text: "Run scheduled check" }],
+        },
+        async () => {
+          admissions.push(messageID)
+        },
+      )
+      expect(Option.isSome(result)).toBe(true)
+      if (Option.isSome(result) && result.value.info.role === "assistant") {
+        expect(result.value.info.parentID).toBe(messageID)
+        expect(result.value.info.finish).toBe("stop")
+      }
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const admitted = messages.find((value) => value.info.id === messageID)
+      expect(admitted?.info.role).toBe("user")
+      if (admitted?.info.role === "user") {
+        expect(admitted.info.agent).toBe("build")
+        expect(admitted.info.model.modelID).toBe(ref.modelID)
+      }
+      expect(admissions).toEqual([messageID])
+      const retry = yield* prompt
+        .scheduled(
+          {
+            sessionID: chat.id,
+            messageID,
+            parts: [{ type: "text", text: "Run scheduled check" }],
+          },
+          async () => {
+            admissions.push(messageID)
+          },
+        )
+        .pipe(Effect.exit)
+      expect(Exit.isFailure(retry)).toBe(true)
+      expect(yield* llm.hits).toHaveLength(1)
+      expect(admissions).toEqual([messageID])
+    }),
+  15_000,
+)
+
+it.instance(
+  "scheduled prompt stays outside a busy session until its idle boundary",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const { prompt, sessions, chat } = yield* boot()
+      yield* llm.hang
+      yield* user(chat.id, "Interactive request")
+      const running = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+      yield* awaitWithTimeout(llm.wait(1), "interactive request did not start", "10 seconds")
+      const messageID = MessageID.ascending()
+      const admissions: string[] = []
+      const result = yield* prompt.scheduled(
+        {
+          sessionID: chat.id,
+          messageID,
+          parts: [{ type: "text", text: "Queued scheduled task" }],
+        },
+        async () => {
+          admissions.push(messageID)
+        },
+      )
+      expect(Option.isNone(result)).toBe(true)
+      expect(admissions).toHaveLength(0)
+      expect((yield* sessions.messages({ sessionID: chat.id })).some((value) => value.info.id === messageID)).toBe(
+        false,
+      )
+      yield* Fiber.interrupt(running)
+    }),
+  15_000,
+)
 
 noLLMServer.instance(
   "loop exits immediately when last assistant has stop finish",

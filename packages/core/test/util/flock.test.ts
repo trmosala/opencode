@@ -209,11 +209,40 @@ describe("util.flock", () => {
         dir,
         staleMs: 500,
         timeoutMs: 8_000,
+        protectLiveOwner: true,
       },
     )
 
     expect(hit).toBe(true)
   }, 20_000)
+
+  test("does not reclaim a stale heartbeat from a live session owner", async () => {
+    await using tmp = await tmpdir()
+    const dir = path.join(tmp.path, "locks")
+    const key = "flock:live-owner"
+    const owned = lock(dir, key)
+    await fs.mkdir(owned, { recursive: true })
+    await fs.writeFile(
+      path.join(owned, "meta.json"),
+      JSON.stringify({ pid: process.pid, hostname: os.hostname(), token: "live" }),
+    )
+    await fs.writeFile(path.join(owned, "heartbeat"), "")
+    const old = new Date(Date.now() - 60_000)
+    await fs.utimes(path.join(owned, "heartbeat"), old, old)
+    const error = await Flock.acquire(key, {
+      dir,
+      protectLiveOwner: true,
+      staleMs: 10,
+      timeoutMs: 30,
+      baseDelayMs: 1,
+      maxDelayMs: 2,
+    }).then(
+      (lease) => lease.release(),
+      (failure: unknown) => failure,
+    )
+    expect(error).toBeInstanceOf(Error)
+    expect(await readJson<{ token: string }>(path.join(owned, "meta.json"))).toMatchObject({ token: "live" })
+  })
 
   test("breaks stale lock dirs when heartbeat is missing", async () => {
     await using tmp = await tmpdir()

@@ -18,6 +18,7 @@ import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } fro
 import { SpawnGate } from "./spawn-gate"
 import { assertCapabilityResponse, buildCapabilityProbeJob } from "./proxy/protocol.mjs"
 import { DEFAULT_MODEL_ID } from "./proxy/modelProfiles.mjs"
+import { resetThread } from "./proxy/sessionThreads.mjs"
 
 const IDLE_WORKER_TTL_MS = 10 * 60 * 1000
 // A session-pinned tab holds that session's WPP thread (browser-held context), so reaping it throws
@@ -274,6 +275,7 @@ export class WorkerPool {
     if (!worker) return
     if (!worker.window.isDestroyed()) worker.window.destroy()
     this.workers.delete(id)
+    resetThread(worker.sessionKey)
   }
 
   private async ensureProtocolCapability(
@@ -318,6 +320,7 @@ export class WorkerPool {
     livePools.delete(this)
     for (const worker of this.workers.values()) {
       if (!worker.window.isDestroyed()) worker.window.destroy()
+      resetThread(worker.sessionKey)
     }
     this.workers.clear()
   }
@@ -367,12 +370,11 @@ export class WorkerPool {
         pinned: PINNED_WORKER_TTL_MS,
         subagent: SUBAGENT_WORKER_TTL_MS,
       })
-      if (worker.window.isDestroyed()) {
-        this.workers.delete(id)
-      } else if (shouldReapWorker(worker, now, ttl)) {
-        worker.window.destroy()
-        this.workers.delete(id)
-      }
+      if (!worker.window.isDestroyed() && !shouldReapWorker(worker, now, ttl)) continue
+      if (!worker.window.isDestroyed()) worker.window.destroy()
+      this.workers.delete(id)
+      // A retired tab's thread is gone; its mirror must not survive to fake a continue.
+      resetThread(worker.sessionKey)
     }
   }
 

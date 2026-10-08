@@ -1,7 +1,7 @@
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { MODEL_IDS, RENAMED_MODEL_IDS } from "./modelProfiles.mjs"
+import { MODEL_IDS, RENAMED_MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs"
 
 // Advertised model context/output limits. Context is kept below the proxy's O1_CODE_MAX_PROMPT_CHARS
 // (600k chars ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
@@ -54,8 +54,17 @@ const OPUS_COST = { input: 5, output: 25, cache_read: 0, cache_write: 0 }
 const GPT_COST = { input: 5, output: 30, cache_read: 0.5, cache_write: 0 }
 
 function projectModel(agentName) {
+  const profile = resolveModelProfile(agentName)
   return {
     name: agentName,
+    ...(Object.hasOwn(profile, "reasoningEfforts")
+      ? {
+          options: { reasoningEffort: profile.defaultReasoningEffort },
+          variants: Object.fromEntries(
+            Object.keys(profile.reasoningEfforts).map((reasoningEffort) => [reasoningEffort, { reasoningEffort }]),
+          ),
+        }
+      : {}),
     family: agentName.startsWith("CM_Opus") ? "claude" : agentName.startsWith("CM_Gemini") ? "gemini" : "gpt-5",
     attachment: true,
     // Non-Opus variants retain the previous builder accounting estimate until WPP exposes an

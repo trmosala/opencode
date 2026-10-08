@@ -392,6 +392,7 @@ const main = Effect.gen(function* () {
   // Fire-and-forget: server.mjs self-handles EADDRINUSE, and a failure here must not block the
   // app from coming up — it surfaces in logs and the renderer's connection panel instead.
   void startWppBridge({
+    checkAuth: () => wppAuth.check(),
     openLogin: () => {
       openWppLogin()
     },

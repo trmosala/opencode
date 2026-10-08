@@ -1,4 +1,4 @@
-import { resolveModelProfile } from "./modelProfiles.mjs"
+import { resolveRequestModelProfile } from "./modelProfiles.mjs"
 import { imagePlaceholderText } from "./imageInputs.mjs"
 import { CM_REQUEST_TYPE, CM_REQUEST_VERSION, CM_TASK_COMPLETE_PROTOCOL, toolCallProtocol } from "./protocol.mjs"
 import { toolCallInstructions, toolCallRecoveryInstructions } from "./toolCallReminder.mjs"
@@ -48,7 +48,7 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
   const allMessages = Array.isArray(body.messages) ? body.messages : []
   const systemMessages = allMessages.filter((m) => m.role === "system")
   const nonSystemMessages = allMessages.filter((m) => m.role !== "system")
-  const profile = resolveModelProfile(body.model)
+  const profile = resolveRequestModelProfile(body)
   const { toolFormat } = profile
   const state = { imageIndex: 0 }
   const delta = sinceIndex > 0
@@ -98,7 +98,7 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
 
 export function serializeIncompleteTaskContinuationRequest(body, { purpose = "chat" } = {}) {
   const tools = serializeTools(body.tools)
-  const profile = resolveModelProfile(body.model)
+  const profile = resolveRequestModelProfile(body)
   const { toolFormat } = profile
   return JSON.stringify({
     type: CM_REQUEST_TYPE,

@@ -761,6 +761,8 @@ describe("session.llm.stream", () => {
     { providerID: opencodeFixture.providerID, child: true },
     { providerID: "custom-test", child: false },
     { providerID: "custom-test", child: true },
+    { providerID: "cookiemonster", child: false },
+    { providerID: "cookiemonster", child: true },
   ]
   headerCases.forEach((input) => {
     it.instance(
@@ -812,6 +814,14 @@ describe("session.llm.stream", () => {
 
           const headers = (yield* Effect.promise(() => request)).headers
           expect(headers.get("x-opencode-session-id")).toBe(sessionID)
+          expect(headers.get("x-opencode-client")).toBe(
+            input.providerID.startsWith("opencode") || input.providerID === "cookiemonster" ? "cli" : null,
+          )
+          if (input.providerID === "cookiemonster") {
+            expect(headers.get("x-opencode-runtime-id")).toMatch(/^[0-9a-f-]{36}$/)
+            expect(headers.get("x-preserved")).toBe("yes")
+          }
+          if (input.providerID !== "cookiemonster") expect(headers.get("x-opencode-runtime-id")).toBeNull()
           expect(headers.get("x-opencode-parent-session-id")).toBe(parentSessionID ?? null)
           expect(headers.get("x-parent-session-id")).toBe(parentSessionID ?? null)
           if (input.providerID.startsWith("opencode")) {
@@ -830,7 +840,21 @@ describe("session.llm.stream", () => {
               [input.providerID]: {
                 name: "OpenCode Test",
                 npm: "@ai-sdk/openai-compatible",
-                models: { [fixture.model.id]: configModel(fixture.model) as ConfigModel },
+                models: {
+                  [fixture.model.id]: {
+                    ...(configModel(fixture.model) as ConfigModel),
+                    ...(input.providerID === "cookiemonster"
+                      ? {
+                          headers: {
+                            "X-OpenCode-Client": "spoofed",
+                            "X-OpenCode-Runtime-Id": "spoofed",
+                            "x-opencode-runtime-id": "also-spoofed",
+                            "x-preserved": "yes",
+                          },
+                        }
+                      : {}),
+                  },
+                },
                 options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
               },
             },

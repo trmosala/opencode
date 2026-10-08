@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test"
 import { fixture, pageMessages } from "../performance/timeline/session-timeline-stress.fixture"
-import { mockOpenCodeServer } from "../utils/mock-server"
 import {
   installStressSessionTabs,
   mockStressTimeline,
   stressSessionHref,
 } from "../performance/timeline/timeline-test-helpers"
 import { expectSessionTitle } from "../utils/waits"
+import { mockOpenCodeServer } from "../utils/mock-server"
 
 test("CM3 moves the live tabs into the sidebar and keeps their lifecycle", async ({ page }) => {
   await mockStressTimeline(page)
@@ -595,3 +595,247 @@ test("CM3 desktop Review and sidebar search use live session state", async ({ pa
   await expect(page).toHaveURL(new RegExp(fixture.targetID))
   await expect(page.locator('[data-component="prompt-input"][contenteditable="true"]')).toHaveCount(1)
 })
+
+test("CM3 recent threads show running status and unscoped project names", async ({ page }) => {
+  await mockOpenCodeServer(page, {
+    sessions: fixture.sessions,
+    provider: fixture.provider,
+    directory: fixture.directory,
+    project: fixture.project,
+    pageMessages,
+    sessionStatus: { [fixture.targetID]: { type: "busy" } },
+  })
+  await installCm3Sidebar(page)
+  await page.goto("/")
+  const recent = page.locator(".cm3-sidebar-task").filter({ hasText: fixture.expected.targetTitle })
+  await expect(recent.locator('[data-component="session-progress-indicator-v2"]')).toBeVisible()
+  await expect(recent.locator(".cm3-sidebar-task-project")).toHaveText(fixture.project.name)
+  await recent.click()
+  await expectSessionTitle(page, fixture.expected.targetTitle)
+  await expect(recent.locator(".cm3-sidebar-task-project")).toHaveCount(0)
+})
+
+for (const kind of ["permission", "question"] as const) {
+  test(`CM3 recent threads flag a pending ${kind} instead of running progress`, async ({ page }) => {
+    await mockOpenCodeServer(page, {
+      sessions: fixture.sessions,
+      provider: fixture.provider,
+      directory: fixture.directory,
+      project: fixture.project,
+      pageMessages,
+      sessionStatus: { [fixture.targetID]: { type: "busy" } },
+      permissions:
+        kind === "permission"
+          ? [
+              {
+                id: "cm3_permission",
+                sessionID: fixture.targetID,
+                permission: "bash",
+                patterns: ["git status"],
+                metadata: {},
+                always: [],
+              },
+            ]
+          : [],
+      questions:
+        kind === "question"
+          ? [
+              {
+                id: "cm3_question",
+                sessionID: fixture.targetID,
+                questions: [{ header: "Choice", question: "Proceed?", options: [] }],
+              },
+            ]
+          : [],
+    })
+    await installCm3Sidebar(page)
+    await page.goto(stressSessionHref(fixture.sourceID))
+    await expectSessionTitle(page, fixture.expected.sourceTitle)
+    const recent = page.locator(".cm3-sidebar-task").filter({ hasText: fixture.expected.targetTitle })
+    await expect(recent.locator('[data-slot="project-avatar-unread-dot"]')).toBeVisible()
+    await expect(recent.locator('[data-component="session-progress-indicator-v2"]')).toHaveCount(0)
+  })
+}
+
+test("CM3 recent threads show unread completion notifications", async ({ page }) => {
+  await mockStressTimeline(page)
+  await installCm3Sidebar(page)
+  await page.addInitScript(
+    ({ directory, session }) => {
+      localStorage.setItem(
+        "opencode.global.dat:notification",
+        JSON.stringify({ list: [{ type: "turn-complete", directory, session, time: Date.now(), viewed: false }] }),
+      )
+    },
+    { directory: fixture.directory, session: fixture.targetID },
+  )
+  await page.goto(stressSessionHref(fixture.sourceID))
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+  const recent = page.locator(".cm3-sidebar-task").filter({ hasText: fixture.expected.targetTitle })
+  await expect(recent.locator('[data-slot="project-avatar-unread-dot"]')).toBeVisible()
+  await recent.click()
+  await expectSessionTitle(page, fixture.expected.targetTitle)
+  await expect(recent.locator('[data-slot="project-avatar-unread-dot"]')).toHaveCount(0)
+})
+
+for (const gesture of ["Control", "Meta", "middle"] as const) {
+  test(`CM3 recent thread ${gesture} opening preserves the active draft and mobile drawer`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 })
+    await mockStressTimeline(page)
+    const draftID = `draft_cm3_background_${gesture}`
+    await installCm3Sidebar(page, { sessionIDs: [fixture.sourceID], draftID })
+    await page.addInitScript(
+      (mac) => Object.defineProperty(navigator, "platform", { value: mac ? "MacIntel" : "Win32" }),
+      gesture === "Meta",
+    )
+    await page.goto(`/new-session?draftId=${draftID}`)
+    const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
+    await expect(input).toBeVisible()
+    await input.fill("Keep my active draft")
+    const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-expanded", "true")
+    const recent = page.locator(".cm3-sidebar-task").filter({ hasText: fixture.expected.targetTitle })
+    await recent.click(gesture === "middle" ? { button: "middle" } : { modifiers: [gesture] })
+    const tab = page.locator(
+      `.cm3-sidebar-tabs [data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`,
+    )
+    await expect(tab).toBeVisible()
+    await expect(page).toHaveURL(new RegExp(`draftId=${draftID}`))
+    await expect(input).toHaveText("Keep my active draft")
+    await expect(toggle).toHaveAttribute("aria-expanded", "true")
+    await recent.click()
+    await expectSessionTitle(page, fixture.expected.targetTitle)
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await toggle.click()
+    await page.locator(`.cm3-sidebar-tabs [data-titlebar-tab-link][href="/new-session?draftId=${draftID}"]`).click()
+    await expect(input).toHaveText("Keep my active draft")
+  })
+}
+
+test("CM3 sidebar search supports arrows, Enter, empty results and composition", async ({ page }) => {
+  await mockStressTimeline(page)
+  await installCm3Sidebar(page)
+  await page.goto(stressSessionHref(fixture.sourceID))
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+  const sidebar = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
+  const search = sidebar.getByRole("searchbox", { name: "Search threads", exact: true })
+  await search.fill("No matching thread")
+  await expect(sidebar.locator(".cm3-sidebar-task")).toHaveCount(0)
+  await search.press("ArrowDown")
+  await search.press("Enter")
+  await expect(search).toBeFocused()
+  await expect(page).toHaveURL(new RegExp(fixture.sourceID))
+  await search.fill(fixture.expected.targetTitle)
+  const target = sidebar.getByRole("button", { name: fixture.expected.targetTitle, exact: true })
+  await expect(target).toBeVisible()
+  await search.dispatchEvent("keydown", { key: "ArrowDown", isComposing: true })
+  await search.dispatchEvent("keydown", { key: "Enter", isComposing: true })
+  await expect(search).toBeFocused()
+  await expect(page).toHaveURL(new RegExp(fixture.sourceID))
+  await search.press("ArrowUp")
+  await expect(target).toBeFocused()
+  await target.press("ArrowDown")
+  await expect(target).toBeFocused()
+  await target.press("Enter")
+  await expectSessionTitle(page, fixture.expected.targetTitle)
+  await search.fill(fixture.expected.sourceTitle)
+  await search.press("Enter")
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+  await search.fill("")
+  await expect(sidebar.locator(".cm3-sidebar-task")).toHaveCount(2)
+  const source = sidebar.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })
+  await search.press("ArrowDown")
+  await expect(target).toBeFocused()
+  await target.press("ArrowDown")
+  await expect(source).toBeFocused()
+  await source.press("ArrowDown")
+  await expect(target).toBeFocused()
+  await target.press("ArrowUp")
+  await expect(source).toBeFocused()
+  await source.press("Enter")
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+})
+
+for (const control of ["link", "close"] as const) {
+  test(`CM3 mobile Escape closes the drawer from a portaled tab ${control}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 })
+    await mockStressTimeline(page)
+    await installCm3Sidebar(page)
+    await page.goto(stressSessionHref(fixture.sourceID))
+    await expectSessionTitle(page, fixture.expected.sourceTitle)
+    const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+    await toggle.click()
+    const slot = page.locator(
+      `.cm3-sidebar-tabs [data-titlebar-tab-slot]:has([data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"])`,
+    )
+    const target =
+      control === "link"
+        ? slot.locator("[data-titlebar-tab-link]")
+        : slot.getByRole("button", { name: "Close tab", exact: true })
+    await expect(target).toBeVisible()
+    await target.focus()
+    await expect(target).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await expect(toggle).toBeFocused()
+  })
+}
+
+test("CM3 mobile focus stays in the drawer and Escape cancels tab rename first", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 })
+  await mockStressTimeline(page)
+  await installCm3Sidebar(page)
+  await page.goto(stressSessionHref(fixture.sourceID))
+  await expectSessionTitle(page, fixture.expected.sourceTitle)
+  const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+  await toggle.click()
+  const sidebar = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
+  const close = sidebar.getByRole("button", { name: "Close navigation", exact: true })
+  const settings = sidebar.getByRole("button", { name: "Settings", exact: true })
+  await expect(close).toBeFocused()
+  await close.press("Shift+Tab")
+  await expect(settings).toBeFocused()
+  await settings.press("Tab")
+  await expect(close).toBeFocused()
+  const search = sidebar.getByRole("searchbox", { name: "Search threads", exact: true })
+  await search.focus()
+  await search.press("Tab")
+  await expect(sidebar.locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"]`)).toBeFocused()
+  const title = sidebar.locator(
+    `[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"] [data-titlebar-tab-title]`,
+  )
+  await title.dblclick()
+  await expect(title).toHaveAttribute("contenteditable", "true")
+  await title.fill("Cancel this rename")
+  await title.press("Escape")
+  await expect(title).toHaveText(fixture.expected.sourceTitle)
+  await expect(title).not.toHaveAttribute("contenteditable", "true")
+  await expect(toggle).toHaveAttribute("aria-expanded", "true")
+  await close.focus()
+  await close.press("Escape")
+  await expect(toggle).toHaveAttribute("aria-expanded", "false")
+})
+
+test("CM3 Help opens the original feedback destination", async ({ page, context }) => {
+  await mockStressTimeline(page)
+  await installCm3Sidebar(page)
+  await context.route("https://opencode.ai/desktop-feedback", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "Help destination" }),
+  )
+  await page.goto("/")
+  const help = page.locator(".cm3-sidebar-footer").getByRole("button", { name: "Help", exact: true })
+  await expect(help).toBeVisible()
+  const opened = context.waitForEvent("page")
+  await help.click()
+  const feedback = await opened
+  await expect(feedback).toHaveURL("https://opencode.ai/desktop-feedback")
+  await feedback.close()
+})
+
+async function installCm3Sidebar(page: Page, input?: Parameters<typeof installStressSessionTabs>[1]) {
+  await installStressSessionTabs(page, input)
+  await page.addInitScript(() => {
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
+  })
+}

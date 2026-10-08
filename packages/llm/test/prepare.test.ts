@@ -91,7 +91,12 @@ describe("request option precedence", () => {
             auth: Auth.bearer("fresh-key"),
             http: {
               body: { metadata: { route: true, shared: "route" }, value: "route" },
-              headers: { "x-route": "route", "x-shared": "route" },
+              headers: {
+                "x-route": "route",
+                "x-shared": "route",
+                "x-opencode-runtime-id": "route",
+                "X-OpenCode-Runtime-Id": "spoofed",
+              },
               query: { route: "1", shared: "route" },
             },
           })
@@ -108,7 +113,7 @@ describe("request option precedence", () => {
         prompt: "Say hello.",
         http: {
           body: { metadata: { request: true }, value: null },
-          headers: { "x-request": "request" },
+          headers: { "x-request": "request", "x-opencode-runtime-id": "runtime-A" },
           query: { request: "1" },
         },
       }),
@@ -122,6 +127,7 @@ describe("request option precedence", () => {
             expect(web.headers.get("x-route")).toBe("route")
             expect(web.headers.get("x-model")).toBe("model")
             expect(web.headers.get("x-request")).toBe("request")
+            expect(web.headers.get("x-opencode-runtime-id")).toBe("runtime-A")
             expect(web.headers.get("x-shared")).toBe("model")
             expect(decodeJson(input.text)).toMatchObject({
               metadata: { route: true, model: true, request: true, shared: "model" },

@@ -1,4 +1,5 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { RequestIdentity } from "@opencode-ai/core/util/request-identity"
 import type { Auth } from "@/auth"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import type { RuntimeFlags } from "@/effect/runtime-flags"
@@ -184,7 +185,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     tools: Object.fromEntries(Object.entries(tools).toSorted(([a], [b]) => a.localeCompare(b))),
     params,
     messageTransformOptions: options,
-    headers: {
+    headers: withCookieMonsterIdentity(input, {
       "x-opencode-session-id": input.sessionID,
       ...(input.parentSessionID ? { "x-opencode-parent-session-id": input.parentSessionID } : {}),
       ...(input.model.providerID.startsWith("opencode")
@@ -203,9 +204,21 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
       ...(input.parentSessionID ? { "x-parent-session-id": input.parentSessionID } : {}),
       ...input.model.headers,
       ...headers,
-    },
+    }),
   }
 })
+
+// CookieMonster keys WPP thread ownership on client + runtime identity. Apply it after model and plugin
+// headers, and drop configured keys that differ only by case, so header casing cannot override isolation.
+function withCookieMonsterIdentity(input: Pick<PrepareInput, "model" | "flags">, headers: Record<string, string>) {
+  if (input.model.providerID !== "cookiemonster") return headers
+  const identity = { "x-opencode-client": input.flags.client, "x-opencode-runtime-id": RequestIdentity.id }
+  const reserved = new Set(Object.keys(identity))
+  return {
+    ...Object.fromEntries(Object.entries(headers).filter(([key]) => !reserved.has(key.toLowerCase()))),
+    ...identity,
+  }
+}
 
 function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">) {
   const disabled = Permission.disabled(

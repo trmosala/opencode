@@ -15,6 +15,8 @@ import { createHomeController } from "@/pages/home/home-controller"
 import { createHomeSessionsController, type HomeSessionRecord } from "@/pages/home/home-sessions-controller"
 import { createHomeProjectsController } from "@/pages/home/home-projects-controller"
 import { HomeProjects } from "@/pages/home/home-projects"
+import { shouldOpenSessionInBackground } from "@/pages/home-session-open"
+import { SessionTabAvatar } from "@/pages/layout/session-tab-avatar"
 import { useDirectoryPicker } from "./directory-picker"
 import { useSettingsDialog } from "./settings-dialog"
 import { Cm3Icon } from "./cm3-icon"
@@ -35,7 +37,7 @@ export function Cm3Shell() {
   const openSettings = useSettingsDialog()
   const projects = createHomeProjectsController(home, { openSettings })
   const [state, setState] = createStore({ search: "", navigation: false })
-  const refs: { toggle?: HTMLButtonElement; nav?: HTMLElement } = {}
+  const refs: { toggle?: HTMLButtonElement; nav?: HTMLElement; search?: HTMLInputElement } = {}
   const closeNavigation = () => {
     setState("navigation", false)
     refs.toggle?.focus({ preventScroll: true })
@@ -88,6 +90,49 @@ export function Cm3Shell() {
       .filter((record) => `${record.session.title} ${record.projectName}`.toLowerCase().includes(value))
   })
   const records = createMemo(() => (state.search.trim() ? searchRecords() : sessions.data.records()))
+  const openSession = (record: HomeSessionRecord, background = false) => {
+    if (settings.general.newLayoutDesigns()) {
+      if (!background) closeNavigation()
+      sessions.session.open(record.session, { background })
+      return
+    }
+    const conn = home.server.focused()
+    if (!conn) return
+    closeNavigation()
+    server.setActive(ServerConnection.key(conn))
+    navigate(legacySessionHref(record.session.directory, record.session.id))
+  }
+  const backgroundOpen = (event: MouseEvent) =>
+    shouldOpenSessionInBackground({
+      button: event.button,
+      mac: /(Mac|iPod|iPhone|iPad)/.test(navigator.platform),
+      meta: event.metaKey,
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+      alt: event.altKey,
+    })
+  const navigateSearch = (event: KeyboardEvent) => {
+    if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key === "Enter" && event.target === refs.search && state.search.trim()) {
+      const record = records()[0]
+      if (!record) return
+      event.preventDefault()
+      openSession(record)
+      return
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
+    const controls = Array.from(refs.nav?.querySelectorAll<HTMLButtonElement>(".cm3-sidebar-task") ?? [])
+    if (!controls.length) return
+    event.preventDefault()
+    const index = controls.findIndex((element) => element === event.currentTarget)
+    const next =
+      index < 0
+        ? event.key === "ArrowDown"
+          ? 0
+          : controls.length - 1
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + controls.length) % controls.length
+    controls[next]?.focus()
+  }
   const openTask = (conn: ServerConnection.Any, directory: string) => {
     if (settings.general.newLayoutDesigns()) return home.project.openProjectNewSession(conn, directory)
     home.server.context(conn).projects.open(directory)
@@ -121,17 +166,32 @@ export function Cm3Shell() {
       class="cm3-sidebar-task"
       type="button"
       data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
-      onClick={() => {
-        closeNavigation()
-        if (settings.general.newLayoutDesigns()) return sessions.session.open(record.session)
-        const conn = home.server.focused()
-        if (!conn) return
-        server.setActive(ServerConnection.key(conn))
-        navigate(legacySessionHref(record.session.directory, record.session.id))
+      onKeyDown={navigateSearch}
+      onMouseDown={(event) => {
+        if (event.button === 1) event.preventDefault()
+      }}
+      onClick={(event) => openSession(record, backgroundOpen(event))}
+      onAuxClick={(event) => {
+        if (!backgroundOpen(event)) return
+        event.preventDefault()
+        openSession(record, true)
       }}
     >
-      <Cm3Icon name="chats" />
-      <span>{record.session.title}</span>
+      <div class="size-4 shrink-0" aria-hidden="true">
+        <SessionTabAvatar
+          project={record.project}
+          directory={record.session.directory}
+          sessionId={record.session.id}
+          server={sessions.session.server()}
+          revealProjectOnHover={false}
+        />
+      </div>
+      <span class="cm3-sidebar-task-copy">
+        <span>{record.session.title}</span>
+        <Show when={sessions.session.showProjectName()}>
+          <span class="cm3-sidebar-task-project">{record.projectName}</span>
+        </Show>
+      </span>
     </button>
   )
 
@@ -164,8 +224,11 @@ export function Cm3Shell() {
         class="cm3-sidebar"
         data-open={state.navigation}
         aria-label={language.t("sidebar.nav.projectsAndSessions")}
-        onKeyDown={(event) => {
+        // The tab strip is portaled here, so delegated events follow the titlebar's owner instead of this aside.
+        on:keydown={(event) => {
+          if (event.defaultPrevented || event.isComposing) return
           if (event.key === "Escape") {
+            if (!state.navigation || (event.target instanceof HTMLElement && event.target.isContentEditable)) return
             event.preventDefault()
             event.stopPropagation()
             closeNavigation()
@@ -173,8 +236,10 @@ export function Cm3Shell() {
           }
           if (event.key !== "Tab" || !state.navigation || !refs.toggle?.offsetParent) return
           const controls = Array.from(
-            event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), input, select"),
-          )
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]",
+            ),
+          ).filter((element) => element.tabIndex >= 0 && element.getClientRects().length > 0)
           const first = controls[0]
           const last = controls.at(-1)
           if (event.shiftKey && event.target === first) {
@@ -209,12 +274,24 @@ export function Cm3Shell() {
           <Cm3Icon name="note-pencil" />
           {language.t("quietCompanion.newTask")}
         </button>
+        <button
+          class="cm3-sidebar-action"
+          type="button"
+          data-active={location.pathname === "/scheduled"}
+          aria-current={location.pathname === "/scheduled" ? "page" : undefined}
+          onClick={() => navigate("/scheduled")}
+        >
+          <Cm3Icon name="clock" />
+          {language.t("schedules.title")}
+        </button>
         <label class="cm3-sidebar-search">
           <Cm3Icon name="magnifying-glass" />
           <input
+            ref={(element) => (refs.search = element)}
             type="search"
             value={state.search}
             onInput={(event) => setState("search", event.currentTarget.value)}
+            onKeyDown={navigateSearch}
             placeholder={language.t("quietCompanion.search")}
             aria-label={language.t("quietCompanion.searchThreads")}
           />
@@ -288,6 +365,10 @@ export function Cm3Shell() {
         </div>
         <div class="cm3-sidebar-footer">
           <WppAuthControl />
+          <button type="button" onClick={projects.utility.help}>
+            <Cm3Icon name="question" />
+            {language.t("sidebar.help")}
+          </button>
           <button type="button" onClick={openSettings}>
             <Cm3Icon name="gear" />
             {language.t("quietCompanion.settings")}

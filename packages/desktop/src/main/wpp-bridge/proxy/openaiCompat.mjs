@@ -22,7 +22,7 @@ import { collectImageInputs } from "./imageInputs.mjs";
 import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs";
 import { estimateTokens } from "./tokenEstimate.mjs";
 import { resolveUsage } from "./usage.mjs";
-import { DEFAULT_MODEL_ID, MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs";
+import { DEFAULT_MODEL_ID, MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs";
 const DEFAULT_MAX_PROMPT_CHARS = 600000;
 const STREAM_KEEP_ALIVE_MS = 10000;
 
@@ -91,6 +91,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const id = `chatcmpl_${crypto.randomUUID().replace(/-/g, "")}`;
   const created = Math.floor(Date.now() / 1000);
   const model = body.model || DEFAULT_MODEL_ID;
+  const profile = resolveRequestModelProfile(body);
   const startedAt = new Date().toISOString();
   const target = body.o1_code_target || "coding-agent";
 
@@ -137,16 +138,24 @@ export async function handleChatCompletions(request, response, body, { bridge = 
   const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
   const serializableMessages = serializableMessagesForRequest(body);
 
-  // Route the OpenCode model name to the identically named CookieMonster WPP project agent. An explicit
-  // o1_code_model still overrides the mapping for diagnostics and custom deployments.
-  const agentName = body.o1_code_model || resolveModelProfile(model).agentName;
-  const commentaryPhase = resolveModelProfile(agentName).commentaryPhase === true;
-  // OpenCode tags every call with its session id (request.ts). Pin session+agent to one WPP worker
-  // tab so its thread holds context across turns; a mid-session model switch forks a new thread.
+  // Route the model and effort to their validated WPP agent. An explicit o1_code_model still
+  // overrides the mapping for diagnostics and custom deployments.
+  const agentName = profile.agentName;
+  const commentaryPhase = profile.commentaryPhase === true;
+  // Pin client+runtime+session+agent to one WPP worker so its thread holds context across turns.
+  // A separate backend or a mid-session model switch starts its own WPP conversation.
   // Compaction is a one-shot summarization: route it to an unpinned worker (sessionKey "") so it
   // never New-Chats and wipes the live thread, and always serialize it fresh.
   const sessionId = sessionIdFromHeaders(request.headers);
-  const sessionKey = isCompaction || !sessionId ? "" : `${sessionId}::${agentName}`;
+  const client = request.headers["x-opencode-client"];
+  const runtimeId = request.headers["x-opencode-runtime-id"];
+  // Never adopt another backend's WPP conversation when a saved session is resumed.
+  // Older clients without an ownership identity replay fresh on an unpinned worker.
+  const identified = typeof client === "string" && client.trim()
+    && typeof runtimeId === "string" && runtimeId.trim();
+  const sessionKey = isCompaction || !sessionId || !identified
+    ? ""
+    : JSON.stringify([client.trim(), runtimeId.trim(), sessionId, agentName]);
   const releaseThreadTurn = await acquireThreadTurn(sessionKey);
   try {
   // Sub-agent turns are still pinned (so the sub-agent keeps thread continuity across its own run)
@@ -452,7 +461,9 @@ export async function handleChatCompletions(request, response, body, { bridge = 
 
   // Commit transcript and usage only after the provider turn and every recovery path succeeded.
   // Failed attempts reset the mirror and can never add to the next turn's retained context.
-  if (continuity) commitThread(sessionKey, body, normalized, resolvedUsage.context);
+  // A tab retired (pruned, discarded, pool destroyed) while this turn ran must not get its mirror back.
+  if (continuity && bridge.hasSession(sessionKey)) commitThread(sessionKey, body, normalized, resolvedUsage.context);
+  else if (continuity) resetThread(sessionKey);
 
   // Per-turn capture path: "network" = byte-exact recorder, "dom" = innerText DOM fallback, which is
   // whitespace-lossy and thus unreliable for byte-sensitive tool-call output. Promoted to a top-level
@@ -673,7 +684,7 @@ function hasExplicitIncompleteTaskClaim(content, { forwardLooking = false } = {}
 }
 
 function commentaryPhaseEnabled(body) {
-  return resolveModelProfile(body?.o1_code_model || body?.model).commentaryPhase === true;
+  return resolveRequestModelProfile(body).commentaryPhase === true;
 }
 
 function hasTaskCompleteMarker(content) {

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "name": "Weekday repository review",
+  "prompt": "Review changes from the preceding 24 hours on the selected base ref. Report actionable regressions with file references and supporting evidence. Leave the checkout unchanged.",
+  "target": {
+    "type": "new_session",
+    "directory": "D:\\Workarea\\CookieMonster\\opencode",
+    "workspace": { "type": "worktree", "baseRef": "origin/dev" }
+  },
+  "schedule": {
+    "type": "calendar",
+    "timezone": "Africa/Johannesburg",
+    "time": "09:00",
+    "weekdays": ["mon", "tue", "wed", "thu", "fri"]
+  }
+}

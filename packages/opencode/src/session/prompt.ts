@@ -102,6 +102,11 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
   readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
+  /** Scheduler queue admission claims an idle runner before adding a user message. */
+  readonly scheduled: (
+    input: PromptInput,
+    admitted: () => Promise<void>,
+  ) => Effect.Effect<Option.Option<SessionV1.WithParts>>
   readonly loop: (input: LoopInput) => Effect.Effect<SessionV1.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
@@ -1347,6 +1352,36 @@ const layer = Layer.effect(
       return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
     })
 
+    const scheduled = Effect.fn("SessionPrompt.scheduled")(function* (
+      input: PromptInput,
+      admitted: () => Promise<void>,
+    ) {
+      const work = Effect.gen(function* () {
+        const previous = yield* sessions
+          .findMessage(input.sessionID, (message) => message.info.id === input.messageID)
+          .pipe(Effect.orDie)
+        // A prior record makes this execution ambiguous. Restart reconciliation owns
+        // this case; never overwrite a message or repeat provider work here.
+        if (Option.isSome(previous)) return yield* Effect.die("Scheduled prompt was already admitted")
+        const current = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        yield* prompt({
+          ...input,
+          agent: input.agent ?? current.agent,
+          model:
+            input.model ??
+            (current.model ? { providerID: current.model.providerID, modelID: current.model.id } : undefined),
+          variant: input.variant ?? (current.model?.variant === "default" ? undefined : current.model?.variant),
+          noReply: true,
+        }).pipe(Effect.orDie)
+        yield* Effect.promise(admitted)
+        return yield* runLoop(input.sessionID)
+      })
+      return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), work).pipe(
+        Effect.map(Option.some),
+        Effect.catchTag("SessionBusyError", () => Effect.succeed(Option.none())),
+      )
+    })
+
     const shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError> = Effect.fn(
       "SessionPrompt.shell",
     )(function* (input: ShellInput) {
@@ -1484,6 +1519,7 @@ const layer = Layer.effect(
     return Service.of({
       cancel,
       prompt,
+      scheduled,
       loop,
       shell,
       command,

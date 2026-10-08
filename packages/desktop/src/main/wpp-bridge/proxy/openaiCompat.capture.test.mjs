@@ -12,10 +12,63 @@ const {
 const { commitThread, resetThread, threadContextUsage } = await import("./sessionThreads.mjs");
 const { estimateTokens } = await import("./tokenEstimate.mjs");
 
-const KEY = "sess-A::CM_Opus5.5-XHigh";
+const IDENTITY = { "x-opencode-client": "cli", "x-opencode-runtime-id": "runtime-A" };
+const KEY = JSON.stringify(["cli", "runtime-A", "sess-A", "CM_Opus5.5-XHigh"]);
 
 afterEach(() => {
   resetThread(KEY);
+});
+
+describe("WPP conversation ownership", () => {
+  test("a late response cannot recreate a retired tab's mirror", async () => {
+    let alive = true;
+    commitThread(KEY, body(user("hello")), assistant("previous"));
+    const bridge = {
+      hasSession: () => alive,
+      run: async () => {
+        alive = false;
+        resetThread(KEY);
+        return bridgeRun("done");
+      },
+    };
+    await withNoRunLogs(() => handleChatCompletions(
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
+      fakeResponse(), body(user("hello"), assistant("previous"), user("more")), { bridge },
+    ));
+    expect(threadContextUsage(KEY)).toBeUndefined();
+  });
+  test("keeps GUI and separate CLI runtimes out of an existing conversation", async () => {
+    commitThread(KEY, body(user("hello")), assistant("previous"));
+    const calls = [];
+    const bridge = {
+      hasSession: (key) => key === KEY,
+      run: async (_prompt, options) => {
+        calls.push(options);
+        return bridgeRun("done");
+      },
+    };
+    const identities = [
+      { ...IDENTITY, "x-opencode-client": "desktop" },
+      { ...IDENTITY, "x-opencode-runtime-id": "runtime-B" },
+      {},
+      { "x-opencode-client": "cli" },
+      { "x-opencode-runtime-id": "runtime-A" },
+      { ...IDENTITY, "x-opencode-runtime-id": " " },
+    ];
+    for (const identity of identities) {
+      await withNoRunLogs(() => handleChatCompletions(
+        { headers: { ...identity, "x-session-affinity": "sess-A" } },
+        fakeResponse(),
+        body(user("hello"), assistant("previous"), user("more")),
+        { bridge },
+      ));
+    }
+    expect(calls).toHaveLength(identities.length);
+    expect(calls.every((call) => !call.continueThread && call.sessionKey !== KEY)).toBe(true);
+    expect(calls[0].sessionKey).not.toBe(calls[1].sessionKey);
+    expect(calls.slice(2).every((call) => call.sessionKey === "")).toBe(true);
+    calls.forEach((call) => resetThread(call.sessionKey));
+  });
 });
 
 describe("Opus High routing compatibility", () => {
@@ -32,7 +85,7 @@ describe("Opus High routing compatibility", () => {
       };
       try {
         await withNoRunLogs(() => handleChatCompletions(
-          { headers: { "x-session-affinity": "sess-opus-high" } },
+          { headers: { ...IDENTITY, "x-session-affinity": "sess-opus-high" } },
           response,
           { ...body(user("hello")), model },
           { bridge },
@@ -41,15 +94,74 @@ describe("Opus High routing compatibility", () => {
         expect(response.statusCode).toBe(200);
         expect(calls).toHaveLength(1);
         expect(calls[0].options.model).toBe("CM_Opus5.5-High");
-        expect(calls[0].options.sessionKey).toBe("sess-opus-high::CM_Opus5.5-High");
+        expect(calls[0].options.sessionKey).toBe(JSON.stringify(["cli", "runtime-A", "sess-opus-high", "CM_Opus5.5-High"]));
         expect(calls[0].prompt.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1");
         expect(JSON.parse(response.body).model).toBe(model);
       } finally {
-        resetThread("sess-opus-high::CM_Opus5.5-High");
-        resetThread("sess-opus-high::CM_GPT-5.6-Sol_High");
+        resetThread(JSON.stringify(["cli", "runtime-A", "sess-opus-high", "CM_Opus5.5-High"]));
+        resetThread(JSON.stringify(["cli", "runtime-A", "sess-opus-high", "CM_GPT-5.6-Sol_High"]));
       }
     });
   }
+});
+
+describe("Sol 6.1 effort routing", () => {
+  test("dispatches all five efforts to distinct agents and threads while retaining the family response ID", async () => {
+    const calls = [];
+    const bridge = {
+      hasSession: () => false,
+      run: async (prompt, options) => {
+        calls.push({ prompt: JSON.parse(prompt), options });
+        return bridgeRun("Resolved.");
+      },
+    };
+    try {
+      for (const reasoning_effort of [undefined, "low", "medium", "high", "xhigh", "max"]) {
+        const response = fakeResponse();
+        await withNoRunLogs(() => handleChatCompletions(
+          { headers: {
+            "x-opencode-session-id": "sol61-routing",
+            "x-session-affinity": "sol61-routing",
+            "x-opencode-client": "desktop",
+            "x-opencode-runtime-id": "sol61-test",
+          } },
+          response,
+          {
+            model: "CM_GPT6.1_Sol",
+            ...(reasoning_effort === undefined ? {} : { reasoning_effort }),
+            messages: [user("hello")],
+          },
+          { bridge },
+        ));
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).model).toBe("CM_GPT6.1_Sol");
+      }
+      expect(calls.map((call) => call.options.model)).toEqual([
+        "CM_GPT6.1_Sol_Medium",
+        "CM_GPT6.1_Sol_Low", "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
+        "CM_GPT6.1_Sol_XHigh", "CM_GPT6.1_Sol_Max",
+      ]);
+      for (const call of calls) {
+        expect(call.options.sessionKey).toBe(JSON.stringify(["desktop", "sol61-test", "sol61-routing", call.options.model]));
+        expect(call.prompt.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1");
+      }
+      expect(calls[0].options.sessionKey).toBe(calls[2].options.sessionKey);
+      expect(new Set(calls.map((call) => call.options.sessionKey)).size).toBe(5);
+    } finally {
+      for (const call of calls) resetThread(call.options.sessionKey);
+    }
+  });
+
+  test("rejects an unavailable effort before any WPP dispatch", async () => {
+    let calls = 0;
+    await expect(handleChatCompletions(
+      { headers: {} },
+      fakeResponse(),
+      { model: "CM_GPT6.1_Sol", reasoning_effort: "auto", messages: [user("hello")] },
+      { bridge: { run: async () => { calls += 1; return bridgeRun("wrong route"); } } },
+    )).rejects.toMatchObject({ statusCode: 400, type: "invalid_reasoning_effort" });
+    expect(calls).toBe(0);
+  });
 });
 
 describe("handleChatCompletions capture retry", () => {
@@ -67,7 +179,7 @@ describe("handleChatCompletions capture retry", () => {
     };
 
     await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       response,
       body(user("hello"), assistant("previous"), user("more")),
       { bridge },
@@ -120,7 +232,7 @@ describe("handleChatCompletions capture retry", () => {
     };
 
     await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       response,
       body(user("hello"), assistant("previous"), user("more")),
       { bridge },
@@ -153,7 +265,7 @@ describe("handleChatCompletions capture retry", () => {
     };
 
     await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       response,
       body(user("hello"), assistant("previous"), user("more")),
       { bridge },
@@ -184,7 +296,7 @@ describe("handleChatCompletions capture retry", () => {
     };
 
     await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       response,
       body(user("hello"), assistant("previous"), user("more")),
       { bridge },
@@ -247,7 +359,7 @@ describe("handleChatCompletions capture retry", () => {
       };
 
       await withNoRunLogs(() => handleChatCompletions(
-        { headers: { "x-session-affinity": "sess-A" } },
+        { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
         response,
         body(user("hello"), assistant("previous"), user("more")),
         { bridge },
@@ -546,7 +658,7 @@ describe("incomplete task recovery", () => {
     };
 
     await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       response,
       toolBody(user("hello"), assistant("previous"), user("Inspect the workspace.")),
       { bridge },
@@ -614,7 +726,7 @@ describe("handleChatCompletions token usage", () => {
 
     await withNoRunLogs(() =>
       handleChatCompletions(
-        { headers: { "x-session-affinity": "sess-A" } },
+        { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
         response,
         body(user("hello"), assistant("previous"), user("more")),
         { bridge },
@@ -639,7 +751,7 @@ describe("handleChatCompletions token usage", () => {
 
     await withNoRunLogs(() =>
       handleChatCompletions(
-        { headers: { "x-session-affinity": "sess-A" } },
+        { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
         response,
         body(user("hello"), assistant("previous"), user("more")),
         { bridge },
@@ -732,14 +844,14 @@ describe("handleChatCompletions token usage", () => {
     }
     const firstResponse = fakeResponse()
     await withNoRunLogs(() =>
-      handleChatCompletions({ headers: { "x-session-affinity": "sess-A" } }, firstResponse, body(user("hello")), {
+      handleChatCompletions({ headers: { ...IDENTITY, "x-session-affinity": "sess-A" } }, firstResponse, body(user("hello")), {
         bridge,
       }),
     )
     const secondResponse = fakeResponse()
     await withNoRunLogs(() =>
       handleChatCompletions(
-        { headers: { "x-session-affinity": "sess-A" } },
+        { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
         secondResponse,
         body(user("hello"), assistant("first"), user("more")),
         { bridge },
@@ -768,7 +880,7 @@ describe("handleChatCompletions token usage", () => {
 
     await withNoRunLogs(() =>
       handleChatCompletions(
-        { headers: { "x-session-affinity": "sess-A" } },
+        { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
         response,
         body(user("hello"), assistant("previous"), user("more")),
         { bridge },
@@ -798,7 +910,8 @@ describe("handleChatCompletions token usage", () => {
           stream_options: { include_usage: true },
         }
         const bridge = {
-          hasSession: () => mode !== "fresh",
+          // A fresh turn spawns the session's pinned tab, so it is live once a run has started.
+          hasSession: () => mode !== "fresh" || calls.length > 0,
           run: async (prompt, options) => {
             calls.push({ prompt, continued: options.continueThread })
             if (replay && calls.length === 1) throw captureError("recorder_parser_miss")
@@ -810,7 +923,7 @@ describe("handleChatCompletions token usage", () => {
         }
 
         await withNoRunLogs(() => handleChatCompletions(
-          { headers: { "x-session-affinity": "sess-A" } },
+          { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
           response,
           requestBody,
           { bridge },
@@ -853,7 +966,7 @@ describe("handleChatCompletions token usage", () => {
     }
 
     await withNoRunLogs(() => handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       response,
       toolBody(user("hello"), assistant("previous"), user("Summarize the result.")),
       { bridge },
@@ -877,7 +990,7 @@ describe("handleChatCompletions token usage", () => {
 
     await withNoRunLogs(() =>
       handleChatCompletions(
-        { headers: { "x-session-affinity": "sess-A" } },
+        { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
         response,
         body(user("hello"), assistant("previous"), user("more")),
         { bridge },
@@ -950,7 +1063,7 @@ describe("handleChatCompletions session serialization", () => {
     process.env.O1_CODE_PROXY_LOGS = "0";
 
     const first = handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       firstResponse,
       body(user("hello")),
       { bridge },
@@ -958,7 +1071,7 @@ describe("handleChatCompletions session serialization", () => {
     await firstStarted;
 
     const second = handleChatCompletions(
-      { headers: { "x-session-affinity": "sess-A" } },
+      { headers: { ...IDENTITY, "x-session-affinity": "sess-A" } },
       secondResponse,
       body(user("hello"), assistant("first answer"), user("more")),
       { bridge },
