@@ -110,7 +110,7 @@ function createServerCtx(
   const sdk = createServerSdkContext(conn, scope)
   const sync = createServerSyncContext(sdk)
 
-  function enrich(project: { worktree: string; expanded: boolean }) {
+  function enrich(project: { worktree: string; expanded: boolean; pinned?: boolean }) {
     const [childStore] = sync.child(project.worktree, { bootstrap: false })
     const projectID = childStore.project
     const metadata = projectID

@@ -82,11 +82,13 @@ export function Cm3Shell() {
   const projectPending = () => /^\/server\/[^/]+\/session\/[^/]+$/.test(location.pathname) && !routeProject()
   const searchRecords = createMemo(() => {
     const value = state.search.trim().toLowerCase()
-    return sessions.data.searchRecords().filter((record) =>
-      `${record.session.title} ${record.projectName}`.toLowerCase().includes(value),
-    )
+    return sessions.data
+      .searchRecords()
+      .filter((record) => `${record.session.title} ${record.projectName}`.toLowerCase().includes(value))
   })
   const records = createMemo(() => (state.search.trim() ? searchRecords() : sessions.data.records()))
+  const pinnedRecords = createMemo(() => searchRecords().filter((record) => sessions.session.isPinned(record.session)))
+  const recentRecords = createMemo(() => records().filter((record) => !sessions.session.isPinned(record.session)))
   const projectSessions = createMemo(() => {
     const grouped = new Map<string, HomeSessionRecord[]>()
     searchRecords().forEach((record) => {
@@ -168,7 +170,7 @@ export function Cm3Shell() {
     openTask(conn, project.worktree)
   }
   const renderSession = (record: HomeSessionRecord, recent = false) => (
-    <div class="cm3-sidebar-session" role="group" aria-label={record.session.title}>
+    <div class="cm3-sidebar-session" data-session-id={record.session.id} role="group" aria-label={record.session.title}>
       <button
         class="cm3-sidebar-task"
         data-action={recent ? "recent-session" : "project-session"}
@@ -202,6 +204,34 @@ export function Cm3Shell() {
             </span>
           </Show>
         </span>
+      </button>
+      <button
+        class="cm3-sidebar-session-pin"
+        type="button"
+        disabled={!sessions.session.pinsReady()}
+        aria-pressed={sessions.session.isPinned(record.session)}
+        aria-label={language.t(
+          sessions.session.isPinned(record.session) ? "sidebar.session.unpin" : "sidebar.session.pin",
+        )}
+        title={language.t(sessions.session.isPinned(record.session) ? "sidebar.session.unpin" : "sidebar.session.pin")}
+        onClick={(event) => {
+          const selector = event.currentTarget.closest(".cm3-sidebar-project-sessions")
+            ? ".cm3-sidebar-project-sessions"
+            : "section >"
+          sessions.session.pin(record.session, !sessions.session.isPinned(record.session))
+          queueMicrotask(() =>
+            refs.nav
+              ?.querySelector<HTMLButtonElement>(
+                `${selector} [data-session-id="${CSS.escape(record.session.id)}"] .cm3-sidebar-session-pin`,
+              )
+              ?.focus({ preventScroll: true }),
+          )
+        }}
+      >
+        <Icon
+          name={sessions.session.isPinned(record.session) ? "push-pin-fill" : "push-pin"}
+          style={{ width: "12.8px", height: "12.8px" }}
+        />
       </button>
       <Show when={settings.general.newLayoutDesigns()}>
         <button
@@ -308,7 +338,6 @@ export function Cm3Shell() {
           />
         </label>
         <div class="cm3-sidebar-scroll">
-          <p class="cm3-sidebar-section">{language.t("quietCompanion.projects")}</p>
           <HomeProjects
             projects={projects}
             sidebar
@@ -347,9 +376,15 @@ export function Cm3Shell() {
             <Cm3Icon name="plus" />
             {language.t("command.project.open")}
           </button>
+          <Show when={pinnedRecords().length > 0}>
+            <section aria-label={language.t("sidebar.session.pinned")}>
+              <p class="cm3-sidebar-section">{language.t("sidebar.session.pinned")}</p>
+              <For each={pinnedRecords()}>{(record) => renderSession(record, true)}</For>
+            </section>
+          </Show>
           <section aria-label={language.t("sidebar.project.recentSessions")}>
             <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
-            <For each={records()}>{(record) => renderSession(record, true)}</For>
+            <For each={recentRecords()}>{(record) => renderSession(record, true)}</For>
             <Show
               when={!sessions.data.loading()}
               fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}
@@ -360,7 +395,7 @@ export function Cm3Shell() {
                   {language.t("browser.action.reload")}
                 </button>
               </Show>
-              <Show when={!records().length && !sessions.data.error()}>
+              <Show when={!records().length && !pinnedRecords().length && !sessions.data.error()}>
                 <p role="status">{language.t("quietCompanion.noThreads")}</p>
               </Show>
             </Show>

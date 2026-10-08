@@ -35,6 +35,7 @@ export function HomeProjects(props: {
       onSetDefaultServer={props.projects.server.setDefault}
       onRemoveServer={props.projects.server.remove}
       onMoveProject={props.projects.project.move}
+      onPinProject={props.projects.project.pin}
       onSelectProject={props.onSelectProject ?? props.projects.project.select}
       onAddProjects={props.projects.project.add}
       onOpenProjectNewSession={props.onOpenProjectNewSession ?? props.projects.project.openNewSession}

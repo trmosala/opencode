@@ -131,6 +131,14 @@ describe("Home V2 session index", () => {
     ).toEqual([created])
   })
 
+  test("keeps old pinned roots beyond retention without duplicating current pins", () => {
+    const sessions = parseHomeSessionIndex([session({ id: "old", updated: 1 }), session({ id: "new", updated: 100 })])
+    const now = 10 * 60 * 60 * 1000
+    expect(retainHomeSessions(sessions, 1, now).map((item) => item.id)).toEqual(["new"])
+    expect(retainHomeSessions(sessions, 1, now, new Set(["old", "new"])).map((item) => item.id)).toEqual(["new", "old"])
+    expect(retainHomeSessions(sessions, 1, now, new Set(["missing"])).map((item) => item.id)).toEqual(["new"])
+  })
+
   test("applies only events newer than the index baseline", () => {
     const initial = parseHomeSessionIndex([session({ id: "old" })])
     const stale = { ...initial[0], title: "stale" }

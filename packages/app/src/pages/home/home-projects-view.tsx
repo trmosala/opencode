@@ -51,6 +51,7 @@ export type HomeProjectsViewProps = {
   onSetDefaultServer: (server: ServerConnection.Any | undefined) => void
   onRemoveServer: (server: ServerConnection.Any) => void
   onMoveProject: (server: ServerConnection.Any, worktree: string, index: number) => void
+  onPinProject: (server: ServerConnection.Any, project: LocalProject) => void
   onSelectProject: (server: ServerConnection.Any, directory: string) => void
   onAddProjects: (server: ServerConnection.Any, directories: string[]) => void
   onOpenProjectNewSession: (server: ServerConnection.Any, directory: string) => void
@@ -85,7 +86,7 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
       }}
     >
       <Show when={!props.sidebar}>
-        <div class="flex h-7 min-w-0 shrink-0 items-center justify-between pl-1.5 pr-3">
+        <div class="flex h-7 min-w-0 shrink-0 items-center justify-between ps-1.5 pe-3">
           <div class="text-v2-text-text-muted [font-weight:530]">{props.language.t("home.projects")}</div>
           <Show
             when={props.servers().length === 1 && !(props.projects().length === 0 && props.recentlyClosed().length > 0)}
@@ -110,9 +111,38 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
         class="min-h-0 min-w-0 shrink"
       >
         <Show
+          when={props.servers().some((server) => props.projectsForServer(server).some((project) => project.pinned))}
+        >
+          <section data-component="pinned-projects" aria-label={props.language.t("quietCompanion.pinned")}>
+            <p class={props.sidebar ? "cm3-sidebar-section" : "mb-2 px-1.5 text-v2-text-text-muted"}>
+              {props.language.t("quietCompanion.pinned")}
+            </p>
+            <For each={props.servers()}>
+              {(server) => {
+                const items = createMemo(() => props.projectsForServer(server).filter((project) => project.pinned))
+                return (
+                  <Show when={items().length > 0}>
+                    <div class="min-w-0 pe-3">
+                      <Show when={props.servers().length > 1}>
+                        <p class="px-1.5 text-v2-text-text-muted" dir="auto">
+                          {server.displayName ?? new URL(server.http.url).host}
+                        </p>
+                      </Show>
+                      <HomeProjectList {...props} {...contextMenuProps} server={server} items={items()} />
+                    </div>
+                  </Show>
+                )
+              }}
+            </For>
+          </section>
+        </Show>
+        <Show when={props.sidebar}>
+          <p class="cm3-sidebar-section">{props.language.t("quietCompanion.projects")}</p>
+        </Show>
+        <Show
           when={props.servers().length > 1}
           fallback={
-            <div class="pr-3">
+            <div class="pe-3">
               <Show
                 when={props.projects().length > 0}
                 fallback={<HomeProjectEmpty {...props} server={props.servers()[0]} items={props.recentlyClosed()} />}
@@ -121,16 +151,16 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
                   {...props}
                   {...contextMenuProps}
                   server={props.servers()[0]}
-                  items={props.projects()}
+                  items={props.projects().filter((project) => !project.pinned)}
                 />
               </Show>
             </div>
           }
         >
-          <div class="flex min-w-0 flex-col gap-4 pr-3">
+          <div class="flex min-w-0 flex-col gap-4 pe-3">
             <For each={props.servers()}>
               {(item) => {
-                const projects = () => props.projectsForServer(item)
+                const projects = () => props.projectsForServer(item).filter((project) => !project.pinned)
                 const healthy = () => !!props.serverHealth(item)?.healthy
                 const hasProjects = () => projects().length > 0
                 const collapsed = () => props.collapsed(item)
@@ -174,7 +204,7 @@ export function HomeUtilityNav(props: {
   language: ReturnType<typeof useLanguage>
 }) {
   return (
-    <div class={`${props.class ?? ""} min-w-0 flex-col gap-1 pr-3`}>
+    <div class={`${props.class ?? ""} min-w-0 flex-col gap-1 pe-3`}>
       <HomeProjectNavButton
         type="button"
         class="text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
@@ -224,7 +254,7 @@ function HomeServerRow(props: {
     <div class="group/server relative flex h-7 min-w-0 items-center rounded-[6px]">
       <HomeProjectNavButton
         type="button"
-        class="pr-16 disabled:opacity-60"
+        class="pe-16 disabled:opacity-60"
         data-selected={props.selected ? "" : undefined}
         disabled={!healthy()}
         onClick={() => props.onFocusServer(props.server)}
@@ -280,7 +310,7 @@ function HomeServerRow(props: {
       </HomeProjectNavButton>
       <div
         class={`
-          hover-reveal absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1
+          hover-reveal absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-1
           group-hover/server:opacity-100 focus-within:opacity-100 data-[menu=true]:opacity-100
         `}
         data-menu={props.contextMenuOpen(contextMenuID())}
@@ -348,7 +378,14 @@ function HomeProjectList(props: HomeProjectListProps) {
       onDragEnd={(event) => {
         const source = event.operation.source
         if (event.canceled || !isSortable(source)) return
-        if (source.initialIndex !== source.index) props.onMoveProject(props.server, source.id.toString(), source.index)
+        if (source.initialIndex !== source.index) {
+          // Sortable indices belong to this section, not the full persisted list.
+          const target = props.items[source.index]
+          const index = props
+            .projectsForServer(props.server)
+            .findIndex((project) => project.worktree === target?.worktree)
+          if (index !== -1) props.onMoveProject(props.server, source.id.toString(), index)
+        }
         if (props.selection().server !== ServerConnection.key(props.server))
           props.onSelectProject(props.server, source.id.toString())
       }}
@@ -419,7 +456,7 @@ function HomeProjectEmpty(
         <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.project.add")}</span>
       </HomeProjectNavButton>
       <Show when={props.items.length > 0}>
-        <div class="mt-3 flex h-7 min-w-0 shrink-0 items-center pl-1.5 pr-3">
+        <div class="mt-3 flex h-7 min-w-0 shrink-0 items-center ps-1.5 pe-3">
           <div class="text-v2-text-text-faint [font-weight:530]">{props.language.t("home.recentlyClosed")}</div>
         </div>
         <For each={props.items}>
@@ -499,7 +536,7 @@ function HomeProjectRow(
       <HomeProjectNavButton
         type="button"
         data-component="home-project-row"
-        class="pr-16 disabled:opacity-60"
+        class="pe-20 disabled:opacity-60"
         classList={{
           "bg-v2-background-bg-layer-01 text-v2-text-text-base": sortable.isDragSource(),
           "cm3-sidebar-project": props.sidebar,
@@ -542,7 +579,7 @@ function HomeProjectRow(
       </HomeProjectNavButton>
       <div
         class={`
-          hover-reveal absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1
+          hover-reveal absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-1
           group-hover/project:opacity-100 focus-within:opacity-100 data-[menu=true]:opacity-100
         `}
         data-menu={props.contextMenuOpen(contextMenuID())}
@@ -570,6 +607,12 @@ function HomeProjectRow(
               <MenuV2.Item onSelect={() => props.onEditProject(props.server, props.project)}>
                 {props.language.t("dialog.project.edit.title")}
               </MenuV2.Item>
+              <MenuV2.Item
+                data-action="home-project-pin"
+                onSelect={() => props.onPinProject(props.server, props.project)}
+              >
+                {props.language.t(props.project.pinned ? "sidebar.project.unpin" : "sidebar.project.pin")}
+              </MenuV2.Item>
               <Show when={props.canRevealProject(props.server)}>
                 <MenuV2.Item onSelect={() => props.onRevealProject(props.server, props.project)}>
                   {props.language.t(
@@ -591,6 +634,25 @@ function HomeProjectRow(
             </MenuV2.Content>
           </MenuV2.Portal>
         </MenuV2>
+        <TooltipV2
+          placement="bottom"
+          value={props.language.t(props.project.pinned ? "sidebar.project.unpin" : "sidebar.project.pin")}
+        >
+          <IconButtonV2
+            data-action="home-project-pin-toggle"
+            variant={props.project.pinned ? "ghost" : "ghost-muted"}
+            size="small"
+            aria-pressed={!!props.project.pinned}
+            aria-label={props.language.t(props.project.pinned ? "sidebar.project.unpin" : "sidebar.project.pin")}
+            onClick={() => props.onPinProject(props.server, props.project)}
+            icon={
+              <IconV2
+                name={props.project.pinned ? "push-pin-fill" : "push-pin"}
+                style={{ width: "12.8px", height: "12.8px" }}
+              />
+            }
+          />
+        </TooltipV2>
         <IconButtonV2
           data-action="home-project-new-session"
           variant="ghost-muted"
@@ -610,7 +672,7 @@ function HomeProjectNavButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
     <button
       {...rest}
       class={`
-        flex h-7 min-w-0 w-full shrink-0 cursor-default items-center gap-2 rounded-[6px] bg-transparent px-1.5 text-left
+        flex h-7 min-w-0 w-full shrink-0 cursor-default items-center gap-2 rounded-[6px] bg-transparent px-1.5 text-start
         text-v2-text-text-muted [font-weight:440] transition-[background-color,color,box-shadow] duration-[120ms] ease-in-out
         hover:bg-v2-background-bg-layer-01 hover:text-v2-text-text-base
         data-[selected]:bg-v2-background-bg-layer-03 data-[selected]:text-v2-text-text-base

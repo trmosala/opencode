@@ -5,7 +5,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
 import { ServerScope } from "@/utils/server-scope"
 
-type StoredProject = { worktree: string; expanded: boolean }
+type StoredProject = { worktree: string; expanded: boolean; pinned?: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 type ServerProjectState = {
   projects: Record<string, StoredProject[]>
@@ -127,6 +127,10 @@ export function createServerProjects<T extends ServerProjectState>(input: {
     collapse(directory: string) {
       const index = current().findIndex((project) => project.worktree === directory)
       if (index !== -1) setStore("projects", input.scope(), index, "expanded", false)
+    },
+    pin(directory: string, pinned: boolean) {
+      const index = current().findIndex((project) => project.worktree === directory)
+      if (index !== -1) setStore("projects", input.scope(), index, "pinned", pinned)
     },
     move(directory: string, toIndex: number) {
       const fromIndex = current().findIndex((project) => project.worktree === directory)
@@ -270,6 +274,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
         recentlyClosed: {} as Record<string, string[]>,
+        pinnedSessions: {} as Record<string, string[]>,
       }),
     )
 
@@ -351,6 +356,18 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       add,
       remove,
       scope,
+      sessionPins: {
+        list: (key: ServerConnection.Key) => store.pinnedSessions[scope(key)] ?? [],
+        set: (key: ServerConnection.Key, sessionID: string, pinned: boolean) => {
+          if (!ready()) return
+          const current = store.pinnedSessions[scope(key)] ?? []
+          setStore(
+            "pinnedSessions",
+            scope(key),
+            pinned ? [...new Set([...current, sessionID])] : current.filter((id) => id !== sessionID),
+          )
+        },
+      },
       projects: {
         ...projects,
         forServer: projectsForServer,

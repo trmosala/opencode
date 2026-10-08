@@ -244,6 +244,195 @@ test("CM3 projects retain editing, closing, and persistent drag ordering", async
   ])
 })
 
+for (const width of [1280, 390]) {
+  for (const direction of ["ltr", "rtl"]) {
+    test(`CM3 project pinning persists and closing unpins at ${width}px ${direction}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await mockStressTimeline(page)
+      await mockCm3Projects(page)
+      await page.addInitScript(
+        ({ directory }) => {
+          if (localStorage.getItem("settings.v3")) return
+          localStorage.setItem(
+            "settings.v3",
+            JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }),
+          )
+          localStorage.setItem(
+            "opencode.global.dat:server",
+            JSON.stringify({
+              projects: {
+                local: [directory, "C:/OpenCode/OtherProject", "C:/OpenCode/ThirdProject"].map((worktree) => ({
+                  worktree,
+                  expanded: true,
+                })),
+              },
+              lastProject: { local: directory },
+            }),
+          )
+        },
+        { directory: fixture.directory },
+      )
+      await page.goto("/")
+      const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+      if (width === 390) await toggle.click()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      const projects = page.getByRole("complementary", { name: "Projects", exact: true })
+      const pinned = projects.getByRole("region", { name: "Pinned", exact: true })
+      const other = projects.getByTitle("C:/OpenCode/OtherProject", { exact: true })
+      const third = projects.getByTitle("C:/OpenCode/ThirdProject", { exact: true })
+      await expect(other).toBeEnabled()
+      await expect(third).toBeEnabled()
+      await expect(pinned).toHaveCount(0)
+      await other.hover()
+      await other.locator("..").getByRole("button", { name: "Pin project", exact: true }).click()
+      await expect(pinned.getByTitle("C:/OpenCode/OtherProject", { exact: true })).toBeVisible()
+      await expect(other).toHaveCount(1)
+      await expect(projects.locator('[data-component="home-project-row"] > span')).toHaveText([
+        "OtherProject",
+        fixture.project.name,
+        "ThirdProject",
+      ])
+      const heading = projects.getByText("Projects", { exact: true })
+      expect((await pinned.boundingBox())!.y).toBeLessThan((await heading.boundingBox())!.y)
+
+      await page.reload()
+      if (width === 390) await toggle.click()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      await expect(pinned.getByTitle("C:/OpenCode/OtherProject", { exact: true })).toBeVisible()
+      await other.hover()
+      const unpin = other.locator("..").getByRole("button", { name: "Unpin project", exact: true })
+      await expect(unpin).toHaveAttribute("aria-pressed", "true")
+      await unpin.click()
+      await expect(pinned).toHaveCount(0)
+      await expect(projects.locator('[data-component="home-project-row"] > span')).toHaveText([
+        fixture.project.name,
+        "OtherProject",
+        "ThirdProject",
+      ])
+
+      await other.click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Pin project", exact: true }).click()
+      await expect(pinned.getByTitle("C:/OpenCode/OtherProject", { exact: true })).toBeVisible()
+      await other.click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Close", exact: true }).click()
+      await expect(other).toHaveCount(0)
+      await expect(pinned).toHaveCount(0)
+      await expect(third).toBeVisible()
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const store = JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}")
+            return store.recentlyClosed?.local
+          }),
+        )
+        .toEqual(["C:/OpenCode/OtherProject"])
+      await page.reload()
+      if (width === 390) await toggle.click()
+      await expect(other).toHaveCount(0)
+      await expect(pinned).toHaveCount(0)
+      await expect(third).toBeEnabled()
+      await page.route("**/find/file?**", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(["OtherProject"]),
+        }),
+      )
+      await page.getByRole("button", { name: "Open project", exact: true }).click()
+      const picker = page.getByRole("dialog", { name: "Open project", exact: true })
+      await picker.getByRole("button", { name: "C:/OpenCode/ OtherProject /", exact: true }).click()
+      await expect(picker).toHaveCount(0)
+      if (width === 390) await toggle.click()
+      const reopened = projects.getByTitle("C:\\OpenCode\\OtherProject", { exact: true })
+      await expect(reopened).toBeEnabled()
+      await expect(pinned).toHaveCount(0)
+      await reopened.click({ button: "right" })
+      await expect(page.getByRole("menuitem", { name: "Pin project", exact: true })).toBeVisible()
+      await page.keyboard.press("Escape")
+      await page.reload()
+      if (width === 390) await toggle.click()
+      await expect(reopened).toBeEnabled()
+      await expect(pinned).toHaveCount(0)
+    })
+  }
+}
+
+test("CM3 project sections retain interleaved drag ordering in both directions", async ({ page }) => {
+  await mockStressTimeline(page)
+  await mockCm3Projects(page, ["OtherProject", "ThirdProject", "FourthProject"])
+  await page.addInitScript(
+    ({ directory }) => {
+      if (localStorage.getItem("settings.v3")) return
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
+      localStorage.setItem(
+        "opencode.global.dat:server",
+        JSON.stringify({
+          projects: {
+            local: [directory, "C:/OpenCode/OtherProject", "C:/OpenCode/ThirdProject", "C:/OpenCode/FourthProject"].map(
+              (worktree, index) => ({
+                worktree,
+                expanded: true,
+                pinned: index % 2 === 0,
+              }),
+            ),
+          },
+          lastProject: { local: directory },
+        }),
+      )
+    },
+    { directory: fixture.directory },
+  )
+  await page.goto("/")
+  const projects = page.getByRole("complementary", { name: "Projects", exact: true })
+  const rows = projects.locator('[data-component="home-project-row"] > span')
+  await expect(rows).toHaveText([fixture.project.name, "ThirdProject", "OtherProject", "FourthProject"])
+  for (const move of [
+    {
+      source: fixture.directory,
+      target: "C:/OpenCode/ThirdProject",
+      down: true,
+      order: ["ThirdProject", fixture.project.name, "OtherProject", "FourthProject"],
+    },
+    {
+      source: fixture.directory,
+      target: "C:/OpenCode/ThirdProject",
+      down: false,
+      order: [fixture.project.name, "ThirdProject", "OtherProject", "FourthProject"],
+    },
+    {
+      source: "C:/OpenCode/OtherProject",
+      target: "C:/OpenCode/FourthProject",
+      down: true,
+      order: [fixture.project.name, "ThirdProject", "FourthProject", "OtherProject"],
+    },
+    {
+      source: "C:/OpenCode/OtherProject",
+      target: "C:/OpenCode/FourthProject",
+      down: false,
+      order: [fixture.project.name, "ThirdProject", "OtherProject", "FourthProject"],
+    },
+  ]) {
+    const source = projects.getByTitle(move.source, { exact: true })
+    const target = projects.getByTitle(move.target, { exact: true })
+    await expect(source).toBeEnabled()
+    await expect(target).toBeEnabled()
+    const sourceBox = await source.boundingBox()
+    const targetBox = await target.boundingBox()
+    expect(sourceBox).not.toBeNull()
+    expect(targetBox).not.toBeNull()
+    await page.mouse.move(sourceBox!.x + 30, sourceBox!.y + sourceBox!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(targetBox!.x + 30, targetBox!.y + (move.down ? targetBox!.height - 2 : 2), { steps: 10 })
+    await page.mouse.up()
+    await expect(rows).toHaveText(move.order)
+    await page.reload()
+    await expect(rows).toHaveText(move.order)
+    await expect(
+      projects.getByRole("region", { name: "Pinned", exact: true }).locator('[data-component="home-project-row"]'),
+    ).toHaveCount(2)
+  }
+})
+
 test("CM3 recent sessions stay chronological when a project reveals its chats", async ({ page }) => {
   const other = {
     ...fixture.sessions[0],
@@ -297,10 +486,10 @@ test("CM3 recent sessions stay chronological when a project reveals its chats", 
   await expect(recent).toHaveText(expected)
 })
 
-async function mockCm3Projects(page: Page) {
+async function mockCm3Projects(page: Page, names = ["OtherProject", "ThirdProject"]) {
   const projects = [
     fixture.project,
-    ...["OtherProject", "ThirdProject"].map((name) => ({
+    ...names.map((name) => ({
       ...fixture.project,
       id: `proj_cm3_${name}`,
       name,
@@ -909,3 +1098,155 @@ async function installCm3Sidebar(page: Page, input?: Parameters<typeof installSt
     localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
   })
 }
+
+for (const width of [1280, 390]) {
+  for (const direction of ["ltr", "rtl"]) {
+    test(`CM3 session pins persist and share state with project chats at ${width}px ${direction}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await mockStressTimeline(page)
+      await page.addInitScript(
+        ({ directory, sessionID }) => {
+          if (!localStorage.getItem("settings.v3"))
+            localStorage.setItem(
+              "settings.v3",
+              JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }),
+            )
+          if (!localStorage.getItem("opencode.global.dat:server"))
+            localStorage.setItem(
+              "opencode.global.dat:server",
+              JSON.stringify({
+                projects: { local: [{ worktree: directory, expanded: true }] },
+                lastProject: { local: directory },
+                pinnedSessions: { "https://other-server.example": [sessionID] },
+              }),
+            )
+        },
+        { directory: fixture.directory, sessionID: fixture.targetID },
+      )
+      const mutations: string[] = []
+      page.on("request", (request) => {
+        if (["POST", "PATCH", "DELETE"].includes(request.method()) && /\/session\//.test(request.url()))
+          mutations.push(request.method())
+      })
+      await page.goto("/")
+      const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+      if (width === 390) await toggle.click()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      const recent = page.getByRole("region", { name: "Recent sessions", exact: true })
+      const pinned = page.getByRole("region", { name: "Pinned sessions", exact: true })
+      const target = recent.getByRole("group", { name: fixture.expected.targetTitle, exact: true })
+      await expect(pinned).toHaveCount(0)
+      await target.hover()
+      const pin = target.getByRole("button", { name: "Pin session", exact: true })
+      await expect(pin).toBeEnabled()
+      await expect(pin.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-push-pin")
+      await pin.press("Enter")
+      const pinnedTarget = pinned.getByRole("group", { name: fixture.expected.targetTitle, exact: true })
+      await expect(pinnedTarget.getByRole("button", { name: "Unpin session", exact: true })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      )
+      await expect(pinnedTarget.getByRole("button", { name: "Unpin session", exact: true })).toBeFocused()
+      await expect(pinnedTarget.locator(".cm3-sidebar-session-pin use")).toHaveAttribute(
+        "href",
+        "#opencode-v2-icon-push-pin-fill",
+      )
+      await expect(target).toHaveCount(0)
+      await expect(recent.getByRole("group")).toHaveCount(1)
+      await expect(page).toHaveURL("/")
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}").pinnedSessions?.local,
+          ),
+        )
+        .toEqual([fixture.targetID])
+      await page.reload()
+      if (width === 390) await toggle.click()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      await expect(pinnedTarget).toBeVisible()
+      const search = page.getByRole("searchbox", { name: "Search threads", exact: true })
+      await search.fill("Uncommitted")
+      await expect(pinned).toHaveCount(0)
+      await search.fill("physics")
+      await expect(pinnedTarget).toBeVisible()
+      await expect(recent.getByRole("group")).toHaveCount(0)
+      await search.fill("")
+      const projectCopy = page
+        .getByRole("complementary", { name: "Projects", exact: true })
+        .getByRole("group", { name: fixture.expected.targetTitle, exact: true })
+      await projectCopy.hover()
+      await projectCopy.getByRole("button", { name: "Unpin session", exact: true }).click()
+      await expect(pinned).toHaveCount(0)
+      await expect(recent.getByRole("group")).toHaveCount(2)
+      await target.hover()
+      await pin.click()
+      await pinnedTarget.locator('[data-action="recent-session"]').click()
+      await expect(page).toHaveURL(stressSessionHref(fixture.targetID))
+      await expect(page.locator('[data-component="prompt-input"][contenteditable="true"]')).toBeEditable()
+      if (width === 390) await toggle.click()
+      await expect(pinnedTarget).toBeVisible()
+      expect(mutations).toEqual([])
+      await page.route(`**/session/${fixture.targetID}?**`, (route) => {
+        if (route.request().method() !== "PATCH") return route.fallback()
+        const body = route.request().postDataJSON()
+        return route.fulfill({
+          json: {
+            ...fixture.sessions.find((session) => session.id === fixture.targetID),
+            time: { created: 1, updated: 1, archived: body.time.archived },
+          },
+        })
+      })
+      await pinnedTarget.hover()
+      await pinnedTarget.getByRole("button", { name: "Archive", exact: true }).click()
+      await expect(pinned).toHaveCount(0)
+      await expect(page).toHaveURL("/")
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}").pinnedSessions?.local,
+          ),
+        )
+        .toEqual([])
+      expect(mutations).toEqual(["PATCH"])
+    })
+  }
+}
+
+test("CM3 keeps saved old session pins beyond the recent-session limit", async ({ page }) => {
+  const sessions = [
+    ...Array.from({ length: 70 }, (_, index) => ({
+      ...fixture.sessions[0],
+      id: `ses_pin_limit_${index}`,
+      title: `Recent session ${index}`,
+      time: { created: 1700000004000 + index, updated: 1700000004000 + index },
+    })),
+    ...fixture.sessions,
+  ]
+  await mockOpenCodeServer(page, {
+    sessions,
+    provider: fixture.provider,
+    directory: fixture.directory,
+    project: fixture.project,
+    pageMessages,
+  })
+  await page.addInitScript(
+    ({ directory, sessionID }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
+      localStorage.setItem(
+        "opencode.global.dat:server",
+        JSON.stringify({
+          projects: { local: [{ worktree: directory, expanded: true }] },
+          lastProject: { local: directory },
+          pinnedSessions: { local: [sessionID, "ses_missing_pin"] },
+        }),
+      )
+    },
+    { directory: fixture.directory, sessionID: fixture.sourceID },
+  )
+  await page.goto("/")
+  const pinned = page.getByRole("region", { name: "Pinned sessions", exact: true })
+  await expect(pinned.getByRole("group", { name: fixture.expected.sourceTitle, exact: true })).toBeVisible()
+  await expect(pinned.getByRole("group")).toHaveCount(1)
+  await expect(page.getByRole("region", { name: "Recent sessions", exact: true }).getByRole("group")).toHaveCount(64)
+})

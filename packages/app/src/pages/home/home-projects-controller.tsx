@@ -107,6 +107,9 @@ export function createHomeProjectsController(home: HomeController, options?: { o
       move: (conn: ServerConnection.Any, worktree: string, index: number) => {
         home.server.context(conn).projects.move(worktree, index)
       },
+      pin: (conn: ServerConnection.Any, project: LocalProject) => {
+        home.server.context(conn).projects.pin(project.worktree, !project.pinned)
+      },
       canReveal: canRevealProject,
       reveal: (conn: ServerConnection.Any, project: LocalProject) => {
         if (!platform.openPath || !canRevealProject(conn)) return

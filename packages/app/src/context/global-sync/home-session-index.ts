@@ -150,9 +150,24 @@ export function parseHomeSessionIndex(sessions: SessionV2Info[]): Session[] {
   })
 }
 
-export function retainHomeSessions(sessions: Session[], limit: number, now: number) {
+export function retainHomeSessions(
+  sessions: Session[],
+  limit: number,
+  now: number,
+  pinned: ReadonlySet<string> = new Set(),
+) {
   const grouped = Map.groupBy(sessions, (session) => pathKey(session.directory))
-  return [...grouped.values()].flatMap((items) => trimSessions(items, { limit, permission: {}, now }))
+  return [...grouped.values()].flatMap((items) => {
+    const retained = trimSessions(items, { limit, permission: {}, now })
+    if (pinned.size === 0) return retained
+    const ids = new Set(retained.map((session) => session.id))
+    return [
+      ...retained,
+      ...items.filter(
+        (session) => pinned.has(session.id) && !ids.has(session.id) && !session.parentID && !session.time.archived,
+      ),
+    ]
+  })
 }
 
 export function applyHomeSessionEvent(sessions: Session[], event: HomeSessionEvent) {

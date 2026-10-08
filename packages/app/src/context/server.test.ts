@@ -116,6 +116,50 @@ describe("createServerProjects", () => {
     })
   })
 
+  test("persists pins per server without changing project order or expansion", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore({ projects: {}, lastProject: {}, recentlyClosed: {} })
+      const local = createServerProjects({ scope: () => ServerScope.local, store, setStore })
+      const remote = createServerProjects({ scope: () => "https://debian.example" as ServerScope, store, setStore })
+      local.open("/a")
+      local.open("/b")
+      local.collapse("/a")
+      remote.open("/a")
+      local.pin("/a", true)
+      local.pin("/missing", true)
+      expect(local.list()).toEqual([
+        { worktree: "/b", expanded: true },
+        { worktree: "/a", expanded: false, pinned: true },
+      ])
+      expect(remote.list()).toEqual([{ worktree: "/a", expanded: true }])
+
+      const restored = JSON.parse(JSON.stringify(store)) as typeof store
+      const [saved, setSaved] = createStore(restored)
+      const adopted = createServerProjects({ scope: () => ServerScope.local, store: saved, setStore: setSaved })
+      expect(adopted.list().find((project) => project.worktree === "/a")?.pinned).toBe(true)
+      adopted.move("/a", 0)
+      expect(adopted.list()[0]).toEqual({ worktree: "/a", expanded: false, pinned: true })
+      adopted.pin("/a", false)
+      expect(adopted.list()[0]?.pinned).toBe(false)
+      dispose()
+    })
+  })
+
+  test("closing a pinned project clears its pin when reopened", () => {
+    createRoot((dispose) => {
+      const [store, setStore] = createStore({ projects: {}, lastProject: {}, recentlyClosed: {} })
+      const projects = createServerProjects({ scope: () => ServerScope.local, store, setStore })
+      projects.open("/repo")
+      projects.pin("/repo", true)
+      projects.close("/repo")
+      expect(projects.list()).toEqual([])
+      expect(projects.recentlyClosed()).toEqual(["/repo"])
+      projects.open("/repo")
+      expect(projects.list()).toEqual([{ worktree: "/repo", expanded: true }])
+      dispose()
+    })
+  })
+
   test("tracks recently closed projects and drops them when reopened", () => {
     createRoot((dispose) => {
       const [scope] = createSignal(ServerScope.local)

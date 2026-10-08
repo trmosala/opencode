@@ -2,7 +2,9 @@ import { onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
+import { I18nProvider } from "@opencode-ai/ui/context/i18n"
 import { ThemeProvider, useTheme } from "@opencode-ai/ui/theme/context"
+import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { CommandProvider, useCommand } from "../src/context/command"
 import { LanguageProvider, useLanguage } from "../src/context/language"
 import { PlatformProvider, type Platform } from "../src/context/platform"
@@ -58,18 +60,39 @@ export function mount(host: HTMLElement, platform: Platform) {
     refs.settings = useSettings()
     refs.command = useCommand()
     refs.theme = useTheme()
-    refs.language = useLanguage()
+    const language = useLanguage()
+    refs.language = language
     refs.command.register(() => [
       { id: "quiet-test", title: "Test command", keybind: "alt+q", onSelect: () => counts.commands++ },
     ])
     return (
-      <QuietCompanionSwitch>
-        <Draft />
-        <WppAuthControl />
-        <Show when={refs.settings.general.quietCompanion()}>
-          <QuietCompanionControls />
-        </Show>
-      </QuietCompanionSwitch>
+      <I18nProvider
+        value={{ locale: language.intl, layoutLocale: language.layoutLocale, t: language.t, plural: language.plural }}
+      >
+        <QuietCompanionSwitch>
+          <Draft />
+          <WppAuthControl />
+          <MenuV2>
+            <MenuV2.Trigger data-testid="direction-menu-trigger">Direction menu</MenuV2.Trigger>
+            <MenuV2.Portal>
+              <MenuV2.Content>
+                <MenuV2.Item>{language.t("theme.scheme.light")}</MenuV2.Item>
+                <MenuV2.Sub>
+                  <MenuV2.SubTrigger data-testid="direction-submenu-trigger">Submenu</MenuV2.SubTrigger>
+                  <MenuV2.Portal>
+                    <MenuV2.SubContent data-testid="direction-submenu">
+                      <MenuV2.Item>{language.t("theme.scheme.dark")}</MenuV2.Item>
+                    </MenuV2.SubContent>
+                  </MenuV2.Portal>
+                </MenuV2.Sub>
+              </MenuV2.Content>
+            </MenuV2.Portal>
+          </MenuV2>
+          <Show when={refs.settings.general.quietCompanion()}>
+            <QuietCompanionControls />
+          </Show>
+        </QuietCompanionSwitch>
+      </I18nProvider>
     )
   }
 

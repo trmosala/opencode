@@ -45,7 +45,7 @@ const device = (window as Window & { happyDOM: { settings: { device: { prefersCo
 beforeEach(() => {
   const keys = ["opencode-theme-id", "opencode-color-scheme"]
   const stored = keys.map((key) => [key, localStorage.getItem(key)] as const)
-  const attributes = ["data-theme", "data-color-scheme", "style"].map(
+  const attributes = ["data-theme", "data-color-scheme", "style", "lang", "dir"].map(
     (name) => [name, document.documentElement.getAttribute(name)] as const,
   )
   const previous = device.prefersColorScheme
@@ -128,6 +128,47 @@ async function ready(mounted: ReturnType<ReturnType<typeof setup>["mount"]>) {
 }
 
 describe("CM3 live shell", () => {
+  test("updates a portaled MenuV2 direction while keeping English", async () => {
+    const mounted = setup().mount()
+    await ready(mounted)
+    const language = mounted.language()
+    language.setDirection("rtl")
+    const trigger = mounted.host.querySelector<HTMLButtonElement>('[data-testid="direction-menu-trigger"]')!
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    await Bun.sleep(0)
+    const menu = document.querySelector<HTMLElement>('[data-component="menu-v2-content"][role="menu"]')!
+    expect(menu).not.toBeNull()
+    expect(document.body.contains(menu)).toBe(true)
+    expect(mounted.host.contains(menu)).toBe(false)
+    for (const direction of ["rtl", "ltr"] as const) {
+      language.setDirection(direction)
+      await Bun.sleep(0)
+      expect(language.locale()).toBe("en")
+      expect(language.intl()).toMatch(/^en\b/)
+      expect(language.direction()).toBe(direction)
+      expect(document.documentElement.lang).toBe(language.intl())
+      expect(document.documentElement.dir).toBe(direction)
+      expect(document.querySelector('[data-component="menu-v2-content"][role="menu"]')).toBe(menu)
+      expect(menu.querySelector('[role="menuitem"]')?.textContent?.trim()).toBe("Light")
+      const submenu = menu.querySelector<HTMLDivElement>('[data-testid="direction-submenu-trigger"]')!
+      submenu.focus()
+      const openKey = direction === "rtl" ? "ArrowLeft" : "ArrowRight"
+      const closeKey = direction === "rtl" ? "ArrowRight" : "ArrowLeft"
+      submenu.dispatchEvent(new KeyboardEvent("keydown", { key: closeKey, bubbles: true }))
+      await Bun.sleep(0)
+      expect(submenu.getAttribute("aria-expanded")).toBe("false")
+      submenu.dispatchEvent(new KeyboardEvent("keydown", { key: openKey, bubbles: true }))
+      await Bun.sleep(0)
+      const content = document.querySelector<HTMLElement>('[data-testid="direction-submenu"]')!
+      expect(content).not.toBeNull()
+      expect(submenu.getAttribute("aria-expanded")).toBe("true")
+      expect(content.textContent?.trim()).toBe("Dark")
+      content.dispatchEvent(new KeyboardEvent("keydown", { key: closeKey, bubbles: true }))
+      await Bun.sleep(0)
+      expect(submenu.getAttribute("aria-expanded")).toBe("false")
+    }
+  })
+
   test("WPP status updates from events and explicit controls without polling", async () => {
     const auth = state.fixture!.createAuthPlatform()
     const mounted = setup(undefined, auth.platform).mount()
