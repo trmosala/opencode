@@ -135,7 +135,7 @@
     }
   }
 
-  #review-panel &[data-variant="normal"][data-orientation="horizontal"],
+  :is(#review-panel, [data-cm3-region="panel-tabs"]) &[data-variant="normal"][data-orientation="horizontal"],
   #terminal-panel &[data-variant="normal"][data-orientation="horizontal"] {
     background-color: var(--background-stronger);
 
@@ -685,9 +685,11 @@
   position: relative;
 }
 
-body[data-new-layout] #review-panel [data-component="tabs"],
+body[data-new-layout] :is(#review-panel, [data-cm3-region="panel-tabs"]) [data-component="tabs"],
 body[data-new-layout] #terminal-panel [data-component="tabs"],
-body[data-new-layout] #review-panel [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"],
+body[data-new-layout]
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
+  [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"],
 body[data-new-layout] #terminal-panel [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"] {
   background-color: var(--v2-background-bg-base);
 
@@ -708,9 +710,11 @@ body[data-new-layout] #terminal-panel [data-component="tabs"][data-variant="norm
   }
 }
 
-body[data-new-layout] #review-panel [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"] {
+body[data-new-layout]
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
+  [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"] {
   [data-slot="tabs-list"] {
-    height: 52px;
+    height: var(--session-side-panel-tabs-height, 52px);
     padding-inline-end: 12px;
     gap: 8px;
     --tabs-review-fade: 8px;
@@ -774,18 +778,28 @@ body[data-new-layout] #review-panel [data-component="tabs"][data-variant="normal
   }
 }
 
-body[data-new-layout] #review-panel [data-component="tabs"] .session-review-v2-tabs-bar {
+body[data-new-layout]
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
+  [data-component="tabs"]
+  .session-review-v2-tabs-bar {
   width: 100%;
   min-width: 0;
   gap: 8px;
   box-sizing: border-box;
-  border-bottom: 1px solid var(--border-weaker-base, var(--v2-border-border-weak));
+  border-bottom: var(
+    --session-side-panel-tabs-border,
+    1px solid var(--border-weaker-base, var(--v2-border-border-weak))
+  );
   background-color: var(--v2-background-bg-base);
 }
 
-body[data-new-layout] #review-panel [data-component="tabs"] .session-review-v2-tabs-bar [data-slot="tabs-list"],
 body[data-new-layout]
-  #review-panel
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
+  [data-component="tabs"]
+  .session-review-v2-tabs-bar
+  [data-slot="tabs-list"],
+body[data-new-layout]
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
   [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"]
   .session-review-v2-tabs-bar
   [data-slot="tabs-list"] {
@@ -796,7 +810,7 @@ body[data-new-layout]
 }
 
 body[data-new-layout]
-  #review-panel
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
   [data-component="tabs"]
   .session-review-v2-tabs-bar
   [data-slot="tabs-list"]
@@ -821,7 +835,7 @@ body[data-new-layout]
 }
 
 body[data-new-layout]
-  #review-panel
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
   [data-component="tabs"]
   .session-review-v2-tabs-bar
   [data-slot="tabs-list"]
@@ -832,7 +846,7 @@ body[data-new-layout]
 }
 
 body[data-new-layout]
-  #review-panel
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
   [data-component="tabs"]
   .session-review-v2-tabs-bar
   [data-slot="tabs-list"]
@@ -879,11 +893,23 @@ body[data-new-layout]
   }
 }
 
-body[data-new-layout] #review-panel [data-component="tabs"] .session-review-v2-open-in-app-slot {
+body[data-new-layout]
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
+  [data-component="tabs"]
+  .session-review-v2-open-in-app-slot {
   flex-shrink: 0;
   margin-inline-start: auto;
 }
 
-body[data-new-layout] #review-panel [data-component="tabs"] .session-review-v2-open-in-app {
+body[data-new-layout]
+  :is(#review-panel, [data-cm3-region="panel-tabs"])
+  [data-component="tabs"]
+  .session-review-v2-open-in-app {
   flex-shrink: 0;
+}
+
+[data-component="tabs"].session-side-panel-tabs {
+  height: auto;
+  flex: none;
+  overflow: visible;
 }

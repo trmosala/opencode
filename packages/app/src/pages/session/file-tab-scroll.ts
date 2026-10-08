@@ -4,13 +4,15 @@ type Input = {
   clientWidth: number
   prevContextOpen: boolean
   contextOpen: boolean
+  direction?: string
 }
 
 export const nextTabListScrollLeft = (input: Input) => {
   if (input.scrollWidth <= input.prevScrollWidth) return
   if (!input.prevContextOpen && input.contextOpen) return 0
   if (input.scrollWidth <= input.clientWidth) return
-  return input.scrollWidth - input.clientWidth
+  const end = input.scrollWidth - input.clientWidth
+  return input.direction === "rtl" ? -end : end
 }
 
 export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: () => boolean }) => {
@@ -28,6 +30,7 @@ export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: 
       clientWidth,
       prevContextOpen,
       contextOpen,
+      direction: getComputedStyle(input.el).direction,
     })
 
     if (left !== undefined) {
@@ -51,7 +54,8 @@ export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: 
 
   const onWheel = (e: WheelEvent) => {
     if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
-    input.el.scrollLeft += e.deltaY > 0 ? 50 : -50
+    const delta = e.deltaY > 0 ? 50 : -50
+    input.el.scrollLeft += getComputedStyle(input.el).direction === "rtl" ? -delta : delta
     e.preventDefault()
   }
 

@@ -223,9 +223,9 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expect(page.locator("#terminal-panel")).toBeVisible()
   await expectTree(page, 2_773, "action.yml")
 
-  await page.getByRole("button", { name: "Toggle review" }).click()
+  await page.locator('[data-cm3-region="header"]').getByRole("button", { name: "Toggle review", exact: true }).click()
   await expect(page.locator("#review-panel")).toHaveCount(0)
-  await page.getByRole("button", { name: "Toggle review" }).click()
+  await page.locator('[data-cm3-region="header"]').getByRole("button", { name: "Toggle review", exact: true }).click()
   await expectTree(page, 2_773, "action.yml")
   await page.setViewportSize({ width: 1_000, height: 700 })
   await expectTree(page, 2_773, "action.yml")

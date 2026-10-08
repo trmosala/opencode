@@ -265,11 +265,7 @@ export function SessionHeader() {
   const v2ActionsState = createMemo<SessionHeaderV2ActionsState>(() => ({
     statusVisible: status(),
     statusLabel: language.t("status.popover.trigger"),
-    reviewLabel: language.t("command.review.toggle"),
-    reviewKeybind: reviewTooltipKeybind(command),
-    reviewVisible: isDesktop(),
-    reviewOpened: view().reviewPanel.opened(),
-    onReviewToggle: () => view().reviewPanel.toggle(),
+    reviewVisible: isDesktop() && !(settings.general.quietCompanion() && params.id),
     browserVisible: isDesktop() && !!platform.browserPanel && !!params.id && !settings.general.quietCompanion(),
     browserOpened: browserOpen(),
     browserLabel: language.t("command.browser.toggle"),
@@ -516,21 +512,23 @@ export function SessionHeader() {
                         </Tooltip>
                       </Show>
 
-                      <TooltipKeybind
-                        title={language.t("command.review.toggle")}
-                        keybind={command.keybind("review.toggle")}
-                      >
-                        <Button
-                          variant="ghost"
-                          class="group/review-toggle titlebar-icon w-8 h-6 p-0 box-border"
-                          onClick={() => view().reviewPanel.toggle()}
-                          aria-label={language.t("command.review.toggle")}
-                          aria-expanded={view().reviewPanel.opened()}
-                          aria-controls="review-panel"
+                      <Show when={!(settings.general.quietCompanion() && params.id)}>
+                        <TooltipKeybind
+                          title={language.t("command.review.toggle")}
+                          keybind={command.keybind("review.toggle")}
                         >
-                          <Icon size="small" name={view().reviewPanel.opened() ? "review-active" : "review"} />
-                        </Button>
-                      </TooltipKeybind>
+                          <Button
+                            variant="ghost"
+                            class="group/review-toggle titlebar-icon w-8 h-6 p-0 box-border"
+                            onClick={() => view().reviewPanel.toggle()}
+                            aria-label={language.t("command.review.toggle")}
+                            aria-expanded={view().reviewPanel.opened()}
+                            aria-controls="review-panel"
+                          >
+                            <Icon size="small" name={view().reviewPanel.opened() ? "review-active" : "review"} />
+                          </Button>
+                        </TooltipKeybind>
+                      </Show>
 
                       <TooltipKeybind
                         title={language.t("command.fileTree.toggle")}
@@ -573,11 +571,7 @@ export function SessionHeader() {
 type SessionHeaderV2ActionsState = {
   statusVisible: boolean
   statusLabel: string
-  reviewLabel: string
-  reviewKeybind: string[]
   reviewVisible: boolean
-  reviewOpened: boolean
-  onReviewToggle: () => void
   browserVisible: boolean
   browserOpened: boolean
   browserLabel: string
@@ -585,8 +579,6 @@ type SessionHeaderV2ActionsState = {
 }
 
 function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
-  const language = useLanguage()
-
   return (
     <div class="flex items-center gap-2">
       <Show when={props.state.statusVisible}>
@@ -611,32 +603,43 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
         </TooltipV2>
       </Show>
       <Show when={props.state.reviewVisible}>
-        <TooltipV2
-          class="shrink-0"
-          placement="bottom"
-          value={
-            <>
-              {props.state.reviewLabel}
-              <Show when={props.state.reviewKeybind.length > 0}>
-                <KeybindV2 keys={props.state.reviewKeybind} variant="neutral" />
-              </Show>
-            </>
-          }
-        >
-          <IconButtonV2
-            type="button"
-            variant="ghost-muted"
-            size="large"
-            class="!w-9 shrink-0"
-            state={props.state.reviewOpened ? "pressed" : undefined}
-            onClick={props.state.onReviewToggle}
-            aria-label={props.state.reviewLabel}
-            aria-expanded={props.state.reviewOpened}
-            aria-controls="review-panel"
-            icon={<IconV2 name="sidebar-right" />}
-          />
-        </TooltipV2>
+        <SessionSidePanelToggle />
       </Show>
     </div>
+  )
+}
+
+export function SessionSidePanelToggle(props: { label?: string }) {
+  const language = useLanguage()
+  const command = useCommand()
+  const { view } = useSessionLayout()
+  const label = () => props.label ?? language.t("command.review.toggle")
+  const keybind = createMemo(() => reviewTooltipKeybind(command))
+  return (
+    <TooltipV2
+      class="shrink-0"
+      placement="bottom"
+      value={
+        <>
+          {label()}
+          <Show when={keybind().length > 0}>
+            <KeybindV2 keys={keybind()} variant="neutral" />
+          </Show>
+        </>
+      }
+    >
+      <IconButtonV2
+        type="button"
+        variant="ghost-muted"
+        size="large"
+        class="!w-9 shrink-0"
+        state={view().reviewPanel.opened() ? "pressed" : undefined}
+        onClick={() => view().reviewPanel.toggle()}
+        aria-label={label()}
+        aria-expanded={view().reviewPanel.opened()}
+        aria-controls="review-panel"
+        icon={<IconV2 name="sidebar-right" />}
+      />
+    </TooltipV2>
   )
 }

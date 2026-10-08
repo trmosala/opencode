@@ -1139,6 +1139,7 @@ export const dict = {
   "wpp.auth.hideLogin": "Hide login window",
   "wpp.auth.check": "Check status",
   "session.panel.reviewAndFiles": "Review and files",
+  "session.header.toggleSidePanel": "Toggle side panel",
   "session.error.notFound": "This session cannot be found",
   "session.error.notFound.description": "This tab points to a session that no longer exists on this server.",
   "session.error.notFound.closeTab": "Close Tab",

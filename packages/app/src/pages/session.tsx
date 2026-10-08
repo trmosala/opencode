@@ -61,6 +61,7 @@ import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
 import { Cm3Icon } from "@/components/cm3-icon"
 import { Cm3Starters } from "@/components/cm3-starters"
+import { SessionSidePanelToggle } from "@/components/session/session-header"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import { useSettingsCommand } from "@/components/settings-dialog"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
@@ -396,6 +397,7 @@ export default function Page() {
   })
 
   const [ui, setUi] = createStore({
+    panelTabsMount: undefined as HTMLDivElement | undefined,
     pendingMessage: undefined as string | undefined,
     reviewSnap: false,
     scrollGesture: 0,
@@ -2261,10 +2263,20 @@ export default function Page() {
     <SessionRouteFrame thread={!!params.id}>
       <SessionHeader />
       <Show when={settings.general.quietCompanion() && params.id}>
-        <header data-cm3-region="header" class="cm3-thread-header">
+        <header data-cm3-region="header" class="cm3-thread-header" data-panel-tabs={desktopReviewOpen()}>
           <span class="cm3-thread-project" dir="auto">
             {sync().project?.name || getFilename(sdk().directory)}
           </span>
+          <Show when={desktopReviewOpen()}>
+            <div
+              data-cm3-region="panel-tabs"
+              class="cm3-thread-panel-tabs"
+              ref={(mount) => {
+                setUi("panelTabsMount", mount)
+                onCleanup(() => setUi("panelTabsMount", undefined))
+              }}
+            />
+          </Show>
           <div class="cm3-thread-actions">
             <button
               type="button"
@@ -2310,6 +2322,9 @@ export default function Page() {
                 <Cm3Icon name="globe" />
                 <span>{language.t("session.tab.browser")}</span>
               </button>
+            </Show>
+            <Show when={isDesktop()}>
+              <SessionSidePanelToggle label={language.t("session.header.toggleSidePanel")} />
             </Show>
           </div>
         </header>
@@ -2369,6 +2384,7 @@ export default function Page() {
         <Show when={!newSessionDesign() && desktopSidePanelOpen()}>
           <Suspense>
             <SessionSidePanel
+              tabsMount={ui.panelTabsMount}
               canReview={canReview}
               diffs={reviewDiffs}
               diffsReady={reviewReady}
@@ -2391,6 +2407,7 @@ export default function Page() {
                 <div class="min-h-0 flex-1">
                   <Suspense>
                     <SessionSidePanel
+                      tabsMount={ui.panelTabsMount}
                       canReview={canReview}
                       diffs={reviewDiffs}
                       diffsReady={reviewReady}

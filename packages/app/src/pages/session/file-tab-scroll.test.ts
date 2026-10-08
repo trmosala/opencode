@@ -37,4 +37,17 @@ describe("nextTabListScrollLeft", () => {
 
     expect(left).toBe(480)
   })
+
+  test("scrolls to the negative inline-end edge for RTL file tabs", () => {
+    expect(
+      nextTabListScrollLeft({
+        prevScrollWidth: 500,
+        scrollWidth: 780,
+        clientWidth: 300,
+        prevContextOpen: true,
+        contextOpen: true,
+        direction: "rtl",
+      }),
+    ).toBe(-480)
+  })
 })

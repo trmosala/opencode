@@ -2,6 +2,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { expect, test } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
+import { openPanelFileBrowser } from "../utils/side-panel"
 
 const directory = "C:/OpenCode/OpenFileExpand"
 const projectID = "proj_open_file_expand"
@@ -112,8 +113,9 @@ test("expands a folder whose path has a trailing Windows separator", async ({ pa
   await expectSessionTitle(page, title)
 
   const panel = page.locator("#review-panel")
-  await panel.getByRole("button", { name: "Open file" }).click()
-  await expect(panel.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
+  const tabs = page.locator(".session-side-panel-tabs")
+  await openPanelFileBrowser(page)
+  await expect(tabs.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
 
   const sidebar = panel.locator('[data-component="session-review-v2-sidebar-root"]')
   await expect(sidebar).toBeVisible()
@@ -127,6 +129,6 @@ test("expands a folder whose path has a trailing Windows separator", async ({ pa
   const appRow = panel.locator('[data-slot="file-tree-v2-row"][data-path="frontend/app.ts"]')
   await expect(appRow).toBeVisible()
   await appRow.click()
-  await expect(panel.getByRole("tab", { name: "app.ts" })).toHaveAttribute("data-selected", "")
+  await expect(tabs.getByRole("tab", { name: "app.ts" })).toHaveAttribute("data-selected", "")
   await expect(panel.getByText("contents:frontend/app.ts", { exact: true })).toBeVisible()
 })

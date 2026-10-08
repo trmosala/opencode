@@ -532,6 +532,39 @@ html[data-color-scheme="dark"] .cm3-sidebar {
   font-weight: 550;
 }
 
+.cm3-live .cm3-thread-header[data-panel-tabs="true"] {
+  gap: 8px;
+}
+
+.cm3-live .cm3-thread-header[data-panel-tabs="true"] .cm3-thread-project {
+  flex: 0 1 160px;
+}
+
+.cm3-live .cm3-thread-panel-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.cm3-live .cm3-thread-panel-tabs .session-side-panel-tabs {
+  --tabs-bar-height: 30px;
+  --session-side-panel-tabs-height: 30px;
+  --session-side-panel-tabs-border: none;
+}
+
+.cm3-live .cm3-thread-panel-tabs .session-review-v2-tabs-bar {
+  border-bottom: none;
+  background: transparent;
+}
+
+.cm3-live .cm3-thread-panel-tabs [data-slot="tabs-list"] {
+  height: 30px;
+  border-bottom: none;
+}
+
+.cm3-live .cm3-thread-panel-tabs .session-review-v2-open-in-app-slot {
+  padding-inline-end: 0;
+}
+
 .cm3-live [data-cm3-thread="false"] [data-cm3-region="session-panel"] > .cm3-starters {
   width: min(520px, calc(100% - 48px));
   margin-inline: auto;
@@ -539,6 +572,7 @@ html[data-color-scheme="dark"] .cm3-sidebar {
 }
 
 .cm3-live .cm3-thread-actions {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
