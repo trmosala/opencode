@@ -13,6 +13,7 @@ import { browserCommand, browserLinkContext, browserViewport, registerBrowserOwn
 import { savedTabs, saveTabs } from "./tab-recovery"
 import { browserInputFailure } from "./driver"
 import { nativeT } from "../native-translations"
+import { desktopPanelFixture } from "./desktop-panel.fixture"
 
 const wait = async (check: () => boolean | Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
@@ -79,6 +80,7 @@ export async function tabLifecycleSmoke() {
   const other = new BrowserWindow({ show: false, width: 640, height: 480 })
   const owner = registerBrowserOwner(win)
   const foreign = registerBrowserOwner(other)
+  const panels = desktopPanelFixture(owner)
   const consent = dialog.showMessageBox
   const clock = Date.now
   const prompts: Electron.MessageBoxOptions[] = []
@@ -186,6 +188,10 @@ export async function tabLifecycleSmoke() {
     const id = String(result).split(" ")[1]
     const created = tab(id)
     await wait(() => !created.contents.isLoadingMainFrame() && created.contents.getURL() === "about:blank")
+    assert.equal(created.agentAccess, true)
+    // Exercise the private-target confirmation path throughout this fixture.
+    // Autonomous creation/page use is covered by --autonomous-browser.
+    await command({ op: "access", tabID: id, enabled: false })
     assert.equal(created.agentAccess, false)
     return created
   }
@@ -229,6 +235,7 @@ export async function tabLifecycleSmoke() {
         active: closedOnly ? -1 : 1,
         closed: [{ id: "closed", url: `${url}/closed`, title: "PRIVATE-LIFECYCLE-CLOSED", time: 123 }],
       }
+      if (owner.viewport) browserViewport(owner, { ...owner.viewport, bounds: null })
       browserLinkContext(owner, sessionID, sessionID)
       const early = closedOnly
         ? await dispatch({ op: "prepare_tab", request: { op: "create_tab" } }, sessionID)
@@ -240,12 +247,17 @@ export async function tabLifecycleSmoke() {
         prepared.ok && prepared.result.tabToken
           ? await dispatch({ op: "create_tab", token: prepared.result.tabToken }, sessionID)
           : prepared
-      assert.deepEqual(savedTabs(sessionID), record, "Creation must preserve the complete unloaded recovery record")
-      assert(!result.ok && result.code === "unavailable")
-      assert.match(result.error, /manually/i)
-      assert(!owner.groups.has(sessionID))
-      assert.deepEqual(requests, [])
+      assert(result.ok && result.result.tabResult)
+      const restored = owner.groups.get(sessionID)!
+      assert.equal(restored.tabs.length, record.tabs.length + 1)
+      assert.deepEqual(restored.closed, record.closed)
+      assert.equal(restored.tabs.filter((entry) => entry.agentAccess).length, 1)
+      assert.equal(restored.tabs.find((entry) => entry.agentAccess)?.id, result.result.tabResult.tabID)
+      assert(restored.tabs.filter((entry) => !entry.agentAccess).every((entry) => !entry.agentCreated))
+      await Promise.all(restored.tabs.map((entry) => entry.restorePromise))
     }
+    requests.length = 0
+    if (owner.viewport) browserViewport(owner, { ...owner.viewport, bounds: null })
     browserLinkContext(owner, task, "A")
     assert.equal(prompts.length, 0)
     const first = await create()
@@ -255,8 +267,7 @@ export async function tabLifecycleSmoke() {
       asks.map((input) => input.permission),
       ["browser_create_tab"],
     )
-    assert.equal(prompts.length, 1)
-    assert(prompts[0].detail?.includes(task))
+    assert.equal(prompts.length, 0)
     denied(await dispatch({ op: "read_state", tabID: first.id }))
     const inventory = await dispatch({ op: "list_tabs" })
     assert(inventory.ok)
@@ -346,7 +357,11 @@ export async function tabLifecycleSmoke() {
       asks.map((input) => input.permission),
       ["browser_create_tab", "browser_create_tab", "browser_select_tab", "browser_close_tab"],
     )
-    assert.equal(prompts.length, 5, "Two creates, one access grant, one selection and one close")
+    assert.equal(
+      prompts.length,
+      2,
+      "One private access grant and one private selection; agent lifecycle has no native prompts",
+    )
     assert(asks.every((input) => !input.permission.includes("read")))
     const foreignID = (await browserCommand(foreign, "lifecycle-foreign", { op: "new" })).activeID!
     const before = prompts.length
@@ -378,12 +393,12 @@ export async function tabLifecycleSmoke() {
     for (let i = 0; i < 128; i++) await prepare({ op: "create_tab" })
     denied(await dispatch(evicted))
     console.log(
-      "PASS lifecycle private blank/no restore, exact targets, plugin asks, one-use/action/target/task/TTL/cap",
+      "PASS lifecycle autonomous blank/recovery, private targets, explicit policy, one-use/action/target/task/TTL/cap",
     )
 
     answer = 0
     const count = group().tabs.length
-    await assert.rejects(plugin({ op: "create_tab" }))
+    await assert.rejects(plugin({ op: "select_tab", tabID: first.id }))
     assert.equal(group().tabs.length, count)
     answer = 1
     askHook = async () => {
@@ -395,7 +410,7 @@ export async function tabLifecycleSmoke() {
     askHook = undefined
 
     for (const change of ["global", "task", "hide", "viewport", "access"] as const) {
-      if (change === "access") await command({ op: "access", tabID: first.id, enabled: true })
+      await command({ op: "access", tabID: first.id, enabled: false })
       const prepared = await prepare({ op: "close_tab", tabID: first.id })
       dialogHook = async () => {
         if (change === "global") {
@@ -463,6 +478,7 @@ export async function tabLifecycleSmoke() {
       enteredConsent.resolve()
       await heldConsent.promise
     }
+    await command({ op: "access", tabID: first.id, enabled: false })
     const abortRequest = await prepare({ op: "close_tab", tabID: first.id })
     const abortReply = dispatch(abortRequest, task, aborted.signal, "held-consent")
     try {
@@ -492,6 +508,7 @@ export async function tabLifecycleSmoke() {
     assert(!first.contents.isDestroyed())
     for (const target of [source, first]) assert(!browserOperationBusy.has(target.id))
     await plugin({ op: "close_tab", tabID: source.id })
+    await command({ op: "access", tabID: first.id, enabled: true })
     console.log("PASS lifecycle pending consent and early cancel block distinct source page routes until settlement")
 
     for (const choice of ["stay", "expired-leave", "leave"] as const) {
@@ -1062,7 +1079,8 @@ export async function tabLifecycleSmoke() {
 
     if (process.platform === "win32") {
       dialog.showMessageBox = consent
-      const request = await prepare({ op: "create_tab" })
+      await command({ op: "access", tabID: first.id, enabled: false })
+      const request = await prepare({ op: "select_tab", tabID: first.id })
       const controller = new AbortController()
       const before = group().tabs.length
       const pending = dispatch(request, task, controller.signal, "real-consent")
@@ -1102,9 +1120,9 @@ export async function tabLifecycleSmoke() {
     const blank = emptyGroup.tabs[0]
     await wait(() => !blank.contents.isLoadingMainFrame() && blank.contents.getURL() === "about:blank")
     assert.equal(blank.id, emptyResult.result.tabResult.tabID)
-    assert.equal(blank.agentAccess, false)
+    assert.equal(blank.agentAccess, true)
     assert.equal(requests.length, requestCount)
-    console.log("PASS lifecycle empty recovery creates one private blank without requests")
+    console.log("PASS lifecycle empty recovery creates one agent blank without requests")
     console.log(
       `PASS tab lifecycle ${process.platform} Electron ${process.versions.electron} Chromium ${process.versions.chrome}; no physical/packaged assurance`,
     )
@@ -1113,6 +1131,7 @@ export async function tabLifecycleSmoke() {
     dialogHook = undefined
     askHook = undefined
     stop()
+    panels.close()
     owner.tabConsent?.abort()
     foreign.tabConsent?.abort()
     dialog.showMessageBox = consent

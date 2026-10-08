@@ -10,6 +10,9 @@ export const browser = {
     "Close this tab and reopen it from Recently closed. Agent Access will be off. Reloading or enabling access again does not clear interrupted input.",
   "browser.operation.close": "Close tab for recovery",
   "browser.operation.takeover": "Take over this tab",
+  "browser.agent.takeover": "Take over browser",
+  "browser.agent.resume": "Resume agent",
+  "browser.agent.paused": "You control this task's browser. Agent browsing is paused until you resume it.",
   "browser.access.title": "Agent access",
   "browser.access.tabs": "This task's tabs",
   "browser.access.help":

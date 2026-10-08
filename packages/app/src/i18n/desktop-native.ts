@@ -599,6 +599,8 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "The observed browser image is no longer current. Take a fresh screenshot before visual input.",
   "desktop.browser.visualUnsupported":
     "The browser cannot verify this visual target's document and layout. Use a semantic control or a fresh supported view.",
+  "desktop.browser.taskPaused":
+    "The user has taken over this task's browser. Browser tools are paused until the user selects Resume agent. Do not open another browser or tab to bypass takeover.",
   "desktop.install.replaceDetail":
     "Install CookieMonster at {{destination}} and open it there? Quit any installed copy first. An existing app at this location will be replaced after the new copy is complete. Only the immediately previous app is kept in a CookieMonster Backup- folder beside it. Older installer-owned backups are removed after successful replacement. Failed-install recovery copies are left alone, and cleanup failures can leave extra backups. No administrator access is needed. Settings and sign-in data are not changed.",
   "desktop.install.replaceManual":

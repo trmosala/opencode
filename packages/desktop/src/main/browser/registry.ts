@@ -1,7 +1,8 @@
-import { invalidateSnapshots, type DriverContents, type Target } from "./driver"
+import { browserInputFailure, invalidateSnapshots, type DriverContents, type Target } from "./driver"
 import {
   failure,
   type HistoryRequest,
+  type PanelRequest,
   type Request,
   type Response,
   type BrowserState,
@@ -15,6 +16,16 @@ import type { BrowserOwnerScope } from "./session-resolver"
 
 export type TabLifecycleRequest = Extract<Request, { op: "prepare_tab" | "create_tab" | "select_tab" | "close_tab" }>
 export const browserOperationBusy = new Set<string>()
+let panelHandler:
+  | ((sessionID: string, request: PanelRequest, signal: AbortSignal, deadline: number) => Promise<Response<BrowserState>>)
+  | undefined
+export function setBrowserPanelHandler(handler: typeof panelHandler) {
+  panelHandler = handler
+}
+export function routeBrowserPanel(sessionID: string, request: PanelRequest, signal: AbortSignal, deadline: number) {
+  return panelHandler?.(sessionID, request, signal, deadline) ??
+    Promise.resolve(failure("no_target", nativeT("desktop.browser.tabs.noTarget")))
+}
 let tabHandler:
   | ((
       sessionID: string,
@@ -68,6 +79,7 @@ export type BrowserRegistration = {
   transferGuarded?: boolean
   frameSessions?: ReturnType<typeof createFrameSessions>
   agentAccess: boolean
+  agentCreated?: boolean
   leavePending?: boolean
   revision: number
   accessRevision?: number
@@ -119,6 +131,7 @@ export function watchBrowserAccess(tab: BrowserRegistration, revoke: () => void)
 }
 
 export function revokeBrowserAccess(tab: BrowserRegistration) {
+  taskAccess.get(tab.sessionID)?.resume.delete(tab)
   accessObservers.get(tab)?.forEach((revoke) => revoke())
   tab.accessConsent?.abort()
   tab.screenshotConsent?.abort()
@@ -140,14 +153,65 @@ export function invalidateBrowserDocument(tab: BrowserRegistration) {
 }
 
 const tabs = new Map<string, BrowserRegistration>()
+const taskAccess = new Map<string, { paused: boolean; epoch: number; resume: Set<BrowserRegistration> }>()
+const authorityObservers = new Map<string, Set<() => void>>()
+export function watchBrowserAuthority(sessionID: string, revoke: () => void) {
+  const observers = authorityObservers.get(sessionID) ?? new Set<() => void>()
+  authorityObservers.set(sessionID, observers)
+  observers.add(revoke)
+  return () => {
+    observers.delete(revoke)
+    if (!observers.size) authorityObservers.delete(sessionID)
+  }
+}
+export const browserTaskPaused = (sessionID: string) => taskAccess.get(sessionID)?.paused === true
+export const browserTaskEpoch = (sessionID: string) => taskAccess.get(sessionID)?.epoch ?? 0
+
+// Takeover is task-wide: opening another tab must not bypass the user's pause.
+// Only previously granted live tabs can resume; private and explicitly revoked tabs stay private.
+export function setBrowserTaskPaused(sessionID: string, paused: boolean) {
+  if (!paused && !browserAgentEnabled()) throw new Error(nativeT("desktop.browser.operationUnavailable"))
+  const state = taskAccess.get(sessionID) ?? { paused: false, epoch: 0, resume: new Set<BrowserRegistration>() }
+  taskAccess.set(sessionID, state)
+  if (state.paused === paused) return
+  state.paused = paused
+  state.epoch++
+  authorityObservers.get(sessionID)?.forEach((revoke) => revoke())
+  if (paused) {
+    browserTabs(sessionID).forEach((tab) => {
+      const granted = tab.agentAccess
+      revokeBrowserAccess(tab)
+      if (granted) state.resume.add(tab)
+    })
+    return
+  }
+  state.resume.forEach((tab) => {
+    if (
+      browserRegistration(sessionID, tab.id) !== tab ||
+      !tab.transferGuarded ||
+      browserInputFailure(tab.contents) ||
+      !browserPageURL(tab.contents.getURL())
+    )
+      return
+    tab.agentAccess = true
+    tab.accessRevision = (tab.accessRevision ?? 0) + 1
+    tab.revision++
+    invalidateSnapshots(tab.contents)
+  })
+  state.resume.clear()
+}
 let agentEnabled = true
 let agentEpoch = 0
 export const browserAgentEnabled = () => agentEnabled
 export const browserAgentEpoch = () => agentEpoch
 export function setBrowserAgentEnabled(enabled: boolean) {
-  if (agentEnabled !== enabled) agentEpoch++
+  if (agentEnabled !== enabled) {
+    agentEpoch++
+    authorityObservers.forEach((observers) => observers.forEach((revoke) => revoke()))
+  }
   agentEnabled = enabled
   if (enabled) return
+  taskAccess.forEach((state) => state.resume.clear())
   tabs.forEach((tab) => {
     revokeBrowserAccess(tab)
   })

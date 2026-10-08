@@ -3,6 +3,8 @@ import { failure, success, type TabRequest, type BrowserState, type Response } f
 import {
   browserAgentEnabled,
   browserAgentEpoch,
+  browserTaskPaused,
+  browserTaskEpoch,
   browserOperationBusy,
   browserRegistration,
   type BrowserRegistration,
@@ -11,8 +13,6 @@ import {
 import { browserInputFailure } from "./driver"
 import { keepBrowserRendering } from "./rendering"
 import { nativeT } from "../native-translations"
-
-export class TabRecoveryRequired extends Error {}
 
 // Narrow native seam: main captures owner/group authority; this handler owns tokens and settlement.
 export type NativeTabAction = {
@@ -63,10 +63,13 @@ export function createTabHandler(resolve: (sessionID: string, request: TabReques
           granted: entry.agentAccess,
         }))
         const epoch = browserAgentEpoch()
+        const taskEpoch = browserTaskEpoch(sessionID)
         const check = () => {
           action.check()
           if (
             !browserAgentEnabled() ||
+            browserTaskPaused(sessionID) ||
+            browserTaskEpoch(sessionID) !== taskEpoch ||
             browserAgentEpoch() !== epoch ||
             sources.some(
               (source) =>
@@ -130,9 +133,7 @@ export function createTabHandler(resolve: (sessionID: string, request: TabReques
         tabs.forEach((tab) => browserOperationBusy.delete(tab.id))
         releases.forEach((release) => release())
       }
-    } catch (error) {
-      if (error instanceof TabRecoveryRequired)
-        return failure("unavailable", nativeT("desktop.browser.tabs.recoveryRequired"))
+    } catch {
       return failure("access_denied", nativeT("desktop.browser.tabs.changed"))
     }
   }

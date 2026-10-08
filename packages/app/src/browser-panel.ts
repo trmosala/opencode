@@ -24,6 +24,7 @@ export type BrowserTab = {
   canGoBack: boolean
   canGoForward: boolean
   agentAccess: boolean
+  agentCreated?: boolean
   loadFailed: boolean
   loadError?: string
   zoom?: number
@@ -155,6 +156,7 @@ export type BrowserDownload = {
   canResume?: boolean
 }
 export type BrowserTabs = {
+  agentPaused?: boolean
   revision?: number
   sessionID: string
   activeID?: string
@@ -238,6 +240,7 @@ export function browserTabKeyIndex(
   if (key === "End") return length - 1
 }
 export type BrowserCommand =
+  | { op: "agent-pause"; paused: boolean }
   | { op: "allow-login-offers"; origin: string }
   | { op: "transfer-rule"; rule: BrowserTransferRule; remove?: boolean }
   | { op: "open-link"; url: string; destination: "browser" | "external" }
@@ -302,6 +305,10 @@ export type BrowserSelection = {
 }
 
 export type BrowserPanelPlatform = {
+  onPanelRequest?(callback: (request: DesktopPanelRequest) => void): () => void
+  onPanelCancel?(callback: (id: string) => void): () => void
+  panelRequestCurrent?(id: string, sessionID: string): Promise<boolean>
+  acknowledgePanel?(input: DesktopPanelAcknowledgement): Promise<boolean>
   linkContext?(sessionID: string | null, lease: string): Promise<void>
   onOpened?(callback: (sessionID: string) => void): () => void
   command(sessionID: string, command: BrowserCommand): Promise<BrowserTabs>
@@ -312,3 +319,13 @@ export type BrowserPanelPlatform = {
   subscribe(callback: (state: BrowserTabs) => void): () => void
   onShortcut(callback: (input: { sessionID: string; shortcut: BrowserShortcut }) => void): () => void
 }
+
+export type DesktopPanelRequest = {
+  id: string
+  sessionID: string
+  deadline: number
+} & ({ view: "browser"; tabID: string } | { view: "review" | "hidden" })
+export type DesktopPanelAcknowledgement = {
+  id: string
+  sessionID: string
+} & ({ view: "browser"; tabID: string } | { view: "review" | "hidden" })

@@ -9,6 +9,8 @@ import {
   parseSiteToolArguments,
   parseSiteToolContext,
   parseTabRequest,
+  parsePanelRequest,
+  parsePanelResult,
   type TabRequest,
   screenshotBytes,
   screenshotDimensions,
@@ -55,7 +57,7 @@ const result = (state: BrowserState) => ({
       ? `Opened private tab ${state.tabID}: ${state.url}. Agent access is off; the user must enable it before page tools can read or control it.`
       : state.tabs
         ? state.tabs.map((tab) => `${tab.tabID} ${tab.url}`).join("\n") ||
-          "No opted-in tabs. Enable agent access in the browser panel."
+          "No accessible CM Browser tabs. Use browser_create_tab to open an agent tab, then browser_navigate."
         : [
             `tabID: ${state.tabID}`,
             `url: ${state.url}`,
@@ -176,21 +178,38 @@ const tabID = tool.schema.string().min(1).max(128).describe("Explicit tab ID fro
 
 export function browserTools(port: BrowserPort): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {
+    desktop_set_panel: tool({
+      description:
+        "Set this task's desktop side panel to browser, review or hidden. Browser requires an explicit accessible tabID and waits for its native view. Review only displays changes and never approves, discards or edits them. Does not grant browser access or bypass takeover. The desktop must be visible and on this task.",
+      args: { view: tool.schema.enum(["browser", "review", "hidden"]), tabID: opaqueID.optional() },
+      async execute(args, context) {
+        const request = parsePanelRequest({ ...args, op: "set_panel" })
+        if (!request || "op" in args) throw new Error("Invalid desktop panel request.")
+        await ask(context, { permission: "desktop_set_panel", patterns: ["*"], always: ["*"], metadata: request })
+        const response = tabState.extend({ panelResult: tool.schema.unknown() })
+          .safeParse(await run(port, context, request))
+        const completed = response.success ? parsePanelResult(response.data.panelResult) : undefined
+        if (!completed || completed.view !== request.view ||
+          (request.view === "browser" && (completed.view !== "browser" || completed.tabID !== request.tabID)))
+          throw new Error("Invalid desktop panel result.")
+        return JSON.stringify(completed)
+      },
+    }),
     browser_create_tab: tool({
       description:
-        "Create one blank private tab in this task after named lifecycle approval. No URL or page access grant. Returns only the operation and opaque tab ID; no automatic retry.",
+        "Open CookieMonster's built-in browser and create one agent-controlled blank tab in this task. Ready for browser_navigate without a tab-access prompt. Uses the shared CM browser profile and existing website logins. User takeover blocks creation until resumed. Returns the opaque tab ID; no automatic retry.",
       args: {},
       execute: (args, context) => runTab(port, context, "create_tab", args),
     }),
     browser_select_tab: tool({
       description:
-        "Select an explicit tab in this task after named lifecycle approval. Does not grant page access or expose private page metadata. Returns only the operation and opaque tab ID; no automatic retry.",
+        "Select an accessible CM Browser tab and reveal the browser panel. Agent-controlled tabs use standing task authority; private targets require native approval and remain private. Returns only the operation and opaque tab ID; no automatic retry.",
       args: { tabID },
       execute: (args, context) => runTab(port, context, "select_tab", args),
     }),
     browser_close_tab: tool({
       description:
-        "Close an explicit tab in this task after named lifecycle approval, respecting unsaved-page confirmation. Does not grant page access or expose private page metadata. Returns only the operation and opaque tab ID; no automatic retry.",
+        "Close an accessible CM Browser tab, respecting unsaved-page confirmation. Agent-controlled tabs use standing task authority; private targets require native approval. Returns only the operation and opaque tab ID; no automatic retry.",
       args: { tabID },
       execute: (args, context) => runTab(port, context, "close_tab", args),
     }),
@@ -219,7 +238,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
     }),
     browser_read_state: tool({
       description:
-        "Without tabID, list enabled tabs. With tabID, read bounded top-document and embedded-document content with native frame refs and explicit omission/truncation statuses. Nested and cross-origin documents share the tab grant; geometry does not hide readable content. Optional selector reads one matching subtree with a separate bounded budget, recovering controls omitted from aggregate output. Selectors support one ASCII compound tag/#id/.class, at most 512 characters; no combinators, attributes, pseudos, escapes or lists. An explicit frameRef selects that exact native document. Private tabs are never exposed. Visual-only omissions require screenshots.",
+        "Use CookieMonster's built-in CM Browser first for browser tasks. Without tabID, list accessible task tabs; if none, use browser_create_tab then browser_navigate. With tabID, read bounded top-document and embedded-document content with native frame refs and explicit omission/truncation statuses. Nested and cross-origin documents share the tab grant; geometry does not hide readable content. Optional selector reads one matching subtree with a separate bounded budget, recovering controls omitted from aggregate output. Selectors support one ASCII compound tag/#id/.class, at most 512 characters; no combinators, attributes, pseudos, escapes or lists. An explicit frameRef selects that exact native document. Private tabs are never exposed. Visual-only omissions require screenshots.",
       args: {
         tabID: tabID.optional(),
         selector: tool.schema.string().min(1).max(512).optional(),

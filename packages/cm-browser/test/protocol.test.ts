@@ -14,8 +14,53 @@ import {
   parseDelegationRequest,
   parseDelegationResult,
   parseBrowserIpcResult,
+  parsePanelRequest,
+  parsePanelResult,
   stateDirectory,
 } from "../src/protocol"
+
+test("panel requests and results require exact view, tab and native readiness combinations", () => {
+  for (const request of [
+    { op: "set_panel", view: "browser", tabID: "one" },
+    { op: "set_panel", view: "review" },
+    { op: "set_panel", view: "hidden" },
+  ] as const) {
+    expect(parsePanelRequest(request)).toEqual(request)
+    expect(parseRequest(request)).toEqual(request)
+    expect(parseBrowserIpcRequest({ type: "browser_request", id: "panel", sessionID: "task", request })?.request)
+      .toEqual(request)
+    const { op, ...view } = request
+    const result = view.view === "browser"
+      ? { ...view, browserReady: true as const }
+      : { ...view, browserReady: false as const }
+    expect(parsePanelResult(result)).toEqual(result)
+    expect(parseBrowserIpcResult({
+      type: "browser_result", id: "panel", response: { ok: true, result: { panelResult: result } },
+    })).toBeDefined()
+    for (const extra of [{ unknown: true }, { deadline: 123 }, { browserReady: true }, { op: "read_state" }])
+      expect(parsePanelRequest({ ...request, ...extra })).toBeUndefined()
+    expect(parsePanelResult({ ...result, browserReady: !result.browserReady })).toBeUndefined()
+  }
+  for (const invalid of [
+    null, [], {}, { view: "files" }, { view: "browser" }, { view: "browser", tabID: "" },
+    { view: "browser", tabID: "../one" }, { view: "browser", tabID: "a".repeat(129) },
+    { view: "browser", tabID: "one\n" }, { view: "review", tabID: "one" },
+    { view: "hidden", tabID: undefined },
+  ]) {
+    expect(parsePanelRequest(
+      invalid && !Array.isArray(invalid) ? { ...invalid, op: "set_panel" } : invalid,
+    )).toBeUndefined()
+    expect(parsePanelResult(invalid)).toBeUndefined()
+  }
+  for (const panelResult of [
+    undefined, null, [], {}, { view: "browser", tabID: "one", browserReady: false },
+    { view: "review", tabID: "one", browserReady: false }, { view: "hidden", browserReady: true },
+    { view: "hidden", browserReady: false, secret: "private" },
+  ])
+    expect(parseBrowserIpcResult({
+      type: "browser_result", id: "panel", response: { ok: true, result: { panelResult } },
+    })).toBeUndefined()
+})
 
 test("targeted inspection and document waits share bounded selector rules", () => {
   const frameRef = "a".repeat(36)

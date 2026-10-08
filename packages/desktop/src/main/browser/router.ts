@@ -19,8 +19,10 @@ import {
   browserAccessAllowed,
   browserRegistration,
   browserAgentEnabled,
+  browserTaskPaused,
   routeBrowserHistory,
   routeBrowserTab,
+  routeBrowserPanel,
   browserOperationBusy,
   browserTabReserved,
   watchBrowserAccess,
@@ -327,6 +329,11 @@ async function route(
   if (parsed.op === "grant_tabs" || parsed.op === "revoke_tabs")
     return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
   if (!browserAgentEnabled()) return failure("access_denied", "Browser agent access is disabled in browser settings.")
+  if (browserTaskPaused(message.sessionID)) return failure("access_denied", nativeT("desktop.browser.taskPaused"))
+  if (parsed.op === "set_panel") {
+    if (access) return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
+    return routeBrowserPanel(message.sessionID, parsed, signal, deadline)
+  }
   if (parsed.op === "prepare_tab" || "token" in parsed)
     return routeBrowserTab(message.sessionID, parsed, signal, deadline)
   const request = parsed.op === "prepare_write" ? parsed.request : parsed
@@ -363,6 +370,7 @@ async function route(
           resolve(tab.id) !== tab ||
           browserTabReserved(tab, access?.token) ||
           !tab.agentAccess ||
+          browserTaskPaused(tab.sessionID) ||
           tab.contents.getURL() !== item.url ||
           tab.revision !== item.revision ||
           tab.accessRevision !== item.accessRevision ||
@@ -385,6 +393,7 @@ async function route(
   }
   const tab = resolve(request.tabID)
   if (!tab) return failure("no_target", "Browser tab not found in this session.")
+  if (browserTaskPaused(tab.sessionID)) return failure("access_denied", nativeT("desktop.browser.taskPaused"))
   if (browserTabReserved(tab, access?.token))
     return failure("unavailable", nativeT("desktop.browser.operationUnavailable"))
   if (!tab.agentAccess) return failure("access_denied", "Enable agent access for this tab in the browser panel.")
@@ -447,6 +456,7 @@ async function route(
       (tab.ownerContext?.() ?? createHash("sha256").update(`${tab.ownerID}:${tab.sessionID}`).digest("base64url")) !==
         ownerContext ||
       !browserAgentEnabled() ||
+      browserTaskPaused(tab.sessionID) ||
       !tab.agentAccess ||
       (tab.accessRevision ?? 0) !== accessRevision ||
       contents.isDestroyed() ||

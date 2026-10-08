@@ -22,6 +22,7 @@ import type {
   BrowserClearRange,
   BrowserSiteData,
   BrowserSiteStorage,
+  DesktopPanelRequest,
 } from "@opencode-ai/app/browser-panel"
 import { browserShortcut, browserDeviceSize, BROWSER_DEVICE_DEFAULT } from "@opencode-ai/app/browser-panel"
 import { nativeT } from "../native-translations"
@@ -39,10 +40,15 @@ import {
   invalidateBrowserDocument,
   setBrowserAgentEnabled,
   browserAgentEnabled,
+  browserAgentEpoch,
+  browserTaskPaused,
+  browserTaskEpoch,
+  setBrowserTaskPaused,
   browserOperationBusy,
   browserTabReserved,
   browserRegistration,
   watchBrowserAccess,
+  watchBrowserAuthority,
   setBrowserHistoryHandler,
   type BrowserRegistration,
 } from "./registry"
@@ -114,9 +120,9 @@ import {
   clearGenerationScript,
 } from "./password-generation"
 import { agentHistory } from "./agent-history"
-import { createTabHandler, TabRecoveryRequired, type NativeTabAction } from "./agent-tabs"
-import { setBrowserTabHandler } from "./registry"
-import { failure, hasFrameTarget, type TabRequest } from "@cookiemonster/cm-browser/protocol"
+import { createTabHandler, type NativeTabAction } from "./agent-tabs"
+import { setBrowserTabHandler, setBrowserPanelHandler } from "./registry"
+import { failure, success, hasFrameTarget, parsePanelRequest, type TabRequest, type PanelRequest, type PanelResult } from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 import { transferVaultBackup } from "./vault-backup"
 import { createLeaveConfirmation } from "./leave-confirmation"
@@ -184,6 +190,12 @@ type Group = {
   restoring?: boolean
 }
 type Owner = {
+  panelRequest?: {
+    request: DesktopPanelRequest
+    check(): void
+    acknowledge(value: unknown): boolean
+    cancel(): void
+  }
   authorityID: string
   linkContext?: { sessionID: string; lease: string }
   win: BrowserWindow
@@ -236,6 +248,32 @@ setBrowserHistoryHandler(async (sessionID, request, signal) => {
   ).catch(() => failure("unavailable", "Browser history operation unavailable."))
 })
 setBrowserTabHandler(createTabHandler(resolveNativeTabAction))
+setBrowserPanelHandler(async (sessionID, request, signal, deadline) => {
+  const matches = [...owners.values()].filter((owner) => owner.linkContext?.sessionID === sessionID)
+  if (matches.length !== 1) return failure("no_target", nativeT("desktop.browser.tabs.noTarget"))
+  const owner = matches[0]
+  const group = owner.groups.get(sessionID)
+  const target = request.view === "browser" ? group?.tabs.find((tab) => tab.id === request.tabID) : undefined
+  if (request.view === "browser" && (!target?.agentAccess || browserTabReserved(target)))
+    return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
+  if (owner.panelRequest || owner.suspended || [...(group?.tabs ?? [])].some((tab) => browserOperationBusy.has(tab.id) || tab.leavePending))
+    return failure("unavailable", nativeT("desktop.browser.tabs.busy"))
+  try {
+    if (signal.aborted || Date.now() >= deadline || owner.shutting || owner.win.isDestroyed() ||
+      owner.win.webContents.isDestroyed() || !owner.win.isVisible() || owner.win.isMinimized() ||
+      (owner.viewport && owner.viewport.sessionID !== sessionID)) throw new Error()
+    if (target && group) {
+      group.activeID = target.id
+      persistGroup(owner, group)
+      publish(owner, group)
+      layout(owner)
+    }
+    const panelResult = await requestDesktopPanel(owner, sessionID, request, signal, deadline)
+    return success({ tabID: "", url: "", title: "", visibleText: "", elements: [], panelResult })
+  } catch {
+    return failure("unavailable", nativeT("desktop.browser.operationUnavailable"))
+  }
+})
 let profileReady = false
 vaultAccess.subscribe(() => owners.forEach((owner) => owner.groups.forEach((group) => publish(owner, group))))
 
@@ -328,11 +366,119 @@ export function browserLinkContext(owner: Owner, sessionID: string | null, lease
     (sessionID !== null && (owner.linkContext?.sessionID !== sessionID || owner.linkContext?.lease !== lease)) ||
     (sessionID === null && owner.linkContext?.lease === lease)
   ) {
+    owner.panelRequest?.cancel()
     advanceOwnerTask(owner)
+    if (sessionID !== null) owner.linkContext = { sessionID, lease }
+    if (sessionID === null) owner.linkContext = undefined
   }
-  if (sessionID !== null) owner.linkContext = { sessionID, lease }
-  if (sessionID === null && owner.linkContext?.lease === lease) owner.linkContext = undefined
   owner.captureChecks?.forEach((check) => check())
+}
+
+function requestDesktopPanel(owner: Owner, sessionID: string, request: PanelRequest, signal: AbortSignal, deadline: number) {
+  if (owner.panelRequest) return Promise.reject(new Error("Panel request busy"))
+  const link = owner.linkContext
+  const lifecycle = owner.screenshotEpoch
+  const globalEpoch = browserAgentEpoch()
+  const taskEpoch = browserTaskEpoch(sessionID)
+  const group = owner.groups.get(sessionID)
+  const target = request.view === "browser" ? group?.tabs.find((tab) => tab.id === request.tabID) : undefined
+  const contents = target?.contents
+  const revision = target?.revision
+  const accessRevision = target?.accessRevision
+  const granted = target?.agentAccess
+  // Viewport mount/clear changes owner.taskEpoch as part of this operation.
+  // Link identity and the independent task/global epochs still fence authority.
+  const event: DesktopPanelRequest = { id: randomUUID(), sessionID, deadline, ...request }
+  const check = () => {
+    signal.throwIfAborted()
+    if (
+      Date.now() >= deadline || owner.shutting || owner.win.isDestroyed() || owner.win.webContents.isDestroyed() ||
+      owners.get(owner.win.webContents.id) !== owner || !owner.win.isVisible() || owner.win.isMinimized() ||
+      [...owners.values()].filter((entry) => entry.linkContext?.sessionID === sessionID).length !== 1 ||
+      owner.suspended || owner.linkContext !== link || link?.sessionID !== sessionID ||
+      owner.screenshotEpoch !== lifecycle || !browserAgentEnabled() || browserAgentEpoch() !== globalEpoch ||
+      browserTaskPaused(sessionID) || browserTaskEpoch(sessionID) !== taskEpoch ||
+      (owner.viewport && owner.viewport.sessionID !== sessionID) ||
+      (target && (owner.groups.get(sessionID) !== group || !group?.tabs.includes(target) ||
+        group.activeID !== target.id || target.contents !== contents || target.contents.isDestroyed() ||
+        target.revision !== revision || target.accessRevision !== accessRevision || target.agentAccess !== granted))
+    ) throw new Error("Panel authority changed")
+  }
+  return new Promise<PanelResult>((resolve, reject) => {
+    const finish = (result?: PanelResult) => {
+      if (owner.panelRequest !== pending) return
+      owner.panelRequest = undefined
+      clearTimeout(timer)
+      signal.removeEventListener("abort", cancel)
+      checks.delete(validate)
+      unwatch?.()
+      unwatchAuthority()
+      listeners.forEach(([emitter, name]) => emitter.removeListener(name, cancel))
+      if (!owner.win.isDestroyed() && !owner.win.webContents.isDestroyed())
+        owner.win.webContents.send("desktop-panel-cancel", event.id)
+      if (result) resolve(result)
+      else reject(new Error("Panel operation unavailable"))
+    }
+    const cancel = () => finish()
+    const validate = () => { try { check() } catch { cancel() } }
+    const checks = (owner.captureChecks ??= new Set())
+    const listeners: [EventEmitter, string][] = [
+      ...["close", "closed", "hide", "minimize"].map((name): [EventEmitter, string] => [owner.win, name]),
+      ...["destroyed", "render-process-gone", "did-start-navigation"].map(
+        (name): [EventEmitter, string] => [owner.win.webContents, name],
+      ),
+    ]
+    const pending: NonNullable<Owner["panelRequest"]> = {
+      request: event, check, cancel,
+      acknowledge(value) {
+        if (!record(value) || value.id !== event.id || value.sessionID !== sessionID) return false
+        const { id, sessionID: acknowledgedSession, ...state } = value
+        if ("op" in state) return false
+        const observed = parsePanelRequest({ ...state, op: "set_panel" })
+        if (!observed || observed.view !== request.view ||
+          (request.view === "browser" && (observed.view !== "browser" || observed.tabID !== request.tabID))) return false
+        check()
+        if (request.view === "browser") {
+          if (!target) return false
+          const native = target.view.getBounds()
+          // Private blank tabs display the renderer's landing page without a native page.
+          const landing = !target.agentCreated && target.contents.getURL() === "about:blank"
+          if (!landing && (owner.attached !== target || !owner.viewport || !native.width || !native.height ||
+            !owner.win.contentView.children.includes(target.view))) return false
+          finish({ view: "browser", tabID: target.id, browserReady: true })
+          return true
+        }
+        if (owner.attached) return false
+        finish({ view: request.view, browserReady: false })
+        return true
+      },
+    }
+    const timer = setTimeout(cancel, Math.max(0, deadline - Date.now()))
+    const unwatch = target ? watchBrowserAccess(target, cancel) : undefined
+    const unwatchAuthority = watchBrowserAuthority(sessionID, cancel)
+    owner.panelRequest = pending
+    checks.add(validate)
+    signal.addEventListener("abort", cancel, { once: true })
+    listeners.forEach(([emitter, name]) => emitter.on(name, cancel))
+    try {
+      check()
+      owner.win.webContents.send("desktop-panel-request", event)
+    } catch { cancel() }
+  }).then((result) => {
+    check()
+    return result
+  })
+}
+
+export function browserPanelRequestCurrent(owner: Owner, id: unknown, sessionID: unknown) {
+  const pending = owner.panelRequest
+  if (!pending || id !== pending.request.id || sessionID !== pending.request.sessionID) return false
+  try { pending.check(); return true } catch { pending.cancel(); return false }
+}
+
+export function browserPanelAcknowledgement(owner: Owner, input: unknown) {
+  if (!record(input) || !browserPanelRequestCurrent(owner, input.id, input.sessionID)) return false
+  return owner.panelRequest?.acknowledge(input) ?? false
 }
 
 export async function openBrowserLink(win: BrowserWindow, value: string, destination?: "browser" | "external") {
@@ -476,6 +622,7 @@ function state(group: Group): BrowserTabs {
   return {
     revision: group.revision,
     sessionID: group.sessionID,
+    agentPaused: browserTaskPaused(group.sessionID),
     activeID: group.activeID,
     recentlyClosed: group.closed,
     downloads: [
@@ -496,6 +643,7 @@ function state(group: Group): BrowserTabs {
           revision: tab.revision,
           openerID: tab.openerID,
           agentAccess: tab.agentAccess,
+          agentCreated: tab.agentCreated,
           operation: tab.operation ? { ...tab.operation } : undefined,
           notice: tab.notice,
           failure: tab.failure,
@@ -984,6 +1132,7 @@ function createTab(
   position?: number,
   deferredRestore = false,
   activate = true,
+  agentCreated = false,
 ) {
   if (group.tabs.length >= 32) throw new Error("Browser tab limit reached")
   if (!profileReady) {
@@ -1201,7 +1350,8 @@ function createTab(
     contents,
     view,
     agentAccess: false,
-    transferGuarded: group.tabs.some((tab) => tab.id === popup?.openerID && tab.transferGuarded),
+    agentCreated,
+    transferGuarded: agentCreated || group.tabs.some((tab) => tab.id === popup?.openerID && tab.transferGuarded),
     revision: 0,
     openerID: popup?.openerID,
     loadFailed: false,
@@ -1586,6 +1736,16 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     return state(group)
   }
   if (command.op === "state") return state(group)
+  if (command.op === "agent-pause") {
+    if (typeof command.paused !== "boolean") throw new Error(nativeT("desktop.browser.operationUnavailable"))
+    if (!command.paused && group.tabs.some((tab) => tab.loginBusy)) throw new Error(nativeT("desktop.browser.tabs.busy"))
+    setBrowserTaskPaused(sessionID, command.paused)
+    owners.forEach((entry) => {
+      const current = entry.groups.get(sessionID)
+      if (current) publish(entry, current)
+    })
+    return state(group)
+  }
   if (command.op === "new") {
     createTab(owner, group)
     return state(group)
@@ -2560,6 +2720,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
     tab.leaveIntent?.controller.abort()
     cancelBrowserNavigation(contents)
   } else if (command.op === "access") {
+    if (command.enabled && browserTaskPaused(sessionID)) throw new Error(nativeT("desktop.browser.taskPaused"))
     if (command.enabled && tab.loginBusy) throw new Error("Login operation pending")
     if (command.enabled && !browserAgentEnabled()) throw new Error("Browser agent access is disabled")
     if (typeof command.enabled !== "boolean") throw new Error("Invalid browser access")
@@ -2688,6 +2849,7 @@ export function browserViewport(
       })
     )
       throw new Error("Invalid browser bounds")
+    if (owner.panelRequest && owner.panelRequest.request.sessionID !== input.sessionID) owner.panelRequest.cancel()
     if (owner.viewport?.sessionID !== input.sessionID || owner.viewport?.lease !== input.lease) {
       advanceOwnerTask(owner)
     }
@@ -2770,6 +2932,7 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
   const matches = current()
   if (matches.length !== 1) return undefined
   const owner = matches[0]
+  if (owner.panelRequest) return undefined
   const ownerID = owner.win.webContents.id
   const epoch = owner.taskEpoch
   const lifecycle = owner.screenshotEpoch
@@ -2782,6 +2945,7 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
     if (
       matches.length !== 1 ||
       matches[0] !== owner ||
+      owner.panelRequest ||
       owners.get(ownerID) !== owner ||
       owner.taskEpoch !== epoch ||
       owner.screenshotEpoch !== lifecycle ||
@@ -2798,11 +2962,8 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
       (request.op === "create_tab" && (group?.tabs.length ?? 0) >= 32)
     )
       throw new Error("Tab owner changed")
-    if (request.op === "create_tab" && !group) {
-      // ponytail: require manual restoration rather than merging unloaded recovery into a live group.
-      const recovery = savedTabs(sessionID)
-      if (recovery && (recovery.tabs.length || recovery.closed.length)) throw new TabRecoveryRequired()
-    }
+    if (request.op === "create_tab" && !group && (savedTabs(sessionID)?.tabs.length ?? 0) >= 32)
+      throw new Error("Browser tab limit reached")
   }
   return {
     owner,
@@ -2811,6 +2972,9 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
     check,
     async confirm(signal) {
       check()
+      // Ordinary agent lifecycle uses the task's standing authority. Private targets
+      // retain native confirmation and gain no page access from that confirmation.
+      if (request.op === "create_tab" || target?.agentAccess) return true
       if (owner.suspended || owner.tabConsent) return false
       const consent = new AbortController()
       owner.tabConsent = consent
@@ -2843,10 +3007,7 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         const options = {
           type: "warning" as const,
           message: nativeT(`desktop.browser.tabs.${request.op}`),
-          detail:
-            request.op === "create_tab"
-              ? nativeT("desktop.browser.tabs.createDetail", { task: sessionID })
-              : nativeT("desktop.browser.tabs.targetDetail", { task: sessionID, tab: request.tabID }),
+          detail: nativeT("desktop.browser.tabs.targetDetail", { task: sessionID, tab: request.tabID }),
           buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
           defaultId: 0,
           cancelId: 0,
@@ -2871,15 +3032,46 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         layout(owner)
       }
     },
-    run(authority, signal, deadline) {
+    async run(authority, signal, deadline) {
       authority()
       if (owner.suspended) throw new Error("Browser dialog pending")
       if (request.op === "create_tab") {
-        // Do not restore saved tabs as a side effect of an agent's single-tab creation.
-        const destination = group ?? { sessionID, tabs: [], closed: [] }
-        if (!group) owner.groups.set(sessionID, destination)
-        const created = createTab(owner, destination)
-        owner.win.webContents.send("browser-opened", sessionID)
+        // Adopt URL/history recovery through the normal path. Restored tabs stay
+        // private; only the new agent tab gets standing task authority.
+        const destination = group ?? groupFor(owner, sessionID)
+        const accessEpoch = browserAgentEpoch()
+        const taskEpoch = browserTaskEpoch(sessionID)
+        const created = createTab(owner, destination, undefined, undefined, undefined, false, true, true)
+        try {
+          // Blank-tab access is initialized in main, never by page content. Await
+          // upload interception before exposing the tab or returning its ID.
+          await Promise.all([created.uploadGuard, created.restore?.()])
+          signal.throwIfAborted()
+          if (
+            Date.now() >= deadline ||
+            !browserAgentEnabled() ||
+            browserAgentEpoch() !== accessEpoch ||
+            browserTaskPaused(sessionID) ||
+            browserTaskEpoch(sessionID) !== taskEpoch ||
+            owner.taskEpoch !== epoch ||
+            owner.screenshotEpoch !== lifecycle ||
+            owner.shutting ||
+            !owner.win.isVisible() ||
+            owner.win.isMinimized() ||
+            owner.groups.get(sessionID) !== destination ||
+            !destination.tabs.includes(created) ||
+            created.contents.isDestroyed() ||
+            created.contents.getURL() !== "about:blank"
+          )
+            throw new Error("Browser creation authority changed")
+          created.agentAccess = true
+          created.accessRevision = (created.accessRevision ?? 0) + 1
+        } catch (error) {
+          if (!created.contents.isDestroyed()) created.view.webContents.close()
+          throw error
+        }
+        publish(owner, destination)
+        await requestDesktopPanel(owner, sessionID, { op: "set_panel", view: "browser", tabID: created.id }, signal, deadline)
         return created.id
       }
       if (!target || !group) throw new Error("Missing tab")
@@ -2888,6 +3080,7 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         persistGroup(owner, group)
         layout(owner)
         publish(owner, group)
+        await requestDesktopPanel(owner, sessionID, { op: "set_panel", view: "browser", tabID: target.id }, signal, deadline)
         return target.id
       }
       const contents = target.view.webContents

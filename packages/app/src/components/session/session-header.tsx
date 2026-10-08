@@ -8,7 +8,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { showToast } from "@/utils/toast"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/core/util/path"
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Portal } from "solid-js/web"
@@ -228,6 +228,21 @@ export function SessionHeader() {
   useBrowserLinks({
     sessionID: () => params.id,
     open: openBrowser,
+    setPanel: (request) => {
+      if (request.view === "hidden") return view().reviewPanel.close()
+      batch(() => {
+        if (request.view === "browser") void tabs().open(`browser:${request.tabID}`)
+        if (request.view === "review") tabs().setActive("review")
+        view().reviewPanel.open()
+      })
+    },
+    reached: (request) => {
+      if (request.view === "hidden") return !view().reviewPanel.opened()
+      if (!isDesktop() || !view().reviewPanel.opened()) return false
+      // The side panel only mounts Review once the project is available.
+      if (request.view === "review" && !sync().project) return false
+      return tabs().active() === (request.view === "browser" ? `browser:${request.tabID}` : "review")
+    },
   })
 
   const [prefs, setPrefs] = persisted(Persist.global("open.app"), createStore({ app: "finder" as OpenApp }))

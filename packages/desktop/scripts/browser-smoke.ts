@@ -147,6 +147,7 @@ try {
     const timeout = setTimeout(
       () => child.kill(),
       process.argv.includes("--registration") ||
+        process.argv.includes("--tab-lifecycle") ||
         process.argv.includes("--offer-patterns") ||
         process.env.CM_BROWSER_LIVE_SMOKE === "1"
         ? 120_000

@@ -133,6 +133,39 @@ export type TabRequest =
 
 export type TabResult = { readonly op: TabRequest["op"]; readonly tabID: string }
 
+export type PanelRequest =
+  | { readonly op: "set_panel"; readonly view: "browser"; readonly tabID: string }
+  | { readonly op: "set_panel"; readonly view: "review" | "hidden" }
+export type PanelResult =
+  | { readonly view: "browser"; readonly tabID: string; readonly browserReady: true }
+  | { readonly view: "review" | "hidden"; readonly browserReady: false }
+
+export function parsePanelRequest(value: unknown): PanelRequest | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (input.op !== "set_panel") return
+  if (input.view === "browser")
+    return Object.keys(input).every((key) => ["op", "view", "tabID"].includes(key)) && browserIdentity(input.tabID)
+      ? { op: input.op, view: input.view, tabID: input.tabID }
+      : undefined
+  if (input.view !== "review" && input.view !== "hidden") return
+  return Object.keys(input).every((key) => key === "op" || key === "view")
+    ? { op: input.op, view: input.view }
+    : undefined
+}
+
+export function parsePanelResult(value: unknown): PanelResult | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).some((key) => !["view", "tabID", "browserReady"].includes(key))) return
+  const { browserReady, ...rest } = input
+  const request = parsePanelRequest({ op: "set_panel", ...rest })
+  if (!request || browserReady !== (request.view === "browser")) return
+  return request.view === "browser"
+    ? { view: request.view, tabID: request.tabID, browserReady: true }
+    : { view: request.view, browserReady: false }
+}
+
 export type FrameContext = {
   readonly frameRef: string
   readonly approval: string
@@ -229,6 +262,7 @@ export function parseDelegationResult(value: unknown): DelegationResult | undefi
 }
 
 export type BrowserState = {
+  readonly panelResult?: PanelResult
   readonly actionStatus?: ActionStatus
   readonly actionCause?: ActionFailureCause
   readonly delegation?: DelegationResult
@@ -361,6 +395,7 @@ export type PageRequest =
   | WaitRequest
 
 export type Request =
+  | PanelRequest
   | DelegationRequest
   | FrameRequest
   | { readonly op: "prepare_tab"; readonly request: TabRequest }
@@ -502,6 +537,7 @@ export function parseRequest(value: unknown): Request | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const input = value as Record<string, unknown>
   if (input.op === "grant_tabs" || input.op === "revoke_tabs") return parseDelegationRequest(input)
+  if (input.op === "set_panel") return parsePanelRequest(input)
   if (input.op === "prepare_frame_input" || input.op === "frame_input") {
     if (
       typeof input.tabID !== "string" ||
@@ -1047,6 +1083,9 @@ export function parseBrowserIpcResult(value: unknown): BrowserIpcResult | undefi
     return
   if (response.ok && response.result && typeof response.result === "object" && "delegation" in response.result) {
     if (!parseDelegationResult(response.result.delegation)) return
+  }
+  if (response.ok && response.result && typeof response.result === "object" && "panelResult" in response.result) {
+    if (!parsePanelResult(response.result.panelResult)) return
   }
   return input as BrowserIpcResult
 }

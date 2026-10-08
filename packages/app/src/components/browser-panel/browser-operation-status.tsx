@@ -36,12 +36,8 @@ export function BrowserOperationStatus(props: {
           </Button>
         </Show>
         <Show when={props.tab.agentAccess}>
-          <Button
-            type="button"
-            size="small"
-            onClick={() => void props.command({ op: "access", tabID: props.tab.id, enabled: false })}
-          >
-            {language.t("browser.operation.takeover")}
+          <Button type="button" size="small" onClick={() => void props.command({ op: "agent-pause", paused: true })}>
+            {language.t("browser.agent.takeover")}
           </Button>
         </Show>
       </div>

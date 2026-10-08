@@ -23,6 +23,7 @@ import {
   type BrowserRegistration,
 } from "./registry"
 import { createTabHandler, type NativeTabAction } from "./agent-tabs"
+import { setBrowserTaskPaused } from "./registry"
 import { routeBrowserRequest, type BrowserOperation } from "./router"
 import { browserInputFailure, shouldShowBrowserContextMenu, screenshotDecoder } from "./driver"
 import { parseSnapshot } from "./snapshot"
@@ -326,6 +327,37 @@ test("tab lifecycle tokens bind exact task, action, target and source without pr
   } finally {
     setBrowserTabHandler(undefined)
     setBrowserAgentEnabled(true)
+    remove()
+  }
+})
+
+test("task takeover blocks new tabs, inventory, reads and previously prepared creation after resume", async () => {
+  const { tab, route, remove } = fixture()
+  tab.transferGuarded = true
+  setBrowserTabHandler(
+    createTabHandler(() => ({
+      owner: tab,
+      check() {},
+      confirm: async () => true,
+      run: () => "new-tab",
+    })),
+  )
+  try {
+    const prepared = await route({ op: "prepare_tab", request: { op: "create_tab" } })
+    if (!prepared.ok || !prepared.result.tabToken) throw new Error("Missing creation token")
+    setBrowserTaskPaused(tab.sessionID, true)
+    for (const request of [
+      { op: "prepare_tab", request: { op: "create_tab" } },
+      { op: "list_tabs" },
+      { op: "read_state", tabID: tab.id },
+    ] as const)
+      expect(await route(request)).toMatchObject({ ok: false, code: "access_denied" })
+    setBrowserTaskPaused(tab.sessionID, false)
+    expect(await route({ op: "create_tab", token: prepared.result.tabToken })).toMatchObject({ ok: false })
+    expect(await route({ op: "list_tabs" })).toMatchObject({ ok: true, result: { tabs: [{ tabID: tab.id }] } })
+  } finally {
+    setBrowserTaskPaused(tab.sessionID, false)
+    setBrowserTabHandler(undefined)
     remove()
   }
 })

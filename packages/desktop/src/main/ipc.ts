@@ -28,6 +28,8 @@ import {
   browserViewport,
   browserPageContext,
   browserLinkContext,
+  browserPanelRequestCurrent,
+  browserPanelAcknowledgement,
   openBrowserLink,
 } from "./browser/tabs"
 import { createDesktopDraftStore } from "./draft-store"
@@ -148,6 +150,10 @@ export function registerIpcHandlers(deps: Deps) {
     browserCommand(browserOwner(event), sessionID, command),
   )
   ipcMain.handle("browser-viewport", (event, input) => browserViewport(browserOwner(event), input))
+  ipcMain.handle("desktop-panel-current", (event, id, sessionID) =>
+    browserPanelRequestCurrent(browserOwner(event), id, sessionID),
+  )
+  ipcMain.handle("desktop-panel-ack", (event, input) => browserPanelAcknowledgement(browserOwner(event), input))
   ipcMain.handle("browser-link-context", (event, sessionID, lease) =>
     browserLinkContext(browserOwner(event), sessionID, lease),
   )

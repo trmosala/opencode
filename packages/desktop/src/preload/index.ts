@@ -146,6 +146,18 @@ const api: ElectronAPI = {
   setForceFocus: (enabled) => ipcRenderer.invoke("set-force-focus", enabled),
   recordFatalRendererError: (error) => ipcRenderer.invoke("record-fatal-renderer-error", error),
   browserPanel: {
+    onPanelRequest: (callback) => {
+      const handler = (_: unknown, request: Parameters<typeof callback>[0]) => callback(request)
+      ipcRenderer.on("desktop-panel-request", handler)
+      return () => ipcRenderer.removeListener("desktop-panel-request", handler)
+    },
+    onPanelCancel: (callback) => {
+      const handler = (_: unknown, id: string) => callback(id)
+      ipcRenderer.on("desktop-panel-cancel", handler)
+      return () => ipcRenderer.removeListener("desktop-panel-cancel", handler)
+    },
+    panelRequestCurrent: (id, sessionID) => ipcRenderer.invoke("desktop-panel-current", id, sessionID),
+    acknowledgePanel: (input) => ipcRenderer.invoke("desktop-panel-ack", input),
     linkContext: (sessionID, lease) => ipcRenderer.invoke("browser-link-context", sessionID, lease),
     onOpened: (callback) => {
       const handler = (_: unknown, sessionID: string) => callback(sessionID)

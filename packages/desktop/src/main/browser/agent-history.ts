@@ -8,7 +8,7 @@ import {
   type Response,
 } from "@cookiemonster/cm-browser/protocol"
 import { nativeT } from "../native-translations"
-import { browserAgentEnabled } from "./registry"
+import { browserAgentEnabled, browserTaskPaused, browserTaskEpoch } from "./registry"
 import { browserPreferencesState, browserPreferencesRevision } from "./preferences"
 import { historyRows } from "./browsing-data"
 import { searchHistory } from "./history-search"
@@ -26,10 +26,13 @@ export async function agentHistory(
 ): Promise<Response<BrowserState>> {
   signal?.throwIfAborted()
   const revision = browserPreferencesRevision()
+  const taskEpoch = browserTaskEpoch(sessionID)
   const enabled = () =>
     !win.isDestroyed() &&
     !win.webContents.isDestroyed() &&
     browserAgentEnabled() &&
+    !browserTaskPaused(sessionID) &&
+    browserTaskEpoch(sessionID) === taskEpoch &&
     browserPreferencesState().agentHistory !== "never" &&
     browserPreferencesRevision() === revision
   if (!enabled()) return failure("access_denied", "Browser history access is disabled.")

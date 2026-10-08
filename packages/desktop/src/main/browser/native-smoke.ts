@@ -398,6 +398,12 @@ async function run() {
     stage("PASS tab lifecycle")
     return
   }
+  if (process.argv.includes("--desktop-panel")) {
+    const { desktopPanelSmoke } = await import("./desktop-panel.fixture")
+    await desktopPanelSmoke()
+    stage("PASS desktop panel")
+    return
+  }
   if (process.argv.includes("--delegation")) {
     const { delegationSmoke } = await import("./delegation.fixture")
     await delegationSmoke()

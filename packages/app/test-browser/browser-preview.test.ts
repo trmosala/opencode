@@ -188,7 +188,8 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
     expect(fixture.errors).toEqual([])
     expect(address.value).toBe("https://first-newest.test/")
 
-    host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click()
+    // The tab strip is now mounted by the session shell, outside BrowserPanel.
+    await browser.command("task", { op: "select", tabID: "second" })
     await submit("https://second-new.test/")
     expect(navigations.map((item) => item.tabID)).toEqual(["first", "first", "first", "second"])
     finish(2, "https://first-newest.test/")
@@ -227,12 +228,23 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
     publish({ ...tabs, revision: 19, tabs: tabs.tabs.map((row) => ({ ...row, operation: undefined })) })
     expect(host.querySelector("[data-browser-operation]")?.textContent).toContain("browser.operation.running")
     const takeover = [...host.querySelectorAll<HTMLButtonElement>("[data-browser-operation] button")].find((button) =>
-      button.textContent?.includes("browser.operation.takeover"),
+      button.textContent?.includes("browser.agent.takeover"),
     )!
     expect(takeover.type).toBe("button")
     takeover.click()
     await new Promise<void>((resolve) => setImmediate(resolve))
-    expect(calls.at(-1)).toEqual({ op: "access", tabID: tabs.activeID, enabled: false })
+    expect(calls.at(-1)).toEqual({ op: "agent-pause", paused: true })
+    publish({
+      ...tabs,
+      revision: 21,
+      agentPaused: true,
+      tabs: tabs.tabs.map((row) => ({ ...row, agentAccess: false })),
+    })
+    const resume = host.querySelector<HTMLButtonElement>("[data-browser-agent-paused] button")!
+    expect(resume.textContent).toContain("browser.agent.resume")
+    resume.click()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(calls.at(-1)).toEqual({ op: "agent-pause", paused: false })
     tabs = {
       ...tabs,
       revision: 21,
@@ -272,6 +284,15 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
     })
     expect(host.querySelector("[data-browser-operation]")?.getAttribute("role")).toBe("alert")
     expect(host.querySelector("[data-browser-operation]")?.textContent).toContain("Use the browser controls")
+
+    for (const agentCreated of [false, true]) {
+      publish({
+        ...tabs,
+        revision: agentCreated ? 24 : 23,
+        tabs: tabs.tabs.map((row) => ({ ...row, url: "about:blank", agentCreated, operation: undefined, notice: undefined })),
+      })
+      expect(!!host.querySelector('[data-slot="browser-landing"]')).toBe(!agentCreated)
+    }
 
     tabs = { ...tabs, sessionID: "empty-task", activeID: undefined, tabs: [] }
     fixture.selectSession("empty-task")
