@@ -607,6 +607,23 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Automatic installation cannot safely identify the original disk-image app. Quit CookieMonster, open the mounted disk image in Finder, and copy CookieMonster.app into your home Applications folder (Go > Go to Folder: ~/Applications). Create that folder if needed. If an app is already there, move it aside before copying or choose Replace in Finder. Then open the copied app and eject the disk image.",
   "desktop.install.replaceFailed":
     "CookieMonster could not be installed or opened at {{destination}}. If copying failed, the existing app was not moved. If replacement started, look for the previous app in a CookieMonster Backup- folder beside this location. A partial new copy may remain in a CookieMonster Install- folder. Failed installation does not prune backups. If installation succeeded but opening failed, older installer-owned backups may already have been removed; the immediately previous app is retained. Inspect these folders in Finder before removing anything or retrying. If the installed copy is complete, open it in Finder. Follow any macOS security prompts or contact your administrator.",
+  // English fallback until reviewed translations are available. Append to preserve indexed locale keys.
+  "desktop.wpp.login.menu": "WPP login",
+  "desktop.wpp.login.use": "Use saved login...",
+  "desktop.wpp.login.save": "Save WPP account...",
+  "desktop.wpp.login.manage": "Manage saved WPP accounts...",
+  "desktop.wpp.login.lock": "Lock saved passwords",
+  "desktop.wpp.login.forget": "Forget this account",
+  "desktop.wpp.login.choose": "Choose a saved WPP account",
+  "desktop.wpp.login.empty": "No WPP account is saved yet.",
+  "desktop.wpp.login.browserManage":
+    "Manage saved accounts in the CookieMonster browser's password settings, then try again.",
+  "desktop.wpp.login.entry":
+    "Enter your WPP work email and Okta password, not your Mac or Windows login password. Nothing is saved until you confirm in CookieMonster.",
+  "desktop.wpp.login.fillDetail":
+    "Account: {{username}}\nWebsite: {{origin}}\nOnly the current login field will be filled. The website can read the filled value. Submit the form and complete MFA yourself.",
+  "desktop.wpp.login.failed":
+    "The saved login operation was cancelled or could not complete. Keep the WPP Okta sign-in window visible, unlock saved passwords, and use the account shown on the page. The page or account may have changed. No sign-in was submitted by CookieMonster.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

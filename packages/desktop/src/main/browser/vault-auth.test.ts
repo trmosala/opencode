@@ -133,37 +133,63 @@ if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
     expect(() => access.require()).toThrow()
   })
 
-  test("unavailable/rejected Touch ID and unsupported platforms fail closed", async () => {
+  test("missing macOS helper and unsupported platforms fail closed", async () => {
     Object.defineProperty(process, "platform", { value: "darwin" })
-    const available = spyOn(systemPreferences, "canPromptTouchID").mockReturnValue(false)
+    spyOn(systemPreferences, "canPromptTouchID").mockReturnValue(false)
     const prompt = spyOn(systemPreferences, "promptTouchID").mockRejectedValue(new Error("cancelled"))
     const access = createVaultAccess(vaultAuthentication.verify)
     const win = new BrowserWindow()
-    await expect(access.unlock(win)).rejects.toThrow("OS authentication unavailable")
+    exists.mockReturnValue(false)
+    await expect(access.unlock(win)).rejects.toThrow("OS authentication helper unavailable")
     expect(prompt).not.toHaveBeenCalled()
-    available.mockReturnValue(true)
-    await expect(access.unlock(win)).rejects.toThrow("cancelled")
-    expect(prompt).toHaveBeenCalledWith(nativeT("desktop.browser.unlockReason"))
     expect(access.status()).toBe("locked")
     Object.defineProperty(process, "platform", { value: "linux" })
     await expect(access.unlock(win)).rejects.toThrow("OS authentication unavailable")
-    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt).not.toHaveBeenCalled()
     expect(spawn).not.toHaveBeenCalled()
     expect(() => access.require()).toThrow()
   })
 
-  test("successful Touch ID unlocks through the production adapter", async () => {
+  test.each([false, true])(
+    "macOS uses device-owner authentication without a biometric-only prompt (packaged: %s)",
+    async (isPackaged) => {
+      Object.defineProperty(process, "platform", { value: "darwin" })
+      spyOn(systemPreferences, "canPromptTouchID").mockReturnValue(true)
+      const prompt = spyOn(systemPreferences, "promptTouchID").mockResolvedValue(undefined)
+      app.isPackaged = isPackaged
+      const access = createVaultAccess(vaultAuthentication.verify)
+      try {
+        await access.unlock(new BrowserWindow())
+        expect(access.status()).toBe("unlocked")
+        expect(() => access.require()).not.toThrow()
+        expect(spawn).toHaveBeenCalledWith(
+          join(
+            isPackaged ? "packaged resources" : join("development app", "resources"),
+            "vault-auth",
+            `macos-auth-${process.arch}`,
+          ),
+          [nativeT("desktop.browser.unlockReason")],
+          { windowsHide: true, timeout: 120_000, maxBuffer: 1024 },
+          expect.any(Function),
+        )
+        expect(prompt).not.toHaveBeenCalled()
+      } finally {
+        access.lock()
+      }
+    },
+  )
+
+  test("macOS cancellation stays locked without trying another authentication method", async () => {
     Object.defineProperty(process, "platform", { value: "darwin" })
-    spyOn(systemPreferences, "canPromptTouchID").mockReturnValue(true)
-    spyOn(systemPreferences, "promptTouchID").mockResolvedValue(undefined)
+    const prompt = spyOn(systemPreferences, "promptTouchID").mockResolvedValue(undefined)
+    spawn.mockImplementation((_file, _args, _options, callback) => {
+      callback(new Error("cancelled"), "", "")
+      return new childProcess.ChildProcess()
+    })
     const access = createVaultAccess(vaultAuthentication.verify)
-    try {
-      await access.unlock(new BrowserWindow())
-      expect(access.status()).toBe("unlocked")
-      expect(() => access.require()).not.toThrow()
-      expect(spawn).not.toHaveBeenCalled()
-    } finally {
-      access.lock()
-    }
+    await expect(access.unlock(new BrowserWindow())).rejects.toThrow("OS authentication was cancelled or unavailable")
+    expect(access.status()).toBe("locked")
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(prompt).not.toHaveBeenCalled()
   })
 }

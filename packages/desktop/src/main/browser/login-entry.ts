@@ -10,7 +10,13 @@ export function loginEntryAvailable() {
 }
 
 export const loginEntry = {
-  async prompt(win: BrowserWindow, origin: string, username: string) {
+  async prompt(
+    win: BrowserWindow,
+    origin: string,
+    username: string,
+    detail = nativeT("desktop.browser.account.entry", { origin }),
+    signal?: AbortSignal,
+  ) {
     const ticket = vaultAccess.require()
     const helper = nativeSecretEntryPath()
     if (
@@ -22,6 +28,7 @@ export const loginEntry = {
     )
       throw new Error("Native account entry unavailable")
     if (win.isDestroyed() || !win.isVisible() || win.isMinimized()) throw new Error("Account window unavailable")
+    if (signal?.aborted) throw new Error("Account entry cancelled")
     return new Promise<ReturnType<typeof requireLogin> | undefined>((resolve, reject) => {
       const child = execFile(
         helper,
@@ -29,7 +36,7 @@ export const loginEntry = {
           nativeSecretEntryWindow(win),
           origin,
           nativeT("desktop.browser.account.title"),
-          nativeT("desktop.browser.account.entry", { origin }),
+          detail,
           // Native entry fields are bounded. Allow explicit replacement, never truncate imported usernames.
           username.length <= 513 ? username : "",
           ...(process.platform === "darwin"
@@ -44,8 +51,10 @@ export const loginEntry = {
         },
         (error, stdout, stderr) => {
           unsubscribe()
+          signal?.removeEventListener("abort", abort)
           try {
             vaultAccess.require(ticket)
+            if (signal?.aborted) throw new Error()
             if (win.isDestroyed() || !win.isVisible() || win.isMinimized()) throw new Error()
             if (error) {
               if (error.code === 1) return resolve(undefined)
@@ -64,6 +73,9 @@ export const loginEntry = {
       const unsubscribe = vaultAccess.subscribe(() => {
         if (vaultAccess.status() !== "unlocked") child.kill()
       })
+      const abort = () => child.kill()
+      signal?.addEventListener("abort", abort, { once: true })
+      if (signal?.aborted) child.kill()
     })
   },
 }

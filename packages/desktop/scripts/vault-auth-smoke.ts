@@ -7,7 +7,10 @@ import electron from "electron"
 const directory = await mkdtemp(join(tmpdir(), "cm-vault-auth-"))
 try {
   const entry = join(directory, "entry.ts")
-  const authenticationMethod = process.platform === "darwin" ? "Touch ID" : "Windows Hello"
+  const authenticationMethod =
+    process.platform === "darwin"
+      ? "macOS device authentication (Touch ID or your Mac login password)"
+      : "Windows Hello"
   const expectedCancellation = process.env.CM_VAULT_AUTH_EXPECT === "cancelled"
   const instruction = expectedCancellation
     ? `When ${authenticationMethod} prompts, click Cancel without authenticating.`
