@@ -12,7 +12,7 @@ Agent tabs use the existing persistent CM profile, including its website logins.
 
 Ordinary browsing has no per-website access prompt. Vault operations, file selection, history access, download policy, device permissions and unsaved-page confirmation remain separate. The model instruction asks for confirmation before consequential actions; this is not a new native transaction-classification or enforcement mechanism.
 
-Chrome DevTools is disabled in fresh configs and exact legacy CookieMonster seeds. Customized MCP definitions are preserved. Set `CM_CHROME_DEVTOOLS=1` when launching the desktop app to enable it explicitly for debugging. Native `browser_*` tools are outside the `execute` MCP catalog, and model guidance forbids silently switching browsers or bypassing takeover.
+Chrome DevTools defaults to disabled in fresh configs. Existing MCP definitions, including explicit Chrome opt-ins, are preserved across launches. Set `CM_CHROME_DEVTOOLS=1` when launching the desktop app to enable it explicitly for debugging. Native `browser_*` tools are outside the `execute` MCP catalog, and model guidance forbids silently switching browsers or bypassing takeover.
 
 The initial implementation requires the desktop app open, visible and on the task. It does not add unattended or minimized-window operation. The plugin and Electron main changes take effect on a subsequent app launch; renderer hot reload alone is insufficient. See [autonomous browser qualification](../desktop/src/main/browser/autonomous-qualification.md).
 

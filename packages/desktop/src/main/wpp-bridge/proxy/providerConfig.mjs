@@ -142,7 +142,7 @@ export function o1CodeConfigContent(browserPlugin, aePlugin, chromeDevTools = pr
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
     // Chrome's persistent setting is user-controlled, rather than overridden by
-    // this high-precedence blob. Fresh installs and exact legacy seeds are off.
+    // this high-precedence blob. Fresh installs are off.
     mcp: {
       figma: O1_CODE_MCP.figma,
       ...(chromeDevTools ? { "chrome-devtools": { ...O1_CODE_MCP["chrome-devtools"], enabled: true } } : {}),
@@ -273,18 +273,8 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
     changed = true
   }
   for (const [key, value] of Object.entries(SEED_MCP)) {
-    // Migrate only our exact old Chrome seed. Preserve custom commands/options.
-    if (
-      key === "chrome-devtools" &&
-      config.mcp?.[key]?.enabled === true &&
-      config.mcp[key].type === value.type &&
-      JSON.stringify(config.mcp[key].command) === JSON.stringify(value.command) &&
-      Object.keys(config.mcp[key]).length === 3
-    ) {
-      config.mcp[key] = { ...value }
-      changed = true
-      continue
-    }
+    // An enabled legacy Chrome seed is indistinguishable from a developer opt-in.
+    // Preserve existing definitions and apply defaults only to missing entries.
     if (config.mcp?.[key]) continue
     config.mcp = { ...config.mcp, [key]: value }
     changed = true

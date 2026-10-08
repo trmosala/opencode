@@ -553,7 +553,7 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   }
 })
 
-test("Chrome debugging is opt-in, and only the exact enabled legacy seed is migrated", async () => {
+test("Chrome debugging defaults off without overriding existing definitions", async () => {
   expect(O1_CODE_MCP["chrome-devtools"].enabled).toBe(false)
   expect(JSON.parse(o1CodeConfigContent(undefined, undefined, true)).mcp["chrome-devtools"].enabled).toBe(true)
   for (const customized of [false, true]) {
@@ -566,12 +566,31 @@ test("Chrome debugging is opt-in, and only the exact enabled legacy seed is migr
       }
       await writeFile(file, JSON.stringify({ mcp: { "chrome-devtools": chrome } }))
       await ensureO1CodeProvider(file)
-      expect(JSON.parse(await readFile(file, "utf8")).mcp["chrome-devtools"]).toEqual(
-        customized ? chrome : O1_CODE_MCP["chrome-devtools"],
-      )
-      const migrated = await readFile(file, "utf8")
+      expect(JSON.parse(await readFile(file, "utf8")).mcp["chrome-devtools"]).toEqual(chrome)
+      const seeded = await readFile(file, "utf8")
       await ensureO1CodeProvider(file)
-      expect(await readFile(file, "utf8")).toBe(migrated)
+      expect(await readFile(file, "utf8")).toBe(seeded)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+})
+
+test("Chrome re-enablement survives later launches after fresh and existing config seeding", async () => {
+  for (const existing of [false, true]) {
+    const { dir, file } = await tmpFile()
+    try {
+      if (existing) await writeFile(file, JSON.stringify({}))
+      await ensureO1CodeProvider(file)
+      const config = JSON.parse(await readFile(file, "utf8"))
+      expect(config.mcp["chrome-devtools"].enabled).toBe(false)
+      config.mcp["chrome-devtools"].enabled = true
+      const enabled = JSON.stringify(config, null, 2) + "\n"
+      await writeFile(file, enabled)
+      await ensureO1CodeProvider(file)
+      expect(await readFile(file, "utf8")).toBe(enabled)
+      await ensureO1CodeProvider(file)
+      expect(await readFile(file, "utf8")).toBe(enabled)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

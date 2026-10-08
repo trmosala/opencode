@@ -8,7 +8,7 @@ Agent tabs share `persist:cm-browser`. Creation and selection reveal the panel. 
 
 Takeover is task-wide and process-local. It revokes live grants, invalidates refs and prepared lifecycle tokens, blocks replacement tabs and pauses history/page tools. Explicit resume restores only previously authorized live tabs that remain eligible. Explicit tab revoke, owner loss, closure and global disable remove pending resume grants. Main enforces the pause, independently of model instructions.
 
-Model guidance makes CM the first choice, explains that its tools are outside the MCP catalog, requests human takeover for authentication and confirmation for consequential actions, and forbids browser substitution to bypass takeover. These instructions do not add native transaction classification. Chrome is opt-in with `CM_CHROME_DEVTOOLS=1`; exact legacy seeded definitions are migrated, and custom definitions are preserved.
+Model guidance makes CM the first choice, explains that its tools are outside the MCP catalog, requests human takeover for authentication and confirmation for consequential actions, and forbids browser substitution to bypass takeover. These instructions do not add native transaction classification. Chrome defaults to disabled and can be enabled in the persistent config or with `CM_CHROME_DEVTOOLS=1`. Existing definitions are preserved, including legacy definitions that cannot be distinguished from an explicit developer opt-in.
 
 ## Checks on 8 October 2026
 
