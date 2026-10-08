@@ -12,6 +12,7 @@ const key = "ready"
 
 export function setupAutoUpdater(stop: () => Promise<void>) {
   const logger = getLogger()
+  autoUpdater.setFeedURL({ provider: "github", owner: "trmosala", repo: "opencode", channel: "latest" })
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false

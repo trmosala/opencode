@@ -264,16 +264,13 @@ export async function installWslDistro(name: string, opts?: RunWslOptions) {
   )
 }
 
-export async function installWslOpencode(version: string, distro: string, opts?: RunWslOptions) {
-  return runInteractiveCommand(
-    resolveSystem32Command("wsl.exe"),
-    wslArgs(
-      ["bash", "-lc", `curl -fsSL https://opencode.ai/install | bash -s -- --version ${shellEscape(version)}`],
-      distro,
-    ),
-    withTimeout(opts, DEFAULT_WSL_INSTALL_TIMEOUT_MS),
-    DEFAULT_WSL_INSTALL_TIMEOUT_MS,
-  )
+// CookieMonster has no WSL release. Do not install an upstream backend into this fork.
+export async function installWslOpencode(
+  _version: string,
+  _distro: string,
+  _opts?: RunWslOptions,
+): Promise<WslCommandResult> {
+  throw new Error(nativeT("desktop.wsl.error.installOpencode"))
 }
 
 export async function probeWslDistro(name: string, opts?: RunWslOptions): Promise<WslDistroProbe> {

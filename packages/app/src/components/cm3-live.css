@@ -1,4 +1,6 @@
 /* CM3 dresses the live application; all state and native surfaces remain application-owned. */
+/* Portalled dialogs, menus, and tooltips inherit the palette from body while CM3 is enabled. */
+body:has(.cm3-live),
 .cm3-live,
 [data-component="session-tab-popover"][data-cm3] {
   --cm3-bg: #ffffff;
@@ -14,18 +16,23 @@
   --cm3-action: #32373d;
   --cm3-on-action: #ffffff;
   --cm3-focus: #50769e;
-  --cm3-landing-bg: #ffffff;
-  --cm3-landing-surface: #f4f4f4;
-  --cm3-landing-border: #e6e6e6;
+  --cm3-landing-bg: var(--cm3-bg);
+  --cm3-landing-surface: var(--cm3-surface);
+  --cm3-landing-border: var(--cm3-border);
 }
 
+body:has(.cm3-live),
 .cm3-live {
   --background-base: var(--cm3-bg);
   --background-stronger: var(--cm3-bg);
   --background-weak: var(--cm3-subtle);
   --surface-base: var(--cm3-surface);
+  --surface-base-hover: var(--cm3-subtle);
+  --surface-base-active: var(--cm3-selected);
   --surface-raised-base: var(--cm3-surface);
+  --surface-raised-base-hover: var(--cm3-selected);
   --surface-raised-stronger-non-alpha: var(--cm3-surface);
+  --surface-float-base: var(--cm3-surface);
   --surface-inset-base: var(--cm3-subtle);
   --surface-interactive-base: var(--cm3-subtle);
   --surface-interactive-hover: var(--cm3-selected);
@@ -48,6 +55,9 @@
   --v2-text-text-faint: var(--cm3-muted);
   --v2-icon-icon-base: var(--cm3-muted);
   --v2-border-border-base: var(--cm3-border);
+}
+
+.cm3-live {
   display: flex;
   flex: 1;
   min-width: 0;
@@ -58,6 +68,7 @@
   color-scheme: light;
 }
 
+html[data-color-scheme="dark"] body:has(.cm3-live),
 html[data-color-scheme="dark"] .cm3-live,
 html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] {
   --cm3-bg: #1e2024;
@@ -73,9 +84,6 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
   --cm3-action: #dce1e8;
   --cm3-on-action: #22262c;
   --cm3-focus: #91b5de;
-  --cm3-landing-bg: #101010;
-  --cm3-landing-surface: #252525;
-  --cm3-landing-border: #292929;
   color-scheme: dark;
 }
 

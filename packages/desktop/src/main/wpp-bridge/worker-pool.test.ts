@@ -9,7 +9,7 @@ import {
   wppProjectAccessError,
 } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
-import { WorkerPool, openAssistantPopover } from "./worker-pool"
+import { WorkerPool, openAssistantPopover, toggleWorkerWindows } from "./worker-pool"
 import vm from "node:vm"
 import type { WebContents } from "electron"
 import { runLogRecord } from "./proxy/logging.mjs"
@@ -176,6 +176,36 @@ describe("ttlForWorker", () => {
 
     expect(shouldReapWorker(sub, now, ttlForWorker(sub, { idle, pinned, subagent }))).toBe(true)
     expect(shouldReapWorker(interactive, now, ttlForWorker(interactive, { idle, pinned, subagent }))).toBe(false)
+  })
+})
+
+describe("WorkerPool startup visibility", () => {
+  test("toggles starting windows before they enter the ready pool", () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    const calls: string[] = []
+    let destroyed = false
+    Reflect.get(pool, "startingWorkers").set(1, {
+      window: {
+        isDestroyed: () => destroyed,
+        showInactive: () => calls.push("show"),
+        hide: () => calls.push("hide"),
+        setTitle: (title: string) => calls.push(title),
+        destroy: () => {
+          destroyed = true
+        },
+      },
+      agent: "test-agent",
+      sessionKey: "test-session",
+      subagent: false,
+    })
+    const visible = toggleWorkerWindows()
+    expect(calls[0]).toBe(visible ? "show" : "hide")
+    calls.length = 0
+    expect(toggleWorkerWindows()).toBe(!visible)
+    expect(calls[0]).toBe(visible ? "hide" : "show")
+    pool.destroy()
+    expect(destroyed).toBe(true)
+    expect(Reflect.get(pool, "startingWorkers").size).toBe(0)
   })
 })
 

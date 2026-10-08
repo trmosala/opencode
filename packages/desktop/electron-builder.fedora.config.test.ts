@@ -12,7 +12,7 @@ test("builds an installable CookieMonster RPM", async () => {
   expect(config.linux?.target).toEqual(["rpm", "deb"])
   expect(config.deb?.packageName).toBe("cookiemonster")
   expect(config.deb?.fpm).toEqual(config.rpm?.fpm)
-  expect(config.publish).toBeNull()
+  expect(config.publish).toEqual({ provider: "github", owner: "trmosala", repo: "opencode", channel: "latest" })
   expect(config.rpm?.packageName).toBe("cookiemonster")
   expect(config.rpm?.fpm).toContainEqual(
     expect.stringContaining("/usr/share/metainfo/com.ogilvy.cookiemonster.metainfo.xml"),

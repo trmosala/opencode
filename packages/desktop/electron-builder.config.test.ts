@@ -231,6 +231,7 @@ for (const channel of ["beta", "prod"] as const) {
       filter: ["opencode-cli*"],
     })
     expect(config.extraResources).not.toContainEqual(expect.objectContaining({ from: "resources/cli" }))
+    expect(config.publish).toBeNull()
     expect(config.nsis?.include).toBeUndefined()
     expect(config.mac?.target).not.toContain("pkg")
     expect(config.pkg).toBeUndefined()

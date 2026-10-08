@@ -3,6 +3,7 @@ import { BrowserButton, BrowserIconButton } from "./browser-native-controls"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import {
+  batch,
   createComputed,
   createEffect,
   createMemo,
@@ -15,6 +16,7 @@ import {
 } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
 import {
@@ -51,6 +53,8 @@ import "./browser-records.css"
 
 export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
   const language = useLanguage()
+  const layout = useLayout()
+  const view = layout.view(() => props.sessionKey)
   const prompt = usePrompt()
   const platform = usePlatform()
   const browser = platform.browserPanel!
@@ -485,6 +489,21 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
           command={command}
           screenshot={(closed) => void screenshot(closed)}
         />
+        <Tooltip placement="top" flip={false} value={language.t("common.close")}>
+          <BrowserIconButton
+            type="button"
+            icon="close-small"
+            variant="ghost"
+            data-slot="browser-panel-close"
+            aria-label={language.t("common.close")}
+            onClick={() =>
+              batch(() => {
+                layout.fileTree.close()
+                view.reviewPanel.close()
+              })
+            }
+          />
+        </Tooltip>
       </BrowserTabStrip>
       <form
         data-slot="browser-toolbar"

@@ -21,6 +21,7 @@ try {
           resolveId(id) {
             const name = [
               "@/context/language",
+              "@/context/layout",
               "@/context/platform",
               "@/context/prompt",
               "@/context/settings",
@@ -32,6 +33,8 @@ try {
             if (name) return "\0fixture:" + name
           },
           load(id) {
+            if (id === "\0fixture:@/context/layout")
+              return "export const useLayout = () => ({ fileTree: { close: () => {} }, view: () => ({ reviewPanel: { close: () => {} } }) })"
             if (id === "\0fixture:@/context/language")
               return `import { dict } from ${JSON.stringify(resolve("../app/src/i18n/en.ts"))}; export const useLanguage = () => ({ t: key => dict[key] ?? key })`
             if (id === "\0fixture:@/context/platform")

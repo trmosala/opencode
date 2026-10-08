@@ -25,5 +25,5 @@ export default {
   },
   deb: { ...config.deb, packageName: "cookiemonster", fpm: [metainfo] },
   rpm: { ...config.rpm, packageName: "cookiemonster", fpm: [metainfo] },
-  publish: null,
+  publish: { provider: "github", owner: "trmosala", repo: "opencode", channel: "latest" },
 } satisfies Configuration

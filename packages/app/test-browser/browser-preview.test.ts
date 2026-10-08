@@ -25,6 +25,7 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
             for (const name of [
               "navigation-fixture",
               "@/context/language",
+              "@/context/layout",
               "@/context/platform",
               "@/context/prompt",
               "@/context/settings",
@@ -36,6 +37,8 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
             return undefined
           },
           load(id) {
+            if (id === "\0@/context/layout")
+              return `export const panelCloses = []; export const useLayout = () => ({ fileTree: { close: () => panelCloses.push("files") }, view: () => ({ reviewPanel: { close: () => panelCloses.push("review") } }) });`
             if (id === "\0@/context/language")
               return `export const useLanguage = () => ({ direction: () => document.documentElement.dir === "rtl" ? "rtl" : "ltr", t: key => key });`
             if (id === "\0@/context/platform")
@@ -52,6 +55,7 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
             import { setup } from "@/context/platform";
             import { BrowserPanel } from ${JSON.stringify(resolve("src/components/browser-panel/browser-panel.tsx"))};
             export { errors } from "@/utils/toast";
+            export { panelCloses } from "@/context/layout";
             export let selectSession;
             export function mount(host, browser) {
               setup({ browserPanel: browser });
@@ -273,6 +277,13 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
     expect(host.querySelector("[data-browser-operation]")?.getAttribute("role")).toBe("alert")
     expect(host.querySelector("[data-browser-operation]")?.textContent).toContain("Use the browser controls")
 
+    const commandsBeforeClose = calls.length
+    const closePanel = host.querySelector<HTMLButtonElement>('[data-slot="browser-panel-close"]')!
+    expect(closePanel.getAttribute("aria-label")).toBe("common.close")
+    closePanel.click()
+    expect(fixture.panelCloses).toEqual(["files", "review"])
+    expect(calls).toHaveLength(commandsBeforeClose)
+
     tabs = { ...tabs, sessionID: "empty-task", activeID: undefined, tabs: [] }
     fixture.selectSession("empty-task")
     await new Promise<void>((resolve) => setImmediate(resolve))
@@ -335,6 +346,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
             for (const name of [
               "preview-fixture",
               "@/context/language",
+              "@/context/layout",
               "@/context/platform",
               "@/context/prompt",
               "@/context/settings",
@@ -345,6 +357,8 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
             }
           },
           load(id) {
+            if (id === "\0@/context/layout")
+              return `export const useLayout = () => ({ fileTree: { close: () => {} }, view: () => ({ reviewPanel: { close: () => {} } }) });`
             if (id === "\0@/context/language")
               return `import { browser } from ${JSON.stringify(resolve("src/i18n/en.ts"))};
             export const useLanguage = () => ({ direction: () => document.documentElement.dir === "rtl" ? "rtl" : "ltr", t: (key, params = {}) => Object.entries(params).reduce((text, [key, value]) => text.replaceAll("{{" + key + "}}", String(value)), browser[key] ?? key) });`

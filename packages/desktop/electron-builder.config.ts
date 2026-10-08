@@ -178,7 +178,7 @@ const getBase = (appId: string): Configuration => ({
 })
 
 // Optional fork branding (CM_BRAND=1): rename the app so it never collides with a real OpenCode
-// install, and point auto-update at the fork's public releases instead of upstream.
+// install, and point auto-update at the fork's private releases.
 function applyBranding(cfg: Configuration): Configuration {
   if (!branded) return cfg
   return {
@@ -241,7 +241,7 @@ function getConfig() {
         appId,
         productName: "OpenCode Beta",
         protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
+        publish: null,
         deb: { fpm: [metainfoFpm(appId)] },
         rpm: { packageName: "opencode-beta", fpm: [metainfoFpm(appId)] },
       }
@@ -252,7 +252,7 @@ function getConfig() {
         appId,
         productName: "OpenCode",
         protocols: { name: "OpenCode", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
+        publish: null,
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
         rpm: { packageName: "opencode", fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
       }

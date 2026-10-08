@@ -4,11 +4,14 @@ import { Button } from "@opencode-ai/ui/button"
 import { Popover } from "@opencode-ai/ui/popover"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
+import { useSettings } from "@/context/settings"
 import { showToast } from "@/utils/toast"
+import "./wpp-auth-control.css"
 
 export function WppAuthControl(props: { compact?: boolean }) {
   const platform = usePlatform()
   const language = useLanguage()
+  const settings = useSettings()
   const [state, setState] = createStore({ open: false })
   const auth = () => platform.wppAuth
   const status = () => auth()?.state().status ?? "unknown"
@@ -42,16 +45,21 @@ export function WppAuthControl(props: { compact?: boolean }) {
           </>
         }
         placement={props.compact ? "bottom-end" : "top-start"}
-        class="w-64 max-w-[calc(100vw-32px)]"
+        class="wpp-auth-popover"
+        classList={{ "cm3-wpp-popover": settings.general.quietCompanion() }}
       >
-        <div class="flex flex-col gap-3" data-component="wpp-auth-controls">
-          <p role="status">{language.t("wpp.auth.label", { status: label() })}</p>
-          <p class="text-xs text-text-weak">
+        <div data-component="wpp-auth-controls">
+          <p role="status" class="wpp-auth-status">
+            {language.t("wpp.auth.label", { status: label() })}
+          </p>
+          <p class="wpp-auth-checked">
             <Show keyed when={auth()?.state().checkedAt} fallback={language.t("wpp.auth.notChecked")}>
               {(time) => language.t("wpp.auth.lastChecked", { time: language.formatDate(time) })}
             </Show>
           </p>
           <Button
+            variant="ghost"
+            size="small"
             onClick={() => {
               void auth()?.toggleLogin().catch(failed)
             }}
@@ -59,6 +67,8 @@ export function WppAuthControl(props: { compact?: boolean }) {
             {language.t(auth()?.state().loginVisible ? "wpp.auth.hideLogin" : "wpp.auth.showLogin")}
           </Button>
           <Button
+            variant="ghost"
+            size="small"
             disabled={status() === "checking"}
             onClick={() => {
               void auth()?.check().catch(failed)
