@@ -167,40 +167,63 @@ export function Cm3Shell() {
     openTask(conn, project.worktree)
   }
   const renderSession = (record: HomeSessionRecord, recent = false) => (
-    <button
-      class="cm3-sidebar-task"
-      data-action={recent ? "recent-session" : "project-session"}
-      type="button"
-      data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
-      onKeyDown={navigateSearch}
-      onMouseDown={(event) => {
-        if (event.button === 1) event.preventDefault()
-      }}
-      onClick={(event) => openSession(record, backgroundOpen(event))}
-      onAuxClick={(event) => {
-        if (!backgroundOpen(event)) return
-        event.preventDefault()
-        openSession(record, true)
-      }}
-    >
-      <div class="size-4 shrink-0" aria-hidden="true">
-        <SessionTabAvatar
-          project={record.project}
-          directory={record.session.directory}
-          sessionId={record.session.id}
-          server={sessions.session.server()}
-          revealProjectOnHover={false}
-        />
-      </div>
-      <span class="cm3-sidebar-task-copy">
-        <span dir="auto">{record.session.title}</span>
-        <Show when={recent}>
-          <span class="cm3-sidebar-task-project" dir="auto">
-            {record.projectName}
-          </span>
-        </Show>
-      </span>
-    </button>
+    <div class="cm3-sidebar-session" role="group" aria-label={record.session.title}>
+      <button
+        class="cm3-sidebar-task"
+        data-action={recent ? "recent-session" : "project-session"}
+        type="button"
+        data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
+        onKeyDown={navigateSearch}
+        onMouseDown={(event) => {
+          if (event.button === 1) event.preventDefault()
+        }}
+        onClick={(event) => openSession(record, backgroundOpen(event))}
+        onAuxClick={(event) => {
+          if (!backgroundOpen(event)) return
+          event.preventDefault()
+          openSession(record, true)
+        }}
+      >
+        <div class="size-4 shrink-0" aria-hidden="true">
+          <SessionTabAvatar
+            project={record.project}
+            directory={record.session.directory}
+            sessionId={record.session.id}
+            server={sessions.session.server()}
+            revealProjectOnHover={false}
+          />
+        </div>
+        <span class="cm3-sidebar-task-copy">
+          <span dir="auto">{record.session.title}</span>
+          <Show when={recent}>
+            <span class="cm3-sidebar-task-project" dir="auto">
+              {record.projectName}
+            </span>
+          </Show>
+        </span>
+      </button>
+      <Show when={settings.general.newLayoutDesigns() && sessions.tab.isOpen(record)}>
+        <button
+          class="cm3-sidebar-session-close"
+          type="button"
+          aria-label={language.t("command.tab.close")}
+          title={language.t("command.tab.close")}
+          onClick={(event) => {
+            const index = tabs.store.findIndex(
+              (tab) =>
+                tab.type === "session" &&
+                tab.server === sessions.session.server() &&
+                tab.sessionId === record.session.id,
+            )
+            if (index === -1) return
+            event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(".cm3-sidebar-task")?.focus()
+            tabs.closeTab(index)
+          }}
+        >
+          <Cm3Icon name="x" size={14} />
+        </button>
+      </Show>
+    </div>
   )
 
   return (

@@ -833,6 +833,82 @@ test("CM3 Help opens the original feedback destination", async ({ page, context 
   await feedback.close()
 })
 
+for (const width of [1280, 390]) {
+  for (const direction of ["ltr", "rtl"]) {
+    test(`CM3 sidebar closes session tabs without removing history at ${width}px ${direction}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await mockStressTimeline(page)
+      await installCm3Sidebar(page)
+      const mutations: string[] = []
+      page.on("request", (request) => {
+        if (["POST", "PATCH", "DELETE"].includes(request.method()) && /\/session\//.test(request.url()))
+          mutations.push(`${request.method()} ${new URL(request.url()).pathname}`)
+      })
+      await page.goto(stressSessionHref(fixture.sourceID))
+      const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
+      await expect(input).toBeVisible()
+      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
+      if (width === 390) await toggle.click()
+      const recent = page.getByRole("region", { name: "Recent sessions", exact: true })
+      const source = recent.getByRole("group", { name: fixture.expected.sourceTitle, exact: true })
+      const target = recent.getByRole("group", { name: fixture.expected.targetTitle, exact: true })
+      const close = target.getByRole("button", { name: "Close tab", exact: true })
+      await expect(source.getByRole("button", { name: "Close tab", exact: true })).toBeVisible()
+      await expect(close).toBeVisible()
+      await source.locator('[data-action="recent-session"]').hover()
+      await expect(close).toHaveCSS("opacity", "0")
+      await target.locator('[data-action="recent-session"]').hover()
+      await expect(close).toHaveCSS("opacity", "1")
+      await source.locator('[data-action="recent-session"]').hover()
+      await expect(close).toHaveCSS("opacity", "0")
+      const bounds = await target.evaluate((element) => {
+        const row = element.getBoundingClientRect()
+        const button = element.querySelector(".cm3-sidebar-session-close")!.getBoundingClientRect()
+        const open = element.querySelector(".cm3-sidebar-task")!.getBoundingClientRect()
+        return {
+          row: { x: row.x, right: row.right },
+          button: { x: button.x, right: button.right },
+          open: { x: open.x, right: open.right },
+        }
+      })
+      expect(bounds.button.x).toBeGreaterThanOrEqual(bounds.row.x)
+      expect(bounds.button.right).toBeLessThanOrEqual(bounds.row.right)
+      if (direction === "ltr") expect(bounds.button.x).toBeGreaterThanOrEqual(bounds.open.right)
+      if (direction === "rtl") expect(bounds.button.right).toBeLessThanOrEqual(bounds.open.x)
+      await target.locator('[data-action="recent-session"]').focus()
+      await expect(close).toHaveCSS("opacity", "1")
+      await page.keyboard.press("Tab")
+      await expect(close).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect(close).toHaveCount(0)
+      await expect(target.locator('[data-action="recent-session"]')).toBeFocused()
+      await expect(page).toHaveURL(stressSessionHref(fixture.sourceID))
+      if (width === 390) await expect(toggle).toHaveAttribute("aria-expanded", "true")
+
+      await target.locator('[data-action="recent-session"]').click()
+      await expect(page).toHaveURL(stressSessionHref(fixture.targetID))
+      await expect(input).toBeVisible()
+      if (width === 390) await toggle.click()
+      await expect(close).toBeVisible()
+      await target.locator('[data-action="recent-session"]').hover()
+      await expect(close).toHaveCSS("opacity", "1")
+      await close.click()
+      await expect(page).toHaveURL(stressSessionHref(fixture.sourceID))
+      await expect(input).toBeVisible()
+      if (width === 390) await toggle.click()
+      await source.locator('[data-action="recent-session"]').hover()
+      await source.getByRole("button", { name: "Close tab", exact: true }).click()
+      await expect(page).toHaveURL("/")
+      if (width === 390) await toggle.click()
+      await expect(source).toBeVisible()
+      await expect(target).toBeVisible()
+      await expect(recent.getByRole("button", { name: "Close tab", exact: true })).toHaveCount(0)
+      expect(mutations).toEqual([])
+    })
+  }
+}
+
 async function installCm3Sidebar(page: Page, input?: Parameters<typeof installStressSessionTabs>[1]) {
   await installStressSessionTabs(page, input)
   await page.addInitScript(() => {

@@ -204,6 +204,51 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
   text-overflow: ellipsis;
 }
 
+.cm3-sidebar-session {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 5px;
+}
+
+.cm3-sidebar-session:is(:hover, :has(.cm3-sidebar-task[data-active="true"])) {
+  background: var(--cm3-selected);
+}
+
+.cm3-sidebar-session .cm3-sidebar-task {
+  flex: 1;
+}
+
+.cm3-sidebar .cm3-sidebar-session-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-inline-end: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--cm3-text);
+  cursor: pointer;
+}
+
+.cm3-sidebar .cm3-sidebar-session-close:hover {
+  background: var(--cm3-selected);
+  color: var(--cm3-text);
+}
+
+@media (hover: hover) {
+  .cm3-sidebar .cm3-sidebar-session-close {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .cm3-sidebar-session:is(:hover, :focus-within) .cm3-sidebar-session-close {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .cm3-sidebar-task-copy {
   display: flex;
   flex: 1;
