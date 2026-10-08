@@ -97,6 +97,10 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
     webPreferences: {
       session: current,
       backgroundThrottling: false,
+      // Hidden native windows can lose their compositor frame clock despite disabling
+      // background throttling. Give worker renderers a synthetic clock without changing
+      // the app's display/GPU frame limits or briefly showing the worker window.
+      additionalArguments: show ? [] : ["--disable-frame-rate-limit"],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
