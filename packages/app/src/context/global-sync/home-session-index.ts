@@ -88,6 +88,7 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
   const removed = new Set<string>()
 
   return {
+    queryClient,
     indexKey,
     eventsKey,
     eventSequence() {
