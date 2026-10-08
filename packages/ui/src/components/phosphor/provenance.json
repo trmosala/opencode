@@ -20,6 +20,10 @@
     "packages/cm-ui-prototype/src/icon.ts"
   ],
   "exceptions": {
+    "toggle-right-fill": {
+      "weight": "fill",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/d42782b2abe747d904b971ccab48b182a1455f86/assets/fill/toggle-right-fill.svg"
+    },
     "cookie": {
       "weight": "bold",
       "source": "https://raw.githubusercontent.com/phosphor-icons/core/d42782b2abe747d904b971ccab48b182a1455f86/assets/bold/cookie-bold.svg"

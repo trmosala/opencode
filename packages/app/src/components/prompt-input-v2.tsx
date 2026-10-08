@@ -1,6 +1,5 @@
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon } from "@opencode-ai/ui/v2/icon"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
@@ -42,6 +41,10 @@ export type PromptInputV2ComposerProps = {
 export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
+  readonly permissions: {
+    accepting: () => boolean
+    toggle: () => void
+  }
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
@@ -58,6 +61,25 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
         variantControlVisible={!props.controller.model.loading}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
+        permissionControl={
+          <div data-action="prompt-auto-accept-permissions" class="min-w-0">
+            <ButtonV2
+              type="button"
+              role="switch"
+              aria-checked={props.controller.permissions.accepting()}
+              onClick={props.controller.permissions.toggle}
+              variant="ghost-muted"
+              size="normal"
+              class="prompt-permission-toggle"
+            >
+              <Icon
+                name={props.controller.permissions.accepting() ? "toggle-right-fill" : "toggle-left"}
+                class="size-6 shrink-0"
+              />
+              <span>{language.t("command.permissions.autoaccept.enable")}</span>
+            </ButtonV2>
+          </div>
+        }
         modelControl={
           <PromptInputV2ModelControl
             loading={props.controller.model.loading}
@@ -65,7 +87,6 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
             title={language.t("command.model.choose")}
             keybind={command.keybindParts("model.choose")}
             model={props.controller.model.selection}
-            providerID={props.controller.model.selection.current()?.provider?.id}
             modelName={props.controller.model.selection.current()?.name ?? language.t("dialog.model.select.title")}
             onClose={props.controller.restoreFocus}
             onUnpaidClick={() =>
@@ -409,6 +430,19 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     },
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
+  Object.defineProperty(controller, "permissions", {
+    value: {
+      accepting,
+      toggle: () => {
+        const id = props.controls.session.id
+        if (id) {
+          permission.toggleAutoAccept(id, sdk().directory)
+          return
+        }
+        permission.toggleAutoAcceptDirectory(sdk().directory)
+      },
+    },
+  })
 
   command.register("prompt-input", () => [
     {
@@ -474,7 +508,6 @@ function PromptInputV2ModelControl(props: {
   title: string
   keybind: string[]
   model: PromptInputV2ComposerController["model"]["selection"]
-  providerID?: string
   modelName: string
   onClose: () => void
   onUnpaidClick: () => void
@@ -482,17 +515,8 @@ function PromptInputV2ModelControl(props: {
   const shouldAnimate = createMemo<boolean>((previous) => previous ?? props.loading)
   const content = () => (
     <>
-      <Show when={props.providerID}>
-        {(providerID) => (
-          <ProviderIcon
-            id={providerID()}
-            class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-            style={{ "will-change": "opacity", transform: "translateZ(0)" }}
-          />
-        )}
-      </Show>
       <span class="truncate leading-4">{props.modelName}</span>
-      <span class="-ml-0.5 -mr-1 flex shrink-0">
+      <span class="-ms-0.5 -me-1 flex shrink-0">
         <Icon name="chevron-down" />
       </span>
     </>

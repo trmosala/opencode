@@ -406,7 +406,7 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
 .cm3-live :is([data-cm3-region="composer"], [data-component="session-prompt-dock"]) form,
 .cm3-live form[data-component="prompt-input-v2"] {
   border: 1px solid var(--cm3-border-strong);
-  border-radius: 16px;
+  border-radius: 24px;
   background: var(--cm3-surface);
   box-shadow: 0 2px 8px rgb(0 0 0 / 3%);
 }
@@ -415,6 +415,27 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
   color: var(--cm3-text);
   font-size: 13px;
   line-height: 1.65;
+}
+
+.prompt-permission-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.prompt-permission-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.prompt-permission-toggle[aria-checked="true"],
+.prompt-permission-toggle[aria-checked="true"] > span,
+[data-component="button-v2"].prompt-permission-toggle[aria-checked="true"] [data-slot="icon-svg"] {
+  color: #eb3f43;
 }
 
 .cm3-live

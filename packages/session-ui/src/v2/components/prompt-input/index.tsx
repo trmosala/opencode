@@ -41,6 +41,7 @@ export type PromptInputV2Props = {
   borderUnderlay?: boolean
   class?: string
   modelControl?: JSX.Element
+  permissionControl?: JSX.Element
   variantControlVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
@@ -110,7 +111,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
       <form
         data-component="prompt-input-v2"
         data-dock-border-underlay={props.borderUnderlay ? "v2" : undefined}
-        class="group/prompt-input relative min-h-[96px] w-full overflow-clip rounded-xl bg-v2-background-bg-base"
+        class="group/prompt-input relative min-h-[112px] w-full overflow-clip rounded-[24px] bg-v2-background-bg-base"
         classList={{
           "shadow-[var(--v2-elevation-raised)]": !props.borderUnderlay,
           "border border-v2-icon-icon-info border-dashed": state.drag === "active",
@@ -195,9 +196,9 @@ export function PromptInputV2(props: PromptInputV2Props) {
           </Show>
         </div>
 
-        <div class="flex h-11 items-center px-2">
+        <div data-slot="prompt-toolbar" class="flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2">
           <div
-            class="flex min-w-0 flex-1 items-center gap-1"
+            class="flex min-w-0 items-center gap-2"
             aria-hidden={state.mode === "shell"}
             inert={state.mode === "shell" ? true : undefined}
             style={buttons()}
@@ -216,6 +217,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
               onContext={props.controller.openContext}
               onShell={props.controller.openShell}
             />
+            {props.permissionControl}
             <Show when={view.agent} keyed>
               {(control) => (
                 <PromptInputV2ConfiguredSelect
@@ -225,44 +227,53 @@ export function PromptInputV2(props: PromptInputV2Props) {
                 />
               )}
             </Show>
-            <Show
-              when={props.modelControl}
-              fallback={
-                <Show when={view.model} keyed>
-                  {(control) => (
-                    <PromptInputV2ConfiguredSelect
-                      title={i18n.t("ui.promptInput.chooseModel")}
-                      keybind={["Mod", "M"]}
-                      control={control}
-                      model
-                    />
-                  )}
-                </Show>
-              }
-            >
-              {props.modelControl}
-            </Show>
-            <Show when={(props.variantControlVisible ?? true) && view.variant} keyed>
-              {(control) => (
-                <Show when={control.options().length > 1}>
-                  <PromptInputV2ConfiguredSelect
-                    title={i18n.t("ui.promptInput.chooseVariant")}
-                    keybind={["Shift", "Mod", "D"]}
-                    control={control}
-                  />
-                </Show>
-              )}
-            </Show>
           </div>
-          <PromptInputV2SubmitButton
-            mode={state.mode}
-            stopping={view.submit.stopping()}
-            disabled={!props.controller.canSubmit()}
-            sendLabel={i18n.t("ui.promptInput.send")}
-            stopLabel={i18n.t("ui.promptInput.stop")}
-            onSubmit={props.controller.submit}
-            onStop={props.controller.stop}
-          />
+          <div class="ms-auto flex min-w-0 items-center gap-2">
+            <div
+              class="flex min-w-0 items-center gap-1"
+              aria-hidden={state.mode === "shell"}
+              inert={state.mode === "shell" ? true : undefined}
+              style={buttons()}
+            >
+              <Show
+                when={props.modelControl}
+                fallback={
+                  <Show when={view.model} keyed>
+                    {(control) => (
+                      <PromptInputV2ConfiguredSelect
+                        title={i18n.t("ui.promptInput.chooseModel")}
+                        keybind={["Mod", "M"]}
+                        control={control}
+                        model
+                      />
+                    )}
+                  </Show>
+                }
+              >
+                {props.modelControl}
+              </Show>
+              <Show when={(props.variantControlVisible ?? true) && view.variant} keyed>
+                {(control) => (
+                  <Show when={control.options().length > 1}>
+                    <PromptInputV2ConfiguredSelect
+                      title={i18n.t("ui.promptInput.chooseVariant")}
+                      keybind={["Shift", "Mod", "D"]}
+                      control={control}
+                    />
+                  </Show>
+                )}
+              </Show>
+            </div>
+            <PromptInputV2SubmitButton
+              mode={state.mode}
+              stopping={view.submit.stopping()}
+              disabled={!props.controller.canSubmit()}
+              sendLabel={i18n.t("ui.promptInput.send")}
+              stopLabel={i18n.t("ui.promptInput.stop")}
+              onSubmit={props.controller.submit}
+              onStop={props.controller.stop}
+            />
+          </div>
         </div>
       </form>
     </div>
