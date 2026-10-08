@@ -85,6 +85,7 @@ export type WorkerPoolOptions = { chatUrl: string }
 
 export class WorkerPool {
   private readonly workers = new Map<number, Worker>()
+  private readonly startingWorkers = new Map<number, Pick<Worker, "window" | "agent" | "sessionKey" | "subagent">>()
   private readonly chatUrl: string
   private readonly reapTimer: NodeJS.Timeout
   private readonly spawnGate = new SpawnGate(MAX_CONCURRENT_SPAWNS)
@@ -99,7 +100,8 @@ export class WorkerPool {
   // Show or hide every live worker window to match the current visibility flag. Driven by the runtime
   // toggle (toggleWorkerWindows); spawn() applies the flag to newly created workers itself.
   applyWorkerVisibility() {
-    for (const worker of this.workers.values()) {
+    // Include windows still loading WPP so the toggle can reveal a stalled startup.
+    for (const worker of [...this.startingWorkers.values(), ...this.workers.values()]) {
       if (worker.window.isDestroyed()) continue
       if (workersVisible) {
         worker.window.showInactive()
@@ -318,6 +320,10 @@ export class WorkerPool {
   destroy() {
     clearInterval(this.reapTimer)
     livePools.delete(this)
+    for (const worker of this.startingWorkers.values()) {
+      if (!worker.window.isDestroyed()) worker.window.destroy()
+    }
+    this.startingWorkers.clear()
     for (const worker of this.workers.values()) {
       if (!worker.window.isDestroyed()) worker.window.destroy()
       resetThread(worker.sessionKey)
@@ -330,6 +336,8 @@ export class WorkerPool {
   // and the relay before any page script runs. Navigating after install is what makes that hold.
   private async spawn(agent: string, sessionKey: string, subagent: boolean): Promise<Worker> {
     const window = createWorkerWindow()
+    const id = window.webContents.id
+    this.startingWorkers.set(id, { window, agent, sessionKey, subagent })
     if (workersVisible) {
       window.showInactive()
       window.setTitle(workerTitle(agent, sessionKey, subagent))
@@ -357,7 +365,7 @@ export class WorkerPool {
       }
       this.workers.set(worker.id, worker)
       return worker
-    })
+    }).finally(() => this.startingWorkers.delete(id))
   }
 
   // Drop workers whose window was destroyed or sat idle past the TTL so a dead or stale id is never
