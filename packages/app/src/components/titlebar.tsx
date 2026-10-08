@@ -398,7 +398,12 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   />
                 </TooltipV2>
 
-                <div ref={(mount) => setTabStrip("mount", mount)} class="min-w-0">
+                {/* Keep session hydration and tab shortcuts mounted when the project sidebar owns navigation. */}
+                <div
+                  ref={(mount) => setTabStrip("mount", mount)}
+                  class="min-w-0"
+                  classList={{ hidden: settings.general.quietCompanion() }}
+                >
                   <Portal mount={layout.tabStrip.mount() ?? tabStrip.mount}>
                     <TitlebarTabStrip
                       vertical={!!layout.tabStrip.mount()}
