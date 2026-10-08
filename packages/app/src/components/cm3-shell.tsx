@@ -1,10 +1,8 @@
 import { createStore } from "solid-js/store"
-import { createEffect, createMemo, For, on, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, For, on, Show } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
-import { useLayout } from "@/context/layout"
-import { useCommand } from "@/context/command"
 import { ServerConnection, useServer } from "@/context/server"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
@@ -30,8 +28,6 @@ export function Cm3Shell() {
   const server = useServer()
   const location = useLocation()
   const tabs = useTabs()
-  const layout = useLayout()
-  const command = useCommand()
   const navigate = useNavigate()
   const pickDirectory = useDirectoryPicker()
   const openSettings = useSettingsDialog()
@@ -199,7 +195,6 @@ export function Cm3Shell() {
         class="cm3-sidebar"
         data-open={state.navigation}
         aria-label={language.t("sidebar.nav.projectsAndSessions")}
-        // The tab strip is portaled here, so delegated events follow the titlebar's owner instead of this aside.
         on:keydown={(event) => {
           if (event.defaultPrevented || event.isComposing) return
           if (event.key === "Escape") {
@@ -262,20 +257,6 @@ export function Cm3Shell() {
           />
         </label>
         <div class="cm3-sidebar-scroll">
-          <Show when={settings.general.newLayoutDesigns()}>
-            <p class="cm3-sidebar-section">{language.t("quietCompanion.openTabs")}</p>
-            <div
-              class="cm3-sidebar-tabs"
-              ref={(element) => {
-                layout.tabStrip.setMount(element)
-                onCleanup(() => layout.tabStrip.setMount(undefined))
-              }}
-            />
-            <button class="cm3-sidebar-action" type="button" onClick={() => command.trigger("tab.reopenClosed")}>
-              <Cm3Icon name="chats" />
-              {language.t("command.tab.reopenClosed")}
-            </button>
-          </Show>
           <p class="cm3-sidebar-section">{language.t("quietCompanion.projects")}</p>
           <HomeProjects
             projects={projects}
