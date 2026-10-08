@@ -215,11 +215,11 @@ const defaultSettings: Settings = {
   },
   sounds: {
     agentEnabled: true,
-    agent: "staplebops-01",
+    agent: "yup-03",
     permissionsEnabled: true,
-    permissions: "staplebops-02",
+    permissions: "yup-05",
     errorsEnabled: true,
-    errors: "nope-03",
+    errors: "nope-08",
   },
 }
 
