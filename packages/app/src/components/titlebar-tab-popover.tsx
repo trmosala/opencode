@@ -63,6 +63,7 @@ export function TabPreviewPopover(props: {
             // active theme like the v2 tooltip does.
             const theme = triggerEl?.closest("[data-theme]")?.getAttribute("data-theme")
             if (theme) el.setAttribute("data-theme", theme)
+            if (triggerEl?.closest(".cm3-live")) el.setAttribute("data-cm3", "")
           }}
           data-component="session-tab-popover"
           data-instant={instant() || undefined}
