@@ -29,6 +29,7 @@ const projectContextMenuID = (server: ServerConnection.Any, directory: string) =
 
 export type HomeProjectsViewProps = {
   sidebar?: boolean
+  renderProjectSessions?: (server: ServerConnection.Any, project: LocalProject) => JSX.Element
   language: ReturnType<typeof useLanguage>
   servers: Accessor<ServerConnection.Any[]>
   projects: Accessor<LocalProject[]>
@@ -380,18 +381,21 @@ function HomeProjectSlot(
   )
 
   return (
-    <HomeProjectRow
-      {...props}
-      project={project()}
-      server={props.server}
-      index={props.index}
-      serverSelected={props.selection().server === ServerConnection.key(props.server)}
-      selected={
-        props.selection().server === ServerConnection.key(props.server) &&
-        props.selection().directory === props.worktree
-      }
-      unseen={props.unseenCount(props.server, project())}
-    />
+    <>
+      <HomeProjectRow
+        {...props}
+        project={project()}
+        server={props.server}
+        index={props.index}
+        serverSelected={props.selection().server === ServerConnection.key(props.server)}
+        selected={
+          props.selection().server === ServerConnection.key(props.server) &&
+          props.selection().directory === props.worktree
+        }
+        unseen={props.unseenCount(props.server, project())}
+      />
+      {props.renderProjectSessions?.(props.server, project())}
+    </>
   )
 }
 

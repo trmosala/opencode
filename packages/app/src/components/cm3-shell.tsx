@@ -8,6 +8,7 @@ import { useCommand } from "@/context/command"
 import { ServerConnection, useServer } from "@/context/server"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
+import { pathKey } from "@/utils/path-key"
 import { tabKey, useTabs } from "@/context/tabs"
 import { legacySessionHref } from "@/utils/session-route"
 import { createHomeController } from "@/pages/home/home-controller"
@@ -23,7 +24,7 @@ import { WppAuthControl } from "./wpp-auth-control"
 
 export function Cm3Shell() {
   const home = createHomeController()
-  const sessions = createHomeSessionsController(home, { registerPalette: false })
+  const sessions = createHomeSessionsController(home, { registerPalette: false, allProjects: true })
   const language = useLanguage()
   const settings = useSettings()
   const server = useServer()
@@ -87,6 +88,16 @@ export function Cm3Shell() {
     return (value ? sessions.data.searchRecords() : sessions.data.records()).filter((record) =>
       `${record.session.title} ${record.projectName}`.toLowerCase().includes(value),
     )
+  })
+  const projectSessions = createMemo(() => {
+    const grouped = new Map<string, HomeSessionRecord[]>()
+    records().forEach((record) => {
+      const key = pathKey(record.project.worktree)
+      const group = grouped.get(key)
+      if (group) group.push(record)
+      if (!group) grouped.set(key, [record])
+    })
+    return grouped
   })
   const openSession = (record: HomeSessionRecord, background = false) => {
     if (settings.general.newLayoutDesigns()) {
@@ -265,43 +276,56 @@ export function Cm3Shell() {
               {language.t("command.tab.reopenClosed")}
             </button>
           </Show>
-          <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
+          <p class="cm3-sidebar-section">{language.t("quietCompanion.projects")}</p>
+          <HomeProjects
+            projects={projects}
+            sidebar
+            onOpenProjectNewSession={openTask}
+            onSelectProject={(conn, directory) => {
+              home.project.select(conn, directory)
+              closeNavigation()
+            }}
+            renderProjectSessions={(conn, project) => (
+              <Show when={ServerConnection.key(conn) === sessions.session.server()}>
+                <div class="cm3-sidebar-project-sessions">
+                  <For each={projectSessions().get(pathKey(project.worktree)) ?? []}>
+                    {(record) => (
+                      <button
+                        class="cm3-sidebar-task"
+                        data-action="project-session"
+                        type="button"
+                        data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
+                        onKeyDown={navigateSearch}
+                        onMouseDown={(event) => {
+                          if (event.button === 1) event.preventDefault()
+                        }}
+                        onClick={(event) => openSession(record, backgroundOpen(event))}
+                        onAuxClick={(event) => {
+                          if (!backgroundOpen(event)) return
+                          event.preventDefault()
+                          openSession(record, true)
+                        }}
+                      >
+                        <div class="size-4 shrink-0" aria-hidden="true">
+                          <SessionTabAvatar
+                            project={record.project}
+                            directory={record.session.directory}
+                            sessionId={record.session.id}
+                            server={sessions.session.server()}
+                            revealProjectOnHover={false}
+                          />
+                        </div>
+                        <span class="cm3-sidebar-task-copy">
+                          <span dir="auto">{record.session.title}</span>
+                        </span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            )}
+          />
           <Show when={!sessions.data.loading()} fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}>
-            <For each={records()}>
-              {(record) => (
-                <button
-                  class="cm3-sidebar-task"
-                  type="button"
-                  data-active={location.pathname.endsWith(`/session/${record.session.id}`)}
-                  onKeyDown={navigateSearch}
-                  onMouseDown={(event) => {
-                    if (event.button === 1) event.preventDefault()
-                  }}
-                  onClick={(event) => openSession(record, backgroundOpen(event))}
-                  onAuxClick={(event) => {
-                    if (!backgroundOpen(event)) return
-                    event.preventDefault()
-                    openSession(record, true)
-                  }}
-                >
-                  <div class="size-4 shrink-0" aria-hidden="true">
-                    <SessionTabAvatar
-                      project={record.project}
-                      directory={record.session.directory}
-                      sessionId={record.session.id}
-                      server={sessions.session.server()}
-                      revealProjectOnHover={false}
-                    />
-                  </div>
-                  <span class="cm3-sidebar-task-copy">
-                    <span>{record.session.title}</span>
-                    <Show when={sessions.session.showProjectName()}>
-                      <span class="cm3-sidebar-task-project">{record.projectName}</span>
-                    </Show>
-                  </span>
-                </button>
-              )}
-            </For>
             <Show when={sessions.data.error()}>
               <p role="alert">{language.t("common.requestFailed")}</p>
               <button type="button" onClick={() => void sessions.data.retry()}>
@@ -312,16 +336,6 @@ export function Cm3Shell() {
               <p role="status">{language.t("quietCompanion.noThreads")}</p>
             </Show>
           </Show>
-          <p class="cm3-sidebar-section">{language.t("quietCompanion.projects")}</p>
-          <HomeProjects
-            projects={projects}
-            sidebar
-            onOpenProjectNewSession={openTask}
-            onSelectProject={(conn, directory) => {
-              home.project.select(conn, directory)
-              closeNavigation()
-            }}
-          />
           <button
             class="cm3-sidebar-action"
             type="button"

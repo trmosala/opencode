@@ -6,12 +6,14 @@ export function HomeProjects(props: {
   projects: HomeProjectsController
   scroll?: HomeScrollController
   sidebar?: boolean
+  renderProjectSessions?: HomeProjectsViewProps["renderProjectSessions"]
   onSelectProject?: HomeProjectsViewProps["onSelectProject"]
   onOpenProjectNewSession?: HomeProjectsViewProps["onOpenProjectNewSession"]
 }) {
   return (
     <HomeProjectsView
       sidebar={props.sidebar}
+      renderProjectSessions={props.renderProjectSessions}
       language={props.projects.copy.language}
       servers={props.projects.server.list}
       projects={props.projects.project.list}

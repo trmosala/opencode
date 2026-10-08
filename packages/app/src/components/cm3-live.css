@@ -225,6 +225,10 @@ html[data-color-scheme="dark"] .cm3-live {
   height: 31px;
 }
 
+.cm3-sidebar-project-sessions {
+  margin-inline-start: 24px;
+}
+
 .cm3-sidebar-projects .cm3-sidebar-project {
   padding-inline-end: 64px;
 }
