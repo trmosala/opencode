@@ -10,6 +10,12 @@ type Login = BrowserLogin & { id: string }
 const store = () => getStore("cm-browser")
 const context = Buffer.from("CookieMonster browser vault v1")
 
+// Presence only. Passwords and account metadata stay encrypted until OS authentication.
+export function hasSavedLogins() {
+  const credentials = store().get("credentials", [])
+  return store().get("vault") !== undefined || (Array.isArray(credentials) && credentials.length > 0)
+}
+
 export function readLogins(migrate = true): Login[] {
   const ticket = vaultAccess.require()
   if (!vaultAvailable()) throw new Error("Secure storage unavailable")

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { nativeSecretEntryName } from "./native-secret-entry"
+import { nativeSecretEntryName, nativeSecretEntryPath } from "./native-secret-entry"
 
 describe("native secret entry helper", () => {
   test("selects the current-architecture Windows helper", () => {
@@ -12,7 +12,17 @@ describe("native secret entry helper", () => {
     expect(nativeSecretEntryName("darwin", "arm64")).toBe("macos-entry-arm64")
   })
 
-  test("rejects unsupported platforms", () => {
+  test("does not select a bundled binary for Linux", () => {
     expect(nativeSecretEntryName("linux", "x64")).toBeUndefined()
+  })
+
+  test("Linux development uses the system native form helper", () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!
+    Object.defineProperty(process, "platform", { value: "linux" })
+    try {
+      expect(nativeSecretEntryPath()).toBe("/usr/bin/zenity")
+    } finally {
+      Object.defineProperty(process, "platform", platform)
+    }
   })
 })

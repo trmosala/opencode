@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events"
 import { join } from "node:path"
 import { app, BrowserWindow, dialog } from "electron"
 import { createVaultAccess } from "../browser/vault-access"
-import { WPP_OKTA_ORIGIN } from "./okta-login-form"
+import { inspectOktaPasswordScript, WPP_OKTA_ORIGIN } from "./okta-login-form"
 import { nativeT } from "../native-translations"
 
 // Isolate mocks of native dialogs/OS verification/storage from the desktop suite.
@@ -27,6 +27,7 @@ if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
     password: "fixture-secret",
   }
   let rows = [account]
+  const windows = new Set<EventEmitter>()
   const verify = mock(async () => {})
   const access = createVaultAccess(verify)
   const entry = mock(async () => ({ origin: account.origin, username: account.username, password: account.password }))
@@ -39,6 +40,7 @@ if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
     initializeVaultLocking: () => {},
   }))
   mock.module("../browser/vault", () => ({
+    hasSavedLogins: () => rows.length > 0,
     readLogins: () => structuredClone(rows),
     writeLogins: write,
     vaultAvailable: () => true,
@@ -58,6 +60,8 @@ if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
     write.mockClear()
   })
   afterEach(() => {
+    windows.forEach((events) => events.emit("closed"))
+    windows.clear()
     access.lock()
     mock.restore()
   })
@@ -66,9 +70,11 @@ if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
     const win = new BrowserWindow()
     const events = new EventEmitter()
     const contents = new EventEmitter()
-    const execute = mock(async (_world: number, scripts: { code: string }[]) =>
-      scripts[0].code.includes("return field") ? "password" : true,
-    )
+    const execute = mock(async (_world: number, scripts: { code: string }[]) => {
+      if (scripts[0].code === inspectOktaPasswordScript) return account.username
+      if (!scripts[0].code.includes("document.__cmOktaTicket = ticket")) return true
+      return scripts[0].code.includes("return true ?") ? account.username : "password"
+    })
     Object.defineProperties(win.webContents, {
       getURL: { configurable: true, value: () => `${WPP_OKTA_ORIGIN}/oauth2/v1/authorize` },
       executeJavaScriptInIsolatedWorld: { configurable: true, value: execute },
@@ -82,11 +88,102 @@ if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
       once: { configurable: true, value: events.once.bind(events) },
     })
     attachWppLoginControls(win)
+    windows.add(events)
     return { win, events, contents, execute }
   }
   async function click(win: BrowserWindow, index = 0) {
     await wppLoginMenu(win.webContents)[index].click?.(undefined!, win, undefined!)
   }
+
+  test("automatically fills the account shown by Okta after unlock without chooser or confirmation", async () => {
+    const current = window()
+    const show = spyOn(dialog, "showMessageBox")
+    rows.unshift({ ...account, id: "other-account", username: "other@wpp.test", password: "other-secret" })
+    current.contents.emit("did-finish-load")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(verify).toHaveBeenCalledTimes(1)
+    expect(show).not.toHaveBeenCalled()
+    const delivered = current.execute.mock.calls
+      .flatMap((call) => call[1])
+      .filter((script) => script.code.includes(account.password))
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].code).not.toContain("other-secret")
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  test("detects Okta's password screen when it appears without a document navigation", async () => {
+    const current = window()
+    const state = { ready: false }
+    const delivered = Promise.withResolvers<void>()
+    current.execute.mockImplementation(async (_world, scripts) => {
+      const code = scripts[0].code
+      if (code === inspectOktaPasswordScript) return state.ready ? account.username : undefined
+      if (code.includes("document.__cmOktaTicket = ticket")) return account.username
+      if (code.includes(account.password)) delivered.resolve()
+      return true
+    })
+    current.contents.emit("did-finish-load")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(verify).not.toHaveBeenCalled()
+    state.ready = true
+    await delivered.promise
+    expect(verify).toHaveBeenCalledTimes(1)
+  }, 2000)
+
+  test.each(["missing", "ambiguous"])("%s matching saved account is not filled", async (kind) => {
+    const current = window()
+    rows =
+      kind === "missing" ? [{ ...account, username: "other@wpp.test" }] : [account, { ...account, id: "duplicate" }]
+    const show = spyOn(dialog, "showMessageBox")
+    current.contents.emit("did-finish-load")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(
+      current.execute.mock.calls.flatMap((call) => call[1]).some((script) => script.code.includes(account.password)),
+    ).toBe(false)
+    expect(show).not.toHaveBeenCalled()
+  })
+
+  test("no saved credentials or a populated password does not request OS unlock", async () => {
+    const current = window()
+    rows = []
+    current.contents.emit("did-finish-load")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(current.execute).not.toHaveBeenCalled()
+    rows = [account]
+    current.execute.mockImplementation(async () => undefined)
+    current.contents.emit("did-finish-load")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(verify).not.toHaveBeenCalled()
+  })
+
+  test.each(["cancel", "hide", "navigation", "lock"])(
+    "%s during automatic unlock prevents delivery and does not show an error dialog",
+    async (change) => {
+      const current = window()
+      const pending = Promise.withResolvers<void>()
+      const started = Promise.withResolvers<void>()
+      verify.mockImplementationOnce(async () => {
+        started.resolve()
+        await pending.promise
+        if (change === "cancel") throw new Error("fixture cancelled")
+      })
+      const show = spyOn(dialog, "showMessageBox")
+      current.contents.emit("did-finish-load")
+      await started.promise
+      if (change === "hide") current.events.emit("hide")
+      if (change === "navigation") current.contents.emit("did-start-navigation", {}, "https://other.test", false, true)
+      if (change === "lock") access.lock()
+      pending.resolve()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(
+        current.execute.mock.calls.flatMap((call) => call[1]).some((script) => script.code.includes(account.password)),
+      ).toBe(false)
+      expect(show).not.toHaveBeenCalled()
+      current.contents.emit("did-finish-load")
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      if (change !== "navigation") expect(verify).toHaveBeenCalledTimes(1)
+    },
+  )
 
   test("native menu observers update on focus, navigation and locking, and unsubscribe on menu rebuild", async () => {
     const listen = spyOn(app, "on")

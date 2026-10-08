@@ -5,6 +5,7 @@ import {
   prepareOktaLoginScript,
   completeOktaLoginScript,
   clearOktaLoginScript,
+  inspectOktaPasswordScript,
 } from "./okta-login-form"
 import { prepareLoginScript } from "../browser/login-form"
 
@@ -58,6 +59,26 @@ async function run() {
       login.password,
     )
     assert.deepEqual(await contents.executeJavaScript("({...document.body.dataset})"), { input: "1", change: "1" })
+
+    assert.equal(await execute(inspectOktaPasswordScript), undefined)
+    await reset(password)
+    assert.equal(await execute(inspectOktaPasswordScript), login.username)
+    assert.equal(await execute(prepareOktaLoginScript("auto", true)), login.username)
+    await execute(completeOktaLoginScript("auto", login, "password", Date.now() + 5000, true))
+    assert.equal(
+      await contents.executeJavaScript("document.getElementById('credentials.passcode').value"),
+      login.password,
+    )
+    assert.equal(await execute(inspectOktaPasswordScript), undefined)
+
+    await reset(password)
+    await execute(prepareOktaLoginScript("typing", true))
+    await contents.executeJavaScript("document.getElementById('credentials.passcode').value = 'user-typed'; true")
+    await assert.rejects(execute(completeOktaLoginScript("typing", login, "password", Date.now() + 5000, true)))
+    assert.equal(
+      await contents.executeJavaScript("document.getElementById('credentials.passcode').value"),
+      "user-typed",
+    )
 
     await reset(password)
     await execute(prepareOktaLoginScript("mismatch"))

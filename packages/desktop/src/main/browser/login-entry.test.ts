@@ -110,4 +110,22 @@ if (process.env.CM_LOGIN_ENTRY_TEST_CHILD !== "1") {
     })
     expect(stdout.every((byte) => byte === 0)).toBe(true)
   })
+
+  test("Linux saves through a native masked-password form without putting secrets in arguments", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    const pending = loginEntry.prompt(window(), "https://wpp.okta.com", "")
+    expect(spawn.mock.calls[0][1]).toContain("--forms")
+    expect(spawn.mock.calls[0][1].some((arg) => arg.startsWith("--add-password="))).toBe(true)
+    const stdout = Buffer.from("fixture@wpp.test\nfixture-secret\n")
+    finish(null, stdout, Buffer.alloc(0))
+    expect(await pending).toEqual({
+      origin: "https://wpp.okta.com",
+      username: "fixture@wpp.test",
+      password: "fixture-secret",
+    })
+    expect(spawn.mock.calls[0][1].some((arg) => arg.includes("fixture-secret"))).toBe(false)
+    expect(stdout.every((byte) => byte === 0)).toBe(true)
+    expect(() => decodeLoginEntry("https://wpp.okta.com", Buffer.from("user\nsecret\nextra\n"), true)).toThrow()
+    expect(() => decodeLoginEntry("https://wpp.okta.com", Buffer.from("user\n\n"), true)).toThrow()
+  })
 }

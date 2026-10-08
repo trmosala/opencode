@@ -4,15 +4,16 @@ import { nativeT } from "../native-translations"
 import { loginEntry, loginEntryAvailable } from "../browser/login-entry"
 import { mergeLogins } from "../browser/import-data"
 import { initializeVaultLocking, vaultAccess } from "../browser/vault-session"
-import { readLogins, writeLogins, vaultAvailable } from "../browser/vault"
+import { hasSavedLogins, readLogins, writeLogins, vaultAvailable } from "../browser/vault"
 import {
   WPP_OKTA_ORIGIN,
   prepareOktaLoginScript,
   completeOktaLoginScript,
   clearOktaLoginScript,
+  inspectOktaPasswordScript,
 } from "./okta-login-form"
 
-type Action = "fill" | "save" | "manage" | "lock"
+type Action = "fill" | "save" | "manage" | "lock" | "auto"
 const controls = new WeakMap<WebContents, { available(): boolean; run(action: Action): Promise<void> }>()
 const listeners = new Set<() => void>()
 const changed = () => listeners.forEach((listener) => listener())
@@ -36,6 +37,7 @@ export function attachWppLoginControls(win: BrowserWindow) {
   initializeVaultLocking()
   let busy = false
   let pending: AbortController | undefined
+  let attempted: string | undefined
   const available = () =>
     !win.isDestroyed() &&
     !contents.isDestroyed() &&
@@ -49,7 +51,9 @@ export function attachWppLoginControls(win: BrowserWindow) {
   win.on("hide", cancel)
   win.on("minimize", cancel)
   contents.on("did-start-navigation", (_event, _url, _inPlace, main) => {
-    if (main) cancel()
+    if (!main) return
+    attempted = undefined
+    cancel()
   })
   contents.on("render-process-gone", cancel)
   contents.on("did-navigate", changed)
@@ -57,6 +61,7 @@ export function attachWppLoginControls(win: BrowserWindow) {
   win.on("show", changed)
   contents.on("did-create-window", (child) => attachWppLoginControls(child))
   win.once("closed", () => {
+    clearInterval(poll)
     cancel()
     controls.delete(contents)
     changed()
@@ -86,6 +91,38 @@ export function attachWppLoginControls(win: BrowserWindow) {
         ticket = vaultAccess.require()
         if (action === "save") return await saveWppAccount(win, undefined, check, consent.signal)
         const accounts = readLogins().filter((row) => row.origin === WPP_OKTA_ORIGIN)
+        if (action === "auto") {
+          const token = randomUUID()
+          try {
+            const username: unknown = await contents.executeJavaScriptInIsolatedWorld(999, [
+              { code: prepareOktaLoginScript(token, true) },
+            ])
+            check()
+            if (typeof username !== "string" || !username) return
+            const matches = accounts.filter((row) => row.username.trim().toLowerCase() === username)
+            if (matches.length !== 1) return
+            const account = matches[0]
+            requireUnchangedAccount(account, check)
+            await contents.executeJavaScriptInIsolatedWorld(999, [
+              {
+                code: completeOktaLoginScript(
+                  token,
+                  account,
+                  "password",
+                  Date.now() + Math.min(5000, vaultAccess.remaining()),
+                  true,
+                ),
+              },
+            ])
+            requireUnchangedAccount(account, check)
+          } finally {
+            if (!contents.isDestroyed())
+              await contents
+                .executeJavaScriptInIsolatedWorld(999, [{ code: clearOktaLoginScript(token) }])
+                .catch(() => undefined)
+          }
+          return
+        }
         if (!accounts.length) {
           const answer = await dialog.showMessageBox(win, {
             message: nativeT("desktop.wpp.login.empty"),
@@ -124,15 +161,7 @@ export function attachWppLoginControls(win: BrowserWindow) {
         const account = accounts[choice.response - 1]
         if (!account) return
         const unchanged = () => {
-          check()
-          const current = readLogins().find((row) => row.id === account.id)
-          if (
-            !current ||
-            current.origin !== account.origin ||
-            current.username !== account.username ||
-            current.password !== account.password
-          )
-            throw new Error("WPP account changed")
+          requireUnchangedAccount(account, check)
         }
         unchanged()
         if (action === "manage") {
@@ -189,7 +218,7 @@ export function attachWppLoginControls(win: BrowserWindow) {
         }
       } catch {
         // Page exceptions and child-process failures may contain secrets. Show fixed copy only.
-        if (!consent.signal.aborted && !win.isDestroyed() && win.isVisible())
+        if (action !== "auto" && !consent.signal.aborted && !win.isDestroyed() && win.isVisible())
           await dialog
             .showMessageBox(win, {
               type: "error",
@@ -202,11 +231,39 @@ export function attachWppLoginControls(win: BrowserWindow) {
         unsubscribe()
         pending = undefined
         busy = false
+        if (action === "save" || action === "manage") attempted = undefined
         changed()
       }
     },
   })
+  // Okta changes screens inside one document, so load events alone miss its password step.
+  const autofill = async () => {
+    if (busy || !available() || !vaultAvailable() || !hasSavedLogins()) return
+    const username: unknown = await contents
+      .executeJavaScriptInIsolatedWorld(999, [{ code: inspectOktaPasswordScript }])
+      .catch(() => undefined)
+    if (busy || !available() || typeof username !== "string" || !username || attempted === username) return
+    // Cancellation/locking never causes another unsolicited authentication prompt on this step.
+    attempted = username
+    await controls.get(contents)?.run("auto")
+  }
+  const poll = setInterval(() => void autofill().catch(() => undefined), 500)
+  poll.unref()
+  contents.on("did-finish-load", () => void autofill().catch(() => undefined))
+  win.on("show", () => void autofill().catch(() => undefined))
   changed()
+}
+
+function requireUnchangedAccount(account: ReturnType<typeof readLogins>[number], check: () => void) {
+  check()
+  const current = readLogins().find((row) => row.id === account.id)
+  if (
+    !current ||
+    current.origin !== account.origin ||
+    current.username !== account.username ||
+    current.password !== account.password
+  )
+    throw new Error("WPP account changed")
 }
 
 export function wppLoginMenu(contents?: WebContents, always = false) {

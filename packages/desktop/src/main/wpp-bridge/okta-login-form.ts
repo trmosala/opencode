@@ -28,15 +28,23 @@ const fields = `
       account.name !== 'username' || account.form !== form || visible(account))) throw new Error("Missing Okta account")
 `
 
-export function prepareOktaLoginScript(token: string) {
+export const inspectOktaPasswordScript = `(() => {
+  try {
+    ${fields}
+    return field === 'password' && !input.value ? account.value.trim().toLowerCase() : undefined
+  } catch { return undefined }
+})()`
+
+export function prepareOktaLoginScript(token: string, automatic = false) {
   return `(() => {
     ${fields}
+    if (${JSON.stringify(automatic)} && (field !== 'password' || input.value)) return undefined
     document.__cmOktaTicket?.observer.disconnect()
     const ticket = { token: ${JSON.stringify(token)}, input, form, account, field, changed: false }
     ticket.observer = new MutationObserver(() => { ticket.changed = true })
     ticket.observer.observe(document, { childList: true })
     document.__cmOktaTicket = ticket
-    return field
+    return ${JSON.stringify(automatic)} ? account.value.trim().toLowerCase() : field
   })()`
 }
 
@@ -45,6 +53,7 @@ export function completeOktaLoginScript(
   login: BrowserLogin,
   selected: "username" | "password",
   expires: number,
+  automatic = false,
 ) {
   if (login.origin !== WPP_OKTA_ORIGIN) throw new Error("Okta credential origin mismatch")
   return `(() => {
@@ -57,6 +66,7 @@ export function completeOktaLoginScript(
     if (!ticket || ticket.token !== ${JSON.stringify(token)} || changed || ticket.input !== input ||
         ticket.form !== form || ticket.account !== account || ticket.field !== field || field !== ${JSON.stringify(selected)}) throw new Error("Okta step changed")
     if (account && account.value.trim().toLowerCase() !== ${JSON.stringify(login.username.trim().toLowerCase())}) throw new Error("Okta account mismatch")
+    if (${JSON.stringify(automatic)} && (field !== 'password' || input.value)) throw new Error("Okta password already entered")
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(selected === "username" ? login.username : login.password)})
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new Event('change', { bubbles: true }))

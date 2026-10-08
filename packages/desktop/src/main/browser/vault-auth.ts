@@ -1,11 +1,28 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { app, type BrowserWindow } from "electron"
+import { randomUUID } from "node:crypto"
+import { app, safeStorage, type BrowserWindow } from "electron"
 import { nativeT } from "../native-translations"
 
 export const vaultAuthentication = {
   async verify(win: BrowserWindow) {
+    if (process.platform === "linux") {
+      // Linux dev uses the logged-in desktop keyring, not a biometric reauthentication API.
+      if (
+        !safeStorage.isEncryptionAvailable() ||
+        ["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend())
+      )
+        throw new Error("Secure desktop keyring unavailable")
+      const challenge = randomUUID()
+      const encrypted = safeStorage.encryptString(challenge)
+      try {
+        if (safeStorage.decryptString(encrypted) !== challenge) throw new Error("Desktop keyring unlock failed")
+      } finally {
+        encrypted.fill(0)
+      }
+      return
+    }
     // macOS uses device-owner authentication so the OS can offer its password
     // fallback even on a Mac that has Touch ID. Cancellation never starts a second prompt.
     if (process.platform !== "win32" && process.platform !== "darwin") throw new Error("OS authentication unavailable")

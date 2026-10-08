@@ -9,6 +9,7 @@ export function nativeSecretEntryName(platform: NodeJS.Platform = process.platfo
 }
 
 export function nativeSecretEntryPath() {
+  if (process.platform === "linux") return "/usr/bin/zenity"
   const name = nativeSecretEntryName()
   if (!name) return undefined
   return app.isPackaged

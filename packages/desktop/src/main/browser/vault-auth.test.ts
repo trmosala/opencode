@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test"
 import childProcess from "node:child_process"
 import fs from "node:fs"
 import { join } from "node:path"
-import { app, BrowserWindow, systemPreferences } from "electron"
+import { app, BrowserWindow, safeStorage, systemPreferences } from "electron"
 import { nativeT } from "../native-translations"
 import { createVaultAccess } from "./vault-access"
 
@@ -143,7 +143,7 @@ if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
     await expect(access.unlock(win)).rejects.toThrow("OS authentication helper unavailable")
     expect(prompt).not.toHaveBeenCalled()
     expect(access.status()).toBe("locked")
-    Object.defineProperty(process, "platform", { value: "linux" })
+    Object.defineProperty(process, "platform", { value: "freebsd" })
     await expect(access.unlock(win)).rejects.toThrow("OS authentication unavailable")
     expect(prompt).not.toHaveBeenCalled()
     expect(spawn).not.toHaveBeenCalled()
@@ -191,5 +191,39 @@ if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
     expect(access.status()).toBe("locked")
     expect(spawn).toHaveBeenCalledTimes(1)
     expect(prompt).not.toHaveBeenCalled()
+  })
+
+  test.each(["basic_text", "unknown"])("Linux rejects insecure keyring backend %s", async (backend) => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
+    spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue(backend)
+    await expect(vaultAuthentication.verify(new BrowserWindow())).rejects.toThrow("Secure desktop keyring unavailable")
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  test("Linux unlock uses its secure desktop keyring and clears the encrypted challenge", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
+    spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue("gnome_libsecret")
+    const encrypt = mock((value: string) => Buffer.from(value))
+    safeStorage.encryptString = encrypt
+    safeStorage.decryptString = mock((value: Buffer) => value.toString())
+    const access = createVaultAccess(vaultAuthentication.verify)
+    await access.unlock(new BrowserWindow())
+    expect(access.status()).toBe("unlocked")
+    expect(encrypt.mock.results[0].value.every((byte: number) => byte === 0)).toBe(true)
+    expect(spawn).not.toHaveBeenCalled()
+    access.lock()
+  })
+
+  test("a failed Linux keyring round trip leaves the vault locked", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
+    spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue("gnome_libsecret")
+    safeStorage.encryptString = mock(() => Buffer.from("fixture"))
+    safeStorage.decryptString = mock(() => "wrong")
+    const access = createVaultAccess(vaultAuthentication.verify)
+    await expect(access.unlock(new BrowserWindow())).rejects.toThrow("Desktop keyring unlock failed")
+    expect(access.status()).toBe("locked")
   })
 }

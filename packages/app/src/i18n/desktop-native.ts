@@ -624,6 +624,8 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Account: {{username}}\nWebsite: {{origin}}\nOnly the current login field will be filled. The website can read the filled value. Submit the form and complete MFA yourself.",
   "desktop.wpp.login.failed":
     "The saved login operation was cancelled or could not complete. Keep the WPP Okta sign-in window visible, unlock saved passwords, and use the account shown on the page. The page or account may have changed. No sign-in was submitted by CookieMonster.",
+  "desktop.browser.account.username": "Username",
+  "desktop.browser.account.password": "Password",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH
