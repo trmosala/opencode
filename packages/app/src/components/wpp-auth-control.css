@@ -1,0 +1,66 @@
+[data-component="popover-content"].wpp-auth-popover {
+  width: 256px;
+  max-width: calc(100vw - 32px);
+  color: var(--text-strong);
+  font: 12px/1.5 var(--font-family-sans);
+
+  [data-slot="popover-body"] {
+    padding: 12px;
+  }
+
+  [data-component="wpp-auth-controls"] {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .wpp-auth-status {
+    font-weight: 500;
+  }
+
+  .wpp-auth-checked {
+    margin-block: 0 8px;
+    color: var(--text-weak);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  [data-component="button"] {
+    height: auto;
+    min-height: 28px;
+    justify-content: flex-start;
+    padding: 4px 8px;
+    white-space: normal;
+    text-align: start;
+    font-weight: 400;
+  }
+}
+
+/* Popovers are portalled outside .cm3-live, so share its palette explicitly. */
+[data-component="popover-content"].cm3-wpp-popover {
+  --surface-raised-stronger-non-alpha: #ffffff;
+  --surface-base-hover: #f8f9fa;
+  --surface-base-active: #dce4ed;
+  --border-base: #e9ebee;
+  --text-strong: #292d32;
+  --text-weak: #68717d;
+  border-color: var(--border-base);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+  color-scheme: light;
+}
+
+html[data-color-scheme="dark"] [data-component="popover-content"].cm3-wpp-popover {
+  --surface-raised-stronger-non-alpha: #24272c;
+  --surface-base-hover: #2b2e33;
+  --surface-base-active: #38424f;
+  --border-base: #30343b;
+  --text-strong: #e3e6eb;
+  --text-weak: #a2aab5;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  color-scheme: dark;
+}
