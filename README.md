@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="packages/desktop/icons/prod/cm-logos/CookieMonster-02.svg" width="354" alt="CookieMonster" />
+  <img src="packages/desktop/icons/prod/cm-logos/CookieMonster-wordmark-red.svg" width="354" alt="CookieMonster" />
 </p>
 <p align="center">A desktop AI agent for creative production and development at Ogilvy One.</p>
 <p align="center">
