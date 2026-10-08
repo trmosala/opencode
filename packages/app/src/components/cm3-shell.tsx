@@ -19,6 +19,7 @@ import { useDirectoryPicker } from "./directory-picker"
 import { useSettingsDialog } from "./settings-dialog"
 import { Cm3Icon } from "./cm3-icon"
 import { WppAuthControl } from "./wpp-auth-control"
+import { Icon } from "@opencode-ai/ui/v2/icon"
 
 export function Cm3Shell() {
   const home = createHomeController()
@@ -202,25 +203,15 @@ export function Cm3Shell() {
           </Show>
         </span>
       </button>
-      <Show when={settings.general.newLayoutDesigns() && sessions.tab.isOpen(record)}>
+      <Show when={settings.general.newLayoutDesigns()}>
         <button
-          class="cm3-sidebar-session-close"
+          class="cm3-sidebar-session-archive"
           type="button"
-          aria-label={language.t("command.tab.close")}
-          title={language.t("command.tab.close")}
-          onClick={(event) => {
-            const index = tabs.store.findIndex(
-              (tab) =>
-                tab.type === "session" &&
-                tab.server === sessions.session.server() &&
-                tab.sessionId === record.session.id,
-            )
-            if (index === -1) return
-            event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(".cm3-sidebar-task")?.focus()
-            tabs.closeTab(index)
-          }}
+          aria-label={language.t("common.archive")}
+          title={language.t("common.archive")}
+          onClick={() => void sessions.session.archive(record.session)}
         >
-          <Cm3Icon name="x" size={14} />
+          <Icon name="archive" size="small" />
         </button>
       </Show>
     </div>

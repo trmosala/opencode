@@ -219,7 +219,7 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
   flex: 1;
 }
 
-.cm3-sidebar .cm3-sidebar-session-close {
+.cm3-sidebar .cm3-sidebar-session-archive {
   display: grid;
   place-items: center;
   flex: none;
@@ -232,18 +232,18 @@ html[data-color-scheme="dark"] [data-component="session-tab-popover"][data-cm3] 
   cursor: pointer;
 }
 
-.cm3-sidebar .cm3-sidebar-session-close:hover {
+.cm3-sidebar .cm3-sidebar-session-archive:hover {
   background: var(--cm3-selected);
   color: var(--cm3-text);
 }
 
 @media (hover: hover) {
-  .cm3-sidebar .cm3-sidebar-session-close {
+  .cm3-sidebar .cm3-sidebar-session-archive {
     opacity: 0;
     pointer-events: none;
   }
 
-  .cm3-sidebar-session:is(:hover, :focus-within) .cm3-sidebar-session-close {
+  .cm3-sidebar-session:is(:hover, :focus-within) .cm3-sidebar-session-archive {
     opacity: 1;
     pointer-events: auto;
   }

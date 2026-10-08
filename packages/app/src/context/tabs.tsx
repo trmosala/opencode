@@ -314,7 +314,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
                       server: targetServer,
                       sessionId: params.id,
                     })
-                  : undefined
+                  : location.pathname
               const currentIndex = currentHref
                 ? tabs.findIndex(
                     (tab) => tab.type === "session" && tab.server === targetServer && tabHref(tab) === currentHref,
