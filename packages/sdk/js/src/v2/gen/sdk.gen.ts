@@ -90,6 +90,16 @@ import type {
   GlobalUpgradeResponses,
   InstanceDisposeErrors,
   InstanceDisposeResponses,
+  InstanceSkillCatalogErrors,
+  InstanceSkillCatalogResponses,
+  InstanceSkillCreateErrors,
+  InstanceSkillCreateResponses,
+  InstanceSkillManageErrors,
+  InstanceSkillManageResponses,
+  InstanceSkillReviewErrors,
+  InstanceSkillReviewResponses,
+  InstanceSkillValidateErrors,
+  InstanceSkillValidateResponses,
   LocationRef,
   LspStatusErrors,
   LspStatusResponses,
@@ -175,6 +185,10 @@ import type {
   QuestionReplyErrors,
   QuestionReplyResponses,
   QuestionV2Reply,
+  ScheduleListErrors,
+  ScheduleListResponses,
+  ScheduleManageErrors,
+  ScheduleManageResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -448,6 +462,47 @@ class HeyApiRegistry<T> {
 
   set(value: T, key?: string): void {
     this.instances.set(key ?? this.defaultKey, value)
+  }
+}
+
+export class Schedule extends HeyApiClient {
+  public list<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<ScheduleListResponses, ScheduleListErrors, ThrowOnError>({
+      url: "/schedule",
+      ...options,
+    })
+  }
+
+  public manage<ThrowOnError extends boolean = false>(
+    parameters?: {
+      action?: "create" | "update" | "pause" | "resume" | "delete" | "acknowledge"
+      id?: string
+      definition?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "action" },
+            { in: "body", key: "id" },
+            { in: "body", key: "definition" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ScheduleManageResponses, ScheduleManageErrors, ThrowOnError>({
+      url: "/schedule",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
   }
 }
 
@@ -1951,6 +2006,208 @@ export class Instance extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  public skillCatalog<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      InstanceSkillCatalogResponses,
+      InstanceSkillCatalogErrors,
+      ThrowOnError
+    >({
+      url: "/skill/catalog",
+      ...options,
+      ...params,
+    })
+  }
+
+  public skillValidate<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      source?: string
+      revision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "source" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceSkillValidateResponses,
+      InstanceSkillValidateErrors,
+      ThrowOnError
+    >({
+      url: "/skill/validate",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public skillManage<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      action?: "read" | "review" | "apply"
+      selected?: {
+        name: string
+        source: string
+        revision: string
+      }
+      operation?: "edit" | "delete"
+      draft?: {
+        name: string
+        description: string
+        instructions: string
+        scope: "workspace" | "global"
+      }
+      token?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "action" },
+            { in: "body", key: "selected" },
+            { in: "body", key: "operation" },
+            { in: "body", key: "draft" },
+            { in: "body", key: "token" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InstanceSkillManageResponses, InstanceSkillManageErrors, ThrowOnError>(
+      {
+        url: "/skill/manage",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  public skillReview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      description?: string
+      instructions?: string
+      scope?: "workspace" | "global"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "instructions" },
+            { in: "body", key: "scope" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InstanceSkillReviewResponses, InstanceSkillReviewErrors, ThrowOnError>(
+      {
+        url: "/skill/review",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  public skillCreate<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      description?: string
+      instructions?: string
+      scope?: "workspace" | "global"
+      token?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "instructions" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "token" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InstanceSkillCreateResponses, InstanceSkillCreateErrors, ThrowOnError>(
+      {
+        url: "/skill/create",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
   }
 }
 
@@ -7080,6 +7337,11 @@ export class OpencodeClient extends HeyApiClient {
   constructor(args?: { client?: Client; key?: string }) {
     super(args)
     OpencodeClient.__registry.set(this, args?.key)
+  }
+
+  private _schedule?: Schedule
+  get schedule(): Schedule {
+    return (this._schedule ??= new Schedule({ client: this.client }))
   }
 
   private _auth?: Auth

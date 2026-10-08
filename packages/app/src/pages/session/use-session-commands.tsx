@@ -8,6 +8,7 @@ import { useLayout } from "@/context/layout"
 import { usePermission } from "@/context/permission"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
+import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
@@ -38,6 +39,7 @@ const withCategory = (category: string) => {
 }
 
 export const useSessionCommands = (actions: SessionCommandContext) => {
+  const platform = usePlatform()
   const command = useCommand()
   const dialog = useDialog()
   const file = useFile()
@@ -270,6 +272,10 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const closeTab = () => {
     const tab = closableTab()
     if (!tab) return
+    if (tab.startsWith("browser:") && platform.browserPanel && params.id) {
+      void platform.browserPanel.command(params.id, { op: "close", tabID: tab.slice(8) })
+      return
+    }
     tabs().close(tab)
   }
 
@@ -514,6 +520,15 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const fileCmds = () => {
     const tab = closableTab()
     return [
+      fileCommand({
+        id: "tab.new",
+        title: language.t("browser.tabs.new"),
+        keybind: "mod+t",
+        onSelect: () => {
+          view().reviewPanel.open()
+          void tabs().open(`new-tab:${crypto.randomUUID()}`)
+        },
+      }),
       fileCommand({
         id: "file.open",
         title: language.t("command.file.open"),

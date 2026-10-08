@@ -79,15 +79,16 @@ export function Cm3Shell() {
     }),
   )
   const projectPending = () => /^\/server\/[^/]+\/session\/[^/]+$/.test(location.pathname) && !routeProject()
-  const records = createMemo(() => {
+  const searchRecords = createMemo(() => {
     const value = state.search.trim().toLowerCase()
-    return (value ? sessions.data.searchRecords() : sessions.data.records()).filter((record) =>
+    return sessions.data.searchRecords().filter((record) =>
       `${record.session.title} ${record.projectName}`.toLowerCase().includes(value),
     )
   })
+  const records = createMemo(() => (state.search.trim() ? searchRecords() : sessions.data.records()))
   const projectSessions = createMemo(() => {
     const grouped = new Map<string, HomeSessionRecord[]>()
-    records().forEach((record) => {
+    searchRecords().forEach((record) => {
       const key = pathKey(record.project.worktree)
       const group = grouped.get(key)
       if (group) group.push(record)

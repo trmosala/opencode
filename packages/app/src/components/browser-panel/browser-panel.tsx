@@ -42,14 +42,17 @@ import {
   type BrowserToolPanel,
 } from "./browser-tools"
 import { browserSuggestions } from "./browser-suggestions"
-import { BrowserTabStrip } from "./browser-tab-strip"
 import { BrowserOperationStatus } from "./browser-operation-status"
 import "./browser-panel.css"
 import "./browser-toolbar.css"
 import "./browser-controls.css"
 import "./browser-records.css"
 
-export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
+export function BrowserPanel(props: {
+  sessionKey: string
+  sessionID: string
+  onTabShortcut?: (value: BrowserShortcut) => void
+}) {
   const language = useLanguage()
   const prompt = usePrompt()
   const platform = usePlatform()
@@ -210,6 +213,8 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
       address?.select()
       return
     }
+    if (props.onTabShortcut && (value === "new" || value === "close" || value === "next" || value === "previous"))
+      return props.onTabShortcut(value)
     if (value === "new" || value === "reopen") {
       void command({ op: value })
       return
@@ -478,14 +483,6 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
         shortcut(action)
       }}
     >
-      <BrowserTabStrip tabs={state.tabs} command={command}>
-        <BrowserMenu
-          tab={active()}
-          open={(tool) => setState("tool", tool)}
-          command={command}
-          screenshot={(closed) => void screenshot(closed)}
-        />
-      </BrowserTabStrip>
       <form
         data-slot="browser-toolbar"
         class="shrink-0 flex items-center border-b border-border-weaker-base py-2"
@@ -714,6 +711,14 @@ export function BrowserPanel(props: { sessionKey: string; sessionID: string }) {
             </>
           )}
         </Show>
+        <div class="flex justify-end shrink-0">
+          <BrowserMenu
+            tab={active()}
+            open={(tool) => setState("tool", tool)}
+            command={command}
+            screenshot={(closed) => void screenshot(closed)}
+          />
+        </div>
       </form>
       <Show when={showSuggestions()}>
         <div

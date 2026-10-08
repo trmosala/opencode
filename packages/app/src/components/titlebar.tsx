@@ -650,11 +650,13 @@ function TitlebarUpdateIconButton(props: { state: TitlebarUpdatePillState }) {
         <span class="flex size-5 shrink-0 items-center justify-center">
           <Show
             when={!props.state.installing}
-            fallback={<span data-slot="titlebar-update-loader" aria-hidden="true" />}
+            fallback={
+              <span data-slot="titlebar-update-loader">
+                <IconV2 name="spinner" class="size-3" />
+              </span>
+            }
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M7 11V3M3.5 7.63128L7 11L10.5 7.63128" stroke="currentColor" />
-            </svg>
+            <IconV2 name="arrow-down" size="small" />
           </Show>
         </span>
       </button>

@@ -1,0 +1,347 @@
+.scheduled-page {
+  --schedule-bg: var(--cm3-bg, var(--background-base));
+  --schedule-surface: var(--cm3-subtle, var(--surface-inset-base));
+  --schedule-border: var(--cm3-border, var(--border-base));
+  --schedule-text: var(--cm3-text, var(--text-base));
+  --schedule-muted: var(--cm3-muted, var(--text-weak));
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 48px max(24px, calc((100% - 860px) / 2));
+  color: var(--schedule-text);
+  background: var(--schedule-bg);
+  font-size: 13px;
+  user-select: text;
+}
+.scheduled-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.scheduled-header h1 {
+  font-size: 26px;
+  line-height: 1.3;
+  font-weight: 550;
+  letter-spacing: -0.6px;
+  margin: 0 0 8px;
+}
+.scheduled-header p,
+.scheduled-footnote {
+  color: var(--schedule-muted, var(--text-weak));
+}
+.scheduled-page button,
+.schedule-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+}
+.scheduled-page button:hover,
+.schedule-form button:hover {
+  background: var(--schedule-surface, var(--surface-inset-base));
+}
+.scheduled-page button:disabled,
+.schedule-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.scheduled-page button:focus-visible,
+.schedule-form :is(button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--cm3-focus, var(--border-focus));
+  outline-offset: 3px;
+}
+.scheduled-page .schedule-primary,
+.schedule-form .schedule-primary {
+  background: var(--cm3-action, var(--text-strong));
+  color: var(--cm3-on-action, var(--background-base));
+  padding: 10px 15px;
+  white-space: nowrap;
+}
+.scheduled-page .schedule-primary:hover,
+.schedule-form .schedule-primary:hover {
+  opacity: 0.88;
+}
+.scheduled-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--schedule-border);
+  margin-bottom: 24px;
+}
+.scheduled-tabs > button {
+  color: var(--schedule-muted);
+}
+.scheduled-tabs > button[data-active="true"] {
+  color: var(--schedule-text);
+  background: var(--schedule-surface);
+}
+.scheduled-tabs span {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.scheduled-tabs .scheduled-refresh {
+  margin-left: auto;
+}
+.scheduled-list {
+  display: grid;
+  gap: 12px;
+}
+.scheduled-task {
+  border: 1px solid var(--schedule-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.scheduled-task-top,
+.scheduled-task-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.scheduled-task .scheduled-task-name {
+  font-weight: 550;
+  font-size: 15px;
+  padding: 0;
+  text-align: left;
+}
+.scheduled-task .scheduled-task-name:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+.scheduled-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: var(--schedule-surface);
+  border-radius: 6px;
+  color: var(--schedule-muted);
+}
+.scheduled-badge[data-enabled="true"] {
+  color: var(--schedule-text);
+}
+.scheduled-prompt {
+  margin: 10px 0 18px;
+  color: var(--schedule-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.scheduled-frequency {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.scheduled-frequency svg {
+  flex-shrink: 0;
+}
+.scheduled-task-bottom {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--schedule-border);
+  font-size: 11px;
+}
+.scheduled-task-meta {
+  color: var(--schedule-muted);
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.scheduled-task-meta > span:first-child {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scheduled-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.scheduled-row-actions button {
+  padding: 5px 7px;
+  font-size: 11px;
+  color: var(--schedule-muted);
+}
+.scheduled-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 72px 24px;
+}
+.scheduled-empty-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--schedule-surface);
+  color: var(--schedule-muted);
+  margin-bottom: 20px;
+}
+.scheduled-empty-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.scheduled-empty h2 {
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.scheduled-empty p {
+  color: var(--schedule-muted);
+  max-width: 360px;
+  margin-bottom: 22px;
+  line-height: 1.7;
+}
+.scheduled-footnote {
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 24px;
+}
+.scheduled-error {
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid var(--border-critical-base, #c66);
+  border-radius: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.scheduled-loading {
+  color: var(--schedule-muted);
+  padding: 40px 0;
+}
+.scheduled-run {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid var(--schedule-border);
+  padding: 16px 0;
+}
+.scheduled-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--schedule-muted);
+  flex-shrink: 0;
+}
+.scheduled-run[data-state="completed"] .scheduled-dot {
+  background: #4a8b65;
+}
+.scheduled-run:is([data-state="attention"], [data-state="awaiting_auth"]) .scheduled-dot {
+  background: #b78335;
+}
+.scheduled-run-copy {
+  min-width: 0;
+  flex: 1;
+}
+.scheduled-run-copy strong {
+  font-weight: 500;
+}
+.scheduled-run-copy p {
+  color: var(--schedule-muted);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.scheduled-separator {
+  margin: 0 5px;
+}
+.scheduled-detail {
+  overflow-wrap: anywhere;
+}
+.schedule-form {
+  width: 100%;
+  padding: 8px 24px 24px;
+  font-size: 13px;
+  color: var(--text-base);
+}
+.schedule-dialog [data-slot="dialog-body"] {
+  overflow-y: auto;
+  min-height: 0;
+}
+.schedule-form fieldset {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.schedule-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.schedule-form :is(input, textarea, select) {
+  width: 100%;
+  border: 1px solid var(--border-base);
+  background: var(--surface-inset-base);
+  color: var(--text-strong);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font: inherit;
+}
+.schedule-form textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+.schedule-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.schedule-days {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.schedule-days button {
+  flex: 1;
+  border: 1px solid var(--border-base);
+  padding: 7px 4px;
+  min-width: 38px;
+  font-size: 11px;
+}
+.schedule-days button[aria-pressed="true"] {
+  background: var(--text-strong);
+  color: var(--background-base);
+}
+.schedule-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+@media (max-width: 640px) {
+  .scheduled-page {
+    padding: 28px 20px;
+  }
+  .scheduled-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .scheduled-header h1 {
+    font-size: 22px;
+  }
+  .scheduled-task-bottom,
+  .scheduled-run {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .scheduled-row-actions {
+    margin-left: auto;
+  }
+  .schedule-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

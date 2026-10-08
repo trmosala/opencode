@@ -4,6 +4,7 @@ import {
   closeSessionTab,
   openSessionTab,
   previewSessionTab,
+  reconcileBrowserSessionTabs,
   type SessionTabState,
 } from "./layout-tabs"
 
@@ -84,5 +85,33 @@ describe("closeSessionTab", () => {
         "file://b.ts",
       ),
     ).toEqual(state(["file://a.ts", "file://c.ts"], "file://a.ts"))
+  })
+})
+
+describe("reconcileBrowserSessionTabs", () => {
+  test("migrates the Browser wrapper and keeps pages beside files", () => {
+    expect(
+      reconcileBrowserSessionTabs({ all: ["browser", "file://a.ts"], active: "browser" }, ["a", "b"], "a"),
+    ).toEqual({ all: ["file://a.ts", "browser:a", "browser:b"], active: "browser:a" })
+  })
+  test("keeps Review selected during page updates and selects new popups", () => {
+    const current = { all: ["browser:a", "new-tab:one"], active: "review" }
+    expect(reconcileBrowserSessionTabs(current, ["a"], "a", "a").active).toBe("review")
+    expect(reconcileBrowserSessionTabs(current, ["a", "b"], "b", "a").active).toBe("browser:b")
+  })
+  test("retains refused closes, follows native selection, and removes closed pages", () => {
+    const current = { all: ["browser:a", "file://a.ts", "browser:b"], active: "browser:a" }
+    expect(reconcileBrowserSessionTabs(current, ["a", "b"], "a", "a")).toEqual(current)
+    expect(reconcileBrowserSessionTabs(current, ["a", "b"], "b", "a").active).toBe("browser:b")
+    expect(reconcileBrowserSessionTabs(current, ["b"], "b", "a")).toEqual({
+      all: ["file://a.ts", "browser:b"],
+      active: "browser:b",
+    })
+    expect(reconcileBrowserSessionTabs(current, [], undefined, "a").active).toBe("review")
+  })
+  test("reflects native pinning and moves without moving file slots", () => {
+    expect(
+      reconcileBrowserSessionTabs({ all: ["browser:a", "file://a.ts", "browser:b"] }, ["b", "a"], "a", "a").all,
+    ).toEqual(["browser:b", "file://a.ts", "browser:a"])
   })
 })

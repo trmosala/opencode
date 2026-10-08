@@ -374,7 +374,7 @@ function HomeProjectSlot(
   },
 ) {
   const initial = props.items.find((item) => item.worktree === props.worktree)
-  if (!initial) return
+  if (!initial) return null
   const project = createMemo<LocalProject>(
     (previous) => props.items.find((item) => item.worktree === props.worktree) ?? previous,
     initial,

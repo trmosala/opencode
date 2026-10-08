@@ -4,3 +4,19 @@
   width: 18px;
   aspect-ratio: 1;
 }
+
+[data-component="spinner"] {
+  animation: phosphor-spin 900ms linear infinite;
+}
+
+@keyframes phosphor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="spinner"] {
+    animation: none;
+  }
+}

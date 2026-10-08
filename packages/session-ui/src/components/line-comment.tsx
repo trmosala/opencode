@@ -1,3 +1,4 @@
+import { paths } from "@opencode-ai/ui/phosphor"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
 import { createSignal, For, onMount, Show, splitProps, type JSX } from "solid-js"
@@ -13,19 +14,8 @@ export type LineCommentVariant = "default" | "editor" | "add"
 
 function InlineGlyph(props: { icon: "comment" | "plus" }) {
   return (
-    <svg data-slot="line-comment-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <Show
-        when={props.icon === "comment"}
-        fallback={
-          <path
-            d="M10 5.41699V10.0003M10 10.0003V14.5837M10 10.0003H5.4165M10 10.0003H14.5832"
-            stroke="currentColor"
-            stroke-linecap="square"
-          />
-        }
-      >
-        <path d="M16.25 3.75H3.75V16.25L6.875 14.4643H16.25V3.75Z" stroke="currentColor" stroke-linecap="square" />
-      </Show>
+    <svg data-slot="line-comment-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+      <path d={props.icon === "comment" ? paths["chat-circle"] : paths.plus} />
     </svg>
   )
 }

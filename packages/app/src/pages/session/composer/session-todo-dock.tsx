@@ -1,3 +1,4 @@
+import { paths } from "@opencode-ai/ui/phosphor"
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { AnimatedNumber } from "@opencode-ai/ui/animated-number"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
@@ -20,22 +21,16 @@ function dot(status: Todo["status"]) {
   if (status !== "in_progress") return undefined
   return (
     <svg
-      viewBox="0 0 12 12"
+      viewBox="0 0 256 256"
       width="12"
       height="12"
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
       class="block"
     >
-      <circle
-        cx="6"
-        cy="6"
-        r="3"
-        style={{
-          animation: "var(--animate-pulse-scale)",
-          "transform-origin": "center",
-          "transform-box": "fill-box",
-        }}
+      <path
+        d={paths.circle}
+        style={{ animation: "var(--animate-pulse-scale)", "transform-origin": "center", "transform-box": "fill-box" }}
       />
     </svg>
   )

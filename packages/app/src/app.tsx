@@ -71,6 +71,7 @@ import { LegacyHome } from "@/pages/home/legacy-home"
 import { QuietCompanionSwitch } from "@/components/quiet-companion-switch"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
+const Scheduled = lazy(() => import("@/pages/scheduled"))
 
 const SessionRoute = () => {
   const settings = useSettings()
@@ -324,12 +325,20 @@ function SharedProviders(props: ParentProps) {
 }
 
 function DesktopCommands() {
+  const navigate = useNavigate()
   const command = useCommand()
   const language = useLanguage()
   const platform = usePlatform()
 
   command.register("desktop", () => {
-    const commands: CommandOption[] = []
+    const commands: CommandOption[] = [
+      {
+        id: "schedule.open",
+        title: language.t("schedules.title"),
+        category: language.t("command.category.settings"),
+        onSelect: () => navigate("/scheduled"),
+      },
+    ]
     if (platform.platform === "desktop" && platform.exportDebugLogs) {
       commands.push({
         id: "logs.export",
@@ -620,6 +629,21 @@ function Routes(props: { serverScoped?: JSX.Element }) {
 
   return (
     <>
+      <Route
+        path="/scheduled"
+        component={() => (
+          <Show
+            when={settings.general.newLayoutDesigns()}
+            fallback={
+              <LegacyServerLayout serverScoped={props.serverScoped}>
+                <Scheduled />
+              </LegacyServerLayout>
+            }
+          >
+            <Scheduled />
+          </Show>
+        )}
+      />
       <Route
         component={(routeProps) => (
           <LegacyServerLayout serverScoped={props.serverScoped}>{routeProps.children}</LegacyServerLayout>

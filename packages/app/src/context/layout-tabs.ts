@@ -101,3 +101,26 @@ export function closeSessionTab(current: SessionTabState, tab: string): SessionT
     preview,
   }
 }
+
+export function reconcileBrowserSessionTabs(
+  current: SessionTabs,
+  ids: string[],
+  activeID?: string,
+  previousID?: string,
+) {
+  const browser = ids.map((id) => `browser:${id}`)
+  const retained = current.all.filter(
+    (tab) => tab !== "browser" && (!tab.startsWith("browser:") || browser.includes(tab)),
+  )
+  const order = new Map(retained.filter((tab) => tab.startsWith("browser:")).map((tab, index) => [tab, index]))
+  const existing = browser.filter((tab) => order.has(tab))
+  const all = [
+    ...retained.map((tab) => (order.has(tab) ? existing[order.get(tab)!] : tab)),
+    ...browser.filter((tab) => !current.all.includes(tab)),
+  ]
+  const changed =
+    current.active === "browser" ||
+    (current.active?.startsWith("browser:") && (!browser.includes(current.active) || previousID !== activeID)) ||
+    (previousID && previousID !== activeID && browser.some((tab) => !current.all.includes(tab)))
+  return { all, active: changed ? (activeID ? `browser:${activeID}` : "review") : current.active }
+}

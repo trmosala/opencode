@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, on, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { DragDropProvider as DndKitProvider, PointerSensor } from "@dnd-kit/solid"
@@ -26,9 +26,12 @@ import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import type { FileDiffInfo } from "@opencode-ai/client/promise"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import FileTree from "@/components/file-tree"
+import { BrowserTabMenu } from "@/components/browser-panel/browser-tools"
+import { reconcileBrowserSessionTabs } from "@/context/layout-tabs"
+import type { BrowserShortcut, BrowserTabs } from "@/browser-panel"
+import { showToast } from "@/utils/toast"
 import { BrowserPanel } from "@/components/browser-panel/browser-panel"
 import { normalizeFileTreeV2Path } from "@/components/file-tree-v2-model"
 import { SessionContextUsage } from "@/components/session-context-usage"
@@ -89,7 +92,6 @@ export function SessionSidePanel(props: {
   const file = useFile()
   const language = useLanguage()
   const command = useCommand()
-  const dialog = useDialog()
   const platform = usePlatform()
   const sdk = useSDK()
   const { sessionKey, tabs, view, params } = useSessionLayout()
@@ -199,11 +201,6 @@ export function SessionSidePanel(props: {
     layout.fileTree.setTab(value)
   }
 
-  const showAllFiles = () => {
-    if (fileTreeTab() !== "changes") return
-    layout.fileTree.setTab("all")
-  }
-
   let fileFilter: HTMLInputElement | undefined
   let tabList: HTMLDivElement | undefined
   const temporaryTab = tabs().preview
@@ -219,11 +216,22 @@ export function SessionSidePanel(props: {
     previewTab(SESSION_OPEN_FILE_TAB)
     queueMicrotask(() => fileFilter?.focus())
   }
+  const browserFailure = () => showToast({ variant: "error", title: language.t("browser.toast.failed") })
   const activateTab = (value: string) => {
     const next = normalizeTab(value)
     const path = file.pathFromTab(next)
     if (path) void file.load(path)
     openReviewPanel()
+    if (next.startsWith("browser:") && platform.browserPanel && params.id) {
+      const sessionID = params.id
+      void platform.browserPanel
+        .command(sessionID, { op: "select", tabID: next.slice(8) })
+        .then(() => {
+          if (params.id === sessionID) tabs().setActive(next)
+        })
+        .catch(browserFailure)
+      return
+    }
     tabs().setActive(next)
   }
   const browserTab = createMemo(() => {
@@ -242,46 +250,195 @@ export function SessionSidePanel(props: {
   })
   const fileBrowserVisible = createMemo(() => {
     const active = activeTab()
-    return active !== "review" && active !== "context" && active !== "browser" && active !== "empty"
+    return (
+      active !== "review" &&
+      active !== "context" &&
+      active !== "browser" &&
+      !active.startsWith("browser:") &&
+      !active.startsWith("new-tab:") &&
+      active !== "empty"
+    )
   })
-  const openFileKeybind = createMemo(() => command.keybindParts("file.open"))
   const closeTabKeybind = createMemo(() => command.keybindParts("tab.close"))
-  const browserTabTrigger = () => (
-    <Show when={browserOpen()}>
+  const [native, setNative] = createStore<BrowserTabs>({ sessionID: params.id ?? "", tabs: [] })
+  const newTab = () => {
+    openReviewPanel()
+    void tabs().open(`new-tab:${crypto.randomUUID()}`)
+  }
+  const acceptBrowser = (next: BrowserTabs) => {
+    if (next.sessionID !== params.id) return
+    if (native.sessionID === next.sessionID && (next.revision ?? 0) < (native.revision ?? 0)) return
+    const previous = native.activeID
+    setNative(next)
+    const reconciled = reconcileBrowserSessionTabs(
+      { all: tabs().all(), active: tabs().active() },
+      next.tabs.map((tab) => tab.id),
+      next.activeID,
+      previous,
+    )
+    tabs().setAll(reconciled.all)
+    tabs().setActive(reconciled.active)
+  }
+  createEffect(
+    on(
+      () => params.id,
+      (sessionID) => {
+        if (!platform.browserPanel || !sessionID) return
+        setNative({ sessionID, tabs: [], activeID: undefined, revision: undefined })
+        const unsubscribe = platform.browserPanel.subscribe(acceptBrowser)
+        onCleanup(unsubscribe)
+        void platform.browserPanel.command(sessionID, { op: "state" }).then(acceptBrowser).catch(browserFailure)
+      },
+    ),
+  )
+  createEffect(() => {
+    if (!platform.browserPanel || !params.id || tabs().active() !== "browser") return
+    const sessionID = params.id
+    void platform.browserPanel
+      .command(sessionID, { op: "state" })
+      .then(async (next) => {
+        if (params.id !== sessionID) return
+        acceptBrowser(next.tabs.length ? next : await platform.browserPanel!.command(sessionID, { op: "new" }))
+      })
+      .catch(browserFailure)
+  })
+  const closePanelTab = (tab: string) => {
+    if (!tab.startsWith("browser:")) return tabs().close(tab)
+    if (!platform.browserPanel || !params.id) return
+    void platform.browserPanel
+      .command(params.id, { op: "close", tabID: tab.slice(8) })
+      .then(acceptBrowser)
+      .catch(browserFailure)
+  }
+  const panelShortcut = (value: BrowserShortcut) => {
+    if (value === "new") return newTab()
+    if (value === "close") return closePanelTab(activeTab())
+    const all = [...(props.canReview() ? ["review"] : []), ...(contextOpen() ? ["context"] : []), ...panelTabs()]
+    const index = all.indexOf(activeTab())
+    const next = all[(index + (value === "next" ? 1 : -1) + all.length) % all.length]
+    if (next) activateTab(next)
+  }
+  const specialTabTrigger = (tab: string) => {
+    const item = () => native.tabs.find((item) => `browser:${item.id}` === tab)
+    return (
       <Tabs.Trigger
-        value="browser"
+        value={tab}
+        onMiddleClick={() => closePanelTab(tab)}
         closeButton={
-          <TooltipKeybind
-            title={language.t("common.closeTab")}
-            keybind={command.keybind("tab.close")}
-            placement="bottom"
-            gutter={10}
-          >
-            <IconButton
-              icon="close-small"
-              variant="ghost"
-              class="h-5 w-5"
-              onClick={() => tabs().close("browser")}
-              aria-label={language.t("common.closeTab")}
-            />
-          </TooltipKeybind>
+          <div class="flex items-center">
+            <Show when={item()}>
+              {(item) => (
+                <BrowserTabMenu
+                  tab={item()}
+                  tabs={native.tabs}
+                  activeID={native.activeID}
+                  command={(value) =>
+                    platform.browserPanel!.command(params.id!, value).then(acceptBrowser).catch(browserFailure)
+                  }
+                />
+              )}
+            </Show>
+            <Show when={!item()?.pinned}>
+              <IconButton
+                icon="close-small"
+                variant="ghost"
+                class="h-5 w-5"
+                aria-label={language.t("common.closeTab")}
+                onClick={() => closePanelTab(tab)}
+              />
+            </Show>
+          </div>
         }
-        hideCloseButton
-        onMiddleClick={() => tabs().close("browser")}
       >
-        <div class="flex items-center gap-2">
-          <Icon name="globe" size="small" />
-          <div>{language.t("session.tab.browser")}</div>
+        <div class="flex items-center gap-2 min-w-0" aria-busy={item()?.loading}>
+          <Icon name={tab.startsWith("browser:") ? "globe" : "plus-small"} size="small" />
+          <span class="truncate max-w-48">
+            {tab.startsWith("browser:")
+              ? item()?.title || language.t("session.tab.browser")
+              : language.t("browser.tabs.new")}
+          </span>
+          <Show when={item()?.loading}>
+            <span class="size-2 rounded-full bg-text-weak animate-pulse" />
+          </Show>
+          <Show when={item()?.agentAccess}>
+            <span
+              class="size-2 rounded-full bg-text-interactive-base"
+              role="img"
+              aria-label={language.t("browser.site.agentOn")}
+            />
+          </Show>
         </div>
       </Tabs.Trigger>
-    </Show>
-  )
+    )
+  }
   const browserTabContent = () => (
-    <Show when={browserOpen() && activeTab() === "browser"}>
-      <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict">
-        <BrowserPanel sessionKey={sessionKey()} sessionID={params.id!} />
-      </Tabs.Content>
-    </Show>
+    <>
+      <Show when={browserOpen() && activeTab().startsWith("browser:")}>
+        <div role="tabpanel" class="flex flex-col h-full overflow-hidden contain-strict">
+          <BrowserPanel sessionKey={sessionKey()} sessionID={params.id!} onTabShortcut={panelShortcut} />
+        </div>
+      </Show>
+      <Show when={activeTab().startsWith("new-tab:")}>
+        <div role="tabpanel" class="flex-1 flex flex-col items-center justify-center gap-3">
+          <div class="text-14-medium">{language.t("browser.tabs.new")}</div>
+          <Show when={platform.browserPanel}>
+            <button
+              class="text-text-interactive-base"
+              onClick={() => {
+                const tab = activeTab()
+                const sessionID = params.id!
+                void platform
+                  .browserPanel!.command(sessionID, { op: "new" })
+                  .then((next) => {
+                    if (params.id !== sessionID) return
+                    acceptBrowser(next)
+                    const browserTab = `browser:${next.activeID}`
+                    tabs().setAll(
+                      tabs()
+                        .all()
+                        .filter((item) => item !== browserTab)
+                        .map((item) => (item === tab ? browserTab : item)),
+                    )
+                    tabs().setActive(browserTab)
+                  })
+                  .catch(browserFailure)
+              }}
+            >
+              {language.t("session.tab.browser")}
+            </button>
+          </Show>
+          <Show when={props.canReview()}>
+            <button
+              class="text-text-interactive-base"
+              onClick={() => {
+                tabs().close(activeTab())
+                tabs().setActive("review")
+              }}
+            >
+              {language.t("session.tab.review")}
+            </button>
+          </Show>
+          <button
+            class="text-text-interactive-base"
+            onClick={() => {
+              tabs().close(activeTab())
+              openFileBrowser()
+            }}
+          >
+            {language.t("command.file.open")}
+          </button>
+          <button
+            class="text-text-interactive-base"
+            onClick={() => {
+              tabs().close(activeTab())
+              void tabs().open("context")
+            }}
+          >
+            {language.t("session.tab.context")}
+          </button>
+        </div>
+      </Show>
+    </>
   )
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
@@ -433,9 +590,19 @@ export function SessionSidePanel(props: {
                                   </div>
                                 </Tabs.Trigger>
                               </Show>
-                              {browserTabTrigger()}
+                              <For
+                                each={panelTabs().filter(
+                                  (tab) => tab.startsWith("browser:") || tab.startsWith("new-tab:"),
+                                )}
+                              >
+                                {specialTabTrigger}
+                              </For>
                               <SortableProvider ids={openedTabs()}>
-                                <For each={panelTabs()}>
+                                <For
+                                  each={panelTabs().filter(
+                                    (tab) => !tab.startsWith("browser:") && !tab.startsWith("new-tab:"),
+                                  )}
+                                >
                                   {(tab) => (
                                     <Show
                                       when={tab === SESSION_OPEN_FILE_TAB}
@@ -486,8 +653,8 @@ export function SessionSidePanel(props: {
                                 }}
                               >
                                 <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
+                                  title={language.t("browser.tabs.new")}
+                                  keybind={command.keybind("tab.new")}
                                   class="flex items-center"
                                 >
                                   <IconButton
@@ -495,12 +662,8 @@ export function SessionSidePanel(props: {
                                     variant="ghost"
                                     iconSize="large"
                                     class="!rounded-md"
-                                    onClick={() => {
-                                      void import("@/components/dialog-select-file").then((x) => {
-                                        dialog.show(() => <x.DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                                      })
-                                    }}
-                                    aria-label={language.t("command.file.open")}
+                                    onClick={newTab}
+                                    aria-label={language.t("browser.tabs.new")}
                                   />
                                 </TooltipKeybind>
                               </div>
@@ -650,8 +813,18 @@ export function SessionSidePanel(props: {
                                 </div>
                               </Tabs.Trigger>
                             </Show>
-                            {browserTabTrigger()}
-                            <For each={panelTabs()}>
+                            <For
+                              each={panelTabs().filter(
+                                (tab) => tab.startsWith("browser:") || tab.startsWith("new-tab:"),
+                              )}
+                            >
+                              {specialTabTrigger}
+                            </For>
+                            <For
+                              each={panelTabs().filter(
+                                (tab) => !tab.startsWith("browser:") && !tab.startsWith("new-tab:"),
+                              )}
+                            >
                               {(tab) => (
                                 <Show
                                   when={tab === SESSION_OPEN_FILE_TAB}
@@ -708,14 +881,7 @@ export function SessionSidePanel(props: {
                               }}
                             >
                               <TooltipV2
-                                value={
-                                  <>
-                                    {language.t("command.file.open")}
-                                    <Show when={openFileKeybind().length > 0}>
-                                      <KeybindV2 keys={openFileKeybind()} variant="neutral" />
-                                    </Show>
-                                  </>
-                                }
+                                value={<>{language.t("browser.tabs.new")}</>}
                                 placement="bottom"
                                 class="flex items-center"
                               >
@@ -723,8 +889,8 @@ export function SessionSidePanel(props: {
                                   icon={<Icon name="plus-small" />}
                                   variant="ghost-muted"
                                   size="large"
-                                  onClick={() => openFileBrowser()}
-                                  aria-label={language.t("command.file.open")}
+                                  onClick={newTab}
+                                  aria-label={language.t("browser.tabs.new")}
                                 />
                               </TooltipV2>
                             </div>
