@@ -755,6 +755,7 @@ export function BrowserPanel(props: {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chooseSuggestion(index())}
               >
+                <Icon name={row.kind === "bookmark" ? "star" : row.kind === "tab" ? "globe" : "magnifying-glass"} />
                 <span class="block truncate" dir={row.title ? "auto" : "ltr"}>
                   {row.title || row.url}
                 </span>
