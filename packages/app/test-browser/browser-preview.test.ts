@@ -289,7 +289,13 @@ test("mounted address navigation supersedes by tab while other tabs and stop sta
       publish({
         ...tabs,
         revision: agentCreated ? 24 : 23,
-        tabs: tabs.tabs.map((row) => ({ ...row, url: "about:blank", agentCreated, operation: undefined, notice: undefined })),
+        tabs: tabs.tabs.map((row) => ({
+          ...row,
+          url: "about:blank",
+          agentCreated,
+          operation: undefined,
+          notice: undefined,
+        })),
       })
       expect(!!host.querySelector('[data-slot="browser-landing"]')).toBe(!agentCreated)
     }
@@ -484,7 +490,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
       pick: async () => undefined,
     }
     dispose = fixture.mount(host, browser)
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setImmediate(resolve))
     const button = (text: string) => {
       const value = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
         (value) => value.textContent?.trim() === text || value.getAttribute("aria-label") === text,
@@ -568,16 +574,14 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
                 : { tag: "button", text: "Pick", role: "", label: "", id: "", className: "" }
           if (timing === "post-native") pending.resolve(value)
           if (change === "tab") {
-            host.querySelector<HTMLButtonElement>('[role="tab"]:not([aria-selected="true"])')!.click()
-            host.querySelector<HTMLButtonElement>('[role="tab"]:not([aria-selected="true"])')!.click()
+            void browser.command("task", { op: "select", tabID: "other" })
+            void browser.command("task", { op: "select", tabID: "tab" })
           } else {
             fixture.selectSession("other-task")
             fixture.selectSession("task")
             accept(tabs)
           }
-          expect(
-            host.querySelector('[role="tab"][aria-selected="true"] [data-slot=browser-tab-title]')?.textContent,
-          ).toBe("Preview")
+          expect(tabs.activeID).toBe("tab")
           if (timing === "held") pending.resolve(value)
           await new Promise<void>((resolve) => setImmediate(resolve))
           roundTrips.push({

@@ -40,11 +40,14 @@
 
 ## Browser Automation
 
-Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.
+Use CookieMonster's `browser_*` tools for web automation when running in the desktop app.
+These tools are top-level plugin tools, outside the `execute` MCP catalog. Chrome DevTools is opt-in for explicitly requested debugging.
 
 Core workflow:
 
-1. `agent-browser open <url>` - Navigate to page
-2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
-3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
-4. Re-snapshot after page changes
+1. `browser_read_state` - List accessible task tabs
+2. `browser_create_tab` if needed, then `browser_navigate` - Open and navigate an agent-controlled tab
+3. `browser_read_state` - Read interactive refs
+4. `browser_click` / `browser_fill` - Interact, then reread after page changes
+
+If the user takes over, stop browser work until they resume it. Do not bypass takeover with another tab or browser.

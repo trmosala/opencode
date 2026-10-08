@@ -65,7 +65,9 @@ test("advertises only the Sol 6.1 family with explicit native variants and a med
   })
   expect(Object.keys(family.variants)).toEqual(["low", "medium", "high", "xhigh", "max"])
   expect(family.reasoning).toBeUndefined()
-  expect(resolveRequestModelProfile({ model: family.name, reasoning_effort: family.options.reasoningEffort })).toMatchObject({
+  expect(
+    resolveRequestModelProfile({ model: family.name, reasoning_effort: family.options.reasoningEffort }),
+  ).toMatchObject({
     agentName: "CM_GPT6.1_Sol_Medium",
   })
   for (const [effort, agentName] of [
@@ -121,7 +123,7 @@ for (const hasFamily of [false, true]) {
                 ...Object.fromEntries(
                   Object.entries(COOKIE_MONSTER_PROVIDER.models).filter(([id]) => id !== "CM_GPT6.1_Sol"),
                 ),
-                "CM_GPT6_Sol_High": legacy,
+                CM_GPT6_Sol_High: legacy,
                 ...(hasFamily ? { "CM_GPT6.1_Sol": custom } : {}),
               },
             },
@@ -511,7 +513,7 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   const models = config.provider.cookiemonster.models
 
   expect(config.provider).toEqual({ cookiemonster: COOKIE_MONSTER_PROVIDER })
-  expect(config.mcp).toEqual(O1_CODE_MCP)
+  expect(config.mcp).toEqual({ figma: O1_CODE_MCP.figma })
   expect(config.mcp.figma.oauth).toEqual({
     clientName: "Claude Code",
     scope: "mcp:connect",
@@ -523,9 +525,6 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
     browser_read_state: "allow",
     browser_search_history: "allow",
     browser_open_history: "ask",
-    browser_create_tab: "ask",
-    browser_select_tab: "ask",
-    browser_close_tab: "ask",
     browser_navigate: "allow",
     browser_click: "allow",
     browser_hover: "allow",
@@ -551,5 +550,30 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   expect(models["CM_Opus 5 - High"]).toBeUndefined()
   for (const agentName of MODEL_IDS) {
     expect(models[agentName]).toEqual(COOKIE_MONSTER_PROVIDER.models[agentName])
+  }
+})
+
+test("Chrome debugging is opt-in, and only the exact enabled legacy seed is migrated", async () => {
+  expect(O1_CODE_MCP["chrome-devtools"].enabled).toBe(false)
+  expect(JSON.parse(o1CodeConfigContent(undefined, undefined, true)).mcp["chrome-devtools"].enabled).toBe(true)
+  for (const customized of [false, true]) {
+    const { dir, file } = await tmpFile()
+    try {
+      const chrome = {
+        ...O1_CODE_MCP["chrome-devtools"],
+        enabled: true,
+        ...(customized ? { environment: { DEBUG_BROWSER: "1" } } : {}),
+      }
+      await writeFile(file, JSON.stringify({ mcp: { "chrome-devtools": chrome } }))
+      await ensureO1CodeProvider(file)
+      expect(JSON.parse(await readFile(file, "utf8")).mcp["chrome-devtools"]).toEqual(
+        customized ? chrome : O1_CODE_MCP["chrome-devtools"],
+      )
+      const migrated = await readFile(file, "utf8")
+      await ensureO1CodeProvider(file)
+      expect(await readFile(file, "utf8")).toBe(migrated)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   }
 })

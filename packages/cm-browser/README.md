@@ -2,11 +2,25 @@
 
 The desktop browser uses main-owned Electron `WebContentsView` tabs. Tabs belong to a chat session and retain their pages when switching tabs, switching sessions, or hiding the browser panel. Closing a tab respects its `beforeunload` handler. Pop-ups open as new tabs and preserve normal opener behavior.
 
+## Autonomous agent browsing
+
+CM Browser is the default desktop browser for agent tasks. The model starts with `browser_read_state`, creates a tab with `browser_create_tab` when needed, then uses `browser_navigate`. Creation initializes upload interception before authorizing the blank tab. Create, select and close use standing task authority for agent-controlled tabs, without routine native approval. Explicit OpenCode ask/deny rules still apply. Selecting or creating a tab reveals the browser panel.
+
+Agent tabs use the existing persistent CM profile, including its website logins. Private tabs protect that tab's contents and state, not account isolation: an agent can open its own tab to a signed-in service. User-created, duplicated, restored and popup tabs remain private unless explicitly shared. Private lifecycle targets retain native confirmation without gaining page access. Restoring a saved task does not require manual setup before the agent can create a fresh tab; restored tabs remain private.
+
+**Take over browser** pauses all browser tools for the task, revokes its tab access, and prevents replacement-tab creation. Use it before entering credentials or working manually. **Resume agent** restores only previously authorized, live, transfer-guarded tabs that remain eligible. An explicitly revoked, closed, crashed, or quarantined tab is not restored. Switching tasks does not clear the pause. Pause state and creation provenance are process-local; a relaunch restores URL/history only, with fresh private tabs. The global Agent Access switch remains a persistent kill switch and clears pending resume grants.
+
+Ordinary browsing has no per-website access prompt. Vault operations, file selection, history access, download policy, device permissions and unsaved-page confirmation remain separate. The model instruction asks for confirmation before consequential actions; this is not a new native transaction-classification or enforcement mechanism.
+
+Chrome DevTools is disabled in fresh configs and exact legacy CookieMonster seeds. Customized MCP definitions are preserved. Set `CM_CHROME_DEVTOOLS=1` when launching the desktop app to enable it explicitly for debugging. Native `browser_*` tools are outside the `execute` MCP catalog, and model guidance forbids silently switching browsers or bypassing takeover.
+
+The initial implementation requires the desktop app open, visible and on the task. It does not add unattended or minimized-window operation. The plugin and Electron main changes take effect on a subsequent app launch; renderer hot reload alone is insufficient. See [autonomous browser qualification](../desktop/src/main/browser/autonomous-qualification.md).
+
 ## Whole-tab Agent Access (#37)
 
 One **Agent Access** grant authorises the selected native tab and all its documents, regardless of origin. Main owns the grant. Supported page operations, screenshots, diagnostics and site tools use it without another tool, receiving-origin or capture approval. Cross-origin navigation and redirects retain the grant but invalidate old document refs and pending source-bound captures.
 
-Disable the tab grant or global access to cancel pending work and suppress late disclosure. Closure, renderer loss and owner replacement revoke authority. New, reopened, recovered and popup tabs start private; grants are not persisted or inherited. Revocation cannot recall content already delivered or effects already dispatched. Native busy/rendering leases remain held until dispatched work settles.
+Disable the tab grant or global access to cancel pending work and suppress late disclosure. Closure, renderer loss and owner replacement revoke authority. User-created, reopened, recovered and popup tabs start private; grants are not persisted or inherited. Agent-created tabs use the autonomous startup described above. Revocation cannot recall content already delivered or effects already dispatched. Native busy/rendering leases remain held until dispatched work settles.
 
 This changes authority, not driver capability. Issue #37 does not add frame discovery or interaction capabilities; those are tracked separately. Screenshots still require a selected, attached native view and disclose all visible pixels without redaction.
 
@@ -58,7 +72,7 @@ Selectors support one ASCII compound: an optional tag followed by `#id` or `.cla
 
 The isolated Windows Electron fixture `bun scripts/browser-smoke.ts --targeted-read` covers recovery of an omitted 320th control, an absent match, delayed visible content, hidden attached content, cancellation and document replacement. `--embedded-documents` covers a native nested-frame wait. These fixture results do not establish authenticated Teams parity.
 
-Vault access, OS permissions, native file selection, transfer rules, profile-wide history and tab lifecycle approvals remain separate. The grant is not permission to read saved credentials or choose local files automatically. The plugin and desktop must ship together. Historical acceptance records below describe earlier builds; their per-tool/per-origin/per-capture approval requirements are superseded by this section and are not current behavior.
+Vault access, OS permissions, native file selection, transfer rules, profile-wide history and private-target lifecycle approvals remain separate. The grant is not permission to read saved credentials or choose local files automatically. The plugin and desktop must ship together. Historical acceptance records below describe earlier builds; their per-tool/per-origin/per-capture approval requirements are superseded by this section and are not current behavior.
 
 ## Qualification (2 October 2026)
 

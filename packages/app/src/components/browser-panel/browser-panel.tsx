@@ -779,15 +779,6 @@ export function BrowserPanel(props: {
             <span class="min-w-0 flex-1 truncate text-text-weak" dir="ltr">
               {URL.parse(tab().url)?.host}
             </span>
-            <BrowserButton
-              type="button"
-              size="small"
-              variant="ghost"
-              class="shrink-0"
-              onClick={() => void command({ op: "access", tabID: tab().id, enabled: false })}
-            >
-              {language.t("browser.site.revoke")}
-            </BrowserButton>
           </div>
         )}
       </Show>
