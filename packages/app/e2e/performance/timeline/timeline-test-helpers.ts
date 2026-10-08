@@ -3,20 +3,21 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { mockOpenCodeServer } from "../../utils/mock-server"
 import { fixture, pageMessages } from "./session-timeline-stress.fixture"
 
-export async function installTimelineSettings(page: Page) {
-  await page.addInitScript(() => {
+export async function installTimelineSettings(page: Page, quietCompanion = false) {
+  await page.addInitScript((quietCompanion) => {
     localStorage.setItem(
       "settings.v3",
       JSON.stringify({
         general: {
           newLayoutDesigns: true,
+          quietCompanion,
           editToolPartsExpanded: true,
           shellToolPartsExpanded: true,
           showReasoningSummaries: true,
         },
       }),
     )
-  })
+  }, quietCompanion)
 }
 
 export function mockStressTimeline(

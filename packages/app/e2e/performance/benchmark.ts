@@ -76,6 +76,12 @@ function benchmarkName(testInfo: TestInfo) {
 export { expect }
 
 async function observePerformancePage(page: Page, name: string) {
+  if (process.env.OPENCODE_PERFORMANCE_NETWORK_DIAGNOSTICS === "1") {
+    page.on("requestfailed", (request) =>
+      console.log("BENCHMARK_REQUEST_FAILED", JSON.stringify({ url: request.url(), failure: request.failure() })),
+    )
+    page.on("pageerror", (error) => console.log("BENCHMARK_PAGE_ERROR", error.message))
+  }
   const navigations: string[] = []
   const onNavigation = (frame: ReturnType<Page["mainFrame"]>) => {
     if (frame === page.mainFrame()) navigations.push(frame.url())

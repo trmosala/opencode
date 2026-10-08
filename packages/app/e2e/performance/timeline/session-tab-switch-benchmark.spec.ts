@@ -12,6 +12,7 @@ import {
 import { measureSessionSwitch, waitForStableTimeline } from "./session-tab-switch-probe"
 
 type Result = Awaited<ReturnType<typeof measureSessionSwitch>>
+const cm3 = process.env.SESSION_TAB_SWITCH_CM3 === "1"
 
 benchmark("benchmarks cold and hot session tab switching", async ({ browser, report }, testInfo) => {
   benchmark.setTimeout(180_000)
@@ -27,7 +28,7 @@ benchmark("benchmarks cold and hot session tab switching", async ({ browser, rep
 })
 
 benchmark(
-  "benchmarks v2 session tab switching with and without the review pane",
+  `benchmarks ${cm3 ? "CM3" : "v2"} session tab switching with and without the review pane`,
   async ({ browser, report }, testInfo) => {
     benchmark.setTimeout(360_000)
     const runs = Number(process.env.SESSION_TAB_SWITCH_RUNS ?? 5)
@@ -41,39 +42,39 @@ benchmark(
           results[reviewPane][mode].push(
             await withBenchmarkPage(
               browser,
-              `session-tab-switch-v2-${reviewPane}-${mode}-${run}`,
-              (page) => trial(page, mode, { newLayoutDesigns: true, reviewPane }),
+              `session-tab-switch-${cm3 ? "cm3" : "v2"}-${reviewPane}-${mode}-${run}`,
+              (page) => trial(page, mode, { newLayoutDesigns: true, quietCompanion: cm3, reviewPane }),
               testInfo,
             ),
           )
         }
       }
     }
-    report({ results, summary: summarizeReviewPane(results) }, { runs, reviewDiffs: createReviewDiffs().length })
+    report({ results, summary: summarizeReviewPane(results) }, { runs, reviewDiffs: createReviewDiffs().length, cm3 })
   },
 )
 
 async function trial(
   page: Page,
   mode: "cold" | "hot",
-  options?: { newLayoutDesigns?: boolean; reviewPane?: "closed" | "open" },
+  options?: { newLayoutDesigns?: boolean; quietCompanion?: boolean; reviewPane?: "closed" | "open" },
 ) {
   const reviewDiffs = options?.newLayoutDesigns ? createReviewDiffs() : undefined
   await mockStressTimeline(page, { vcsDiff: reviewDiffs })
-  if (options?.newLayoutDesigns) await installTimelineSettings(page)
+  if (options?.newLayoutDesigns) await installTimelineSettings(page, options.quietCompanion)
   await installStressSessionTabs(page)
   if (mode === "hot") {
     await page.goto(stressSessionHref(fixture.targetID))
     await expectSessionTitle(page, fixture.expected.targetTitle)
     await waitForStableTimeline(page, fixture.expected.targetMessageIDs.at(-1)!)
-    await switchSession(page, fixture.sourceID, fixture.expected.sourceTitle)
+    await switchSession(page, fixture.sourceID, fixture.expected.sourceTitle, options?.quietCompanion)
   } else {
     await page.goto(stressSessionHref(fixture.sourceID))
     await expectSessionTitle(page, fixture.expected.sourceTitle)
   }
   await waitForStableTimeline(page, fixture.expected.sourceMessageIDs.at(-1)!)
   if (options?.reviewPane === "open") {
-    await openReviewPane(page)
+    await openReviewPane(page, options.quietCompanion)
     await waitForStableTimeline(page, fixture.expected.sourceMessageIDs.at(-1)!)
   }
 
@@ -86,7 +87,10 @@ async function trial(
     sourceIDs,
     lastID,
     href,
-    switch: () => switchSession(page, fixture.targetID, fixture.expected.targetTitle),
+    triggerSelector: options?.quietCompanion
+      ? `[data-session-id="${fixture.targetID}"] [data-action="recent-session"]`
+      : undefined,
+    switch: () => switchSession(page, fixture.targetID, fixture.expected.targetTitle, options?.quietCompanion),
   })
   return result
 }
@@ -122,16 +126,22 @@ function summarizeReviewPane(results: Record<"closed" | "open", Record<"cold" | 
   )
 }
 
-async function switchSession(page: Page, sessionID: string, title: string) {
+async function switchSession(page: Page, sessionID: string, title: string, quietCompanion = false) {
   const href = stressSessionHref(sessionID)
-  const tab = page.locator(`[data-slot="titlebar-tabs"] a[href="${href}"]`).first()
+  const tab = quietCompanion
+    ? page
+        .getByRole("region", { name: "Recent sessions", exact: true })
+        .locator(`[data-session-id="${sessionID}"] [data-action="recent-session"]`)
+    : page.locator(`[data-slot="titlebar-tabs"] a[href="${href}"]`).filter({ visible: true })
   await expect(tab).toBeVisible()
   await tab.click()
   await expectSessionTitle(page, title)
 }
 
-async function openReviewPane(page: Page) {
-  await page.getByRole("button", { name: "Toggle review" }).click()
+async function openReviewPane(page: Page, quietCompanion = false) {
+  await (quietCompanion ? page.locator('[data-cm3-region="header"]') : page)
+    .getByRole("button", { name: "Toggle review", exact: true })
+    .click()
   const panel = page.locator("#review-panel")
   await expect(panel).toBeVisible()
   // Text-based readiness works across review implementations; the legacy list mounts
