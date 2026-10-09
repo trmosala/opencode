@@ -71,7 +71,7 @@ if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
 
   async function fixture(
     constraints: unknown = { min: 24, max: 24, hasUsername: true },
-    answer: (options: Electron.MessageBoxOptions) => number = () => 0,
+    answer: (options: Electron.MessageBoxOptions) => number | Promise<number> = () => 0,
   ) {
     const calls: string[] = []
     const dialogs: Electron.MessageBoxOptions[] = []
@@ -150,7 +150,7 @@ if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
         expect(options.defaultId).toBe(0)
         expect(options.cancelId).toBe(0)
       }
-      return { response: answer(options), checkboxChecked: false }
+      return { response: await answer(options), checkboxChecked: false }
     }
     await vaultAccess.unlock(owner.win)
     return {
@@ -235,6 +235,112 @@ if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
     expect(f.dialogs).toHaveLength(1)
     expect(f.dialogs[0].type).toBe("question")
     expect(f.calls.some((code) => code.includes("const password = "))).toBe(false)
+    expect(f.calls.at(-1)).toContain("delete document.__cmLoginTicket")
+    expect(f.contents.listenerCount("did-start-navigation")).toBe(0)
+    expect(f.owner.suspended).toBe(0)
+    expect(f.owner.attached?.id).toBe(f.tab.id)
+    expect(f.owner.generationCheck).toBeUndefined()
+    expect(f.tab.loginBusy).toBe(false)
+    expect(f.tab.revision).toBe(2)
+  })
+
+  test("confirmed generation arms save offers before delivery and returns the updated tab without its secret", async () => {
+    const f = await fixture(undefined, () => 1)
+    const events: string[] = []
+    const execute = f.contents.executeJavaScriptInIsolatedWorld
+    f.tab.readyLoginOffers = async () => {
+      expect(f.owner.suspended).toBe(0)
+      expect(f.owner.attached?.id).toBe(f.tab.id)
+      events.push("offers")
+      return Date.now() + 5000
+    }
+    f.contents.executeJavaScriptInIsolatedWorld = async (world, scripts) => {
+      if (scripts[0].code.includes("const password = ")) events.push("delivery")
+      return execute(world, scripts)
+    }
+    const result = await f.run({ length: 24, symbols: false })
+    expect(events).toEqual(["offers", "delivery"])
+    expect(f.dialogs.map((options) => options.type)).toEqual(["question"])
+    const deliveries = f.calls.filter((code) => code.includes("const password = "))
+    expect(deliveries).toHaveLength(1)
+    const password = JSON.parse(deliveries[0].match(/const password = (".*")/u)![1])
+    expect(password).toMatch(/^[A-Za-z0-9]{24}$/u)
+    expect(JSON.stringify([result, f.dialogs])).not.toContain(password)
+    expect(result.activeID).toBe(f.tab.id)
+    expect(result.tabs[0].revision).toBe(2)
+    expect(f.calls.at(-1)).toContain("delete document.__cmLoginTicket")
+    expect(f.contents.listenerCount("did-start-navigation")).toBe(0)
+    expect(f.owner.suspended).toBe(0)
+    expect(f.owner.generationCheck).toBeUndefined()
+    expect(f.tab.loginBusy).toBe(false)
+  })
+
+  test("navigation while inspecting the form prevents consent and delivery", async () => {
+    const f = await fixture()
+    const execute = f.contents.executeJavaScriptInIsolatedWorld
+    f.contents.executeJavaScriptInIsolatedWorld = async (world, scripts) => {
+      const result = await execute(world, scripts)
+      if (scripts[0].code.includes("return { min, max, hasUsername:")) {
+        f.tab.revision++
+        f.contents.emit("did-start-navigation")
+      }
+      return result
+    }
+    await f.run({ length: 24 })
+    expect(f.dialogs.map((options) => options.type)).toEqual(["warning"])
+    expect(f.calls.some((code) => code.includes("const password = "))).toBe(false)
+    expect(f.contents.listenerCount("did-start-navigation")).toBe(0)
+    expect(f.owner.generationCheck).toBeUndefined()
+    expect(f.tab.loginBusy).toBe(false)
+  })
+
+  test.each(["navigation", "access", "lease", "group", "offers", "exclusion"])(
+    "%s changes during native consent prevent secret delivery and restore the panel",
+    async (change) => {
+      const f = await fixture(undefined, (options) => {
+        if (options.type !== "question") return 0
+        if (change === "navigation") f.contents.emit("did-start-navigation")
+        if (change === "access") f.tab.agentAccess = true
+        if (change === "lease") f.owner.viewport = { ...f.owner.viewport!, lease: "replacement" }
+        if (change === "group") {
+          const group = f.owner.groups.get("session")!
+          f.owner.groups.set("session", { ...group })
+        }
+        if (change === "offers") store.set("preferences", { offerSaveLogins: false })
+        if (change === "exclusion") store.set("loginOfferExclusions", ["https://example.test"])
+        return 1
+      })
+      await f.run({ length: 24 })
+      expect(f.dialogs.map((options) => options.type)).toEqual(["question", "warning"])
+      expect(f.calls.some((code) => code.includes("const password = "))).toBe(false)
+      expect(f.calls.at(-1)).toContain("delete document.__cmLoginTicket")
+      expect(f.contents.listenerCount("did-start-navigation")).toBe(0)
+      expect(f.owner.suspended).toBe(0)
+      expect(f.owner.generationCheck).toBeUndefined()
+      expect(f.tab.loginBusy).toBe(false)
+    },
+  )
+
+  test("revocation while waiting for save offers blocks a late delivery", async () => {
+    const f = await fixture(undefined, () => 1)
+    const capture = Promise.withResolvers<number>()
+    const started = Promise.withResolvers<void>()
+    f.tab.readyLoginOffers = async () => {
+      started.resolve()
+      return capture.promise
+    }
+    const pending = f.run({ length: 24 })
+    await started.promise
+    expect(f.tab.loginBusy).toBe(true)
+    vaultAccess.lock()
+    capture.resolve(Date.now() + 5000)
+    await pending
+    expect(f.dialogs.map((options) => options.type)).toEqual(["question", "warning"])
+    expect(f.calls.some((code) => code.includes("const password = "))).toBe(false)
+    expect(f.contents.listenerCount("did-start-navigation")).toBe(0)
+    expect(f.owner.generationCheck).toBeUndefined()
+    expect(f.owner.suspended).toBe(0)
+    expect(f.tab.loginBusy).toBe(false)
   })
 
   test("vault revocation during consent shows recovery only after cleanup", async () => {
