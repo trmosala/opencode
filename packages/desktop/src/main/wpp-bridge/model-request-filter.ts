@@ -17,6 +17,10 @@ export function isWppModelRequest(request: ModelRequestLike, baseUrl = DEFAULT_B
     host.startsWith("dataplane.rum.") ||
     host.includes("heap-api") ||
     host.includes("heapanalytics") ||
+    host === "google-analytics.com" ||
+    host.endsWith(".google-analytics.com") ||
+    host === "events.launchdarkly.com" ||
+    url?.pathname.startsWith("/api/az/") ||
     requestUrl.includes("datadoghq") ||
     requestUrl.includes("dataplane.rum.") ||
     requestUrl.includes("heap-api") ||
@@ -55,6 +59,10 @@ export const MODEL_REQUEST_FILTER_SOURCE = `
       host.startsWith("dataplane.rum.") ||
       host.includes("heap-api") ||
       host.includes("heapanalytics") ||
+      host === "google-analytics.com" ||
+      host.endsWith(".google-analytics.com") ||
+      host === "events.launchdarkly.com" ||
+      url?.pathname.startsWith("/api/az/") ||
       requestUrl.includes("datadoghq") ||
       requestUrl.includes("dataplane.rum.") ||
       requestUrl.includes("heap-api") ||

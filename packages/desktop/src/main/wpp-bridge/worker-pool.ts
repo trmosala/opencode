@@ -9,11 +9,20 @@
 
 import type { BrowserWindow } from "electron"
 import { createWorkerWindow } from "./session"
+import { openAgentChat } from "./agent-chat"
 import { installController, type Controller, type ProgressFrame } from "./controller-injection"
 import { installRecorder } from "./recorder-injection"
 import { installNetworkWitness, type NetworkWitness } from "./cdp-network-recorder"
 import { captureFailureError, captureHealth, decideCaptureVerdict } from "./capture-verdict"
-import { cleanupWindowOnFailure, classifyWppAuthState, classifyWppProjectAccessState, classifyWppSessionProbe, isWppFrameUrl, wppAuthRequiredError, wppProjectAccessError } from "./worker-startup"
+import {
+  cleanupWindowOnFailure,
+  classifyWppAuthState,
+  classifyWppProjectAccessState,
+  classifyWppSessionProbe,
+  isWppFrameUrl,
+  wppAuthRequiredError,
+  wppProjectAccessError,
+} from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 import { SpawnGate } from "./spawn-gate"
 import { assertCapabilityResponse, buildCapabilityProbeJob } from "./proxy/protocol.mjs"
@@ -113,13 +122,13 @@ export class WorkerPool {
   }
 
   // Acquire + run + release in one call — the single entry point a caller (extensionBridge) needs.
-  // The agent string doubles as the affinity key; content.js reselects the composer pill to match.
+  // The agent string doubles as the affinity key; the dedicated chat must match it exactly.
   async run(
     job: {
       id?: string
       createdAtMs?: number
       timeoutMs?: number
-      payload?: { model?: string; sessionKey?: string; subagent?: boolean }
+      payload?: { model?: string; sessionKey?: string; subagent?: boolean; continueThread?: boolean }
     },
     onProgress?: (frame: ProgressFrame) => void,
     signal?: AbortSignal,
@@ -138,10 +147,7 @@ export class WorkerPool {
         throw error
       }
       const startedAt = Date.now()
-      const result = await withClientAbort(
-        worker.controller.runJob(job, onProgress, remainingJobTimeout(job)),
-        signal,
-      )
+      const result = await withClientAbort(worker.controller.runJob(job, onProgress, remainingJobTimeout(job)), signal)
       // content.js reported its OWN failure (agent selection, missing composer, chat busy, …). Surface
       // it verbatim so extensionBridge converts it to the real typed error (e.g. o1_code_wrong_agent)
       // with content.js's diagnostics. Running the capture verdict here instead would relabel every
@@ -152,11 +158,7 @@ export class WorkerPool {
         // Discard is mandatory: a released worker stays eligible, so acquire() could re-select this same
         // dead tab on the retry and fail identically. openaiCompat.shouldRetryFreshReplay does the replay.
         const failureType = (result as Record<string, unknown>).type
-        if (
-          failureType === "o1_code_recorder_not_armed" ||
-          failureType === "o1_code_thread_desync" ||
-          failureType === "o1_code_image_attachment_desync"
-        ) {
+        if (isPreSubmitFailureType(failureType)) {
           this.discard(worker.id)
           const r = result as Record<string, unknown>
           const error = new Error(String(r.error || "O1-Code worker reported a pre-submit failure.")) as Error & {
@@ -170,12 +172,14 @@ export class WorkerPool {
           throw error
         }
         const diagnostics = Reflect.get(result, "diagnostics")
-        const captureTimedOut = diagnostics
-          && typeof diagnostics === "object"
-          && Reflect.get(diagnostics, "phase") === "no-network-response"
+        const captureTimedOut =
+          diagnostics && typeof diagnostics === "object" && Reflect.get(diagnostics, "phase") === "no-network-response"
         if (!captureTimedOut) return result
       }
-      const enriched = attachCaptureVerdict(result, worker.netWitness.summarizeWindow(startedAt))
+      const enriched = attachCaptureVerdict(
+        result,
+        worker.netWitness.summarizeWindow(submissionStartedAt(result, startedAt)),
+      )
       if (enriched.captureVerdict.accept) return enriched.result
 
       this.discard(worker.id)
@@ -200,7 +204,8 @@ export class WorkerPool {
       }
       throw new Error("Unexpected capture verdict failure.")
     } catch (error) {
-      if (error instanceof Error && Reflect.get(error, "type") === "o1_code_client_aborted") {
+      const type = error && typeof error === "object" ? Reflect.get(error, "type") : undefined
+      if (type === "o1_code_client_aborted" || isPreSubmitFailureType(type)) {
         this.discard(worker.id)
       }
       throw error
@@ -348,7 +353,10 @@ export class WorkerPool {
       const netWitness = await installNetworkWitness(window.webContents)
       await window.webContents.loadURL(this.chatUrl)
       await throwIfAuthRequired(window.webContents)
-      await openAssistantPopover(window.webContents)
+      await openAgentChat(window.webContents, agent).catch(async (error) => {
+        await throwIfAuthRequired(window.webContents)
+        throw error
+      })
       await waitForAssistantBridge(window.webContents, controller)
 
       const worker: Worker = {
@@ -445,16 +453,28 @@ function throwIfClientAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw clientAbortedError()
 }
 
+function isPreSubmitFailureType(type: unknown): type is string {
+  return (
+    typeof type === "string" &&
+    [
+      "o1_code_recorder_not_armed",
+      "o1_code_thread_desync",
+      "o1_code_greeting_not_settled",
+      "o1_code_fresh_chat_failed",
+      "o1_code_image_attachment_desync",
+    ].includes(type)
+  )
+}
+
 function remainingJobTimeout(job: { createdAtMs?: number; timeoutMs?: number }) {
   if (!job.timeoutMs) return undefined
   return Math.max(1, job.timeoutMs - (Date.now() - (job.createdAtMs ?? Date.now())))
 }
 
 function attachCaptureVerdict(result: unknown, witness: ReturnType<NetworkWitness["summarizeWindow"]>) {
-  const value = result && typeof result === "object" ? result as Record<string, unknown> : {}
-  const recorder = value.recorder && typeof value.recorder === "object"
-    ? value.recorder as { requestCount?: number }
-    : null
+  const value = result && typeof result === "object" ? (result as Record<string, unknown>) : {}
+  const recorder =
+    value.recorder && typeof value.recorder === "object" ? (value.recorder as { requestCount?: number }) : null
   const responseSource = typeof value.responseSource === "string" ? value.responseSource : null
   const pageRecorderRequestSeen = Number(recorder?.requestCount) > 0
   const parseComplete = responseSource === "network"
@@ -476,105 +496,18 @@ function attachCaptureVerdict(result: unknown, witness: ReturnType<NetworkWitnes
   }
 }
 
-type StartupContents = Pick<BrowserWindow["webContents"], "executeJavaScript" | "sendInputEvent" | "getURL"> & {
+type StartupContents = Pick<BrowserWindow["webContents"], "executeJavaScript" | "getURL"> & {
   mainFrame: Pick<BrowserWindow["webContents"]["mainFrame"], "framesInSubtree">
 }
 
-export async function openAssistantPopover(
-  contents: StartupContents,
-  { now = Date.now, sleep = wait } = {},
-) {
-  const startedAt = now()
-  const deadline = startedAt + 180000
-  let nextClickAt = startedAt
-  let clickCount = 0
-  let inspectionFailures = 0
-  let state: {
-    open?: boolean
-    click?: boolean
-    x?: number
-    y?: number
-    buttonFound?: boolean
-    expanded?: boolean | null
-    disabled?: boolean
-    unobscured?: boolean
-    iframePresent?: boolean
-  } | null = null
-
-  while (now() < deadline) {
-    state = await contents.executeJavaScript(`
-      (() => {
-        const iframe = document.querySelector("#assistant-iframe");
-        // The src attribute does not follow SPA routing. Composer readiness is checked downstream.
-        if (iframe && String(iframe.src || "").includes("open-web-assistant-cs.wpp.ai")) {
-          return { open: true };
-        }
-
-        const control = document.querySelector('[data-testid="assistant-popover-button-new"]')
-          || Array.from(document.querySelectorAll('wpp-action-button-v2-22-2, button, [role="button"]'))
-            .find((el) => [el.innerText, el.textContent, el.getAttribute("aria-label")]
-              .some((label) => /AI\\s*Assistant/i.test(label || "")));
-        if (!control) return { open: false, buttonFound: false, expanded: null, iframePresent: !!iframe };
-
-        const expanded = control.getAttribute("aria-expanded");
-        const disabled = control.matches(":disabled") || !!control.closest('[disabled], [aria-disabled="true"]');
-        const rect = control.getBoundingClientRect();
-        const x = Math.round(rect.left + rect.width / 2);
-        const y = Math.round(rect.top + rect.height / 2);
-        const hit = document.elementFromPoint(x, y);
-        const unobscured = !!hit && (hit === control || control.contains(hit));
-        return {
-          open: false,
-          buttonFound: true,
-          expanded: expanded === null ? null : expanded === "true",
-          disabled,
-          unobscured,
-          iframePresent: !!iframe,
-          click: expanded !== "true" && !disabled && unobscured && rect.width > 0 && rect.height > 0,
-          x,
-          y
-        };
-      })()
-    `, true).catch(() => {
-      inspectionFailures += 1
-      return null
-    })
-
-    if (state?.open) return
-    // Poll readiness frequently, but give a dispatched click time to open the panel.
-    if (state?.click && now() >= nextClickAt && typeof state.x === "number" && typeof state.y === "number") {
-      contents.sendInputEvent({ type: "mouseMove", x: state.x, y: state.y })
-      contents.sendInputEvent({ type: "mouseDown", button: "left", x: state.x, y: state.y, clickCount: 1 })
-      contents.sendInputEvent({ type: "mouseUp", button: "left", x: state.x, y: state.y, clickCount: 1 })
-      clickCount += 1
-      nextClickAt = now() + 3000
-    }
-    await sleep(500)
-  }
-
-  await throwIfAuthRequired(contents)
-  // Explicitly select state fields so page content, URLs and evaluation errors never enter the log.
-  const diagnostics = {
-    phase: "assistant-popover",
-    elapsedMs: now() - startedAt,
-    clickCount,
-    inspectionFailures,
-    popover: state ? {
-      buttonFound: state.buttonFound === true,
-      expanded: state.expanded ?? null,
-      disabled: state.disabled === true,
-      unobscured: state.unobscured === true,
-      iframePresent: state.iframePresent === true,
-    } : null,
-  }
-  const error = new Error("Timed out opening WPP AI Assistant popover.")
-  // Startup has not submitted a prompt. The failed window is destroyed by spawn's cleanup,
-  // so the proxy can safely retry once with a fresh worker.
-  Reflect.set(error, "type", "o1_code_assistant_popover_timeout")
-  Reflect.set(error, "statusCode", 502)
-  Reflect.set(error, "diagnostics", diagnostics)
-  Reflect.set(error, "bridgeResult", { diagnostics })
-  throw error
+export function submissionStartedAt(result: unknown, earliest: number) {
+  if (!result || typeof result !== "object") return Infinity
+  const diagnostics = Reflect.get(result, "diagnostics")
+  const submitted =
+    Reflect.get(result, "submitted") ??
+    (diagnostics && typeof diagnostics === "object" ? Reflect.get(diagnostics, "submitted") : undefined)
+  const at = submitted && typeof submitted === "object" ? Reflect.get(submitted, "startedAtMs") : undefined
+  return typeof at === "number" && Number.isFinite(at) && at >= earliest && at <= Date.now() ? at : Infinity
 }
 
 async function waitForAssistantBridge(contents: BrowserWindow["webContents"], controller: Controller) {
@@ -586,7 +519,7 @@ async function waitForAssistantBridge(contents: BrowserWindow["webContents"], co
   // wipes the composer we then fill → post-login submit_or_ui_failure. Stability debounces that.
   let stable = 0
   while (Date.now() < deadline) {
-    const state = await controller.inspectChat(2000).catch(() => null) as { ok?: boolean; ready?: boolean } | null
+    const state = (await controller.inspectChat(2000).catch(() => null)) as { ok?: boolean; ready?: boolean } | null
     if (state?.ok && state.ready) {
       stable += 1
       if (stable >= 2) return
@@ -609,10 +542,19 @@ async function throwIfAuthRequired(contents: StartupContents) {
 
 async function readStartupAuthState(contents: StartupContents) {
   const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
-  const texts = await Promise.all(frames.map((frame) => frame.executeJavaScript(`
+  const texts = await Promise.all(
+    frames.map((frame) =>
+      frame
+        .executeJavaScript(
+          `
     (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
-  `, true).catch(() => "")))
-  return { url: contents.getURL(), text: texts.map((text) => typeof text === "string" ? text : "").join("\n") }
+  `,
+          true,
+        )
+        .catch(() => ""),
+    ),
+  )
+  return { url: contents.getURL(), text: texts.map((text) => (typeof text === "string" ? text : "")).join("\n") }
 }
 
 // Post-failure logout probe (checkAuthState). Pass 1: classify every WPP frame's URL + visible text
@@ -624,19 +566,29 @@ async function probeWppAuthState(contents: BrowserWindow["webContents"]): Promis
   const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
 
   for (const frame of frames) {
-    const text = await frame.executeJavaScript(`
+    const text = await frame
+      .executeJavaScript(
+        `
       (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
-    `, true).catch(() => "")
+    `,
+        true,
+      )
+      .catch(() => "")
     const reason = classifyWppAuthState({ url: frame.url, text: String(text || "") })
     if (reason) return reason
   }
 
   for (const frame of frames) {
-    const probe = await frame.executeJavaScript(`
+    const probe = await frame
+      .executeJavaScript(
+        `
       fetch(location.href, { credentials: "include", cache: "no-store", redirect: "manual" })
         .then((res) => ({ status: res.status, type: res.type }))
         .catch(() => null)
-    `, true).catch(() => null)
+    `,
+        true,
+      )
+      .catch(() => null)
     const reason = classifyWppSessionProbe(probe)
     if (reason) return reason
   }

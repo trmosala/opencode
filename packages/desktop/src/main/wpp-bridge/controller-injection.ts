@@ -1,21 +1,13 @@
-// MAIN-world, document-start injection of the controller relay — the transport counterpart to
-// recorder-injection's probe. content.js runs in the same main world and speaks a postMessage
-// protocol: job/inspect requests arrive as CONTROLLER_SOURCE frames; results and progress leave
-// as BRIDGE_OUT_SOURCE frames. This module bridges those frames to the Electron main process over
-// a CDP binding, mirroring recorder-injection's PROBE_BINDING/PROBE_SOURCE pattern.
-//
-// Inbound (main -> page): Runtime.evaluate posts a CONTROLLER_SOURCE frame into the page's main
-// world. Outbound (page -> main): the injected relay forwards every BRIDGE_OUT_SOURCE frame to
-// window.<OUT_BINDING>, which surfaces here as a Runtime.bindingCalled event.
-
-import type { WebContents } from "electron"
+import type { WebContents, WebFrameMain } from "electron"
 import { installInRootAndChildTargets } from "./cdp-targets"
 import { SpawnGate } from "./spawn-gate"
+import { agentChatFrame } from "./agent-chat"
 import contentSource from "./injected/content.js?raw"
 
 const CONTROLLER_SOURCE = "o1-code-bridge-controller"
 const BRIDGE_OUT_SOURCE = "o1-code-bridge-out"
 const OUT_BINDING = "__wppBridgeOut"
+const ROUTE_KEY = "__wppBridgeControllerRoute"
 
 const RELAY_SOURCE = `
 (() => {
@@ -24,9 +16,9 @@ const RELAY_SOURCE = `
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (data && data.source === "${BRIDGE_OUT_SOURCE}" && typeof window.${OUT_BINDING} === "function") {
+    if (data && data.source === "${BRIDGE_OUT_SOURCE}" && window.${ROUTE_KEY} && typeof window.${OUT_BINDING} === "function") {
       try {
-        window.${OUT_BINDING}(JSON.stringify(data));
+        window.${OUT_BINDING}(JSON.stringify({ ...data, route: window.${ROUTE_KEY} }));
       } catch (_e) {}
     }
   });
@@ -35,15 +27,13 @@ const RELAY_SOURCE = `
 
 export type ProgressFrame = { seq: number; finalText: string }
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
+type Route = { frame: WebFrameMain; token: string; active: boolean }
 
 export function rejectPendingRequests(pending: Map<string, Pending>, error: Error) {
   for (const waiter of pending.values()) waiter.reject(error)
   pending.clear()
 }
 
-// content.js replies with JOB_RESULT / INSPECT_RESULT keyed by requestId, and emits JOB_PROGRESS
-// keyed by jobId. Route the first kind to the awaiting request, the second to the job's progress
-// subscriber. Pure (maps in, mutations out) so it tests without Electron.
 export function routeOutboundFrame(
   frame: { type?: string; requestId?: string; jobId?: string; result?: unknown; frame?: ProgressFrame },
   pending: Map<string, Pending>,
@@ -53,10 +43,8 @@ export function routeOutboundFrame(
     if (frame.jobId && frame.frame) progress.get(frame.jobId)?.(frame.frame)
     return
   }
-
   if (frame.type !== "O1_CODE_BRIDGE_JOB_RESULT" && frame.type !== "O1_CODE_BRIDGE_INSPECT_RESULT") return
   if (!frame.requestId) return
-
   const waiter = pending.get(frame.requestId)
   if (!waiter) return
   pending.delete(frame.requestId)
@@ -64,23 +52,17 @@ export function routeOutboundFrame(
 }
 
 export type Controller = {
-  runJob: (
-    job: { id?: string },
-    onProgress?: (frame: ProgressFrame) => void,
-    timeoutMs?: number,
-  ) => Promise<unknown>
+  runJob: (job: { id?: string }, onProgress?: (frame: ProgressFrame) => void, timeoutMs?: number) => Promise<unknown>
   inspectChat: (timeoutMs?: number) => Promise<unknown>
 }
 
-// Attach the debugger, register the outbound binding + relay script, and return a handle that
-// posts job/inspect requests into the page and resolves when their matching reply arrives. Shares
-// the WebContents debugger with installRecorder; attach + Page.enable are idempotent across both.
 export async function installController(contents: WebContents): Promise<Controller> {
   const dbg = contents.debugger
-
   const pending = new Map<string, Pending>()
   const progress = new Map<string, (frame: ProgressFrame) => void>()
+  let route: Route | undefined
   const rejectPending = (message: string) => {
+    if (route) route.active = false
     rejectPendingRequests(pending, new Error(message))
     progress.clear()
   }
@@ -91,226 +73,163 @@ export async function installController(contents: WebContents): Promise<Controll
 
   dbg.on("message", (_event, method, params) => {
     if (method !== "Runtime.bindingCalled") return
-    const payload = params as { name?: string; payload?: string }
-    if (payload.name !== OUT_BINDING) return
-    const frame = parseFrame(payload.payload)
-    if (!frame) return
-    // Page-initiated request that only the main process can fulfill (e.g. a trusted image paste).
-    if (frame.type === "O1_CODE_BRIDGE_MAIN_REQUEST") {
-      void handleMainRequest(contents, dbg, frame as MainRequestFrame)
-      return
-    }
-    routeOutboundFrame(frame, pending, progress)
+    if (!params || typeof params !== "object" || Reflect.get(params, "name") !== OUT_BINDING) return
+    const payload = Reflect.get(params, "payload")
+    if (typeof payload !== "string") return
+    const frame = parseFrame(payload)
+    const current = route
+    if (!frame || !current?.active || frame.route !== current.token) return
+    void controllerRouteActive(contents, current)
+      .then(async (active) => {
+        if (!active || !current.active || route !== current) return
+        if (frame.type === "O1_CODE_BRIDGE_MAIN_REQUEST") {
+          await handleMainRequest(contents, current, frame)
+          return
+        }
+        routeOutboundFrame(frame, pending, progress)
+      })
+      .catch(() => rejectPending("WPP dedicated chat frame was lost."))
   })
 
   await installInRootAndChildTargets(contents, async (sessionId) => {
     await dbg.sendCommand("Runtime.enable", {}, sessionId)
     await dbg.sendCommand("Runtime.addBinding", { name: OUT_BINDING }, sessionId)
     await dbg.sendCommand("Page.enable", {}, sessionId)
-    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-      source: RELAY_SOURCE,
-      runImmediately: true,
-    }, sessionId)
-    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-      source: contentSource,
-      runImmediately: true,
-    }, sessionId)
+    await dbg.sendCommand(
+      "Page.addScriptToEvaluateOnNewDocument",
+      { source: RELAY_SOURCE, runImmediately: true },
+      sessionId,
+    )
+    await dbg.sendCommand(
+      "Page.addScriptToEvaluateOnNewDocument",
+      { source: contentSource, runImmediately: true },
+      sessionId,
+    )
   })
+
+  const send = async (type: string, extra: Record<string, unknown>, timeoutMs = 0) => {
+    if (route?.active) throw new Error("WPP controller already has an active request.")
+    const current: Route = { frame: agentChatFrame(contents), token: crypto.randomUUID(), active: true }
+    route = current
+    const requestId = crypto.randomUUID()
+    try {
+      return await new Promise((resolve, reject) => {
+        const timeout =
+          timeoutMs > 0
+            ? setTimeout(() => {
+                current.active = false
+                pending.delete(requestId)
+                reject(new Error(`Timed out waiting for ${type} after ${timeoutMs} ms.`))
+              }, timeoutMs)
+            : null
+        pending.set(requestId, {
+          resolve: (result) => {
+            if (timeout) clearTimeout(timeout)
+            resolve(result)
+          },
+          reject: (error) => {
+            if (timeout) clearTimeout(timeout)
+            reject(error)
+          },
+        })
+        const frame = JSON.stringify({ source: CONTROLLER_SOURCE, type, requestId, ...extra })
+        current.frame
+          .executeJavaScript(
+            `window.${ROUTE_KEY} = ${JSON.stringify(current.token)}; window.postMessage(${frame}, "*");`,
+          )
+          .catch((error) => {
+            pending.get(requestId)?.reject(error)
+            pending.delete(requestId)
+          })
+      })
+    } finally {
+      current.active = false
+      pending.delete(requestId)
+    }
+  }
 
   return {
     runJob: (job, onProgress, timeoutMs) => {
       if (onProgress && job?.id) progress.set(job.id, onProgress)
-      return send(dbg, pending, "O1_CODE_BRIDGE_RUN_JOB", { job }, timeoutMs).finally(() => {
+      return send("O1_CODE_BRIDGE_RUN_JOB", { job }, timeoutMs).finally(() => {
         if (job?.id) progress.delete(job.id)
       })
     },
-    inspectChat: (timeoutMs) => send(dbg, pending, "O1_CODE_BRIDGE_INSPECT_CHAT", {}, timeoutMs),
+    inspectChat: (timeoutMs) => send("O1_CODE_BRIDGE_INSPECT_CHAT", {}, timeoutMs),
   }
 }
 
-function send(
-  dbg: WebContents["debugger"],
-  pending: Map<string, Pending>,
-  type: string,
-  extra: Record<string, unknown>,
-  timeoutMs = 0,
-): Promise<unknown> {
-  const requestId = crypto.randomUUID()
-  // ponytail: the frame (incl. base64 image payloads) is embedded inline in the evaluate
-  // expression. Fine for prompts + a few images; switch to a chunked/binding-fed feed if a large
-  // multi-image job ever blows the evaluate string limit.
-  const frame = JSON.stringify({ source: CONTROLLER_SOURCE, type, requestId, ...extra })
-  const expression = `(() => { const frame = ${frame}; window.postMessage(frame, "*"); for (let i = 0; i < window.frames.length; i += 1) { try { window.frames[i].postMessage(frame, "*"); } catch (_e) {} } })()`
-
-  return new Promise((resolve, reject) => {
-    const timeout = timeoutMs > 0
-      ? setTimeout(() => {
-        pending.delete(requestId)
-        reject(new Error(`Timed out waiting for ${type} after ${timeoutMs} ms.`))
-      }, timeoutMs)
-      : null
-    pending.set(requestId, {
-      resolve: (result) => {
-        if (timeout) clearTimeout(timeout)
-        resolve(result)
-      },
-      reject: (error) => {
-        if (timeout) clearTimeout(timeout)
-        reject(error)
-      },
-    })
-    dbg.sendCommand("Runtime.evaluate", { expression }).catch((error) => {
-      if (timeout) clearTimeout(timeout)
-      pending.delete(requestId)
-      reject(error)
-    })
-  })
+export async function controllerRouteActive(
+  contents: Parameters<typeof agentChatFrame>[0],
+  route: { frame: { executeJavaScript(code: string): Promise<unknown> }; token: string; active: boolean },
+) {
+  if (!route.active || agentChatFrame(contents) !== route.frame) return false
+  const active = await route.frame.executeJavaScript(`window.${ROUTE_KEY} === ${JSON.stringify(route.token)}`)
+  return route.active && active === true
 }
 
 function parseFrame(payload?: string) {
   if (!payload) return null
   try {
-    return JSON.parse(payload)
+    const frame = JSON.parse(payload)
+    return frame && typeof frame === "object" ? frame : null
   } catch {
-    // A malformed binding frame is unactionable; the awaiting request waits out its own timeout
-    // (owned by the caller / extensionBridge), so dropping it here is safe.
     return null
   }
 }
 
 type PasteImage = { name?: string; mimeType?: string; data?: string }
 type MainRequestFrame = { requestId?: string; action?: string; payload?: { images?: PasteImage[] } }
-
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
-// The system clipboard is a singleton OS resource, but workers are unbounded and parallel sub-agents
-// fan out — so two image turns can reach pasteImagesIntoComposer concurrently. SpawnGate(1) is a
-// plain FIFO mutex that serializes the whole snapshot→write→paste→restore sequence (see Fix below).
 const clipboardGate = new SpawnGate(1)
 
-// Fulfill a page-initiated main-process request and post the result back into the page. These are
-// operations the cross-origin assistant iframe cannot perform itself: trusted paste and controls
-// owned by the parent Ogilvy shell.
-async function handleMainRequest(contents: WebContents, dbg: WebContents["debugger"], frame: MainRequestFrame) {
+async function handleMainRequest(contents: WebContents, route: Route, frame: MainRequestFrame) {
   let result: unknown = null
   let error: string | null = null
   try {
-    if (frame.action === "pasteImages") result = await pasteImagesIntoComposer(contents, frame.payload?.images ?? [])
-    else if (frame.action === "startFreshChat") result = await contents.executeJavaScript(freshChatInShellExpression())
-    else throw new Error(`Unknown main action: ${frame.action}`)
+    if (frame.action !== "pasteImages") throw new Error(`Unknown main action: ${frame.action}`)
+    result = await pasteImagesIntoComposer(contents, route, frame.payload?.images ?? [])
   } catch (e) {
     error = e instanceof Error ? e.message : String(e)
   }
-  postToController(dbg, { type: "O1_CODE_BRIDGE_MAIN_RESPONSE", requestId: frame.requestId, result, error })
-}
-
-// Executed in the worker's top frame. The live shell renders its icon-only menu trigger through a
-// WPP web component immediately above #assistant-iframe, then portals the New chat menu item into
-// the document body. Spatially scope the icon to that iframe so another three-dot menu elsewhere in
-// the project cannot be activated accidentally.
-export function freshChatInShellExpression() {
-  return `(${freshChatInShellPage.toString()})()`
-}
-
-async function freshChatInShellPage() {
-  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-  const isVisible = (element: Element) => {
-    const style = getComputedStyle(element)
-    const rect = element.getBoundingClientRect()
-    return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0
-  }
-  const isClickable = (element: Element): element is Element & { click: () => void } =>
-    "click" in element && typeof element.click === "function"
-  const findNewChat = () =>
-    Array.from(document.querySelectorAll("[role='menuitem']")).find(
-      (element): element is Element & { click: () => void } =>
-        isClickable(element) &&
-        isVisible(element) &&
-        (/-NEW_CHAT$/i.test(element.getAttribute("data-menu-id") || "") ||
-          /^\s*new\s+(chat|conversation)\s*$/i.test(element.textContent || "")),
-    )
-  const activateNewChat = async (item: Element & { click: () => void }) => {
-    item.click()
-    await wait(250)
-    return { ok: true, clicked: true }
-  }
-
-  const existingItem = findNewChat()
-  if (existingItem) return activateNewChat(existingItem)
-
-  const frame = document.querySelector(
-    "iframe#assistant-iframe, iframe[name='assistant-iframe'], iframe[src*='open-web-assistant-cs.wpp.ai']",
+  if (!(await controllerRouteActive(contents, route))) return
+  const json = JSON.stringify({
+    source: CONTROLLER_SOURCE,
+    type: "O1_CODE_BRIDGE_MAIN_RESPONSE",
+    requestId: frame.requestId,
+    result,
+    error,
+  })
+  await route.frame.executeJavaScript(
+    `if (window.${ROUTE_KEY} === ${JSON.stringify(route.token)}) window.postMessage(${json}, "*");`,
   )
-  if (!frame || !isVisible(frame)) return { ok: false, clicked: false, reason: "assistant-frame-not-found" }
-
-  const frameRect = frame.getBoundingClientRect()
-  const candidates = Array.from(document.querySelectorAll("[data-testid='wpp-icon-more']"))
-    .map((icon) => {
-      const host = icon.closest("wpp-action-button-v4-3-0") || icon.parentElement
-      const control = host?.shadowRoot?.querySelector("button") || host || icon
-      if (!isClickable(control)) return null
-      const rect = control.getBoundingClientRect()
-      return { control, rect, gap: frameRect.top - rect.bottom }
-    })
-    .flatMap((candidate) =>
-      candidate &&
-      isVisible(candidate.control) &&
-      candidate.rect.left >= frameRect.left &&
-      candidate.rect.right <= frameRect.right &&
-      candidate.gap >= -4 &&
-      candidate.gap <= 120
-        ? [candidate]
-        : [],
-    )
-    .sort((left, right) => left.gap - right.gap || right.rect.right - left.rect.right)
-
-  if (!candidates[0]) return { ok: false, clicked: false, reason: "assistant-menu-trigger-not-found" }
-  candidates[0].control.click()
-
-  const deadline = Date.now() + 2500
-  while (Date.now() < deadline) {
-    const item = findNewChat()
-    if (item) return activateNewChat(item)
-    await wait(50)
-  }
-
-  return { ok: false, clicked: false, reason: "new-chat-menu-item-not-found" }
 }
 
-// Paste each image into the currently focused composer via a TRUSTED paste. content.js focuses the
-// composer textarea before calling this, so webContents.paste() targets it (works even while the
-// worker window is hidden — it's an edit command to the focused frame, not OS-level input). The
-// user's clipboard is saved and restored around the operation.
-async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage[]) {
-  // Lazy import so test-time consumers of this module (e.g. routeOutboundFrame) don't pull electron's
-  // runtime exports, which aren't resolvable outside the Electron runtime. The import touches no
-  // clipboard state, so it stays OUTSIDE the gate — only the snapshot→write→paste→restore serializes.
+async function pasteImagesIntoComposer(contents: WebContents, route: Route, images: PasteImage[]) {
   const { clipboard, ClipboardItem, nativeImage } = await import("electron")
-
-  // Serialize against any other concurrent paste so two workers can't interleave on the shared
-  // system clipboard (corrupting each other's image AND the user's real clipboard contents).
   await clipboardGate.acquire()
   try {
-    // Electron 44's W3C clipboard API preserves every format it can read, including custom MIME
-    // entries, so the user's clipboard can be restored atomically after the trusted paste.
+    if (!(await controllerRouteActive(contents, route))) throw new Error("WPP image paste was cancelled.")
     const saved = await snapshotClipboard(await clipboard.read())
     const pasted: { name: string; ok: boolean; reason?: string }[] = []
     try {
       for (const image of images) {
         const name = image.name || "image"
-        const buffer = Buffer.from(String(image.data || ""), "base64")
+        const buffer = Buffer.from(image.data || "", "base64")
         const native = nativeImage.createFromBuffer(buffer)
         if (native.isEmpty()) {
           pasted.push({ name, ok: false, reason: "decode-failed" })
           continue
         }
+        if (!(await controllerRouteActive(contents, route))) throw new Error("WPP image paste was cancelled.")
         await clipboard.write([
           new ClipboardItem({
             "image/png": new Blob([new Uint8Array(native.toPNG())], { type: "image/png" }),
           }),
         ])
+        if (!(await controllerRouteActive(contents, route))) throw new Error("WPP image paste was cancelled.")
+        if (contents.focusedFrame !== route.frame) throw new Error("WPP image composer lost focus.")
         contents.paste()
-        // Give WPP's paste handler time to read the clipboard before the next image overwrites it.
         await delay(800)
         pasted.push({ name, ok: true })
       }
@@ -324,8 +243,6 @@ async function pasteImagesIntoComposer(contents: WebContents, images: PasteImage
   }
 }
 
-// Read-side items cannot be written back, and getType reads the live clipboard. Resolve every
-// payload before overwriting it so restoration can construct new items from the original bytes.
 export async function snapshotClipboard(
   items: { types: readonly string[]; getType(type: string): Promise<Blob | Electron.ClipboardBookmark> }[],
 ) {
@@ -334,12 +251,4 @@ export async function snapshotClipboard(
       Object.fromEntries(await Promise.all(item.types.map(async (type) => [type, await item.getType(type)] as const))),
     ),
   )
-}
-
-// Fire-and-forget post of a CONTROLLER_SOURCE frame into the page's main world (top frame + every
-// child frame), mirroring send()'s expression but without awaiting a reply. Used for MAIN_RESPONSE.
-function postToController(dbg: WebContents["debugger"], frame: Record<string, unknown>) {
-  const json = JSON.stringify({ source: CONTROLLER_SOURCE, ...frame })
-  const expression = `(() => { const frame = ${json}; window.postMessage(frame, "*"); for (let i = 0; i < window.frames.length; i += 1) { try { window.frames[i].postMessage(frame, "*"); } catch (_e) {} } })()`
-  dbg.sendCommand("Runtime.evaluate", { expression }).catch(() => {})
 }

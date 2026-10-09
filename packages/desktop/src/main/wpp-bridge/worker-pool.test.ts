@@ -9,10 +9,8 @@ import {
   wppProjectAccessError,
 } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
-import { WorkerPool, openAssistantPopover, toggleWorkerWindows } from "./worker-pool"
-import vm from "node:vm"
-import type { WebContents } from "electron"
-import { runLogRecord } from "./proxy/logging.mjs"
+import { WorkerPool, submissionStartedAt, toggleWorkerWindows } from "./worker-pool"
+import { createCdpNetworkReducer } from "./cdp-network-recorder"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 import { commitThread, resetThread, threadContextUsage } from "./proxy/sessionThreads.mjs"
 
@@ -266,54 +264,57 @@ describe("WorkerPool cancellation", () => {
 })
 
 describe("WorkerPool capture failures", () => {
-  test("discards a worker after an image attachment desync", async () => {
-    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
-    let destroyed = false
-    const worker = {
-      id: 2,
-      window: {
-        isDestroyed: () => destroyed,
-        destroy: () => {
-          destroyed = true
+  test.each(["o1_code_image_attachment_desync", "o1_code_greeting_not_settled", "o1_code_fresh_chat_failed"])(
+    "discards a worker after %s",
+    async (type) => {
+      const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+      let destroyed = false
+      const worker = {
+        id: 2,
+        window: {
+          isDestroyed: () => destroyed,
+          destroy: () => {
+            destroyed = true
+          },
         },
-      },
-      controller: {
-        runJob: async () => ({
-          ok: false,
-          error: "Timed out waiting for trusted image paste.",
-          statusCode: 502,
-          type: "o1_code_image_attachment_desync",
-        }),
-      },
-      netWitness: { summarizeWindow: () => ({}) },
-      agent: "CM_GPT-5.6 Sol - High",
-      protocolAgent: "CM_GPT-5.6 Sol - High",
-      sessionKey: "session",
-      subagent: false,
-      busy: true,
-      lastUsed: Date.now(),
-    }
-    Reflect.get(pool, "workers").set(worker.id, worker)
-    Reflect.set(pool, "acquire", async () => worker)
-
-    const error = await pool
-      .run({
-        id: "job",
-        payload: {
-          model: worker.agent,
-          sessionKey: worker.sessionKey,
-          continueThread: true,
+        controller: {
+          runJob: async () => ({
+            ok: false,
+            error: "Timed out waiting for trusted image paste.",
+            statusCode: 502,
+            type,
+          }),
         },
-      })
-      .then(
-        () => null,
-        (failure) => failure,
-      )
+        netWitness: { summarizeWindow: () => ({}) },
+        agent: "CM_GPT-5.6 Sol - High",
+        protocolAgent: "CM_GPT-5.6 Sol - High",
+        sessionKey: "session",
+        subagent: false,
+        busy: true,
+        lastUsed: Date.now(),
+      }
+      Reflect.get(pool, "workers").set(worker.id, worker)
+      Reflect.set(pool, "acquire", async () => worker)
 
-    expect(Reflect.get(error, "type")).toBe("o1_code_image_attachment_desync")
-    expect(destroyed).toBe(true)
-    pool.destroy()
-  })
+      const error = await pool
+        .run({
+          id: "job",
+          payload: {
+            model: worker.agent,
+            sessionKey: worker.sessionKey,
+            continueThread: true,
+          },
+        })
+        .then(
+          () => null,
+          (failure) => failure,
+        )
+
+      expect(Reflect.get(error, "type")).toBe(type)
+      expect(destroyed).toBe(true)
+      pool.destroy()
+    },
+  )
 
   test("classifies a no-network-response worker result for fresh replay", async () => {
     const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
@@ -447,6 +448,60 @@ describe("WorkerPool retirement", () => {
     pool.destroy()
   })
 
+  test.each([
+    "o1_code_thread_desync",
+    "o1_code_recorder_not_armed",
+    "o1_code_greeting_not_settled",
+    "o1_code_fresh_chat_failed",
+    "o1_code_image_attachment_desync",
+  ])("discards a direct pre-submit rejection %s and preserves its identity", async (type) => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    const entry = fakeWorker(8, CLI_KEY, Date.now(), true)
+    const failure = new Error("failed before RUN_JOB was posted")
+    Reflect.set(failure, "type", type)
+    Reflect.set(failure, "statusCode", 502)
+    entry.worker.controller.runJob = async (job?: { id?: string }) => {
+      expect(job?.id).toBe("job")
+      throw failure
+    }
+    Reflect.get(pool, "workers").set(entry.worker.id, entry.worker)
+    Reflect.set(pool, "acquire", async () => entry.worker)
+    mirror(CLI_KEY)
+
+    const error = await pool
+      .run({ id: "job", payload: { model: entry.worker.agent, sessionKey: CLI_KEY, continueThread: true } })
+      .catch((error) => error)
+
+    expect(error).toBe(failure)
+    expect(entry.state.destroyed).toBe(true)
+    expect(Reflect.get(pool, "workers").has(entry.worker.id)).toBe(false)
+    expect(threadContextUsage(CLI_KEY)).toBeUndefined()
+    pool.destroy()
+  })
+
+  test("does not reclassify an uncertain generic controller rejection as pre-submit", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
+    const entry = fakeWorker(9, CLI_KEY, Date.now(), true)
+    const failure = new Error("renderer evaluation failed after possible submission")
+    entry.worker.controller.runJob = async (job?: { id?: string }) => {
+      expect(job?.id).toBe("job")
+      throw failure
+    }
+    Reflect.get(pool, "workers").set(entry.worker.id, entry.worker)
+    Reflect.set(pool, "acquire", async () => entry.worker)
+    mirror(CLI_KEY)
+
+    const error = await pool
+      .run({ id: "job", payload: { model: entry.worker.agent, sessionKey: CLI_KEY, continueThread: true } })
+      .catch((error) => error)
+
+    expect(error).toBe(failure)
+    expect(Reflect.get(error, "type")).toBeUndefined()
+    expect(entry.state.destroyed).toBe(false)
+    expect(threadContextUsage(CLI_KEY)?.totalTokens).toBe(10)
+    pool.destroy()
+  })
+
   test("destroy clears every live tab's mirror", () => {
     const pool = new WorkerPool({ chatUrl: "https://example.test/chat" })
     const desktop = fakeWorker(6, DESKTOP_KEY, Date.now())
@@ -466,232 +521,28 @@ describe("WorkerPool retirement", () => {
   })
 })
 
-describe("assistant popover startup", () => {
-  test("prefers the dedicated control even without an English label", async () => {
-    const h = popoverHarness()
-    h.button.innerText = ""
-    h.button.textContent = ""
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 0, x: 120 }])
+describe("submission witness boundary", () => {
+  test("excludes launch and reset greetings, including late greeting completion", () => {
+    let now = 100
+    const witness = createCdpNetworkReducer(() => now)
+    const request = { url: "https://open-web-assistant-cs.wpp.ai/v1/chat", method: "POST" }
+    witness.handle("Network.requestWillBeSent", { requestId: "greeting", request })
+    now = 200
+    witness.handle("Network.loadingFinished", { requestId: "greeting", encodedDataLength: 100 })
+    const start = submissionStartedAt({ submitted: { startedAtMs: 150 } }, 90)
+    expect(witness.summarizeWindow(start).cdpRequestSeen).toBe(false)
+    witness.handle("Network.requestWillBeSent", { requestId: "prompt", request })
+    expect(witness.summarizeWindow(start).cdpRequestSeen).toBe(true)
   })
 
-  test("falls back to an aria-labelled button when the dedicated control is absent", async () => {
-    const h = popoverHarness()
-    h.state.dedicated = false
-    h.fallback.innerText = ""
-    h.fallback.textContent = ""
-    h.fallback.attributes["aria-label"] = "AI Assistant"
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 0, x: 320 }])
-  })
-
-  test("does not toggle a slowly opening expanded panel closed", async () => {
-    const h = popoverHarness()
-    h.state.openAfter = 45000
-    h.state.expandOnClick = true
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 0, x: 120 }])
-    expect(h.state.time).toBe(45000)
-  })
-
-  test("spaces retries while still detecting readiness on every poll", async () => {
-    const h = popoverHarness()
-    h.state.openAfter = 3500
-    await h.run()
-    expect(h.clicks).toEqual([
-      { time: 0, x: 120 },
-      { time: 3000, x: 120 },
-    ])
-    expect(h.state.time).toBe(3500)
-  })
-
-  test.each(["disabled", "aria-disabled"])("waits for a %s control to become enabled", async (attribute) => {
-    const h = popoverHarness()
-    h.button.attributes[attribute] = "true"
-    h.state.onPoll = () => {
-      if (h.state.time >= 1000) delete h.button.attributes[attribute]
+  test("uses error diagnostics and fails closed on missing or invalid timestamps", () => {
+    expect(submissionStartedAt({ diagnostics: { submitted: { startedAtMs: 150 } } }, 90)).toBe(150)
+    for (const startedAtMs of [undefined, null, "150", NaN, Infinity, 89, Date.now() + 60000]) {
+      expect(submissionStartedAt({ submitted: { startedAtMs } }, 90)).toBe(Infinity)
     }
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 1000, x: 120 }])
-  })
-
-  test("waits for an overlay to clear and accepts a child hit target", async () => {
-    const h = popoverHarness()
-    h.state.covered = true
-    h.state.onPoll = () => {
-      h.state.covered = h.state.time < 1000
-    }
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 1000, x: 120 }])
-  })
-
-  test("does not click a zero-sized control even when its centre hits a child", async () => {
-    const h = popoverHarness()
-    h.state.onPoll = () => {
-      h.button.rect.height = h.state.time < 1000 ? 0 : 20
-    }
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 1000, x: 120 }])
-  })
-
-  test("waits until an offscreen control enters the viewport", async () => {
-    const h = popoverHarness()
-    h.state.onPoll = () => {
-      h.button.rect.left = h.state.time < 1000 ? -100 : 100
-    }
-    await h.run()
-    expect(h.clicks).toEqual([{ time: 1000, x: 120 }])
-  })
-
-  test("returns immediately when the assistant iframe already exists", async () => {
-    const h = popoverHarness()
-    h.state.openAfter = 0
-    await h.run()
-    expect(h.clicks).toEqual([])
-    expect(h.state.time).toBe(0)
-  })
-
-  test("preserves safe timeout diagnostics through default run-log filtering", async () => {
-    const h = popoverHarness()
-    h.state.openAfter = Infinity
-    h.state.expandOnClick = true
-    h.state.iframeSrc = "about:blank"
-    const error = await h.run().catch((failure) => failure)
-    expect(error.message).toBe("Timed out opening WPP AI Assistant popover.")
-    expect(error.type).toBe("o1_code_assistant_popover_timeout")
-    expect(error.statusCode).toBe(502)
-    expect(error.diagnostics).toEqual({
-      phase: "assistant-popover",
-      elapsedMs: 180000,
-      clickCount: 1,
-      inspectionFailures: 0,
-      popover: {
-        buttonFound: true,
-        expanded: true,
-        disabled: false,
-        unobscured: true,
-        iframePresent: true,
-      },
-    })
-    expect(runLogRecord({ bridgeResult: error.bridgeResult }, false)).toEqual({
-      bridgeResult: { diagnostics: error.diagnostics },
-    })
-    expect(JSON.stringify(error.bridgeResult)).not.toContain("private")
-  })
-
-  test("records missing controls and failed inspections without leaking errors", async () => {
-    const h = popoverHarness()
-    h.state.openAfter = Infinity
-    h.state.dedicated = false
-    h.state.fallback = false
-    h.state.failInspection = true
-    const error = await h.run().catch((failure) => failure)
-    expect(error.diagnostics).toMatchObject({
-      clickCount: 0,
-      inspectionFailures: 1,
-      popover: { buttonFound: false, expanded: null, iframePresent: false },
-    })
-    expect(JSON.stringify(error.bridgeResult)).not.toContain("private")
+    expect(submissionStartedAt({}, 90)).toBe(Infinity)
   })
 })
-
-function popoverHarness() {
-  const state = {
-    time: 0,
-    dedicated: true,
-    fallback: true,
-    covered: false,
-    openAfter: 500,
-    expandOnClick: false,
-    iframeSrc: "",
-    failInspection: false,
-    onPoll: () => {},
-  }
-  const clicks: { time: number; x: number }[] = []
-  const button = popoverButton(100)
-  const fallback = popoverButton(300)
-  const document = {
-    querySelector(selector: string) {
-      if (selector === "#assistant-iframe") {
-        if (state.time >= state.openAfter && (clicks.length > 0 || state.openAfter === 0)) {
-          return { src: "https://open-web-assistant-cs.wpp.ai/external?private=value" }
-        }
-        return state.iframeSrc ? { src: state.iframeSrc } : null
-      }
-      return state.dedicated ? button : null
-    },
-    querySelectorAll() {
-      // Generic text matches can appear before the dedicated control in document order.
-      return [state.fallback ? fallback : null, state.dedicated ? button : null].filter(Boolean)
-    },
-    elementFromPoint(x: number) {
-      if (x < 0 || x >= 1440) return null
-      if (state.covered) return {}
-      return x === 120 ? button.child : fallback.child
-    },
-  }
-  const context = vm.createContext({ document })
-  const contents = {
-    async executeJavaScript(source: string) {
-      state.onPoll()
-      if (state.failInspection) {
-        state.failInspection = false
-        throw new Error("private page error")
-      }
-      return vm.runInContext(source, context)
-    },
-    sendInputEvent(event: Parameters<WebContents["sendInputEvent"]>[0]) {
-      if (event.type !== "mouseUp" || !("x" in event)) return
-      clicks.push({ time: state.time, x: event.x })
-      if (state.expandOnClick) button.attributes["aria-expanded"] = "true"
-    },
-    getURL: () => "https://ogilvy.os.wpp.com/orchestration/project/private",
-    mainFrame: { framesInSubtree: [] },
-  }
-  return {
-    state,
-    clicks,
-    button,
-    fallback,
-    run: () =>
-      openAssistantPopover(contents, {
-        now: () => state.time,
-        sleep: async (ms: number) => {
-          state.time += ms
-        },
-      }),
-  }
-}
-
-function popoverButton(left: number) {
-  const attributes: Record<string, string> = {}
-  const child = {}
-  return {
-    attributes,
-    child,
-    innerText: "AI Assistant",
-    textContent: "AI Assistant",
-    rect: { left, top: 0, width: 40, height: 20 },
-    getAttribute(name: string) {
-      return attributes[name] ?? null
-    },
-    hasAttribute(name: string) {
-      return Object.hasOwn(attributes, name)
-    },
-    matches() {
-      return Object.hasOwn(attributes, "disabled")
-    },
-    closest() {
-      return Object.hasOwn(attributes, "disabled") || attributes["aria-disabled"] === "true" ? this : null
-    },
-    contains(node: unknown) {
-      return node === child
-    },
-    getBoundingClientRect() {
-      return this.rect
-    },
-  }
-}
 
 describe("worker startup helpers", () => {
   test("destroys a created window when startup fails", async () => {

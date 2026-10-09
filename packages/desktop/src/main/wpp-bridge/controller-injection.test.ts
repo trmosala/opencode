@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import vm from "node:vm"
 import {
-  freshChatInShellExpression,
+  controllerRouteActive,
   rejectPendingRequests,
   routeOutboundFrame,
   snapshotClipboard,
@@ -110,11 +110,7 @@ describe("routeOutboundFrame", () => {
     let resolved = false
     pending.set("req-3", { resolve: () => (resolved = true), reject: () => {} })
 
-    routeOutboundFrame(
-      { type: "O1_CODE_BRIDGE_JOB_RESULT", requestId: "req-3", result: {} },
-      pending,
-      progress,
-    )
+    routeOutboundFrame({ type: "O1_CODE_BRIDGE_JOB_RESULT", requestId: "req-3", result: {} }, pending, progress)
 
     expect(resolved).toBe(true)
     expect(frames).toEqual([])
@@ -122,11 +118,7 @@ describe("routeOutboundFrame", () => {
 
   test("ignores a result whose requestId has no waiter without throwing", () => {
     expect(() =>
-      routeOutboundFrame(
-        { type: "O1_CODE_BRIDGE_JOB_RESULT", requestId: "missing", result: {} },
-        new Map(),
-        new Map(),
-      ),
+      routeOutboundFrame({ type: "O1_CODE_BRIDGE_JOB_RESULT", requestId: "missing", result: {} }, new Map(), new Map()),
     ).not.toThrow()
   })
 
@@ -165,65 +157,51 @@ test("rejects every pending request when the worker renderer exits", () => {
   expect(pending.size).toBe(0)
 })
 
-test("starts a fresh chat through the parent WPP assistant shell", async () => {
-  let menuOpen = false
-  const newChat = shellElement("New chat", { "data-menu-id": "rc-menu-uuid-1-NEW_CHAT" })
-  const trigger = shellElement("")
-  const host = {
-    shadowRoot: { querySelector: () => trigger },
-  }
-  const icon = {
-    closest: () => host,
-  }
-  const frame = {
-    getBoundingClientRect: () => ({ left: 100, right: 500, top: 100, bottom: 700, width: 400, height: 600 }),
-  }
-  trigger.getBoundingClientRect = () => ({ left: 450, right: 482, top: 55, bottom: 87, width: 32, height: 32 })
-  trigger.onClick = () => {
-    menuOpen = true
-  }
-  const document = {
-    querySelector(selector: string) {
-      if (selector.includes("assistant-iframe")) return frame
-      return null
-    },
-    querySelectorAll(selector: string) {
-      if (selector.includes("wpp-icon-more")) return [icon]
-      if (selector.includes("menuitem")) return menuOpen ? [newChat] : []
-      return []
-    },
-  }
-  const context = vm.createContext({
-    document,
-    getComputedStyle: () => ({ visibility: "visible", display: "block" }),
-    setTimeout: (callback: () => void) => {
-      callback()
-      return 0
-    },
+describe("dedicated controller route", () => {
+  test("accepts only the current dedicated document and route token", async () => {
+    const window = { __wppBridgeControllerRoute: "current" }
+    const context = vm.createContext({ window })
+    const frame = {
+      url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational?resultId=turn",
+      executeJavaScript: async (code: string) => vm.runInContext(code, context),
+    }
+    const contents = { mainFrame: { framesInSubtree: [frame] } }
+    const route = { frame, token: "current", active: true }
+    expect(await controllerRouteActive(contents, route)).toBe(true)
+    expect(await controllerRouteActive(contents, { ...route, token: "stale" })).toBe(false)
+    expect(await controllerRouteActive(contents, { ...route, active: false })).toBe(false)
+    window.__wppBridgeControllerRoute = ""
+    expect(await controllerRouteActive(contents, route)).toBe(false)
   })
 
-  const result = await vm.runInContext(freshChatInShellExpression(), context)
+  test("rejects replacement frames, duplicate chats and the assistant side panel", async () => {
+    const frame = {
+      url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational",
+      executeJavaScript: async () => true,
+    }
+    const route = { frame, token: "current", active: true }
+    expect(await controllerRouteActive({ mainFrame: { framesInSubtree: [{ ...frame }] } }, route)).toBe(false)
+    await expect(
+      controllerRouteActive({ mainFrame: { framesInSubtree: [frame, { ...frame }] } }, route),
+    ).rejects.toThrow("o1_code_thread_desync")
+    await expect(
+      controllerRouteActive(
+        { mainFrame: { framesInSubtree: [{ ...frame, url: "https://open-web-assistant-cs.wpp.ai/chat" }] } },
+        route,
+      ),
+    ).rejects.toThrow("o1_code_thread_desync")
+  })
 
-  expect(result).toEqual({ ok: true, clicked: true })
-  expect(trigger.clicks).toBe(1)
-  expect(newChat.clicks).toBe(1)
+  test("rejects cancellation while document validation is in flight", async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const frame = {
+      url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational",
+      executeJavaScript: () => pending.promise,
+    }
+    const route = { frame, token: "current", active: true }
+    const check = controllerRouteActive({ mainFrame: { framesInSubtree: [frame] } }, route)
+    route.active = false
+    pending.resolve(true)
+    expect(await check).toBe(false)
+  })
 })
-
-function shellElement(label: string, attributes: Record<string, string> = {}) {
-  return {
-    clicks: 0,
-    innerText: label,
-    textContent: label,
-    onClick: () => {},
-    getAttribute(name: string) {
-      return attributes[name] || null
-    },
-    getBoundingClientRect() {
-      return { left: 0, right: 24, top: 0, bottom: 24, width: 24, height: 24 }
-    },
-    click() {
-      this.clicks += 1
-      this.onClick()
-    },
-  }
-}
