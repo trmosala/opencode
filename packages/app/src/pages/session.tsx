@@ -60,6 +60,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
+import { SessionContextUsage } from "@/components/session-context-usage"
 import { Cm3Icon } from "@/components/cm3-icon"
 import { Cm3Starters } from "@/components/cm3-starters"
 import { SessionSidePanelToggle } from "@/components/session/session-header"
@@ -2199,6 +2200,12 @@ export default function Page() {
                   fallback={
                     <PromptInput
                       controls={inputController()}
+                      beforeModel={
+                        <SessionContextUsage
+                          placement="top"
+                          buttonAppearance={settings.general.newLayoutDesigns() ? "v2" : "default"}
+                        />
+                      }
                       ref={(el) => {
                         inputRef = el
                       }}
@@ -2248,7 +2255,13 @@ export default function Page() {
                         setFollowup("paused", id, true)
                       },
                     })
-                    return <PromptInputV2Composer controller={controller} borderUnderlay />
+                    return (
+                      <PromptInputV2Composer
+                        controller={controller}
+                        borderUnderlay
+                        beforeModel={<SessionContextUsage placement="top" buttonAppearance="v2" />}
+                      />
+                    )
                   }}
                 </Show>
               }

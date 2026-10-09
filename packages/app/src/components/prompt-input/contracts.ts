@@ -2,6 +2,7 @@ import type { useLocal } from "@/context/local"
 import type { Prompt, usePrompt } from "@/context/prompt"
 import type { PromptInputHistory } from "./history-store"
 import type { FollowupDraft } from "./submit"
+import type { JSX } from "solid-js"
 
 export type PromptInputState = ReturnType<typeof usePrompt>
 
@@ -41,6 +42,7 @@ export type PromptInputControls = {
 
 export interface PromptInputProps {
   class?: string
+  beforeModel?: JSX.Element
   state?: PromptInputState
   history?: PromptInputHistory
   submission?: PromptInputSubmission
