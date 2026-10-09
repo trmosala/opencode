@@ -35,7 +35,8 @@ permissions:
 jobs:
   package:
     name: package (${{ inputs.platform || 'macos' }})
-    runs-on: ${{ inputs.platform == 'windows' && 'windows-latest' || 'macos-latest' }}
+    # The vault helper uses experimental coroutines supported by the VS 2022 toolchain.
+    runs-on: ${{ inputs.platform == 'windows' && 'windows-2022' || 'macos-latest' }}
     timeout-minutes: 60
     defaults:
       run:
