@@ -115,16 +115,30 @@ describe("session.system", () => {
       { api: { id: "gpt-6-codex" } },
       { api: { id: "custom-model" }, family: "GPT-6" },
     ]) {
-      expect(SystemPrompt.provider(model as Provider.Model)).toEqual([PROMPT_ASTRA])
+      const prompt = SystemPrompt.provider(model as Provider.Model)
+      expect(prompt).toEqual([PROMPT_ASTRA])
+      expect(prompt[0]).toMatch(/Task tool is available.*suitable permitted agent.*default to focused subagents/)
+      expect(prompt[0]).toMatch(/trivial lookups, edits, and commands directly/)
+      expect(prompt[0]).toMatch(/work directly when Task is unavailable.*user opts out/)
+      expect(prompt[0]).toMatch(/delegated worker.*assigned scope directly/)
+      expect(prompt[0]).not.toContain("Do not spawn subagents unless")
     }
     expect(SystemPrompt.provider({ api: { id: "gpt-5-codex" } } as Provider.Model)).toEqual([PROMPT_CODEX])
   })
 
   test("preserves CookieMonster GPT-6 prompt routing", () => {
     for (const id of ["CM_GPT6_Astra_High", "CM_GPT-6 Sol - High"]) {
-      expect(
-        SystemPrompt.provider({ providerID: "cookiemonster", family: "gpt-6", api: { id } } as Provider.Model),
-      ).toEqual([PROMPT_GPT])
+      const prompt = SystemPrompt.provider({
+        providerID: "cookiemonster",
+        family: "gpt-6",
+        api: { id },
+      } as Provider.Model)
+      expect(prompt).toEqual([PROMPT_GPT])
+      expect(prompt[0]).toMatch(/Task tool is available.*suitable permitted agent.*default to focused subagents/)
+      expect(prompt[0]).toMatch(/trivial lookups, edits, and commands directly/)
+      expect(prompt[0]).toMatch(/work directly when Task is unavailable.*user opts out/)
+      expect(prompt[0]).toMatch(/delegated worker.*assigned scope directly/)
+      expect(prompt[0]).toContain("Do not redelegate just to follow this default")
     }
   })
 
@@ -144,6 +158,12 @@ describe("session.system", () => {
     expect(gpt[0]).toContain("deeply pragmatic, effective software engineer")
     expect(gpt[0]).toContain("same assistant response")
     expect(opus[0]).toContain("TodoWrite tools")
+    for (const prompt of [gpt[0], opus[0]]) {
+      expect(prompt).toMatch(/Task tool is available.*suitable permitted agent.*default to focused subagents/)
+      expect(prompt).toContain("concise results instead of raw file/log dumps to save parent context")
+      expect(prompt).toMatch(/work directly when Task is unavailable.*user opts out/)
+      expect(prompt).toMatch(/delegated worker.*assigned scope directly/)
+    }
   })
 
   it.effect("skills output is sorted by name and stable across calls", () =>

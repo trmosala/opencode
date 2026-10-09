@@ -231,6 +231,16 @@ describe("tool.task", () => {
         const second = yield* get()
 
         expect(first).toBe(second)
+        expect(first).toMatch(
+          /By default, delegate substantial exploration or research, separable implementation, reviews/,
+        )
+        expect(first).toContain("test or log analysis to focused subagents")
+        expect(first).toContain("concise results to save parent context")
+        expect(first).toMatch(/trivial edit or command.*directly/)
+        expect(first).toMatch(/self-contained, bounded task.*expected output/)
+        expect(first).toMatch(/parent coordinates and integrates.*responsible for verification and the final answer/)
+        expect(first).toMatch(/Reuse.*task_id.*related follow-ups/)
+        expect(first).toContain("Sequence dependent work after the prerequisite results")
 
         const alpha = first.indexOf("- alpha: Alpha agent")
         const explore = first.indexOf("- explore:")
@@ -270,6 +280,8 @@ describe("tool.task", () => {
 
         expect(description).toContain("- alpha: Alpha agent")
         expect(description).not.toContain("- zebra: Zebra agent")
+        expect(description).toMatch(/Task is unavailable or no suitable permitted agent exists.*tools directly/)
+        expect(description).toMatch(/user explicitly asks you not to delegate.*work directly/)
       }),
     {
       config: {

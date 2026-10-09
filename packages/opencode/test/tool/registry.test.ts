@@ -100,6 +100,19 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
+  it.instance("search descriptions preserve direct work for workers and unavailable Task", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const tools = yield* registry.all()
+      for (const id of ["glob", "grep"]) {
+        const description = tools.find((tool) => tool.id === id)?.description ?? ""
+        expect(description).toMatch(/default to Task when available with a suitable permitted agent/)
+        expect(description).toContain("unless the user opts out")
+        expect(description).toMatch(/delegated worker or Task is unavailable or unsuitable, search directly/)
+      }
+    }),
+  )
+
   it.instance("does not expose task_status", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
