@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   DEFAULT_MODEL_ID,
   MODEL_IDS,
+  MODEL_PROFILES,
   RENAMED_MODEL_IDS,
   resolveModelProfile,
   resolveRequestModelProfile,
@@ -34,9 +35,18 @@ const PROJECT_AGENTS = [
   "CM_Gemini-3.7-Flash_High",
 ]
 
+const FAMILIES = [
+  "CM_GPT6.1_Sol",
+  "CM_GPT6_Sol",
+  "CM_GPT6_Astra",
+  "CM_GPT-5.6 Sol",
+  "CM_Opus5.5",
+  "CM_Gemini-3.7-Flash",
+]
+
 describe("CookieMonster model profiles", () => {
   test("exposes the WPP project roster under the exact agent names", () => {
-    expect(MODEL_IDS).toEqual([...PROJECT_AGENTS, "CM_GPT6.1_Sol"])
+    expect(MODEL_IDS).toEqual([...PROJECT_AGENTS, ...FAMILIES])
     for (const agentName of PROJECT_AGENTS) {
       expect(resolveModelProfile(agentName)).toEqual({
         agentName,
@@ -49,7 +59,7 @@ describe("CookieMonster model profiles", () => {
   test("advertises the renamed Opus High model in the discovery response", () => {
     const models = listModels()
     expect(models.object).toBe("list")
-    expect(models.data.map((model) => model.id)).toEqual([...PROJECT_AGENTS, "CM_GPT6.1_Sol"])
+    expect(models.data.map((model) => model.id)).toEqual([...PROJECT_AGENTS, ...FAMILIES])
     expect(models.data.find((model) => model.id === "CM_Opus5.5-High")).toEqual({
       id: "CM_Opus5.5-High",
       object: "model",
@@ -88,6 +98,75 @@ describe("CookieMonster model profiles", () => {
     })
   })
 
+  for (const model of FAMILIES) {
+    test(`routes every ${model} effort and preserves fixed routes`, () => {
+      const profile = MODEL_PROFILES[model]
+      expect(resolveRequestModelProfile({ model }).agentName).toBe(profile.reasoningEfforts.medium)
+      for (const [reasoning_effort, agentName] of Object.entries(profile.reasoningEfforts)) {
+        const body = Object.freeze({ model, reasoning_effort })
+        expect(resolveRequestModelProfile(body)).toEqual({ ...profile, agentName })
+        expect(body.model).toBe(model)
+        expect(resolveRequestModelProfile({ model: DEFAULT_MODEL_ID, o1_code_model: model, reasoning_effort })).toEqual(
+          {
+            ...profile,
+            agentName,
+          },
+        )
+        expect(resolveRequestModelProfile({ model: agentName, reasoning_effort: "unsupported" })).toEqual(
+          resolveModelProfile(agentName),
+        )
+      }
+      const body = Object.assign(Object.create({ reasoning_effort: "high" }), { model })
+      expect(resolveRequestModelProfile(body).agentName).toBe(profile.reasoningEfforts.medium)
+      for (const reasoning_effort of [undefined, null, 1, [], {}, "", "constructor", "unsupported"]) {
+        expect(() => resolveRequestModelProfile({ model, reasoning_effort })).toThrow(
+          expect.objectContaining({ statusCode: 400, type: "invalid_reasoning_effort" }),
+        )
+      }
+    })
+  }
+
+  test("offers only efforts backed by existing WPP agents", () => {
+    expect(Object.keys(MODEL_PROFILES.CM_GPT6_Sol.reasoningEfforts)).toEqual(["low", "medium", "high", "xhigh"])
+    expect(Object.keys(MODEL_PROFILES.CM_GPT6_Astra.reasoningEfforts)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ])
+    expect(Object.keys(MODEL_PROFILES["CM_GPT-5.6 Sol"].reasoningEfforts)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ])
+    expect(Object.keys(MODEL_PROFILES["CM_Opus5.5"].reasoningEfforts)).toEqual([
+      "auto",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ])
+    expect(Object.keys(MODEL_PROFILES["CM_Gemini-3.7-Flash"].reasoningEfforts)).toEqual(["low", "medium", "high"])
+    for (const model of FAMILIES.slice(1)) {
+      for (const agentName of Object.values(MODEL_PROFILES[model].reasoningEfforts)) {
+        expect(PROJECT_AGENTS).toContain(agentName)
+      }
+    }
+    for (const [model, reasoning_effort] of [
+      ["CM_GPT6_Sol", "max"],
+      ["CM_Opus5.5", "low"],
+      ["CM_Gemini-3.7-Flash", "xhigh"],
+      ["CM_Gemini-3.7-Flash", "max"],
+    ]) {
+      expect(() => resolveRequestModelProfile({ model, reasoning_effort })).toThrow(
+        expect.objectContaining({ statusCode: 400, type: "invalid_reasoning_effort" }),
+      )
+    }
+  })
+
   for (const [effort, agentName] of [
     ["low", "CM_GPT6.1_Sol_Low"],
     ["medium", "CM_GPT6.1_Sol_Medium"],
@@ -110,7 +189,18 @@ describe("CookieMonster model profiles", () => {
       expect(resolveModelProfile(agentName)).toEqual(profile)
       expect(MODEL_IDS).not.toContain(agentName)
       expect(resolveRequestModelProfile({ model: agentName })).toEqual(profile)
-      for (const reasoning_effort of ["low", "medium", "high", "xhigh", "max", "unsupported", null, 1, [], "constructor"]) {
+      for (const reasoning_effort of [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "unsupported",
+        null,
+        1,
+        [],
+        "constructor",
+      ]) {
         expect(resolveRequestModelProfile({ model: agentName, reasoning_effort })).toEqual(profile)
         expect(
           resolveRequestModelProfile({ model: "CM_GPT6.1_Sol", o1_code_model: agentName, reasoning_effort }),
@@ -196,9 +286,10 @@ describe("CookieMonster model profiles", () => {
     expect(
       resolveRequestModelProfile({ model: "CM_GPT6.1_Sol", o1_code_model: "custom-agent", reasoning_effort: null }),
     ).toEqual({ ...resolveModelProfile(DEFAULT_MODEL_ID), agentName: "custom-agent" })
-    expect(
-      resolveRequestModelProfile({ model: DEFAULT_MODEL_ID, o1_code_model: "CM_Opus 5 - High" }),
-    ).toEqual({ agentName: "CM_Opus 5 - High", toolFormat: "xml" })
+    expect(resolveRequestModelProfile({ model: DEFAULT_MODEL_ID, o1_code_model: "CM_Opus 5 - High" })).toEqual({
+      agentName: "CM_Opus 5 - High",
+      toolFormat: "xml",
+    })
     for (const o1_code_model of ["", null, false, 0]) {
       expect(
         resolveRequestModelProfile({ model: "CM_GPT6.1_Sol", o1_code_model, reasoning_effort: "high" }).agentName,

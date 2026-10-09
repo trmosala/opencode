@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { MODEL_PROFILES } from "./modelProfiles.mjs"
 import {
   acquireThreadTurn,
   decideThreadMode,
@@ -25,6 +26,32 @@ const toolResult = (id, text) => ({ role: "tool", tool_call_id: id, content: tex
 afterEach(() => resetThread(KEY))
 
 describe("decideThreadMode", () => {
+  for (const [model, profile] of Object.entries(MODEL_PROFILES).filter(([, profile]) => profile.reasoningEfforts)) {
+    test(`${model} preserves continuity only for the same effort route`, () => {
+      const routes = Object.entries(profile.reasoningEfforts)
+      for (const [effort] of routes) {
+        const first = { ...body(sys(), user("hello")), model, reasoning_effort: effort }
+        commitThread(KEY, first, assistant("answer"))
+        const next = { ...first, messages: [sys(), user("hello"), assistant("answer"), user("more")] }
+        for (const [reasoning_effort, agentName] of routes) {
+          const expected =
+            reasoning_effort === effort ? { mode: "continue", sinceIndex: 2 } : { mode: "fresh", sinceIndex: 0 }
+          expect(decideThreadMode(KEY, { ...next, reasoning_effort }, true)).toEqual(expected)
+          expect(decideThreadMode(KEY, { ...next, o1_code_model: agentName }, true)).toEqual(expected)
+        }
+      }
+      const first = { ...body(sys(), user("hello")), model }
+      commitThread(KEY, first, assistant("answer"))
+      expect(
+        decideThreadMode(
+          KEY,
+          { ...first, reasoning_effort: "medium", messages: [sys(), user("hello"), assistant("answer"), user("more")] },
+          true,
+        ),
+      ).toEqual({ mode: "continue", sinceIndex: 2 })
+    })
+  }
+
   test("Sol 6.1 continues from the default to explicit medium", () => {
     const first = { ...body(sys(), user("hello")), model: "CM_GPT6.1_Sol" }
     commitThread(KEY, first, assistant("answer"))

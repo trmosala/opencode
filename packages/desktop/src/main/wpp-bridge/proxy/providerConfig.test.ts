@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { MODEL_IDS, RENAMED_MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs"
+import { MODEL_IDS, MODEL_PROFILES, RENAMED_MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs"
 import {
   COOKIE_MONSTER_PROVIDER,
   ensureO1CodeProvider,
@@ -81,10 +81,55 @@ test("advertises only the Sol 6.1 family with explicit native variants and a med
       resolveRequestModelProfile({ model: family.name, reasoning_effort: family.variants[effort].reasoningEffort }),
     ).toMatchObject({ agentName })
   }
-  for (const id of MODEL_IDS.filter((id) => id !== "CM_GPT6.1_Sol")) {
+  for (const id of MODEL_IDS.filter((id) => !Object.hasOwn(MODEL_PROFILES[id], "reasoningEfforts"))) {
     expect(models[id].variants).toBeUndefined()
     expect(models[id].options).toBeUndefined()
     expect(models[id].reasoning).toBeUndefined()
+  }
+})
+
+test("seeds every family selector while retaining saved fixed-effort selections", async () => {
+  const { dir, file } = await tmpFile()
+  try {
+    const models = Object.fromEntries(
+      Object.entries(COOKIE_MONSTER_PROVIDER.models).filter(
+        ([id]) => !Object.hasOwn(MODEL_PROFILES[id], "reasoningEfforts"),
+      ),
+    )
+    const user = {
+      model: "cookiemonster/CM_GPT-5.6-Sol_High",
+      small_model: "cookiemonster/CM_Gemini-3.7-Flash_Low",
+      agent: { review: { model: "cookiemonster/CM_Opus5.5-Max" } },
+    }
+    await writeFile(
+      file,
+      JSON.stringify({ ...user, provider: { cookiemonster: { ...COOKIE_MONSTER_PROVIDER, models } } }),
+    )
+    await ensureO1CodeProvider(file)
+    const first = await readFile(file, "utf8")
+    const config = JSON.parse(first)
+    expect(config).toMatchObject(user)
+    expect(config.provider.cookiemonster.models).toEqual(COOKIE_MONSTER_PROVIDER.models)
+    const injected = JSON.parse(o1CodeConfigContent()).provider.cookiemonster.models
+    for (const id of MODEL_IDS.filter((id) => Object.hasOwn(MODEL_PROFILES[id], "reasoningEfforts"))) {
+      const profile = MODEL_PROFILES[id]
+      const family = injected[id]
+      expect(family.options).toEqual({ reasoningEffort: profile.defaultReasoningEffort })
+      expect(Object.keys(family.variants)).toEqual(Object.keys(profile.reasoningEfforts))
+      expect(family.reasoning).toBeUndefined()
+      for (const [effort, agentName] of Object.entries(profile.reasoningEfforts)) {
+        expect(
+          resolveRequestModelProfile({ model: id, reasoning_effort: family.variants[effort].reasoningEffort }),
+        ).toEqual({
+          ...profile,
+          agentName,
+        })
+      }
+    }
+    await ensureO1CodeProvider(file)
+    expect(await readFile(file, "utf8")).toBe(first)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })
 
@@ -135,7 +180,7 @@ for (const hasFamily of [false, true]) {
       const first = await readFile(file, "utf8")
       const config = JSON.parse(first)
       const models = config.provider.cookiemonster.models
-      expect(Object.keys(models)).toEqual(MODEL_IDS)
+      expect(Object.keys(models).sort()).toEqual([...MODEL_IDS].sort())
       expect(models["CM_GPT6.1_Sol"]).toEqual(hasFamily ? custom : COOKIE_MONSTER_PROVIDER.models["CM_GPT6.1_Sol"])
       expect(models["CM_GPT6_Sol_High"]).toEqual(legacy)
       for (const id of MODEL_IDS.filter((id) => id !== "CM_GPT6.1_Sol" && id !== "CM_GPT6_Sol_High")) {

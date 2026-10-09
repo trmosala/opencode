@@ -5,6 +5,7 @@ import {
   serializeToolRecoveryRequest,
 } from "./messageSerializer.mjs"
 import { TASK_COMPLETION_SYSTEM_REMINDER, TOOL_CALL_SYSTEM_REMINDER } from "./toolCallReminder.mjs"
+import { MODEL_PROFILES } from "./modelProfiles.mjs"
 
 const framed = (model = "CM_Opus 5 - Extra High") => ({
   model,
@@ -16,6 +17,26 @@ const framed = (model = "CM_Opus 5 - Extra High") => ({
 })
 
 describe("CookieMonster request envelope", () => {
+  for (const [model, profile] of Object.entries(MODEL_PROFILES).filter(([, profile]) => profile.reasoningEfforts)) {
+    test(`serializes every ${model} effort with its fixed agent's protocol`, () => {
+      for (const [reasoning_effort, agentName] of Object.entries(profile.reasoningEfforts)) {
+        const body = framed(model)
+        body.messages.push(
+          { role: "assistant", content: "Complete." },
+          { role: "user", content: "Continue." },
+          { role: "assistant", content: "Inspecting." },
+        )
+        const family = serializeChatCompletionRequest({ ...body, reasoning_effort })
+        expect(family).toBe(serializeChatCompletionRequest({ ...body, model: agentName }))
+        const out = JSON.parse(family)
+        expect(out.toolCallProtocol).toBe("CM_XML_TOOL_CALL_V1")
+        expect(out.completionProtocol).toBe("CM_TASK_COMPLETE_V1")
+        expect(out.messages[1].phase).toBe(profile.commentaryPhase ? "final_answer" : undefined)
+        expect(out.messages[3].phase).toBe(profile.commentaryPhase ? "commentary" : undefined)
+      }
+    })
+  }
+
   for (const reasoning_effort of ["low", "medium", "high", "xhigh", "max"]) {
     test(`preserves Sol 6.1 ${reasoning_effort} phase and tool contracts`, () => {
       const body = { ...framed("CM_GPT6.1_Sol"), reasoning_effort }

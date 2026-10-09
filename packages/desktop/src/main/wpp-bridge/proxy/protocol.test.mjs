@@ -45,10 +45,18 @@ describe("CookieMonster protocol capability", () => {
 
   test("requests and requires phase support for declared GPT profiles", () => {
     for (const model of [
-      "CM_GPT-5.6 Sol - High", "CM_GPT6_Sol_High", "CM_GPT6_Astra_High",
+      "CM_GPT-5.6 Sol - High",
+      "CM_GPT6_Sol_High",
+      "CM_GPT6_Astra_High",
       "CM_GPT6.1_Sol",
-      "CM_GPT6.1_Sol_Low", "CM_GPT6.1_Sol_Medium", "CM_GPT6.1_Sol_High",
-      "CM_GPT6.1_Sol_XHigh", "CM_GPT6.1_Sol_Max",
+      "CM_GPT6_Sol",
+      "CM_GPT6_Astra",
+      "CM_GPT-5.6 Sol",
+      "CM_GPT6.1_Sol_Low",
+      "CM_GPT6.1_Sol_Medium",
+      "CM_GPT6.1_Sol_High",
+      "CM_GPT6.1_Sol_XHigh",
+      "CM_GPT6.1_Sol_Max",
     ]) {
       const probe = buildCapabilityProbeJob({ payload: { model } })
 
@@ -64,6 +72,13 @@ describe("CookieMonster protocol capability", () => {
     }
   })
 
+  test("keeps Opus and Gemini families on the existing non-phase capability", () => {
+    for (const model of ["CM_Opus5.5", "CM_Gemini-3.7-Flash"]) {
+      expect(buildCapabilityProbeJob({ payload: { model } }).payload.prompt).toBe(CM_CAPABILITY_PROBE_PROMPT)
+      expect(() => assertCapabilityResponse({ finalText: CM_CAPABILITY_RESPONSE }, model)).not.toThrow()
+    }
+  })
+
   test("accepts only the exact advertised capability", () => {
     expect(() =>
       assertCapabilityResponse({ finalText: ` ${CM_CAPABILITY_RESPONSE}\n` }, "CM_Opus 5 - Extra High"),
@@ -75,10 +90,7 @@ describe("CookieMonster protocol capability", () => {
 
   test("reads the normal nested worker response shape", () => {
     expect(() =>
-      assertCapabilityResponse(
-        { response: { finalText: CM_CAPABILITY_RESPONSE } },
-        "CM_Opus 5 - Extra High",
-      ),
+      assertCapabilityResponse({ response: { finalText: CM_CAPABILITY_RESPONSE } }, "CM_Opus 5 - Extra High"),
     ).not.toThrow()
   })
 })
