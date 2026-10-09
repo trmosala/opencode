@@ -200,6 +200,14 @@ html[data-color-scheme="dark"] .cm3-sidebar {
   color: var(--cm3-muted);
 }
 
+.cm3-sidebar-logo {
+  display: block;
+  inline-size: 144px;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  block-size: auto;
+}
+
 .cm3-sidebar :is(button, input, a) {
   font: inherit;
   color: inherit;

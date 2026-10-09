@@ -20,6 +20,9 @@ import { useSettingsDialog } from "./settings-dialog"
 import { Cm3Icon } from "./cm3-icon"
 import { WppAuthControl } from "./wpp-auth-control"
 import { Icon } from "@opencode-ai/ui/v2/icon"
+import { useTheme } from "@opencode-ai/ui/theme"
+import cookieMonsterBannerLight from "@/assets/cookie-monster-banner-light.svg"
+import cookieMonsterBannerDark from "@/assets/cookie-monster-banner-dark.svg"
 import { useScheduling } from "./scheduling-panel"
 
 export function Cm3Shell() {
@@ -27,6 +30,7 @@ export function Cm3Shell() {
   const home = createHomeController()
   const sessions = createHomeSessionsController(home, { registerPalette: false, allProjects: true })
   const language = useLanguage()
+  const theme = useTheme()
   const settings = useSettings()
   const server = useServer()
   const location = useLocation()
@@ -306,9 +310,13 @@ export function Cm3Shell() {
         }}
       >
         <div class="cm3-sidebar-brand">
-          <span role="img" aria-label={language.t("quietCompanion.title")}>
-            <Cm3Icon name="cookie" size={24} />
-          </span>
+          <img
+            class="cm3-sidebar-logo"
+            src={theme.mode() === "dark" ? cookieMonsterBannerDark : cookieMonsterBannerLight}
+            alt={language.t("quietCompanion.brand")}
+            width={720}
+            height={180}
+          />
           <button
             class="cm3-navigation-close"
             type="button"
