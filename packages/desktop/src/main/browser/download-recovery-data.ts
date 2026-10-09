@@ -1,15 +1,16 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
-import { open, mkdir, unlink, realpath, stat, copyFile } from "node:fs/promises"
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path"
+import { open, mkdir, unlink, stat, copyFile } from "node:fs/promises"
+import { basename, dirname, extname, isAbsolute, join } from "node:path"
+import { physicalDownloadPath } from "./download-path"
 
 export type DownloadRecovery = {
   version: 1
   url: string
   origin: string
   destination: string
-  directoryDev: number
-  directoryIno: number
+  directoryDev: string
+  directoryIno: string
   checkpoint: string
   offset: number
   total: number
@@ -33,6 +34,8 @@ export function recoveryURL(value: unknown): value is string {
 export function recoveryData(value: unknown): DownloadRecovery | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
   const row = value as Record<string, unknown>
+  const directoryDev = recoveryFileID(row.directoryDev)
+  const directoryIno = recoveryFileID(row.directoryIno)
   if (
     row.version !== 1 ||
     !recoveryURL(row.url) ||
@@ -41,12 +44,8 @@ export function recoveryData(value: unknown): DownloadRecovery | undefined {
     typeof row.destination !== "string" ||
     !isAbsolute(row.destination) ||
     row.destination.length > 8192 ||
-    typeof row.directoryDev !== "number" ||
-    !Number.isSafeInteger(row.directoryDev) ||
-    row.directoryDev < 0 ||
-    typeof row.directoryIno !== "number" ||
-    !Number.isSafeInteger(row.directoryIno) ||
-    row.directoryIno < 0 ||
+    directoryDev === undefined ||
+    directoryIno === undefined ||
     typeof row.checkpoint !== "string" ||
     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.part$/.test(row.checkpoint) ||
     typeof row.offset !== "number" ||
@@ -69,8 +68,8 @@ export function recoveryData(value: unknown): DownloadRecovery | undefined {
     url: row.url,
     origin: row.origin,
     destination: row.destination,
-    directoryDev: row.directoryDev,
-    directoryIno: row.directoryIno,
+    directoryDev,
+    directoryIno,
     checkpoint: row.checkpoint,
     offset: row.offset,
     total: row.total,
@@ -80,13 +79,24 @@ export function recoveryData(value: unknown): DownloadRecovery | undefined {
   }
 }
 
+function recoveryFileID(value: unknown) {
+  if (typeof value === "number") return Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,38})$/.test(value) || value.endsWith("\n")) return undefined
+  if (BigInt(value) >= 1n << 128n) return undefined
+  return value
+}
+
 export async function recoveryDestination(
   recovery: Pick<DownloadRecovery, "destination" | "directoryDev" | "directoryIno">,
 ) {
   const directory = dirname(recovery.destination)
-  if ((await realpath(directory)) !== resolve(directory)) throw new Error("Download destination changed")
-  const file = await stat(directory)
-  if (!file.isDirectory() || file.dev !== recovery.directoryDev || file.ino !== recovery.directoryIno)
+  if (!(await physicalDownloadPath(directory))) throw new Error("Download destination changed")
+  const file = await stat(directory, { bigint: true })
+  if (
+    !file.isDirectory() ||
+    file.dev.toString() !== recoveryFileID(recovery.directoryDev) ||
+    file.ino.toString() !== recoveryFileID(recovery.directoryIno)
+  )
     throw new Error("Download destination changed")
 }
 
@@ -102,7 +112,7 @@ export async function restoreDownload(
 ) {
   check()
   await recoveryDestination(recovery)
-  if ((await realpath(root)) !== resolve(root)) throw new Error("Invalid recovery directory")
+  if (!(await physicalDownloadPath(root))) throw new Error("Invalid recovery directory")
   const working = join(root, `${randomUUID()}.work`)
   if ((await copyDownloadPrefix(join(root, recovery.checkpoint), working, recovery.offset, true)) !== recovery.sha256) {
     await unlink(working)
@@ -190,7 +200,7 @@ export async function publishDownload(
 // Never copy through a leaf or ancestor symlink, and never open the destination for overwrite.
 export async function copyDownloadPrefix(source: string, destination: string, length: number, exact = false) {
   if (!Number.isSafeInteger(length) || length <= 0) throw new Error("Invalid download length")
-  if ((await realpath(source)) !== resolve(source)) throw new Error("Download source changed")
+  if (!(await physicalDownloadPath(source))) throw new Error("Download source changed")
   const input = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
   try {
     const file = await input.stat()
@@ -228,7 +238,7 @@ export async function copyDownloadPrefix(source: string, destination: string, le
 
 export async function downloadCheckpoint(root: string, source: string, offset: number) {
   await mkdir(root, { recursive: true, mode: 0o700 })
-  if ((await realpath(root)) !== resolve(root)) throw new Error("Invalid recovery directory")
+  if (!(await physicalDownloadPath(root))) throw new Error("Invalid recovery directory")
   const checkpoint = `${randomUUID()}.part`
   const path = join(root, checkpoint)
   return { checkpoint, sha256: await copyDownloadPrefix(source, path, offset) }

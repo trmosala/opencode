@@ -15,8 +15,13 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs"
+import { realpath } from "node:fs/promises"
+import { BrowserStore } from "./store"
+import { savedDownloads, saveDownloadRecord } from "./download-records"
+import { restoreDownload } from "./download-recovery-data"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -65,7 +70,8 @@ if (process.env.CM_STAGED_DOWNLOAD_TEST !== "1") {
       getETag: () => '"v1"',
       getLastModifiedTime: () => "Mon, 01 Jun 2026 10:00:00 GMT",
       getTotalBytes: () => 6,
-      getReceivedBytes: () => 0,
+      received: 0,
+      getReceivedBytes: () => item.received,
       getSavePath: () => item.path,
       setSavePath: (path: string) => {
         item.path = path
@@ -251,6 +257,97 @@ if (process.env.CM_STAGED_DOWNLOAD_TEST !== "1") {
       await f.clean()
       rmSync(moved, { recursive: true, force: true })
     }
+  })
+
+  test.each(["sync", "async"])(
+    "staged %s path aliases persist exact native IDs and reopen recoverable bytes",
+    async (alias) => {
+      const f = fixture(true)
+      try {
+        const target = alias === "sync" ? realpathSync(f.target) : await realpath(f.target)
+        f.selection.path = join(target, "chosen.txt")
+        f.staged.start()
+        writeFileSync(f.item.path, "abc")
+        f.item.received = 3
+        saveDownloadRecord(store, f.download)
+        await f.staged.checkpoint(true)
+        const recovery = savedDownloads(new BrowserStore(store.path).get("downloads"))[0]?.recovery
+        expect(recovery).toBeDefined()
+        const identity = statSync(target, { bigint: true })
+        expect(recovery?.directoryDev).toBe(identity.dev.toString())
+        expect(recovery?.directoryIno).toBe(identity.ino.toString())
+        expect(readFileSync(join(parts, recovery!.checkpoint), "utf8")).toBe("abc")
+        f.staged.release()
+        await pruneDownloadRecovery()
+        expect(existsSync(f.item.path)).toBe(false)
+        expect(readFileSync(join(parts, recovery!.checkpoint), "utf8")).toBe("abc")
+        const published = await restoreDownload(
+          parts,
+          recovery!,
+          async () =>
+            new Response("def", {
+              status: 206,
+              headers: {
+                "Content-Range": "bytes 3-5/6",
+                "Content-Length": "3",
+                ETag: '"v1"',
+                "Last-Modified": f.item.getLastModifiedTime(),
+              },
+            }),
+          new AbortController().signal,
+          () => {},
+          () => {},
+        )
+        expect(readFileSync(published, "utf8")).toBe("abcdef")
+        saveDownloadRecord(store, { ...f.download, state: "cancelled" })
+        await pruneDownloadRecovery()
+        expect(existsSync(join(parts, recovery!.checkpoint))).toBe(false)
+      } finally {
+        await f.clean()
+      }
+      expect(readdirSync(parts)).toEqual([])
+    },
+  )
+
+  test("ancestor symlinks reject staging and publication even when directory IDs match", async () => {
+    const f = fixture(true)
+    const moved = `${f.target}-moved`
+    mkdirSync(join(f.target, "child"))
+    f.selection.path = join(f.target, "child", "chosen.txt")
+    try {
+      f.staged.start()
+      writeFileSync(f.item.path, "abcdef")
+      renameSync(f.target, moved)
+      symlinkSync(moved, f.target, "junction")
+      await expect(f.staged.finish(f.item.path)).rejects.toThrow("Download destination changed")
+      f.item.path = ""
+      expect(() => f.staged.start()).toThrow("Download destination changed")
+      expect(readdirSync(join(moved, "child"))).toEqual([])
+    } finally {
+      await f.clean()
+      rmSync(moved, { recursive: true, force: true })
+    }
+  })
+
+  test("pruning refuses a symlinked ancestor and preserves unrelated files", async () => {
+    const moved = `${app.getPath("userData")}-moved`
+    const orphan = "11111111-1111-4111-8111-111111111111.native"
+    writeFileSync(join(parts, orphan), "keep")
+    writeFileSync(join(parts, "unrelated"), "keep")
+    renameSync(app.getPath("userData"), moved)
+    symlinkSync(moved, app.getPath("userData"), "junction")
+    try {
+      await pruneDownloadRecovery()
+      expect(readFileSync(join(parts, orphan), "utf8")).toBe("keep")
+      expect(readFileSync(join(parts, "unrelated"), "utf8")).toBe("keep")
+    } finally {
+      unlinkSync(app.getPath("userData"))
+      renameSync(moved, app.getPath("userData"))
+    }
+    await pruneDownloadRecovery()
+    expect(existsSync(join(parts, orphan))).toBe(false)
+    expect(readFileSync(join(parts, "unrelated"), "utf8")).toBe("keep")
+    rmSync(join(parts, "unrelated"))
   })
 
   test("explicit cancellation cleans private staging without removing a new public file", async () => {

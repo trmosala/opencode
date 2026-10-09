@@ -1,9 +1,10 @@
 import { app, dialog, session } from "electron"
 import type { BrowserWindow, DownloadItem } from "electron"
 import type { BrowserDownload } from "@opencode-ai/app/browser-panel"
-import { dirname, basename, join, resolve } from "node:path"
-import { realpath, stat, unlink, readdir } from "node:fs/promises"
-import { accessSync, constants, mkdirSync, realpathSync, statSync } from "node:fs"
+import { dirname, basename, join } from "node:path"
+import { unlink, readdir } from "node:fs/promises"
+import { accessSync, constants, mkdirSync, statSync } from "node:fs"
+import { physicalDownloadPath, physicalDownloadPathSync } from "./download-path"
 import { randomUUID } from "node:crypto"
 import { getStore } from "../store"
 import { nativeT } from "../native-translations"
@@ -11,6 +12,7 @@ import { savedDownloads, saveDownloadRecord } from "./download-records"
 import {
   downloadCheckpoint,
   recoveryData,
+  recoveryDestination,
   recoveryURL,
   restoreDownload,
   publishDownload,
@@ -30,9 +32,7 @@ export const recoveringDownloads = () => new Set(active.keys())
 export async function pruneDownloadRecovery() {
   if (captures || active.size) return
   const directory = root()
-  const actual = await realpath(directory).catch(() => undefined)
-  if (!actual) return
-  if (actual !== resolve(directory)) return
+  if (!(await physicalDownloadPath(directory).catch(() => false))) return
   const entries = await readdir(directory, { withFileTypes: true })
   // Recheck after asynchronous enumeration. Never collect an in-flight checkpoint or recovery.
   if (captures || active.size) return
@@ -64,7 +64,7 @@ export function stagedDownload(win: BrowserWindow, item: DownloadItem, download:
   )
     return
   const path = join(root(), `${randomUUID()}.native`)
-  let destination: { destination: string; directoryDev: number; directoryIno: number } | undefined
+  let destination: { destination: string; directoryDev: string; directoryIno: string } | undefined
   let checkpoint: ReturnType<typeof checkpointDownload> | undefined
   return {
     start() {
@@ -89,13 +89,16 @@ export function stagedDownload(win: BrowserWindow, item: DownloadItem, download:
             })
           : defaultPath
       if (!selected) throw new Error("Download cancelled")
-      if (realpathSync(dirname(selected)) !== resolve(dirname(selected)))
-        throw new Error("Download destination changed")
-      const directory = statSync(dirname(selected))
+      if (!physicalDownloadPathSync(dirname(selected))) throw new Error("Download destination changed")
+      const directory = statSync(dirname(selected), { bigint: true })
       if (!directory.isDirectory()) throw new Error("Download destination changed")
-      destination = { destination: selected, directoryDev: directory.dev, directoryIno: directory.ino }
+      destination = {
+        destination: selected,
+        directoryDev: directory.dev.toString(),
+        directoryIno: directory.ino.toString(),
+      }
       mkdirSync(root(), { recursive: true, mode: 0o700 })
-      if (realpathSync(root()) !== resolve(root())) throw new Error("Invalid recovery directory")
+      if (!physicalDownloadPathSync(root())) throw new Error("Invalid recovery directory")
       staging.add(path)
       item.setSavePath(path)
       checkpoint = checkpointDownload(item, download, origin, destination)
@@ -118,7 +121,7 @@ function checkpointDownload(
   item: DownloadItem,
   download: BrowserDownload,
   origin: string,
-  destination: { destination: string; directoryDev: number; directoryIno: number },
+  destination: { destination: string; directoryDev: string; directoryIno: string },
 ) {
   let pending: Promise<void> | undefined
   let updated = 0
@@ -132,9 +135,7 @@ function checkpointDownload(
     pending = (async () => {
       const urls = item.getURLChain()
       if (urls.length !== 1 || !recoveryURL(urls[0]) || !recoveryURL(origin)) return
-      if ((await realpath(dirname(destination.destination))) !== resolve(dirname(destination.destination))) return
-      const directory = await stat(dirname(destination.destination))
-      if (directory.dev !== destination.directoryDev || directory.ino !== destination.directoryIno) return
+      await recoveryDestination(destination)
       const metadata = recoveryData({
         version: 1,
         url: urls[0],

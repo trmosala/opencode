@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test"
 import { mkdtemp, writeFile, readFile, rm, stat, symlink, rename, realpath } from "node:fs/promises"
+import { realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BrowserStore } from "./store"
@@ -8,6 +9,7 @@ import {
   copyDownloadPrefix,
   downloadCheckpoint,
   recoveryData,
+  recoveryDestination,
   restoreDownload,
   validRangeResponse,
 } from "./download-recovery-data"
@@ -17,15 +19,15 @@ async function fixture() {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "cm-download-recovery-")))
   const destination = join(directory, "file.txt")
   await writeFile(destination, "abc")
-  const file = await stat(directory)
+  const file = await stat(directory, { bigint: true })
   const snapshot = await downloadCheckpoint(join(directory, "parts"), destination, 3)
   const recovery = {
     version: 1 as const,
     url: "https://example.com/file?private=token",
     origin: "https://example.com",
     destination,
-    directoryDev: file.dev,
-    directoryIno: file.ino,
+    directoryDev: file.dev.toString(),
+    directoryIno: file.ino.toString(),
     ...snapshot,
     offset: 3,
     total: 6,
@@ -91,6 +93,98 @@ test("recovery metadata is bounded and private; legacy and terminal records are 
     saveDownloadRecord(store, { id: "test", filename: "file", state: "cancelled" })
     expect(savedDownloads(store.get("downloads"))[0].recovery).toBeUndefined()
     expect(downloadHistoryRows([{ id: "old", filename: "file", state: "interrupted" }])[0].canResume).toBeUndefined()
+  } finally {
+    await f.clean()
+  }
+})
+
+test("recovery identities reopen losslessly, accept safe legacy numbers and reject unsafe or noncanonical IDs", async () => {
+  const f = await fixture()
+  try {
+    const store = new BrowserStore(join(f.directory, "identities.json"))
+    const identities = [
+      { directoryDev: 0, directoryIno: Number.MAX_SAFE_INTEGER },
+      { directoryDev: "18446744073709551615", directoryIno: "9007199254740992" },
+      { directoryDev: "18446744073709551615", directoryIno: "9007199254740993" },
+      { directoryDev: f.recovery.directoryDev, directoryIno: f.recovery.directoryIno },
+    ]
+    store.set(
+      "downloads",
+      identities.map((identity, index) => ({
+        id: String(index),
+        filename: "file",
+        state: "interrupted",
+        recovery: { ...f.recovery, ...identity },
+      })),
+    )
+    const rows = savedDownloads(new BrowserStore(store.path).get("downloads"))
+    expect(rows.map((row) => row.recovery?.directoryIno)).toEqual(
+      identities.map((identity) => String(identity.directoryIno)),
+    )
+    expect(rows.map((row) => row.recovery?.directoryDev)).toEqual(
+      identities.map((identity) => String(identity.directoryDev)),
+    )
+    await recoveryDestination(rows[3].recovery!)
+    await expect(
+      recoveryDestination({
+        ...f.recovery,
+        directoryIno: (BigInt(f.recovery.directoryIno) + 1n).toString(),
+      }),
+    ).rejects.toThrow("Download destination changed")
+    for (const value of [
+      Number.MAX_SAFE_INTEGER + 1,
+      -1,
+      1.5,
+      NaN,
+      Infinity,
+      "",
+      "-1",
+      "+1",
+      "01",
+      "1.0",
+      "1e3",
+      " 1",
+      "1\n",
+      "1\r",
+      "1\u2028",
+      "1\u2029",
+      "9".repeat(40),
+      (1n << 128n).toString(),
+    ]) {
+      for (const key of ["directoryDev", "directoryIno"]) {
+        expect(recoveryData({ ...f.recovery, [key]: value })).toBeUndefined()
+        expect(
+          savedDownloads([
+            { id: "invalid", filename: "file", state: "interrupted", recovery: { ...f.recovery, [key]: value } },
+          ])[0].recovery,
+        ).toBeUndefined()
+      }
+    }
+    expect(recoveryData({ ...f.recovery, version: 2 })).toBeUndefined()
+  } finally {
+    await f.clean()
+  }
+})
+
+test("sync and async physical path aliases checkpoint and restore exact bytes", async () => {
+  const f = await fixture()
+  try {
+    for (const directory of [realpathSync(f.directory), await realpath(f.directory)]) {
+      const snapshot = await downloadCheckpoint(join(directory, "parts"), join(directory, "file.txt"), 3)
+      const recovery = { ...f.recovery, ...snapshot, destination: join(directory, "file.txt") }
+      await recoveryDestination(recovery)
+      const result = await restoreDownload(
+        join(directory, "parts"),
+        recovery,
+        async () => response(recovery),
+        new AbortController().signal,
+        () => {},
+        () => {},
+      )
+      expect(await readFile(result, "utf8")).toBe("abcdef")
+      expect(await readFile(join(directory, "parts", snapshot.checkpoint), "utf8")).toBe("abc")
+      expect(await readFile(f.destination, "utf8")).toBe("abc")
+    }
   } finally {
     await f.clean()
   }

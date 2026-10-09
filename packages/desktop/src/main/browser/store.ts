@@ -34,7 +34,23 @@ export class BrowserStore {
       const closing = descriptor
       descriptor = undefined
       fs.closeSync(closing)
-      fs.renameSync(temporary, this.path)
+      for (let attempt = 0; ; attempt++) {
+        try {
+          fs.renameSync(temporary, this.path)
+          break
+        } catch (error) {
+          if (
+            process.platform !== "win32" ||
+            attempt >= 4 ||
+            !error ||
+            typeof error !== "object" ||
+            !("code" in error) ||
+            !["EPERM", "EACCES", "EBUSY"].includes(String(error.code))
+          )
+            throw error
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5 * (attempt + 1))
+        }
+      }
     } catch (error) {
       // Cleanup is best-effort; preserve the write failure, and only touch our own temp.
       if (descriptor !== undefined) {
