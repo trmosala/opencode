@@ -55,6 +55,7 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { useServerSDK } from "@/context/server-sdk"
 import { ServerConnection, serverName, useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
+import { useOptionalScheduling } from "@/components/scheduling-panel"
 import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
@@ -371,6 +372,8 @@ export default function Page() {
   const sdk = useSDK()
   const serverSDK = useServerSDK()
   const settings = useSettings()
+  const scheduling = useOptionalScheduling()
+  const schedulingOpen = () => settings.general.newLayoutDesigns() && !!scheduling?.isOpen()
   const platform = usePlatform()
   const prompt = usePrompt()
   const comments = useComments()
@@ -507,6 +510,7 @@ export default function Page() {
     }),
   )
   const sessionPanelWidth = createMemo(() => {
+    if (schedulingOpen()) return "100%"
     if (!desktopSidePanelOpen()) return "100%"
     if (desktopSessionResizeOpen()) return `${sessionPanelResizedWidth()}px`
     return `calc(100% - ${layout.fileTree.width()}px)`
@@ -2270,6 +2274,9 @@ export default function Page() {
           <Show when={desktopReviewOpen()}>
             <div
               data-cm3-region="panel-tabs"
+              hidden={schedulingOpen()}
+              inert={schedulingOpen()}
+              style={{ display: schedulingOpen() ? "none" : undefined }}
               class="cm3-thread-panel-tabs"
               ref={(mount) => {
                 setUi("panelTabsMount", mount)
@@ -2277,7 +2284,11 @@ export default function Page() {
               }}
             />
           </Show>
-          <div class="cm3-thread-actions">
+          <div
+            class="cm3-thread-actions"
+            inert={schedulingOpen()}
+            style={{ visibility: schedulingOpen() ? "hidden" : undefined }}
+          >
             <button
               type="button"
               aria-label={language.t("command.review.toggle")}
@@ -2362,7 +2373,7 @@ export default function Page() {
             </SessionPanelFrame>
           )}
 
-          <Show when={desktopSessionResizeOpen()}>
+          <Show when={desktopSessionResizeOpen() && !schedulingOpen()}>
             <div onPointerDown={() => size.start()}>
               <ResizeHandle
                 classList={{

@@ -372,6 +372,13 @@ export const browser = {
 
 export const dict = {
   "schedules.title": "Scheduled",
+  "schedules.panelTitle": "Scheduling",
+  "schedules.closePanel": "Close Scheduling",
+  "schedules.advanced": "Advanced",
+  "schedules.discardTitle": "Discard scheduling changes",
+  "schedules.discardConfirm": "Discard your unsaved scheduling changes? Closing the panel keeps your draft.",
+  "schedules.discard": "Discard changes",
+  "schedules.invalidTimezone": "Choose a valid timezone.",
   "schedules.subtitle": "Put routine work on a schedule.",
   "schedules.new": "New task",
   "schedules.tasks": "Tasks",

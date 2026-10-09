@@ -1,5 +1,6 @@
 import { Show } from "solid-js"
 import { Cm3Shell } from "@/components/cm3-shell"
+import { SchedulingPanel } from "@/components/scheduling-panel"
 import { useSettings } from "@/context/settings"
 import { createEffect, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -42,13 +43,14 @@ export default function NewLayout(props: ParentProps) {
             : undefined
         }
       />
-      <div class="cm3-live-workspace flex-1 min-h-0 min-w-0 flex w-full">
+      <div class="cm3-live-workspace relative flex-1 min-h-0 min-w-0 flex w-full">
         <Show when={settings.general.quietCompanion()}>
           <Cm3Shell />
         </Show>
         <main class="cm3-live-route flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
           <Suspense>{props.children}</Suspense>
         </main>
+        <SchedulingPanel />
       </div>
       {import.meta.env.DEV && state.debugTools && <DebugBar inline />}
       <TabsInfoPopup />

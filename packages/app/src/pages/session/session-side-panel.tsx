@@ -50,6 +50,7 @@ import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
+import { useOptionalScheduling } from "@/components/scheduling-panel"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import {
@@ -92,6 +93,8 @@ export function SessionSidePanel(props: {
 }) {
   const layout = useLayout()
   const settings = useSettings()
+  const scheduling = useOptionalScheduling()
+  const obscured = () => settings.general.newLayoutDesigns() && !!scheduling?.isOpen()
   const file = useFile()
   const language = useLanguage()
   const command = useCommand()
@@ -505,8 +508,8 @@ export function SessionSidePanel(props: {
         id="review-panel"
         data-cm3-region="side-panel"
         aria-label={language.t("session.panel.reviewAndFiles")}
-        aria-hidden={!open()}
-        inert={!open()}
+        aria-hidden={!open() || obscured()}
+        inert={!open() || obscured()}
         class="relative min-w-0 flex overflow-hidden"
         classList={{
           "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
@@ -519,7 +522,7 @@ export function SessionSidePanel(props: {
           "rounded-[10px] shadow-[var(--v2-elevation-raised)] overflow-hidden": settings.general.newLayoutDesigns(),
           "flex-1": reviewOpen() || browserOpen(),
         }}
-        style={{ width: panelWidth() }}
+        style={{ width: obscured() ? "0px" : panelWidth(), display: obscured() ? "none" : undefined }}
       >
         <Show when={open()}>
           <div

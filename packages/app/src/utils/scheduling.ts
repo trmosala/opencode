@@ -84,12 +84,16 @@ export function createSchedulingClient(
   server: ServerConnection.HttpBase,
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch,
 ) {
-  const request = async (body?: {
-    action: "create" | "update" | "pause" | "resume" | "delete" | "acknowledge"
-    id?: string
-    definition?: ScheduleDefinition
-  }) => {
+  const request = async (
+    body?: {
+      action: "create" | "update" | "pause" | "resume" | "delete" | "acknowledge"
+      id?: string
+      definition?: ScheduleDefinition
+    },
+    signal?: AbortSignal,
+  ) => {
     const response = await fetcher(new URL("schedule", server.url.replace(/\/?$/, "/")), {
+      signal,
       method: body ? "POST" : "GET",
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
@@ -113,8 +117,8 @@ export function createSchedulingClient(
     return data
   }
   return {
-    list: async () => Schema.decodeUnknownSync(State)(await request()),
-    manage: (body: NonNullable<Parameters<typeof request>[0]>) => request(body),
+    list: async (signal?: AbortSignal) => Schema.decodeUnknownSync(State)(await request(undefined, signal)),
+    manage: (body: NonNullable<Parameters<typeof request>[0]>, signal?: AbortSignal) => request(body, signal),
   }
 }
 

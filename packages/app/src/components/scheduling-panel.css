@@ -1,0 +1,165 @@
+.scheduling-panel {
+  width: 420px;
+  max-width: 48%;
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 8px 8px 8px 0;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 12px;
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-base);
+  box-shadow: var(--v2-elevation-raised);
+  font-size: 13px;
+}
+.scheduling-panel[hidden] {
+  display: none !important;
+}
+.scheduling-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--v2-border-border-base);
+}
+.scheduling-header h2 {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+.scheduling-body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  padding: 16px;
+}
+.scheduling-body h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+.scheduling-panel p,
+.scheduling-task span {
+  color: var(--v2-text-text-muted);
+  overflow-wrap: anywhere;
+}
+.scheduling-panel button {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+.scheduling-panel button:hover {
+  background: var(--v2-background-bg-layer-02);
+}
+.scheduling-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.scheduling-panel :focus-visible {
+  outline: 2px solid var(--v2-border-border-focus);
+  outline-offset: 2px;
+}
+.scheduling-tabs,
+.scheduling-actions,
+.scheduling-days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.scheduling-tabs button[aria-pressed="true"],
+.scheduling-days button[aria-pressed="true"] {
+  background: var(--v2-background-bg-layer-01);
+  font-weight: 600;
+}
+.scheduling-task {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  text-align: start;
+  gap: 5px;
+  margin: 4px 0;
+  border: 1px solid var(--v2-border-border-base);
+}
+.scheduling-run {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--v2-border-border-base);
+}
+.scheduling-run p {
+  margin: 4px 0;
+}
+.scheduling-run .scheduling-actions {
+  margin: 10px 0 0;
+}
+.scheduling-instructions {
+  white-space: pre-wrap;
+  margin: 16px 0;
+}
+.scheduling-panel footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--v2-border-border-base);
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+}
+.scheduling-form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 0;
+  padding: 0;
+  margin: 16px 0;
+  min-width: 0;
+}
+.scheduling-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scheduling-form input,
+.scheduling-form textarea,
+.scheduling-form select {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 6px;
+  background: var(--v2-background-bg-layer-01);
+  color: inherit;
+}
+.scheduling-form textarea {
+  resize: vertical;
+}
+.scheduling-form details label {
+  margin-top: 14px;
+}
+.scheduling-form summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.scheduling-error,
+.scheduling-confirm {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 6px;
+}
+.scheduling-confirm {
+  margin: 12px 16px 0;
+}
+.scheduling-empty {
+  padding: 24px 4px;
+  text-align: center;
+}
+@media (max-width: 767px) {
+  .scheduling-panel {
+    width: min(420px, 100%);
+    max-width: 100%;
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    margin: 0;
+  }
+}

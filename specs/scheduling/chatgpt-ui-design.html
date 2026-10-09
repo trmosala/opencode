@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CookieMonster Scheduling — design preview</title>
+<style>
+:root{font:14px/1.45 system-ui,sans-serif;color:#262521;background:#faf9f7}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer;border:0;background:transparent;color:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #56534f;outline-offset:2px}
+.app{display:flex;min-height:100vh}
+.sidebar{width:230px;flex:none;background:#f1f0ed;border-right:1px solid #e5e3df;padding:22px 12px}
+.brand{font-weight:700;font-size:17px;padding:4px 12px 22px}
+.nav{display:block;width:100%;text-align:left;padding:11px 12px;border-radius:9px}
+.nav:hover,.nav.active,.row:hover{background:#e8e6e2}
+.label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#77736d;margin:23px 12px 8px}
+.projects{padding:8px 12px;color:#67635e}
+main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{padding:18px 32px;border-bottom:1px solid #eeeae5;display:flex;align-items:center;justify-content:space-between}
+.preview{font-size:11px;letter-spacing:.06em;text-transform:uppercase;border:1px solid #d7d3cc;border-radius:30px;padding:5px 9px;color:#68645e}
+.chat{width:min(680px,calc(100% - 48px));margin:60px auto 24px;flex:1}
+.chat h1{font-size:22px;font-weight:600;margin:0 0 32px}
+.bubble{margin:18px 0;padding:15px 18px;border-radius:16px;max-width:85%}
+.user{background:#f0efec;margin-left:auto}
+.assistant{background:white;border:1px solid #ebe9e4}
+.composer{width:min(680px,calc(100% - 48px));margin:0 auto 30px}
+.composer textarea{width:100%;min-height:92px;resize:vertical}
+textarea,input,select{border:1px solid #dcd9d2;background:#fff;border-radius:10px;padding:10px 12px;color:#262521}
+.panel{width:420px;flex:none;background:#fff;border-left:1px solid #e7e4de;display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
+.panel-head{padding:19px 18px 13px;border-bottom:1px solid #eeeae5}
+.head-row,.actions,.tabs{display:flex;align-items:center;justify-content:space-between;gap:8px}
+h2{font-size:18px;margin:0}
+h3{font-size:16px;margin:10px 0}
+.muted,small{color:#75716a}
+.tabs{justify-content:flex-start;padding:12px 16px;border-bottom:1px solid #eeeae5}
+.tab{padding:8px 12px;border-radius:9px}
+.tab.active{background:#efeeeb;font-weight:600}
+.panel-body{overflow:auto;padding:18px;flex:1}
+.row{width:100%;text-align:left;border:1px solid #ebe9e4;border-radius:12px;padding:14px;margin-bottom:9px}
+.row strong,.row small{display:block}
+.card{border:1px solid #ebe9e4;border-radius:12px;padding:15px;margin:14px 0}
+.card p{margin:6px 0}
+.actions{justify-content:flex-start;flex-wrap:wrap;margin:14px 0}
+.pill{background:#f1f0ed;border-radius:9px;padding:8px 12px}
+.primary{background:#262521;color:white}
+.note{font-size:12px;color:#77736d;padding:14px 18px;border-top:1px solid #eeeae5}
+label{display:block;font-weight:600;margin:12px 0 5px}
+form input,form select,form textarea{width:100%}
+form textarea{min-height:95px;resize:vertical}
+.frequency{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.frequency label{margin:0;font-weight:400}
+.frequency input{width:auto}
+.days{display:flex;gap:5px;flex-wrap:wrap}
+.days label{font-weight:400;border:1px solid #dcd9d2;border-radius:8px;padding:6px;margin:0}
+.days input{width:auto}
+details{margin-top:14px}
+summary{cursor:pointer;font-weight:600}
+@media(max-width:900px){.sidebar{width:160px}.panel{width:min(420px,52vw)}.top{padding:16px}.chat{margin-top:24px}}
+@media(max-width:650px){.sidebar{width:105px;padding:10px 3px}.brand{font-size:13px;padding:10px 5px}.panel{width:min(420px,70vw)}.chat{width:calc(100% - 20px)}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar" aria-label="CM3 navigation">
+<div class="brand">CookieMonster</div>
+<button class="nav">New task</button>
+<button class="nav active" id="open" aria-controls="panel">Scheduled</button>
+<div class="label">Projects</div>
+<div class="projects">CookieMonster</div>
+<div class="projects">Website refresh</div>
+</aside>
+<main>
+<header class="top"><span>Morning PR review</span><span class="preview">Design preview · sample data</span></header>
+<div class="chat">
+<h1>Morning PR review</h1>
+<div class="bubble user">Could you summarize the new PRs for the team?</div>
+<div class="bubble assistant">I found three pull requests. Two are ready to review; one is waiting for checks.</div>
+</div>
+<div class="composer"><label for="draft">Message</label><textarea id="draft">Please also check the release notes before sending.</textarea></div>
+</main>
+<aside class="panel" id="panel" aria-label="Scheduling panel">
+<div class="panel-head"><div class="head-row"><h2>Scheduling</h2><button class="pill" id="close" aria-label="Close Scheduling">Close</button></div>
+<div class="actions"><button class="pill primary" id="new">New task</button><small>Manage routine work</small></div></div>
+<div class="tabs" id="tabs" aria-label="Scheduling views"><button class="tab active" data-tab="tasks">Tasks</button><button class="tab" data-tab="history">Run history</button></div>
+<div class="panel-body">
+<section id="tasks" aria-label="Tasks"><div id="task-list"></div></section>
+<section id="history" aria-label="Run history" hidden><div class="card"><strong>Morning PR digest</strong><p class="muted">Today, 08:30 · Completed</p><button class="pill" type="button">Open conversation</button></div><div class="card"><strong>Dependency audit</strong><p class="muted">Yesterday, 09:00 · Needs review</p></div></section>
+<section id="detail" aria-label="Task detail" hidden><button class="pill" id="back">Back</button><h3 id="detail-name"></h3><p class="muted" id="detail-status"></p><div class="card"><strong>Instructions</strong><p id="detail-instructions"></p><small id="detail-meta"></small></div><div class="actions"><button class="pill" id="edit-task">Edit</button><button class="pill" type="button">Pause</button><button class="pill" type="button">Delete</button></div><small>Actions are illustrative only.</small></section>
+<section id="editor" aria-label="Inline task editor" hidden><button class="pill" id="cancel-top">Back</button><h3 id="editor-title">New scheduled task</h3><form id="form">
+<label for="name">Name</label><input id="name" value="Weekly status digest">
+<label for="instructions">Instructions</label><textarea id="instructions">Summarize open work for the team.</textarea>
+<label for="project">Project</label><select id="project"><option>CookieMonster</option><option>Website refresh</option></select>
+<div class="frequency" role="group" aria-label="When"><label><input type="radio" name="when" value="once"> Once</label><label><input type="radio" name="when" value="interval"> Interval</label><label><input type="radio" name="when" value="weekdays" checked> Weekdays</label></div>
+<div id="once" hidden><label for="date">Date and time</label><input id="date" type="datetime-local"></div>
+<div id="interval" hidden><label for="minutes">Every (minutes)</label><input id="minutes" type="number" min="1" value="60"></div>
+<div id="weekdays"><span class="muted">Days</span><div class="days"><label><input type="checkbox" checked> Mon</label><label><input type="checkbox" checked> Tue</label><label><input type="checkbox" checked> Wed</label><label><input type="checkbox" checked> Thu</label><label><input type="checkbox" checked> Fri</label></div><label for="time">Time</label><input id="time" type="time" value="08:30"></div>
+<label for="timezone">Timezone</label><input id="timezone" value="Africa/Johannesburg">
+<label for="notify">Notifications</label><select id="notify"><option>Only when attention is needed</option><option>All runs</option></select>
+<details><summary>Advanced</summary><label for="run-in">Run in</label><select id="run-in"><option>Local project folder</option><option>New worktree</option></select><label for="model">Model</label><select id="model"><option>Project default</option><option>CM GPT</option></select></details>
+<div class="actions"><button class="pill" id="cancel" type="button">Cancel</button><button class="pill primary" type="submit">Save preview</button></div>
+</form></section>
+</div>
+<div class="note">Tasks run while CookieMonster is open. This preview never runs or changes a schedule.</div>
+</aside>
+</div>
+<script>
+const tasks=[{name:"Morning PR digest",status:"Active",meta:"Mon–Fri · 08:30 · CookieMonster",instructions:"Summarize new pull requests for the team."},{name:"Dependency audit",status:"Needs review",meta:"Every 60 minutes · CookieMonster",instructions:"Check dependencies and report updates."},{name:"Flaky test sweep",status:"Paused",meta:"Once · Website refresh",instructions:"Identify unstable tests."}]
+const panel=document.querySelector("#panel"), tabs=document.querySelector("#tabs")
+let selected=0,view="tasks",editing=false
+function show(next){view=next;for(const id of ["tasks","history","detail","editor"])document.getElementById(id).hidden=id!==next;tabs.hidden=next==="detail"||next==="editor";for(const tab of tabs.querySelectorAll(".tab"))tab.classList.toggle("active",tab.dataset.tab===next)}
+function list(){const box=document.querySelector("#task-list");box.replaceChildren();tasks.forEach((task,index)=>{const row=document.createElement("button"),name=document.createElement("strong"),meta=document.createElement("small");row.className="row";name.textContent=task.name+" · "+task.status;meta.textContent=task.meta;row.append(name,meta);row.onclick=()=>{selected=index;detail()};box.append(row)})}
+function detail(){const task=tasks[selected];document.querySelector("#detail-name").textContent=task.name;document.querySelector("#detail-status").textContent=task.status;document.querySelector("#detail-instructions").textContent=task.instructions;document.querySelector("#detail-meta").textContent=task.meta;show("detail")}
+document.querySelector("#open").onclick=()=>{panel.hidden=false;document.querySelector("#close").focus()}
+document.querySelector("#close").onclick=()=>{panel.hidden=true;document.querySelector("#open").focus()}
+document.querySelector("#new").onclick=()=>{editing=false;document.querySelector("#editor-title").textContent="New scheduled task";show("editor");document.querySelector("#name").focus()}
+document.querySelector("#edit-task").onclick=()=>{editing=true;const task=tasks[selected];document.querySelector("#name").value=task.name;document.querySelector("#instructions").value=task.instructions;document.querySelector("#editor-title").textContent="Edit scheduled task";show("editor");document.querySelector("#name").focus()}
+document.querySelector("#back").onclick=()=>show("tasks")
+function cancel(){show(editing?"detail":"tasks")}
+document.querySelector("#cancel").onclick=cancel
+document.querySelector("#cancel-top").onclick=cancel
+tabs.onclick=event=>{const tab=event.target.closest("[data-tab]");if(tab)show(tab.dataset.tab)}
+document.querySelectorAll('input[name="when"]').forEach(radio=>radio.onchange=()=>{for(const id of ["once","interval","weekdays"])document.getElementById(id).hidden=id!==radio.value})
+document.querySelector("#form").onsubmit=event=>{event.preventDefault();const task={name:document.querySelector("#name").value,status:"Preview only",instructions:document.querySelector("#instructions").value,meta:document.querySelector("#project").value+" · "+document.querySelector('input[name="when"]:checked').value};if(editing)tasks[selected]=task;else{tasks.unshift(task);selected=0}list();detail()}
+list()
+</script>
+</body>
+</html>

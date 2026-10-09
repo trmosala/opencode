@@ -20,8 +20,10 @@ import { useSettingsDialog } from "./settings-dialog"
 import { Cm3Icon } from "./cm3-icon"
 import { WppAuthControl } from "./wpp-auth-control"
 import { Icon } from "@opencode-ai/ui/v2/icon"
+import { useScheduling } from "./scheduling-panel"
 
 export function Cm3Shell() {
+  const scheduling = useScheduling()
   const home = createHomeController()
   const sessions = createHomeSessionsController(home, { registerPalette: false, allProjects: true })
   const language = useLanguage()
@@ -324,6 +326,19 @@ export function Cm3Shell() {
         >
           <Cm3Icon name="note-pencil" />
           {language.t("quietCompanion.newTask")}
+        </button>
+        <button
+          class="cm3-sidebar-action"
+          type="button"
+          aria-pressed={scheduling.isOpen()}
+          data-action="scheduling"
+          onClick={() => {
+            scheduling.open()
+            setState("navigation", false)
+          }}
+        >
+          <Cm3Icon name="clock" />
+          {language.t("schedules.title")}
         </button>
         <label class="cm3-sidebar-search">
           <Cm3Icon name="magnifying-glass" />

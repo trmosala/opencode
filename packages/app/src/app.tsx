@@ -36,6 +36,7 @@ import {
   type JSX,
   lazy,
   onCleanup,
+  onMount,
   type ParentProps,
   Show,
 } from "solid-js"
@@ -72,6 +73,7 @@ import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } fro
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
 import { QuietCompanionSwitch } from "@/components/quiet-companion-switch"
+import { SchedulingProvider, useScheduling } from "@/components/scheduling-panel"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 const Scheduled = lazy(() => import("@/pages/scheduled"))
@@ -320,8 +322,10 @@ function SharedProviders(props: ParentProps) {
     <>
       <BodyDesignClass />
       <CommandProvider>
-        <DesktopCommands />
-        <HighlightsProvider>{props.children}</HighlightsProvider>
+        <SchedulingProvider>
+          <DesktopCommands />
+          <HighlightsProvider>{props.children}</HighlightsProvider>
+        </SchedulingProvider>
       </CommandProvider>
     </>
   )
@@ -332,6 +336,8 @@ function DesktopCommands() {
   const command = useCommand()
   const language = useLanguage()
   const platform = usePlatform()
+  const scheduling = useScheduling()
+  const settings = useSettings()
 
   command.register("desktop", () => {
     const commands: CommandOption[] = [
@@ -339,7 +345,7 @@ function DesktopCommands() {
         id: "schedule.open",
         title: language.t("schedules.title"),
         category: language.t("command.category.settings"),
-        onSelect: () => navigate("/scheduled"),
+        onSelect: () => (settings.general.newLayoutDesigns() ? scheduling.open() : navigate("/scheduled")),
       },
     ]
     if (platform.platform === "desktop" && platform.exportDebugLogs) {
@@ -647,7 +653,7 @@ function Routes(props: { serverScoped?: JSX.Element }) {
               </LegacyServerLayout>
             }
           >
-            <Scheduled />
+            <SchedulingLanding />
           </Show>
         )}
       />
@@ -677,6 +683,12 @@ function Routes(props: { serverScoped?: JSX.Element }) {
       <Route path="/new-session" component={DraftRoute} />
     </>
   )
+}
+
+function SchedulingLanding() {
+  const scheduling = useScheduling()
+  onMount(() => scheduling.open())
+  return <Navigate href="/" />
 }
 
 function NewLayoutLegacySessionRedirect() {
