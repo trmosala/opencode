@@ -68,7 +68,11 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Test installer configuration and capabilities
-        run: bun test --timeout 20000 electron-builder.config.test.ts src/main/macos-user-install.test.ts src/main/system-cli.test.ts
+        run: |
+          bun test --timeout 20000 electron-builder.config.test.ts src/main/system-cli.test.ts
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            bun test --timeout 20000 src/main/macos-user-install.test.ts
+          fi
         working-directory: packages/desktop
         # The tests opt into each branding/signing variant themselves.
         env:
@@ -93,6 +97,14 @@ jobs:
 
       - name: List packaged output
         run: ls -la packages/desktop/dist
+
+      - name: Test packaged Windows CLI
+        if: inputs.platform == 'windows'
+        run: |
+          ./dist/win-unpacked/resources/opencode-cli.exe --version
+          ./dist/win-unpacked/resources/cli/opencode.exe --version
+          cmp dist/win-unpacked/resources/opencode-cli.exe dist/win-unpacked/resources/cli/opencode.exe
+        working-directory: packages/desktop
 
       - name: Test non-root DMG app installation and removal
         if: inputs.platform != 'windows'
