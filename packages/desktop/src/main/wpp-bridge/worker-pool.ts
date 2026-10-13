@@ -480,15 +480,14 @@ type StartupContents = Pick<BrowserWindow["webContents"], "executeJavaScript" | 
   mainFrame: Pick<BrowserWindow["webContents"]["mainFrame"], "framesInSubtree">
 }
 
-export async function openAssistantPopover(
-  contents: StartupContents,
-  { now = Date.now, sleep = wait } = {},
-) {
+export async function openAssistantPopover(contents: StartupContents, { now = Date.now, sleep = wait } = {}) {
   const startedAt = now()
   const deadline = startedAt + 180000
   let nextClickAt = startedAt
   let clickCount = 0
   let inspectionFailures = 0
+  let expandedRecoveryCount = 0
+  let expandedSince: number | undefined
   let state: {
     open?: boolean
     click?: boolean
@@ -499,50 +498,99 @@ export async function openAssistantPopover(
     disabled?: boolean
     unobscured?: boolean
     iframePresent?: boolean
+    iframeVisible?: boolean
   } | null = null
 
   while (now() < deadline) {
-    state = await contents.executeJavaScript(`
+    state = await contents
+      .executeJavaScript(
+        `
       (() => {
-        const iframe = document.querySelector("#assistant-iframe");
-        // The src attribute does not follow SPA routing. Composer readiness is checked downstream.
-        if (iframe && String(iframe.src || "").includes("open-web-assistant-cs.wpp.ai")) {
-          return { open: true };
+        function queryAll(selector, root = document) {
+          return [
+            ...root.querySelectorAll(selector),
+            ...Array.from(root.querySelectorAll("*"))
+              .flatMap((el) => el.shadowRoot ? queryAll(selector, el.shadowRoot) : [])
+          ];
         }
+        function visible(el) {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0
+            && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse"
+            && Number(style.opacity) !== 0
+            && (!el.checkVisibility || el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+        }
+        function inspectControl(control) {
+          const expanded = control.getAttribute("aria-expanded");
+          const disabled = control.matches(":disabled") || !!control.closest('[disabled], [aria-disabled="true"]');
+          const rect = control.getBoundingClientRect();
+          const x = Math.round(rect.left + rect.width / 2);
+          const y = Math.round(rect.top + rect.height / 2);
+          let hit = document.elementFromPoint(x, y);
+          // A document hit test returns the shadow host, so descend to the actual button.
+          while (hit?.shadowRoot?.elementFromPoint) {
+            const child = hit.shadowRoot.elementFromPoint(x, y);
+            if (!child || child === hit) break;
+            hit = child;
+          }
+          let target = hit;
+          while (target && target !== control && !control.contains(target)) {
+            target = target.getRootNode?.().host || null;
+          }
+          const unobscured = !!target && (target === control || control.contains(target));
+          return { control, expanded, disabled, x, y, unobscured, visible: visible(control) };
+        }
+        const iframes = queryAll("#assistant-iframe, iframe")
+          .filter((el) => el.id === "assistant-iframe" || String(el.src || "").includes("open-web-assistant-cs.wpp.ai"));
+        const iframeVisible = iframes.some((el) => String(el.src || "").includes("open-web-assistant-cs.wpp.ai") && visible(el));
+        // Hidden, pre-mounted frames do not prove the assistant panel opened.
+        if (iframeVisible) return { open: true };
 
-        const control = document.querySelector('[data-testid="assistant-popover-button-new"]')
-          || Array.from(document.querySelectorAll('wpp-action-button-v2-22-2, button, [role="button"]'))
-            .find((el) => [el.innerText, el.textContent, el.getAttribute("aria-label")]
-              .some((label) => /AI\\s*Assistant/i.test(label || "")));
-        if (!control) return { open: false, buttonFound: false, expanded: null, iframePresent: !!iframe };
-
-        const expanded = control.getAttribute("aria-expanded");
-        const disabled = control.matches(":disabled") || !!control.closest('[disabled], [aria-disabled="true"]');
-        const rect = control.getBoundingClientRect();
-        const x = Math.round(rect.left + rect.width / 2);
-        const y = Math.round(rect.top + rect.height / 2);
-        const hit = document.elementFromPoint(x, y);
-        const unobscured = !!hit && (hit === control || control.contains(hit));
+        const dedicated = queryAll('[data-testid^="assistant-popover-button"], [aria-controls="assistant-iframe"]');
+        const fallback = queryAll('button, [role="button"], [tabindex], wpp-action-button-v2-22-2')
+          .filter((el) => [el.innerText, el.textContent, el.getAttribute("aria-label"), el.getAttribute("title")]
+            .some((label) => /AI\\s*Assistant/i.test(label || "")));
+        const controls = Array.from(new Set([...dedicated, ...fallback])).map(inspectControl);
+        const candidate = controls.find((value) => value.visible && !value.disabled && value.unobscured)
+          || controls.find((value) => value.visible) || controls[0];
+        if (!candidate) return { open: false, buttonFound: false, expanded: null, iframePresent: iframes.length > 0, iframeVisible };
+        const { expanded, disabled, x, y, unobscured } = candidate;
         return {
           open: false,
           buttonFound: true,
           expanded: expanded === null ? null : expanded === "true",
           disabled,
           unobscured,
-          iframePresent: !!iframe,
-          click: expanded !== "true" && !disabled && unobscured && rect.width > 0 && rect.height > 0,
+          iframePresent: iframes.length > 0,
+          iframeVisible,
+          click: !disabled && unobscured && candidate.visible,
           x,
           y
         };
       })()
-    `, true).catch(() => {
-      inspectionFailures += 1
-      return null
-    })
+    `,
+        true,
+      )
+      .catch(() => {
+        inspectionFailures += 1
+        return null
+      })
 
     if (state?.open) return
     // Poll readiness frequently, but give a dispatched click time to open the panel.
-    if (state?.click && now() >= nextClickAt && typeof state.x === "number" && typeof state.y === "number") {
+    // Preserve slow opening panels. After a minute without a visible frame, permit one
+    // toggle to recover a stale expanded state, then let the collapsed control open again.
+    expandedSince = state?.expanded === true ? (expandedSince ?? now()) : undefined
+    const recoverExpanded = expandedSince !== undefined && now() - expandedSince >= 60000 && expandedRecoveryCount === 0
+    if (
+      state?.click &&
+      (state.expanded !== true || recoverExpanded) &&
+      now() >= nextClickAt &&
+      typeof state.x === "number" &&
+      typeof state.y === "number"
+    ) {
+      if (recoverExpanded) expandedRecoveryCount += 1
       contents.sendInputEvent({ type: "mouseMove", x: state.x, y: state.y })
       contents.sendInputEvent({ type: "mouseDown", button: "left", x: state.x, y: state.y, clickCount: 1 })
       contents.sendInputEvent({ type: "mouseUp", button: "left", x: state.x, y: state.y, clickCount: 1 })
@@ -559,13 +607,17 @@ export async function openAssistantPopover(
     elapsedMs: now() - startedAt,
     clickCount,
     inspectionFailures,
-    popover: state ? {
-      buttonFound: state.buttonFound === true,
-      expanded: state.expanded ?? null,
-      disabled: state.disabled === true,
-      unobscured: state.unobscured === true,
-      iframePresent: state.iframePresent === true,
-    } : null,
+    expandedRecoveryCount,
+    popover: state
+      ? {
+          buttonFound: state.buttonFound === true,
+          expanded: state.expanded ?? null,
+          disabled: state.disabled === true,
+          unobscured: state.unobscured === true,
+          iframePresent: state.iframePresent === true,
+          iframeVisible: state.iframeVisible === true,
+        }
+      : null,
   }
   const error = new Error("Timed out opening WPP AI Assistant popover.")
   // Startup has not submitted a prompt. The failed window is destroyed by spawn's cleanup,

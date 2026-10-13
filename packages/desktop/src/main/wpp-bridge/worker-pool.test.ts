@@ -507,6 +507,7 @@ describe("assistant popover startup", () => {
 
   test.each(["disabled", "aria-disabled"])("waits for a %s control to become enabled", async (attribute) => {
     const h = popoverHarness()
+    h.state.fallback = false
     h.button.attributes[attribute] = "true"
     h.state.onPoll = () => {
       if (h.state.time >= 1000) delete h.button.attributes[attribute]
@@ -527,6 +528,7 @@ describe("assistant popover startup", () => {
 
   test("does not click a zero-sized control even when its centre hits a child", async () => {
     const h = popoverHarness()
+    h.state.fallback = false
     h.state.onPoll = () => {
       h.button.rect.height = h.state.time < 1000 ? 0 : 20
     }
@@ -536,6 +538,7 @@ describe("assistant popover startup", () => {
 
   test("waits until an offscreen control enters the viewport", async () => {
     const h = popoverHarness()
+    h.state.fallback = false
     h.state.onPoll = () => {
       h.button.rect.left = h.state.time < 1000 ? -100 : 100
     }
@@ -551,6 +554,66 @@ describe("assistant popover startup", () => {
     expect(h.state.time).toBe(0)
   })
 
+  test("opens an assistant control inside a shadow root", async () => {
+    const h = popoverHarness()
+    h.state.shadow = true
+    await h.run()
+    expect(h.clicks).toEqual([{ time: 0, x: 120 }])
+  })
+
+  test("ignores a hidden pre-mounted assistant iframe", async () => {
+    const h = popoverHarness()
+    h.state.openAfter = 0
+    h.state.hiddenIframe = true
+    h.state.onPoll = () => {
+      if (h.state.time >= 1000) h.state.hiddenIframe = false
+    }
+    await h.run()
+    expect(h.clicks).toEqual([{ time: 0, x: 120 }])
+    expect(h.state.time).toBe(1000)
+  })
+
+  test("uses a visible fallback when the dedicated control is hidden", async () => {
+    const h = popoverHarness()
+    h.button.rect.height = 0
+    await h.run()
+    expect(h.clicks).toEqual([{ time: 0, x: 320 }])
+  })
+
+  test.each(["visibility", "opacity"])("ignores a control hidden by CSS %s", async (property) => {
+    const h = popoverHarness()
+    if (property === "visibility") h.button.style.visibility = "hidden"
+    if (property === "opacity") h.button.style.opacity = "0"
+    await h.run()
+    expect(h.clicks).toEqual([{ time: 0, x: 320 }])
+  })
+
+  test("gives a late expanding panel its own full minute to open", async () => {
+    const h = popoverHarness()
+    h.state.fallback = false
+    h.state.openAfter = 90000
+    h.state.expandOnClick = true
+    h.button.attributes["disabled"] = "true"
+    h.state.onPoll = () => {
+      if (h.state.time >= 40000) delete h.button.attributes["disabled"]
+    }
+    await h.run()
+    expect(h.clicks).toEqual([{ time: 40000, x: 120 }])
+  })
+
+  test("recovers a stale expanded control by closing and reopening it once", async () => {
+    const h = popoverHarness()
+    h.state.openAfter = Infinity
+    h.state.toggleOnClick = true
+    h.button.attributes["aria-expanded"] = "true"
+    await h.run()
+    expect(h.clicks).toEqual([
+      { time: 60000, x: 120 },
+      { time: 63000, x: 120 },
+    ])
+    expect(h.state.time).toBe(63500)
+  })
+
   test("preserves safe timeout diagnostics through default run-log filtering", async () => {
     const h = popoverHarness()
     h.state.openAfter = Infinity
@@ -563,14 +626,16 @@ describe("assistant popover startup", () => {
     expect(error.diagnostics).toEqual({
       phase: "assistant-popover",
       elapsedMs: 180000,
-      clickCount: 1,
+      clickCount: 2,
       inspectionFailures: 0,
+      expandedRecoveryCount: 1,
       popover: {
         buttonFound: true,
         expanded: true,
         disabled: false,
         unobscured: true,
         iframePresent: true,
+        iframeVisible: false,
       },
     })
     expect(runLogRecord({ bridgeResult: error.bridgeResult }, false)).toEqual({
@@ -601,6 +666,9 @@ function popoverHarness() {
     dedicated: true,
     fallback: true,
     covered: false,
+    shadow: false,
+    hiddenIframe: false,
+    toggleOnClick: false,
     openAfter: 500,
     expandOnClick: false,
     iframeSrc: "",
@@ -610,27 +678,46 @@ function popoverHarness() {
   const clicks: { time: number; x: number }[] = []
   const button = popoverButton(100)
   const fallback = popoverButton(300)
-  const document = {
-    querySelector(selector: string) {
-      if (selector === "#assistant-iframe") {
-        if (state.time >= state.openAfter && (clicks.length > 0 || state.openAfter === 0)) {
-          return { src: "https://open-web-assistant-cs.wpp.ai/external?private=value" }
-        }
-        return state.iframeSrc ? { src: state.iframeSrc } : null
+  const iframe = {
+    id: "assistant-iframe",
+    src: "https://open-web-assistant-cs.wpp.ai/external?private=value",
+    getBoundingClientRect: () => ({ width: state.hiddenIframe ? 0 : 400, height: 600 }),
+  }
+  const root = {
+    querySelectorAll(selector: string): unknown[] {
+      if (selector === "#assistant-iframe, iframe") {
+        if (state.time >= state.openAfter && (clicks.length > 0 || state.openAfter === 0)) return [iframe]
+        return state.iframeSrc ? [{ ...iframe, src: state.iframeSrc }] : []
       }
-      return state.dedicated ? button : null
-    },
-    querySelectorAll() {
-      // Generic text matches can appear before the dedicated control in document order.
+      if (selector.startsWith("[data-testid")) return state.dedicated ? [button] : []
+      if (selector === "*") return []
       return [state.fallback ? fallback : null, state.dedicated ? button : null].filter(Boolean)
+    },
+    elementFromPoint(x: number) {
+      return x === 120 ? button.child : fallback.child
+    },
+  }
+  const host = { shadowRoot: root }
+  const document = {
+    querySelectorAll(selector: string) {
+      if (!state.shadow) return root.querySelectorAll(selector)
+      return selector === "*" ? [host] : []
     },
     elementFromPoint(x: number) {
       if (x < 0 || x >= 1440) return null
       if (state.covered) return {}
-      return x === 120 ? button.child : fallback.child
+      return state.shadow ? host : root.elementFromPoint(x)
     },
   }
-  const context = vm.createContext({ document })
+  const context = vm.createContext({
+    document,
+    getComputedStyle: (el: { style?: { display?: string; visibility?: string; opacity?: string } }) => ({
+      display: "block",
+      visibility: "visible",
+      opacity: "1",
+      ...el.style,
+    }),
+  })
   const contents = {
     async executeJavaScript(source: string) {
       state.onPoll()
@@ -644,6 +731,10 @@ function popoverHarness() {
       if (event.type !== "mouseUp" || !("x" in event)) return
       clicks.push({ time: state.time, x: event.x })
       if (state.expandOnClick) button.attributes["aria-expanded"] = "true"
+      if (state.toggleOnClick) {
+        button.attributes["aria-expanded"] = button.attributes["aria-expanded"] === "true" ? "false" : "true"
+        if (button.attributes["aria-expanded"] === "true") state.openAfter = state.time + 500
+      }
     },
     getURL: () => "https://ogilvy.os.wpp.com/orchestration/project/private",
     mainFrame: { framesInSubtree: [] },
@@ -669,6 +760,7 @@ function popoverButton(left: number) {
   return {
     attributes,
     child,
+    style: { display: "block", visibility: "visible", opacity: "1" },
     innerText: "AI Assistant",
     textContent: "AI Assistant",
     rect: { left, top: 0, width: 40, height: 20 },
