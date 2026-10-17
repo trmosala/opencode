@@ -8,3 +8,10 @@ export async function openPanelFileBrowser(page: Page) {
   await open.click()
   await expect(tabs.getByRole("tab", { name: "Open file", exact: true })).toHaveAttribute("data-selected", "")
 }
+
+export async function openPanelReview(page: Page) {
+  const tabs = page.locator(".session-side-panel-tabs")
+  await tabs.getByRole("button", { name: "New tab", exact: true }).click()
+  await page.locator("#review-panel").getByRole("button", { name: "Review", exact: true }).click()
+  await expect(tabs.locator("#session-side-panel-review-tab")).toHaveAttribute("data-selected", "")
+}

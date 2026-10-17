@@ -28,9 +28,9 @@ jobs:
       matrix:
         settings:
           - name: linux
-            host: blacksmith-4vcpu-ubuntu-2404
+            host: ${{ github.repository == 'anomalyco/opencode' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
           - name: windows
-            host: blacksmith-4vcpu-windows-2025
+            host: ${{ github.repository == 'anomalyco/opencode' && 'blacksmith-4vcpu-windows-2025' || 'windows-2025' }}
     runs-on: ${{ matrix.settings.host }}
     defaults:
       run:
@@ -49,6 +49,10 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+        working-directory: packages/app
+
       - name: Configure git identity
         run: |
           git config --global user.email "bot@opencode.ai"
@@ -65,7 +69,8 @@ jobs:
 
       - name: Run unit tests
         timeout-minutes: 20
-        run: GITHUB_ACTIONS=false bun turbo test
+        # Browser builds and full CLI startup otherwise contend on smaller fork runners.
+        run: GITHUB_ACTIONS=false bun turbo test --concurrency=${{ github.repository == 'anomalyco/opencode' && '10' || '1' }}
         env:
           OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
 
@@ -86,9 +91,9 @@ jobs:
       matrix:
         settings:
           - name: linux
-            host: blacksmith-4vcpu-ubuntu-2404
+            host: ${{ github.repository == 'anomalyco/opencode' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
           - name: windows
-            host: blacksmith-4vcpu-windows-2025
+            host: ${{ github.repository == 'anomalyco/opencode' && 'blacksmith-4vcpu-windows-2025' || 'windows-2025' }}
     runs-on: ${{ matrix.settings.host }}
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers

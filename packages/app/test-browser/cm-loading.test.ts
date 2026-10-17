@@ -1,15 +1,16 @@
-import { expect, test } from "bun:test"
+import { test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { createServer } from "node:http"
-import { chromium } from "@playwright/test"
+import { chromium, expect } from "@playwright/test"
 import { build } from "vite"
 import solid from "vite-plugin-solid"
 
 test("cookie loaders retain their choice, inherit colour tokens, animate, and respect reduced motion", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cm-loading-"))
-  const browser = await chromium.launch()
+  // Embedded SVG images inherit the OS motion preference independently of page emulation.
+  const browser = await chromium.launch({ args: ["--force-prefers-no-reduced-motion"] })
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname
     if (pathname === "/") {
@@ -118,10 +119,9 @@ test("cookie loaders retain their choice, inherit colour tokens, animate, and re
     ).toEqual(before)
     await page.emulateMedia({ reducedMotion: "no-preference" })
     const first = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
-    // Allow the embedded SVG image to advance several projected vector frames.
-    await page.waitForTimeout(220)
-    const next = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
-    expect(first.equals(next)).toBe(false)
+    await expect
+      .poll(async () => first.equals(await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })))
+      .toBe(false)
     await page.screenshot({ path: join(directory, "preview.png"), fullPage: true })
   } finally {
     await browser.close()

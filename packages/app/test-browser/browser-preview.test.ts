@@ -510,6 +510,8 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
     await Promise.resolve()
     expect(calls[0]).toMatchObject({ op: "device", size: { width: 360, height: 844 } })
 
+    // The initial panel attachment must not satisfy the screenshot acknowledgement.
+    requested = Promise.withResolvers<void>()
     const menu = host.querySelector<HTMLButtonElement>('button[aria-label="Browser menu"]')!
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
     await Promise.resolve()

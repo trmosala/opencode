@@ -115,6 +115,20 @@ describe("desktop native translations", () => {
     )
   })
 
+  test("menu translations keep their keys when native messages are appended", async () => {
+    for (const [locale, file] of [
+      ["hr", "Datoteka"],
+      ["hu", "Fájl"],
+      ["is", "Skrá"],
+      ["lt", "Failas"],
+    ]) {
+      const { dict } = await import(`./${locale}.ts`)
+      expect(dict["desktop.menu.app"]).toBe("OpenCode")
+      expect(dict["desktop.menu.file"]).toBe(file)
+      expect(dict["desktop.browser.resources.title"]).toBe(DESKTOP_NATIVE_ENGLISH["desktop.browser.resources.title"])
+    }
+  })
+
   test("uses native language names independent of the active locale", () => {
     expect(DESKTOP_NATIVE_LOCALES.map((locale) => DESKTOP_NATIVE_LABELS[locale])).toEqual([
       "English",
@@ -263,6 +277,7 @@ describe("desktop native locale detection", () => {
     expect(detectDesktopNativeLocale(["zh-TW"])).toBe("zht")
     expect(detectDesktopNativeLocale(["zh-SG"])).toBe("zh")
     expect(detectDesktopNativeLocale(["pa-PK"])).toBe("pa")
+    expect(detectDesktopNativeLocale(["pa-Aran-PK"])).toBe("pa")
     expect(detectDesktopNativeLocale(["pa-IN", "fr"])).toBe("fr")
     expect(detectDesktopNativeLocale(["az-Cyrl", "de"])).toBe("de")
     expect(detectDesktopNativeLocale(["sr-Cyrl"])).toBe("sr")

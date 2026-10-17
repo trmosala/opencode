@@ -142,6 +142,75 @@ const scenarios: Scenario[] = [
   http.protected.get("/command", "command.list").json(200, array, "status"),
   http.protected.get("/agent", "app.agents").json(200, array, "status"),
   http.protected.get("/skill", "app.skills").json(200, array, "status"),
+  http.protected.get("/skill/catalog", "skill.catalog").json(200, array),
+  http.protected
+    .post("/skill/validate", "skill.validate.stale")
+    .at((ctx) => ({
+      path: "/skill/validate",
+      headers: ctx.headers(),
+      body: { name: "missing-skill", source: "missing", revision: "stale" },
+    }))
+    .json(400, (body) => {
+      object(body)
+      check(body.name === "SkillError", "stale skill selection should be rejected")
+    }),
+  http.protected
+    .post("/skill/manage", "skill.manage.stale")
+    .at((ctx) => ({
+      path: "/skill/manage",
+      headers: ctx.headers(),
+      body: { action: "read", selected: { name: "missing-skill", source: "missing", revision: "stale" } },
+    }))
+    .json(400, (body) => {
+      object(body)
+      check(body.name === "SkillError", "missing managed skill should be rejected")
+    }),
+  http.protected
+    .post("/skill/review", "skill.review")
+    .at((ctx) => ({
+      path: "/skill/review",
+      headers: ctx.headers(),
+      body: {
+        name: "httpapi-skill",
+        description: "HTTP API fixture",
+        instructions: "Use this fixture.",
+        scope: "workspace",
+      },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(typeof body.token === "string", "skill review should issue a creation token")
+      check(typeof body.digest === "string", "skill review should bind the draft digest")
+      check(body.scope === "workspace", "review should preserve workspace scope")
+    }),
+  http.protected
+    .post("/skill/create", "skill.create.unreviewed")
+    .at((ctx) => ({
+      path: "/skill/create",
+      headers: ctx.headers(),
+      body: {
+        name: "httpapi-skill",
+        description: "HTTP API fixture",
+        instructions: "Use this fixture.",
+        scope: "workspace",
+        token: "unreviewed",
+      },
+    }))
+    .json(400, (body) => {
+      object(body)
+      check(body.name === "SkillError", "skill creation should require a reviewed token")
+    }),
+  http.protected.get("/schedule", "schedule.list.unavailable").json(503, (body) => {
+    object(body)
+    check(body.service === "scheduling", "headless server should report scheduler unavailable")
+  }),
+  http.protected
+    .post("/schedule", "schedule.manage.unavailable")
+    .at((ctx) => ({ path: "/schedule", headers: ctx.headers(), body: { action: "pause", id: "missing" } }))
+    .json(503, (body) => {
+      object(body)
+      check(body.service === "scheduling", "headless server should report scheduler unavailable")
+    }),
   http.protected.get("/lsp", "lsp.status").json(200, array),
   http.protected.get("/formatter", "formatter.status").json(200, array),
   http.protected.get("/config", "config.get").json(200, undefined, "status"),
@@ -981,6 +1050,23 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
     }))
     .json(200, data(object)),
+  http.protected
+    .post("/api/session/{sessionID}/archive", "v2.session.archive")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Archive session" }))
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/archive", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .status(
+      204,
+      (ctx) =>
+        Effect.gen(function* () {
+          const session = yield* ctx.sessionGet(ctx.state.id)
+          check(typeof session?.time.archived === "number", "archived session should record an archive timestamp")
+        }),
+      "none",
+    ),
   http.protected
     .post("/api/session/{sessionID}/agent", "v2.session.switchAgent")
     .seeded((ctx) => ctx.session({ title: "Switch agent" }))

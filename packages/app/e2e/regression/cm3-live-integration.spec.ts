@@ -12,7 +12,14 @@ for (const newLayoutDesigns of [false, true]) {
   test(`CM3 Review opens explicitly and reorders like other tabs in ${newLayoutDesigns ? "new" : "legacy"} layout`, async ({
     page,
   }) => {
-    await mockStressTimeline(page)
+    if (!newLayoutDesigns) await page.clock.setFixedTime(new Date("2026-09-01T10:00:00Z"))
+    await mockOpenCodeServer(page, {
+      sessions: fixture.sessions.filter((session) => session.id === fixture.sourceID),
+      provider: fixture.provider,
+      directory: fixture.directory,
+      project: fixture.project,
+      pageMessages,
+    })
     await installStressSessionTabs(page, { sessionIDs: [fixture.sourceID] })
     await page.addInitScript((newLayoutDesigns) => {
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns, quietCompanion: true } }))
@@ -37,7 +44,7 @@ for (const newLayoutDesigns of [false, true]) {
     if (!from || !to) throw new Error("Expected visible Review and Context tabs")
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
     await page.mouse.down()
-    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 })
+    await page.mouse.move(to.x + to.width - 2, to.y + to.height / 2, { steps: 8 })
     await page.mouse.up()
     await expect
       .poll(() =>
@@ -890,9 +897,10 @@ test("CM3 landing suggestions edit the real project draft", async ({ page }, tes
   })
   await page.goto("/new-session?draftId=draft_cm3_live")
   await expect(page.locator('[data-cm3-thread="false"]')).toBeVisible()
-  await expect(page.getByRole("heading", { name: "What should we build in SmokeProject?", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "What should we build in smoke-project?", exact: true })).toBeVisible()
   const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
   await expect(input).toHaveCount(1)
+  await dismissProviderTip(page)
   await page.getByRole("button", { name: "Trace a bug", exact: true }).click()
   await expect(input).toHaveText("Help me trace a bug. Here is what happened:")
   await expect(input).toBeFocused()
@@ -970,7 +978,7 @@ for (const newLayout of [true, false]) {
     await expect(page.locator('[data-cm3-thread="false"]')).toBeVisible()
     if (newLayout) {
       await expect(
-        page.getByRole("heading", { name: "What should we build in SmokeProject?", exact: true }),
+        page.getByRole("heading", { name: "What should we build in smoke-project?", exact: true }),
       ).toBeVisible()
     } else {
       const landing = page.locator('[data-component="cm3-legacy-landing"]')
@@ -979,6 +987,7 @@ for (const newLayout of [true, false]) {
     }
     const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
     await expect(input).toHaveCount(1)
+    if (newLayout) await dismissProviderTip(page)
     await page.getByRole("button", { name: "Trace a bug", exact: true }).click()
     await expect(input).toHaveText("Help me trace a bug. Here is what happened:")
     await page.screenshot({ path: testInfo.outputPath(`cm3-landing-dark-${newLayout ? "v2" : "legacy"}.png`) })
@@ -1007,9 +1016,7 @@ test("CM3 desktop Review and sidebar search use live session state", async ({ pa
   const navigation = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
   const search = navigation.getByRole("searchbox", { name: "Search threads", exact: true })
   await search.fill(fixture.expected.targetTitle)
-  const target = navigation
-    .locator(".cm3-sidebar-scroll > .cm3-sidebar-task")
-    .filter({ hasText: fixture.expected.targetTitle })
+  const target = navigation.locator('[data-action="project-session"]').filter({ hasText: fixture.expected.targetTitle })
   await expect(target).toBeVisible()
   await expect(navigation.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })).toHaveCount(0)
   await target.click()
@@ -1130,7 +1137,7 @@ for (const gesture of ["Control", "Meta", "middle"] as const) {
     const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
     await toggle.click()
     await expect(toggle).toHaveAttribute("aria-expanded", "true")
-    const recent = page.locator(".cm3-sidebar-task").filter({ hasText: fixture.expected.targetTitle })
+    const recent = page.locator('[data-action="recent-session"]').filter({ hasText: fixture.expected.targetTitle })
     await recent.click(gesture === "middle" ? { button: "middle" } : { modifiers: [gesture] })
     const tab = page.locator(
       `.cm3-sidebar-tabs [data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`,
@@ -1168,9 +1175,12 @@ test("CM3 sidebar search supports arrows, Enter, empty results and composition",
   await search.dispatchEvent("keydown", { key: "Enter", isComposing: true })
   await expect(search).toBeFocused()
   await expect(page).toHaveURL(new RegExp(fixture.sourceID))
+  const recentTarget = sidebar
+    .locator('[data-action="recent-session"]')
+    .filter({ hasText: fixture.expected.targetTitle })
   await search.press("ArrowUp")
-  await expect(target).toBeFocused()
-  await target.press("ArrowDown")
+  await expect(recentTarget).toBeFocused()
+  await recentTarget.press("ArrowDown")
   await expect(target).toBeFocused()
   await target.press("Enter")
   await expectSessionTitle(page, fixture.expected.targetTitle)
@@ -1178,15 +1188,15 @@ test("CM3 sidebar search supports arrows, Enter, empty results and composition",
   await search.press("Enter")
   await expectSessionTitle(page, fixture.expected.sourceTitle)
   await search.fill("")
-  await expect(sidebar.locator(".cm3-sidebar-task")).toHaveCount(2)
+  await expect(sidebar.locator(".cm3-sidebar-task")).toHaveCount(4)
   const source = sidebar.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })
   await search.press("ArrowDown")
   await expect(target).toBeFocused()
   await target.press("ArrowDown")
   await expect(source).toBeFocused()
   await source.press("ArrowDown")
-  await expect(target).toBeFocused()
-  await target.press("ArrowUp")
+  await expect(recentTarget).toBeFocused()
+  await recentTarget.press("ArrowUp")
   await expect(source).toBeFocused()
   await source.press("Enter")
   await expectSessionTitle(page, fixture.expected.sourceTitle)
@@ -1752,3 +1762,10 @@ test("CM3 keeps saved old session pins beyond the recent-session limit", async (
   await expect(pinned.getByRole("group")).toHaveCount(1)
   await expect(page.getByRole("region", { name: "Recent sessions", exact: true }).getByRole("group")).toHaveCount(64)
 })
+
+async function dismissProviderTip(page: Page) {
+  const tip = page.locator('[data-component="provider-tip"]')
+  await tip.hover()
+  await tip.getByRole("button", { name: "Dismiss", exact: true }).click()
+  await expect(tip).toBeHidden()
+}

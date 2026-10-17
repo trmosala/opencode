@@ -27,6 +27,7 @@ async function openProjectDialog(page: Page) {
     findFiles: () => [],
   })
   await page.addInitScript((dirs) => {
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { quietCompanion: false } }))
     localStorage.setItem(
       "opencode.global.dat:server",
       JSON.stringify({

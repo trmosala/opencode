@@ -2,7 +2,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { expect, test } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
-import { openPanelFileBrowser } from "../utils/side-panel"
+import { openPanelFileBrowser, openPanelReview } from "../utils/side-panel"
 
 const directory = "C:/OpenCode/ReviewOpenFile"
 const projectID = "proj_review_open_file"
@@ -63,7 +63,10 @@ test("opens and searches project files inline", async ({ page }) => {
   })
   await page.addInitScript(
     ({ directory, server, sessionID }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem(
+        "settings.v3",
+        JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: false } }),
+      )
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({
@@ -97,6 +100,7 @@ test("opens and searches project files inline", async ({ page }) => {
   const contextButton = page.getByRole("button", { name: "View context usage" })
   await contextButton.click()
   await expect(tabs.getByRole("tab", { name: "Context" })).toHaveAttribute("data-selected", "")
+  await openPanelReview(page)
   await openPanelFileBrowser(page)
   await expect(tabs.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
   await expect(sidebarToggle).toBeDisabled()

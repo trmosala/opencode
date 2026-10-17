@@ -64,7 +64,7 @@ test("keeps the file-browser sidebar mounted when switching file tabs", async ({
 
 for (const direction of ["ltr", "rtl"] as const) {
   test(`CM3 promotes panel tabs and retains their content across layout toggles in ${direction}`, async ({ page }) => {
-    await setup(page, ({ query }) => files.filter((file) => file.includes(query)))
+    await setup(page, ({ query }) => files.filter((file) => file.includes(query)), true)
     await page.goto(`/server/${base64Encode(server)}/session/${sessionID}`)
     await expectSessionTitle(page, title)
     if (direction === "rtl") await page.getByRole("button", { name: "DIR: LTR", exact: true }).click()
@@ -75,7 +75,6 @@ for (const direction of ["ltr", "rtl"] as const) {
     const tabs = page.locator(".session-side-panel-tabs")
     const list = tabs.getByRole("tablist")
     await expect(header.getByRole("tablist")).toBeVisible()
-    await expect(panel.getByRole("tablist")).toHaveCount(0)
     const originalList = await list.elementHandle()
     await openPanelFileBrowser(page)
     await panel.getByRole("button", { name: "file-00.ts", exact: true }).dblclick()
@@ -126,9 +125,10 @@ for (const direction of ["ltr", "rtl"] as const) {
     await expect(tabs.getByRole("tab", { name: "file-01.ts", exact: true })).toHaveCount(0)
     await expect(filter).toHaveValue("file-0")
 
+    await expect(tabs.getByRole("tab", { name: "New tab", exact: true })).toHaveCount(1)
     for (let index = 0; index < 6; index++) {
       await tabs.getByRole("button", { name: "New tab", exact: true }).click()
-      await expect(tabs.getByRole("tab", { name: "New tab", exact: true })).toHaveCount(index + 1)
+      await expect(tabs.getByRole("tab", { name: "New tab", exact: true })).toHaveCount(index + 2)
       await expect(tabs.locator('[role="tab"][aria-selected="true"]')).toHaveText("New tab")
     }
     await page.setViewportSize({ width: 1000, height: 900 })
@@ -235,7 +235,8 @@ async function readProbe(page: Page) {
 
 async function setup(
   page: Page,
-  findFiles?: (input: { query: string; dirs?: string; limit?: number }) => unknown | Promise<unknown>,
+  findFiles?: (input: { query: string; dirs?: string; limit?: number }) => string[] | Promise<string[]>,
+  quietCompanion = false,
 ) {
   await mockOpenCodeServer(page, {
     directory,
@@ -286,8 +287,8 @@ async function setup(
   })
 
   await page.addInitScript(
-    ({ directory, server, sessionID }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+    ({ directory, server, sessionID, quietCompanion }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion } }))
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({
@@ -308,6 +309,6 @@ async function setup(
         JSON.stringify([{ type: "session", server, sessionId: sessionID }]),
       )
     },
-    { directory, server, sessionID },
+    { directory, server, sessionID, quietCompanion },
   )
 }

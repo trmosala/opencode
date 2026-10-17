@@ -215,7 +215,9 @@ export function desktopNativePluralCategories(locale: DesktopNativeLocale) {
 
 function locale(value: string) {
   try {
-    return new Intl.Locale(value).maximize()
+    const locale = new Intl.Locale(value).maximize()
+    // Nastaliq (Aran) is an Arabic script style, not a different character repertoire.
+    return locale.script === "Aran" ? new Intl.Locale(locale, { script: "Arab" }) : locale
   } catch {
     return undefined
   }
@@ -235,12 +237,6 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "Browser tab approval expired or its task, owner or source changed. Request approval again.",
   "desktop.browser.tabs.denied": "Browser tab action consent was not granted.",
   "desktop.browser.tabs.busy": "Another browser operation is still running.",
-  "desktop.browser.resources.title": "Unload inactive tab?",
-  "desktop.browser.resources.detail":
-    "Only the page URL and supported history will be retained. Other page state, including unsaved JavaScript work, cannot be restored. The page will reload only when you select the tab.",
-  "desktop.browser.resources.unload": "Unload tab",
-  "desktop.browser.resources.protected":
-    "This tab cannot be unloaded while it is active, busy, protected, or contains unsaved or unsupported content.",
   "desktop.browser.tabs.unavailable": "Browser tab action unavailable.",
   "desktop.browser.tabs.stay": "The browser tab stayed open.",
   "desktop.browser.tabs.recoveryRequired":
@@ -367,10 +363,6 @@ export const DESKTOP_NATIVE_ENGLISH = {
   "desktop.browser.screenshotDenied": "Browser screenshot consent was not granted.",
   "desktop.browser.screenshotDeliveryUnavailable": "Browser screenshot delivery unavailable.",
   "desktop.browser.access": "Allow agent access to this tab?",
-  "desktop.browser.websiteAccessRequired":
-    "Open the website in this tab and allow agent access before using page tools.",
-  "desktop.browser.accessSiteDetail":
-    "Allow the agent to read and interact with {{origin}} in this tab? Visiting a different website turns access off. Tool approvals and file transfer controls still apply.",
   "desktop.browser.accessDetail":
     "The agent may read and interact with signed-in pages in this tab on allowed hosts. Other tabs remain private. Browser cookies are stored in a separate persistent profile.",
   "desktop.browser.allow": "Allow",
@@ -626,6 +618,16 @@ export const DESKTOP_NATIVE_ENGLISH = {
     "The saved login operation was cancelled or could not complete. Keep the WPP Okta sign-in window visible, unlock saved passwords, and use the account shown on the page. The page or account may have changed. No sign-in was submitted by CookieMonster.",
   "desktop.browser.account.username": "Username",
   "desktop.browser.account.password": "Password",
+  "desktop.browser.resources.title": "Unload inactive tab?",
+  "desktop.browser.resources.detail":
+    "Only the page URL and supported history will be retained. Other page state, including unsaved JavaScript work, cannot be restored. The page will reload only when you select the tab.",
+  "desktop.browser.resources.unload": "Unload tab",
+  "desktop.browser.resources.protected":
+    "This tab cannot be unloaded while it is active, busy, protected, or contains unsaved or unsupported content.",
+  "desktop.browser.websiteAccessRequired":
+    "Open the website in this tab and allow agent access before using page tools.",
+  "desktop.browser.accessSiteDetail":
+    "Allow the agent to read and interact with {{origin}} in this tab? Visiting a different website turns access off. Tool approvals and file transfer controls still apply.",
 } as const
 
 export type DesktopNativeKey = keyof typeof DESKTOP_NATIVE_ENGLISH

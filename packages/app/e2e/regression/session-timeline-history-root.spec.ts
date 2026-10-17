@@ -104,6 +104,7 @@ for (const scenario of scenarios) {
       },
     })
     await page.addInitScript(() => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { quietCompanion: false } }))
       const visibleParts = () => {
         const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
         const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
@@ -133,14 +134,19 @@ for (const scenario of scenarios) {
           const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
           const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
           const view = viewport?.getBoundingClientRect()
-          const visible = (partID: string) => {
-            const part = viewport?.querySelector<HTMLElement>(`[data-timeline-part-id="${CSS.escape(partID)}"]`)
-            const rect = part?.getBoundingClientRect()
-            return (
-              !!rect && !!view && rect.width > 0 && rect.height > 0 && rect.bottom > view.top && rect.top < view.bottom
-            )
-          }
-          if (!virtual || state.visibleParts.length === 0 || state.visibleParts.some((partID) => !visible(partID)))
+          const rects = state.visibleParts.map((partID) =>
+            viewport
+              ?.querySelector<HTMLElement>(`[data-timeline-part-id="${CSS.escape(partID)}"]`)
+              ?.getBoundingClientRect(),
+          )
+          // Following the bottom can scroll an edge row out when the interruption label adds height.
+          if (
+            !virtual ||
+            !view ||
+            rects.length === 0 ||
+            rects.some((rect) => !rect || rect.width === 0 || rect.height === 0) ||
+            rects.every((rect) => !rect || rect.bottom <= view.top || rect.top >= view.bottom)
+          )
             state.hidden = true
           state.samples++
         }

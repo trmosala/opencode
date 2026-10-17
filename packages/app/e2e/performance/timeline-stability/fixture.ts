@@ -100,6 +100,7 @@ export async function setupTimeline(
     protocol?: "v1" | "v2"
   } = {},
 ) {
+  if (input.settings?.newLayoutDesigns === false) await page.clock.install({ time: new Date("2026-09-01T10:00:00Z") })
   const sessions = input.sessions ?? [session()]
   const messages = validateTimelineMessages([
     ...(input.seedHistory ? historyMessages(18) : []),
@@ -130,6 +131,7 @@ export async function setupTimeline(
       "settings.v3",
       JSON.stringify({
         general: {
+          quietCompanion: false,
           editToolPartsExpanded: false,
           shellToolPartsExpanded: false,
           showReasoningSummaries: false,

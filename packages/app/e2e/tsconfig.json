@@ -18,6 +18,7 @@
     "./reproduction/timeline-suspense/**/*.tsx",
     "../src/pages/session/timeline/observe-element-offset.ts",
     "./regression/new-session-panel-corner.spec.ts",
+    "./regression/review-line-comment.spec.ts",
     "./regression/cm3-live-integration.spec.ts",
     "./regression/cm3-drafts.spec.ts",
     "./regression/cm3-scheduling.spec.ts",

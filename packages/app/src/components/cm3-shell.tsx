@@ -615,12 +615,24 @@ export function Cm3Shell() {
             <Show when={pinnedRecords().length > 0}>
               <section aria-label={language.t("sidebar.session.pinned")}>
                 <p class="cm3-sidebar-section">{language.t("sidebar.session.pinned")}</p>
-                <For each={pinnedRecords()}>{(record) => renderSession(() => record, true)}</For>
+                <For each={pinnedRecords().map((record) => record.session.id)}>
+                  {(id) => (
+                    <Show when={pinnedRecords().find((record) => record.session.id === id)}>
+                      {(record) => renderSession(record, true)}
+                    </Show>
+                  )}
+                </For>
               </section>
             </Show>
             <section aria-label={language.t("sidebar.project.recentSessions")}>
               <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
-              <For each={recentRecords()}>{(record) => renderSession(() => record, true)}</For>
+              <For each={recentRecords().map((record) => record.session.id)}>
+                {(id) => (
+                  <Show when={recentRecords().find((record) => record.session.id === id)}>
+                    {(record) => renderSession(record, true)}
+                  </Show>
+                )}
+              </For>
               <Show
                 when={!sessions.data.loading()}
                 fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}

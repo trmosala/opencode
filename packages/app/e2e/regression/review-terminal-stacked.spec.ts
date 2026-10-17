@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { openPanelReview } from "../utils/side-panel"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
 
@@ -139,7 +140,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   )
   await page.routeWebSocket("**/pty/pty_review_terminal/connect", () => undefined)
   await page.addInitScript(() => {
-    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: false } }))
     localStorage.setItem(
       "opencode.global.dat:layout",
       JSON.stringify({ review: { diffStyle: "split", panelOpened: true } }),
@@ -149,6 +150,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
   await expectSessionTitle(page, title)
   await expect(page.locator("#review-panel")).toBeVisible()
+  await openPanelReview(page)
   await expectTree(page, 8, "git-0.ts")
 
   await selectMode(page, "Git changes", "Branch changes")
@@ -223,9 +225,9 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expect(page.locator("#terminal-panel")).toBeVisible()
   await expectTree(page, 2_773, "action.yml")
 
-  await page.locator('[data-cm3-region="header"]').getByRole("button", { name: "Toggle review", exact: true }).click()
+  await page.getByRole("button", { name: "Toggle review", exact: true }).click()
   await expect(page.locator("#review-panel")).toHaveCount(0)
-  await page.locator('[data-cm3-region="header"]').getByRole("button", { name: "Toggle review", exact: true }).click()
+  await page.getByRole("button", { name: "Toggle review", exact: true }).click()
   await expectTree(page, 2_773, "action.yml")
   await page.setViewportSize({ width: 1_000, height: 700 })
   await expectTree(page, 2_773, "action.yml")

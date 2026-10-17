@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
 import { readdir, rm } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
 
 await rm("dist", { recursive: true, force: true })
-await $`bunx tsc --emitDeclarationOnly`
+// Declaration emission should not depend on Bun's Windows bin launcher.
+await $`node ${fileURLToPath(import.meta.resolve("typescript/bin/tsc"))} --emitDeclarationOnly`
 
 const build = await Bun.build({
   entrypoints: ["src/index.ts"],

@@ -118,7 +118,7 @@ export type Result =
   | { status: "fail"; scenario: ActiveScenario; message: string }
   | { status: "skip"; scenario: TodoScenario }
 
-export type SessionInfo = { id: SessionID; title: string; parentID?: SessionID }
+export type SessionInfo = { id: SessionID; title: string; parentID?: SessionID; time: { archived?: number } }
 export type TodoInfo = {
   content: string
   status: "pending" | "in_progress" | "completed" | "cancelled"

@@ -1,4 +1,5 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { ServerScope, SessionRouteKey, SessionStateKey } from "../../src/utils/server-scope"
 import { expect, test, type Page } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
@@ -108,8 +109,13 @@ async function setup(page: Page) {
     }),
   )
   await page.addInitScript(
-    ({ directory, server, sessions }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+    ({ directory, server, sessions, sessionTabs }) => {
+      if (!localStorage.getItem("opencode.global.dat:layout"))
+        localStorage.setItem("opencode.global.dat:layout", JSON.stringify({ sessionTabs }))
+      localStorage.setItem(
+        "settings.v3",
+        JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: false } }),
+      )
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({
@@ -122,7 +128,17 @@ async function setup(page: Page) {
         JSON.stringify(sessions.map((sessionId: string) => ({ type: "session", server, sessionId }))),
       )
     },
-    { directory, server, sessions: [sessionA, sessionB] },
+    {
+      directory,
+      server,
+      sessions: [sessionA, sessionB],
+      sessionTabs: Object.fromEntries(
+        [sessionA, sessionB].map((id) => [
+          SessionStateKey.from(ServerScope.local, SessionRouteKey.fromRoute(base64Encode(directory), id)),
+          { all: ["review"], active: "review" },
+        ]),
+      ),
+    },
   )
 }
 
