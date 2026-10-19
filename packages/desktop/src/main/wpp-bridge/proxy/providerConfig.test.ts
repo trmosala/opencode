@@ -501,7 +501,7 @@ test("leaves an unparseable file untouched", async () => {
 
 for (const browser of [false, true]) {
   for (const ae of [false, true]) {
-    test(`injected plugins browser=${browser} AE=${ae} never inject AE permissions`, () => {
+    test(`injected plugins browser=${browser} AE=${ae} never inject browser or AE permissions`, () => {
       const browserPlugin = "file:///resources/cm-browser/plugin.mjs"
       const aePlugin = [
         "file:///resources/cm-ae/plugin.mjs",
@@ -512,10 +512,9 @@ for (const browser of [false, true]) {
       const config = JSON.parse(o1CodeConfigContent(browser ? browserPlugin : undefined, ae ? aePlugin : undefined))
       const plugins = [...(browser ? [browserPlugin] : []), ...(ae ? [aePlugin] : [])]
       expect(config.plugin).toEqual(plugins.length ? plugins : undefined)
-      expect(config.permission).toEqual(JSON.parse(o1CodeConfigContent()).permission)
-      expect(Object.keys(config.permission).every((name) => name.startsWith("browser_"))).toBe(true)
-      expect(config.permission.browser_list_site_tools).toBe("allow")
-      expect(config.permission.browser_execute_site_tool).toBe("allow")
+      // The blob merges after the user's global config, so a permission here would replace their
+      // rules. Browser and AE defaults come from their plugins' config hooks, beneath user policy.
+      expect(config.permission).toBeUndefined()
       // High-precedence injection cannot replace AE denies, wildcards or agent/mode policies.
       const policy = {
         permission: { ae_execute: "deny", "ae_*": "deny" },
@@ -566,27 +565,8 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   })
   expect(config.lsp).toBe(true)
   expect(config.plugin).toEqual([plugin])
-  expect(config.permission).toEqual({
-    browser_read_state: "allow",
-    browser_search_history: "allow",
-    browser_open_history: "ask",
-    browser_navigate: "allow",
-    browser_click: "allow",
-    browser_hover: "allow",
-    browser_drag: "allow",
-    browser_select_option: "allow",
-    browser_screenshot: "allow",
-    browser_visual_action: "allow",
-    browser_observe_console: "allow",
-    browser_observe_network: "allow",
-    browser_list_site_tools: "allow",
-    browser_execute_site_tool: "allow",
-    browser_fill: "allow",
-    browser_press_key: "allow",
-    browser_scroll: "allow",
-    browser_wait_for_element: "allow",
-    browser_wait_for_navigation: "allow",
-  })
+  // Browser defaults come from the cm-browser config hook, beneath user policy.
+  expect(config.permission).toBeUndefined()
   expect(Object.keys(models)).toEqual(MODEL_IDS)
   expect(models["CM_Opus5.5-High"]).toMatchObject({
     name: "CM_Opus5.5-High",

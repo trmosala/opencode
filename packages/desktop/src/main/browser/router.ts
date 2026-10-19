@@ -331,7 +331,9 @@ async function route(
   if (!browserAgentEnabled()) return failure("access_denied", "Browser agent access is disabled in browser settings.")
   if (browserTaskPaused(message.sessionID)) return failure("access_denied", nativeT("desktop.browser.taskPaused"))
   if (parsed.op === "set_panel") {
-    if (access) return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
+    // Only a delegated subagent's authority carries a lease token. The bridge passes ordinary task
+    // authority on every request, and the panel handler still checks native task ownership.
+    if (access?.token) return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
     return routeBrowserPanel(message.sessionID, parsed, signal, deadline)
   }
   if (parsed.op === "prepare_tab" || "token" in parsed)

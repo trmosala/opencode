@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { randomUUID } from "node:crypto"
-import type { BrowserIpcResult, Request, WriteRequest } from "@cookiemonster/cm-browser/protocol"
+import { success, type BrowserIpcResult, type Request, type WriteRequest } from "@cookiemonster/cm-browser/protocol"
 import { attachBrowserBridge } from "./bridge"
 import { resolveBrowserOwnerScope, setBrowserOwnerScopeResolver } from "./session-resolver"
 import { createBrowserDelegations } from "./delegation"
@@ -14,6 +14,7 @@ import {
   invalidateBrowserDocument,
   setBrowserTabHandler,
   setBrowserHistoryHandler,
+  setBrowserPanelHandler,
   type BrowserRegistration,
 } from "./registry"
 import type { BrowserSession, BrowserSessionResolver } from "./session-resolver"
@@ -403,6 +404,33 @@ test("bounded tombstone table preserves live leases and rejects all future admis
     ).rejects.toThrow()
   } finally {
     manager.stop()
+    f.close()
+  }
+})
+
+test("ordinary task authority can set the panel and delegated authority cannot", async () => {
+  const f = fixture()
+  const calls: string[] = []
+  setBrowserPanelHandler(async (sessionID, request) => {
+    calls.push(`${sessionID}:${request.view}`)
+    return success({
+      tabID: "",
+      url: "",
+      title: "",
+      visibleText: "",
+      elements: [],
+      panelResult: { view: "review", browserReady: false },
+    })
+  })
+  try {
+    // The bridge passes task authority on every request, so an ordinary session must still reach the handler.
+    expect(await f.route({ op: "set_panel", view: "review" }, "parent")).toMatchObject({ ok: true })
+    expect(calls).toEqual(["parent:review"])
+    expect(await f.grant()).toMatchObject({ ok: true })
+    expect(await f.route({ op: "set_panel", view: "review" })).toMatchObject({ ok: false, code: "access_denied" })
+    expect(calls).toEqual(["parent:review"])
+  } finally {
+    setBrowserPanelHandler(undefined)
     f.close()
   }
 })

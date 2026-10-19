@@ -5,14 +5,43 @@ import { browserDelegation } from "./delegation"
 
 const port = ipcPort()
 
+// OpenCode defaults for every bundled browser tool. Lifecycle tools use standing task authority and
+// page tools rely on main's tab grant, so only opening a history result keeps an OpenCode prompt.
+// These live here, not in the desktop's injected config, which merges after the user's global
+// config and would replace their rules.
+const PERMISSION_DEFAULTS = {
+  browser_create_tab: "allow",
+  browser_select_tab: "allow",
+  browser_close_tab: "allow",
+  desktop_set_panel: "allow",
+  browser_read_state: "allow",
+  browser_search_history: "allow",
+  browser_open_history: "ask",
+  browser_navigate: "allow",
+  browser_click: "allow",
+  browser_hover: "allow",
+  browser_drag: "allow",
+  browser_select_option: "allow",
+  browser_screenshot: "allow",
+  browser_visual_action: "allow",
+  browser_observe_console: "allow",
+  browser_observe_network: "allow",
+  browser_list_site_tools: "allow",
+  browser_execute_site_tool: "allow",
+  browser_fill: "allow",
+  browser_press_key: "allow",
+  browser_scroll: "allow",
+  browser_wait_for_element: "allow",
+  browser_wait_for_navigation: "allow",
+}
+
 export const server: Plugin = async () => ({
   async config(config) {
-    // Defaults precede user rules, including wildcard rules and explicit deny/ask.
+    // Defaults precede user rules, including wildcard rules and explicit deny/ask. OpenCode applies
+    // the last matching rule, so any rule the user sets wins.
     if (typeof config.permission === "string") return
     const defaults = Object.fromEntries(
-      ["browser_create_tab", "browser_select_tab", "browser_close_tab", "desktop_set_panel"]
-        .filter((key) => !Object.hasOwn(config.permission ?? {}, key))
-        .map((key) => [key, "allow"]),
+      Object.entries(PERMISSION_DEFAULTS).filter(([key]) => !Object.hasOwn(config.permission ?? {}, key)),
     )
     config.permission = { ...defaults, ...config.permission }
   },

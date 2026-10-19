@@ -148,29 +148,8 @@ export function o1CodeConfigContent(browserPlugin, aePlugin, chromeDevTools = pr
       ...(chromeDevTools ? { "chrome-devtools": { ...O1_CODE_MCP["chrome-devtools"], enabled: true } } : {}),
     },
     ...(plugins.length ? { plugin: plugins } : {}),
-    // AE defaults belong to its config hook, below user policy, not this high-precedence blob.
-    permission: {
-      browser_read_state: "allow",
-      browser_search_history: "allow",
-      browser_open_history: "ask",
-      // Lifecycle defaults come from the plugin config hook, below user policy.
-      browser_navigate: "allow",
-      browser_click: "allow",
-      browser_hover: "allow",
-      browser_drag: "allow",
-      browser_select_option: "allow",
-      browser_screenshot: "allow",
-      browser_visual_action: "allow",
-      browser_observe_console: "allow",
-      browser_observe_network: "allow",
-      browser_list_site_tools: "allow",
-      browser_execute_site_tool: "allow",
-      browser_fill: "allow",
-      browser_press_key: "allow",
-      browser_scroll: "allow",
-      browser_wait_for_element: "allow",
-      browser_wait_for_navigation: "allow",
-    },
+    // No permission block: this blob merges after the user's global config, so a rule here would
+    // replace theirs. Browser and AE defaults come from their plugins' config hooks, below user policy.
     lsp: true,
   })
 }
