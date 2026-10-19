@@ -17,7 +17,7 @@ export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAU
   if (typeof openLogin === "function") extensionBridge.onAuthRequired = openLogin;
   const server = http.createServer(async (request, response) => {
     try {
-      await route(request, response, { openLogin, checkAuth });
+      await route(request, response, { openLogin, checkAuth }, host);
     } catch (error) {
       writeJson(response, error.statusCode || 500, {
         error: {
@@ -49,10 +49,10 @@ export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAU
   return server;
 }
 
-async function route(request, response, actions = {}) {
+async function route(request, response, actions = {}, bindHost = DEFAULT_HOST) {
   const url = new URL(request.url, "http://127.0.0.1");
 
-  if (!enforceBrowserOrigin(request, response)) {
+  if (!enforceBrowserOrigin(request, response, bindHost)) {
     return;
   }
 
@@ -128,7 +128,19 @@ async function route(request, response, actions = {}) {
   });
 }
 
-function enforceBrowserOrigin(request, response) {
+function enforceBrowserOrigin(request, response, bindHost) {
+  // DNS rebinding points an attacker's hostname at this port. Its requests are same-origin to the
+  // attacker's page, so a GET carries no Origin and would pass the origin checks below.
+  if (!isAllowedHost(request.headers.host, bindHost)) {
+    writeJson(response, 403, {
+      error: {
+        message: "Request host is not allowed to access the local O1-Code proxy.",
+        type: "forbidden_host"
+      }
+    });
+    return false;
+  }
+
   if (isAllowedBrowserRequest(request.headers)) {
     return true;
   }
@@ -143,6 +155,27 @@ function enforceBrowserOrigin(request, response) {
     }
   });
   return false;
+}
+
+// Rebinding needs a hostname the attacker controls, so IP literals and localhost are safe. The
+// configured bind host stays allowed for an O1_CODE_PROXY_HOST that names this machine.
+export function isAllowedHost(host, bindHost = DEFAULT_HOST) {
+  // Browsers send a bare host and optional port. Reject anything URL parsing could reinterpret.
+  if (!host || /[/@?#\\\s]/.test(host)) {
+    return false;
+  }
+
+  try {
+    const name = new URL(`http://${host}`).hostname.toLowerCase();
+
+    // URL parsing leaves an IPv4 literal in dotted-decimal form and an IPv6 literal in brackets.
+    return name === "localhost" ||
+      name === bindHost.toLowerCase() ||
+      name.startsWith("[") ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(name);
+  } catch {
+    return false;
+  }
 }
 
 function writeCors(response, request) {
@@ -163,10 +196,6 @@ export function isAllowedBrowserOrigin(origin) {
     return true;
   }
 
-  if (String(origin).startsWith("chrome-extension://")) {
-    return true;
-  }
-
   try {
     const url = new URL(origin);
 
@@ -182,18 +211,11 @@ export function isAllowedBrowserOrigin(origin) {
 }
 
 export function isAllowedBrowserRequest(headers = {}) {
-  const origin = headers.origin;
-  const fetchSite = headers["sec-fetch-site"];
-
-  if (isAllowedBrowserOrigin(origin) && String(origin || "").startsWith("chrome-extension://")) {
-    return true;
-  }
-
-  if (fetchSite === "cross-site") {
+  if (headers["sec-fetch-site"] === "cross-site") {
     return false;
   }
 
-  return isAllowedBrowserOrigin(origin);
+  return isAllowedBrowserOrigin(headers.origin);
 }
 
 export async function readJson(request, maxBytes = MAX_REQUEST_BODY_BYTES) {
