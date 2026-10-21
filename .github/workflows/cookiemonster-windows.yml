@@ -80,7 +80,7 @@ jobs:
           import { existsSync, readFileSync } from 'node:fs'
           const require = createRequire(process.cwd() + '/package.json')
           const builder = createRequire(require.resolve('app-builder-lib/package.json'))
-          const asar = await import(builder.resolve('@electron/asar'))
+          const asar = builder('@electron/asar')
           const root = 'dist/win-unpacked/resources'
           const manifest = JSON.parse(asar.extractFile(root + '/app.asar', 'package.json'))
           assert.equal(manifest.version, process.env.CM_VERSION)
