@@ -19,7 +19,7 @@ import { tmpdirScoped } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
 // Every test boots a real Location, so shell start waits for cold plugin activation before spawning.
-setDefaultTimeout(15_000)
+setDefaultTimeout(process.platform === "win32" ? 30_000 : 15_000)
 
 class ExecutionControl extends Context.Service<
   ExecutionControl,
@@ -93,7 +93,8 @@ const launch = Effect.fn(function* (fixture: Effect.Success<typeof setup>, name:
     .pipe(Effect.scoped, Effect.forkScoped)
   yield* Effect.promise(() => Bun.file(path.join(fixture.tmp.path, `${name}.started`)).exists()).pipe(
     Effect.repeat({ until: (exists) => exists, schedule: Schedule.spaced("10 millis") }),
-    Effect.timeout("5 seconds"),
+    // This gate includes plugin activation and cold PowerShell startup on Windows.
+    Effect.timeout(process.platform === "win32" ? "15 seconds" : "5 seconds"),
   )
   const event = yield* log(fixture.session, fixture.created.id, true).pipe(
     Stream.filter((event): event is SessionEvent.Shell.Started => event.type === "session.shell.started"),
