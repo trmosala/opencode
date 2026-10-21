@@ -1,5 +1,5 @@
 name: cookiemonster-desktop
-run-name: CookieMonster V2 beta ${{ inputs.beta }} (macOS arm64)
+run-name: CookieMonster V2 ${{ inputs.version || inputs.beta }} (macOS arm64)
 
 on:
   workflow_dispatch:
@@ -14,6 +14,11 @@ on:
         required: true
         default: false
         type: boolean
+      version:
+        description: "Production WPP version, for example 2.0.29-cm.2; leave empty for beta"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,7 +29,7 @@ permissions:
 
 jobs:
   package:
-    name: signed macOS arm64 beta
+    name: signed macOS arm64
     runs-on: macos-latest
     timeout-minutes: 30
     permissions:
@@ -33,7 +38,7 @@ jobs:
       run:
         shell: bash
     env:
-      OPENCODE_CHANNEL: beta
+      OPENCODE_CHANNEL: ${{ inputs.version != '' && 'prod' || 'beta' }}
       OPENCODE_CLI_TARGET: aarch64-apple-darwin
       OPENCODE_CLI_DIST: ${{ github.workspace }}/packages/cli/dist
       CM_BRAND: "1"
@@ -43,9 +48,11 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Resolve beta version
+      - name: Resolve build version
         env:
           BETA_NUMBER: ${{ inputs.beta }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           test "$RUNNER_ARCH" = ARM64
           if [[ ! "$BETA_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
@@ -54,6 +61,13 @@ jobs:
           fi
           base=$(node -p "require('./packages/desktop/package.json').version")
           version="${base}-beta.${BETA_NUMBER}"
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-cm\.[1-9][0-9]*$ || "$RELEASE_VERSION" != "$base"-cm.* || "$PUBLISH" == true ]]; then
+              echo "Production builds require a matching CM version and publish=false; publish all platforms together." >&2
+              exit 1
+            fi
+            version="$RELEASE_VERSION"
+          fi
           echo "CM_VERSION=$version" >> "$GITHUB_ENV"
           echo "OPENCODE_VERSION=$version" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=cookiemonster-v$version" >> "$GITHUB_ENV"
@@ -78,6 +92,7 @@ jobs:
         run: bun run build
 
       - name: Test installer configuration and user installation
+        if: inputs.version == ''
         timeout-minutes: 2
         working-directory: packages/desktop
         env:
@@ -88,6 +103,7 @@ jobs:
         run: bun test --preload ./test/preload.ts --timeout 20000 electron-builder.config.test.ts src/main/macos-user-install.test.ts
 
       - name: Verify pinned WPP backend and host contracts
+        if: inputs.version == ''
         timeout-minutes: 3
         run: |
           bun run --cwd packages/desktop/wpp/node_modules/@cookiemonster/wpp test
@@ -116,7 +132,7 @@ jobs:
           APPLE_API_KEY: ${{ runner.temp }}/apple-api-key.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: bunx electron-builder --mac dmg --arm64 --publish never --config electron-builder.config.ts -c.forceCodeSigning=true -c.dmg.sign=true
+        run: bunx electron-builder --mac dmg zip --arm64 --publish never --config electron-builder.config.ts -c.forceCodeSigning=true -c.dmg.sign=true
 
       - name: Notarize and staple the installer
         timeout-minutes: 8
@@ -131,6 +147,24 @@ jobs:
       - name: Remove notarization key
         if: always()
         run: rm -f "$RUNNER_TEMP/apple-api-key.p8"
+
+      - name: Refresh update checksums after stapling
+        run: |
+          bun -e '
+            import { createHash } from "node:crypto"
+            import { join } from "node:path"
+            const root = "packages/desktop/dist"
+            const path = join(root, "latest-mac.yml")
+            const data = Bun.YAML.parse(await Bun.file(path).text())
+            for (const item of data.files) {
+              const bytes = await Bun.file(join(root, item.url)).bytes()
+              item.size = bytes.length
+              item.sha512 = createHash("sha512").update(bytes).digest("base64")
+            }
+            const primary = data.files.find(item => item.url === data.path)
+            if (primary) data.sha512 = primary.sha512
+            await Bun.write(path, Bun.YAML.stringify(data))
+          '
 
       - name: Verify the mounted installer and both versions
         timeout-minutes: 3
@@ -153,6 +187,7 @@ jobs:
           test "$(cat "$app/Contents/Resources/opencode-cli.version")" = "$CM_VERSION"
           cd packages/desktop/dist
           shasum -a 256 cookiemonster-mac-arm64.dmg > SHA256SUMS.txt
+          shasum -a 256 cookiemonster-mac-arm64.zip >> SHA256SUMS.txt
 
       - name: Verify packaged macOS activation with a hidden worker
         timeout-minutes: 3
@@ -170,9 +205,12 @@ jobs:
         timeout-minutes: 3
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cookiemonster-macos-arm64-beta
+          name: ${{ inputs.version != '' && 'cookiemonster-macos-arm64-release' || 'cookiemonster-macos-arm64-beta' }}
           path: |
             packages/desktop/dist/cookiemonster-mac-arm64.dmg
+            packages/desktop/dist/cookiemonster-mac-arm64.zip
+            packages/desktop/dist/cookiemonster-mac-arm64.zip.blockmap
+            packages/desktop/dist/latest-mac.yml
             packages/desktop/dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7

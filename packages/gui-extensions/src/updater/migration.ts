@@ -13,6 +13,8 @@ export function requiresStableMacInstaller(platform: string, channel: string) {
   return platform === "darwin" && channel === "beta"
 }
 
+// SAFETY: Update responses are untrusted; this boundary decodes Artifact before reading its fields.
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- see SAFETY above
 export function stableMacDownload(input: unknown, arch: string) {
   if (arch !== "arm64" && arch !== "x64") return undefined
   const artifact = Option.getOrUndefined(decode(input))
@@ -25,7 +27,8 @@ export function updatePolicy(name: string, platform: string, channel: string, pa
   const branded = name === "CookieMonster"
 
   return {
-    enabled: packaged && (branded ? platform === "darwin" && channel === "prod" : channel !== "dev"),
+    enabled:
+      packaged && (branded ? ["darwin", "win32", "linux"].includes(platform) && channel === "prod" : channel !== "dev"),
     prerelease: branded,
   }
 }

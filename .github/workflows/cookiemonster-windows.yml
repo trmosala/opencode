@@ -1,0 +1,107 @@
+name: cookiemonster-windows
+run-name: CookieMonster V2 ${{ inputs.version }} (Windows x64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Production WPP version"
+        required: true
+        default: "2.0.29-cm.2"
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      OPENCODE_CHANNEL: prod
+      OPENCODE_CLI_TARGET: x86_64-pc-windows-msvc
+      OPENCODE_CLI_DIST: ${{ github.workspace }}/packages/cli/dist
+      CM_BRAND: "1"
+      CM_WPP: "1"
+      CM_UNSIGNED: "1"
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Resolve release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          base=$(node -p "require('./packages/desktop/package.json').version")
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-cm\.[1-9][0-9]*$ || "$RELEASE_VERSION" != "$base"-cm.* ]]; then
+            echo "Production version must match the desktop base version." >&2
+            exit 1
+          fi
+          echo "CM_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          echo "OPENCODE_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+
+      - name: Setup Bun and dependencies
+        timeout-minutes: 8
+        uses: ./.github/actions/setup-bun
+        with:
+          wpp-ssh-key: ${{ secrets.CM_WPP_SSH_KEY }}
+
+      - name: Build matching V2 CLI
+        timeout-minutes: 8
+        run: |
+          bun packages/cli/script/build.ts --target=opencode-windows-x64-baseline --skip-install
+          test "$(packages/cli/dist/cli-windows-x64-baseline/bin/opencode.exe --version)" = "opencode v$CM_VERSION"
+
+      - name: Build WPP desktop
+        timeout-minutes: 6
+        working-directory: packages/desktop
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: bun run build
+
+      - name: Package Windows x64 installer
+        timeout-minutes: 8
+        working-directory: packages/desktop
+        run: bun run package:win --x64 --publish never
+
+      - name: Verify packaged version and required resources
+        working-directory: packages/desktop
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict'
+          import { createRequire } from 'node:module'
+          import { existsSync, readFileSync } from 'node:fs'
+          const require = createRequire(process.cwd() + '/package.json')
+          const builder = createRequire(require.resolve('app-builder-lib/package.json'))
+          const asar = await import(builder.resolve('@electron/asar'))
+          const root = 'dist/win-unpacked/resources'
+          const manifest = JSON.parse(asar.extractFile(root + '/app.asar', 'package.json'))
+          assert.equal(manifest.version, process.env.CM_VERSION)
+          assert.equal(readFileSync(root + '/opencode-cli.version', 'utf8').trim(), process.env.CM_VERSION)
+          for (const file of ['opencode-cli.exe', 'cm-plugins/provider/index.mjs', 'cm-plugins/browser/index.mjs', 'cm-plugins/figma/index.mjs', 'vault-auth/windows-x64.exe', 'vault-auth/windows-entry-x64.exe'])
+            assert(existsSync(root + '/' + file), file)
+          assert(readFileSync('dist/latest.yml', 'utf8').includes('version: ' + process.env.CM_VERSION))
+          console.log(JSON.stringify({ result: 'pass', version: manifest.version, wpp: true }))
+          JS
+          test "$(dist/win-unpacked/resources/opencode-cli.exe --version)" = "opencode v$CM_VERSION"
+          cd dist
+          sha256sum cookiemonster-win-x64.exe > SHA256SUMS.txt
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cookiemonster-windows-x64-release
+          path: |
+            packages/desktop/dist/cookiemonster-win-x64.exe
+            packages/desktop/dist/cookiemonster-win-x64.exe.blockmap
+            packages/desktop/dist/latest.yml
+            packages/desktop/dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
