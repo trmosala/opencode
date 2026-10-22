@@ -106,7 +106,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
       build: {
         minify: command === "build",
         rolldownOptions: {
-          input: { index: "src/preload/index.ts" },
+          input: { index: "src/preload/index.ts", "worker-preview": "src/preload/worker-preview.ts" },
           output: {
             format: "cjs",
             // The package is "type": "module". Under --no-sandbox Electron loads the preload

@@ -13,6 +13,7 @@ import type { BrowserWindow } from "electron"
 import { createHash } from "node:crypto"
 import { diagnosticUrl, observeWorkerWindow, writeWorkerLog, type WorkerLogWriter } from "./worker-logging"
 import { createWorkerWindow } from "./session"
+import { hideWorkerWindow, showWorkerWindow } from "./worker-preview"
 import { openAssistantPanel } from "./assistant-panel"
 import { agentChatProjectId, openAgentChat } from "./agent-chat"
 import { armTargetAttach } from "./cdp-targets"
@@ -139,10 +140,9 @@ export class WorkerPool {
       if (worker.window.isDestroyed()) continue
 
       if (workersVisible) {
-        worker.window.showInactive()
-        worker.window.setTitle(workerTitle(worker.agent, worker.sessionKey, worker.subagent))
+        showWorkerWindow(worker.window, workerTitle(worker.agent, worker.sessionKey, worker.subagent))
       } else {
-        worker.window.hide()
+        hideWorkerWindow(worker.window)
       }
     }
   }
@@ -404,7 +404,7 @@ export class WorkerPool {
     worker.subagent = subagent
 
     if (workersVisible && !worker.window.isDestroyed()) {
-      worker.window.setTitle(workerTitle(worker.agent, worker.sessionKey, worker.subagent))
+      showWorkerWindow(worker.window, workerTitle(worker.agent, worker.sessionKey, worker.subagent))
     }
 
     return worker
@@ -520,8 +520,7 @@ export class WorkerPool {
     stage("created")
 
     if (workersVisible) {
-      window.showInactive()
-      window.setTitle(workerTitle(agent, sessionKey, subagent))
+      showWorkerWindow(window, workerTitle(agent, sessionKey, subagent))
     }
 
     return cleanupWindowOnFailure(window, async () => {

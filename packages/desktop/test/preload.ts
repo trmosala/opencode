@@ -173,9 +173,15 @@ class FakeTray {
   destroy() {}
 }
 
+// Native preview behavior is covered by worker-rendering.fixture.ts under Electron.
+class FakeView {}
+
 const electron = {
   app,
   BrowserWindow: FakeBrowserWindow,
+  View: FakeView,
+  ImageView: FakeView,
+  WebContentsView: FakeView,
   Menu: FakeMenu,
   MenuItem: FakeMenu,
   Tray: FakeTray,

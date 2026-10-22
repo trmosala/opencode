@@ -2,14 +2,15 @@
 //
 // All WPP traffic lives in a dedicated persistent partition so SSO cookies survive restarts
 // (the "one-time login" requirement) and stay fully isolated from the oc://renderer session.
-// Worker windows are created hidden; they are shown only for the first-run interactive SSO login,
-// or for debugging when O1_CODE_SHOW_WORKERS=1 (the pool calls showInactive on spawn).
+// Worker windows stay offscreen at 15 fps. Interactive SSO uses a native login window;
+// visual debugging uses a separate preview of the same authenticated worker page.
 
 import { BrowserWindow, session, type Session } from "electron"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 import { createWppAuthState, wppAuthProbeScript } from "./auth-state"
 import { classifyWppAuthState } from "./worker-startup"
 import { attachWppLoginControls } from "./login-controls"
+import { attachWorkerPreview } from "./worker-preview"
 
 export const WPP_PARTITION = "persist:wpp"
 
@@ -100,7 +101,7 @@ export function wppSession(): Session {
 export function createWorkerWindow({ show = false } = {}): BrowserWindow {
   const current = wppSession()
 
-  return new BrowserWindow({
+  const win = new BrowserWindow({
     show,
     width: 1440,
     height: 1000,
@@ -110,16 +111,19 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
     enableLargerThanScreen: true,
     webPreferences: {
       session: current,
+      // Timers and network execution stay unthrottled; offscreen rendering supplies a
+      // bounded frame clock even when the native window has never been shown.
       backgroundThrottling: false,
-      // Hidden native windows can lose their compositor frame clock despite disabling
-      // background throttling. Give worker renderers a synthetic clock without changing
-      // the app's display/GPU frame limits or briefly showing the worker window.
-      additionalArguments: show ? [] : ["--disable-frame-rate-limit"],
+      offscreen: !show,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   })
+
+  if (!show) attachWorkerPreview(win)
+
+  return win
 }
 
 let loginWindow: BrowserWindow | null = null
