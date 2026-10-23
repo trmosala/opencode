@@ -5,11 +5,7 @@ import { BrowserRpc } from "@cookiemonster/cm-browser/rpc"
 import { SidecarCredentials } from "../service/sidecar-credentials"
 import { attachBrowserBridge } from "./bridge"
 import { createBrowserSessionResolver } from "./session-resolver"
-import {
-  parseBrowserIpcRequest,
-  parseBrowserIpcCancel,
-  type BrowserIpcResult,
-} from "@cookiemonster/cm-browser/protocol"
+import { parseBrowserWireRequest, type BrowserIpcResult } from "@cookiemonster/cm-browser/protocol"
 
 let current: ReturnType<typeof createChannel> | undefined
 
@@ -33,6 +29,7 @@ function createChannel(endpoint: SidecarCredentials.Data, password: string) {
     baseUrl: endpoint.url,
     headers: { authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` },
   })
+
   const rpc = client.rpc(BrowserRpc)
   const locations = new Map<string, { controller: AbortController; ready: Promise<void> }>()
   const requests = new Map<string, { directory: string; connectionID: string; signal: AbortSignal }>()
@@ -88,13 +85,19 @@ function createChannel(endpoint: SidecarCredentials.Data, password: string) {
         "request",
         (event) => {
           if (event.data.connectionID !== connectionID) return
-          const value: unknown = JSON.parse(event.data.message)
-          const parsed = parseBrowserIpcRequest(value) ?? parseBrowserIpcCancel(value)
+          const parsed = parseBrowserWireRequest(event.data.message)
 
-          if (!parsed) return
+          if (!parsed) {
+            controller.abort(new Error("Invalid or oversized browser request."))
 
-          if (parsed.type === "browser_request")
+            return
+          }
+
+          if (parsed.type === "browser_request") {
+            if (requests.has(parsed.id)) return
             requests.set(parsed.id, { directory, connectionID, signal: controller.signal })
+          }
+
           child.emit("message", parsed)
         },
         { signal: controller.signal },

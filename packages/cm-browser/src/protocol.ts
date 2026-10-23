@@ -1,5 +1,10 @@
 import { isAbsolute, join } from "node:path"
 
+// Request envelopes allow escaped 10,000-character text plus routing metadata.
+export const MAX_BROWSER_REQUEST_BYTES = 128 * 1024
+export const MAX_BROWSER_PENDING = 256
+export const MAX_BROWSER_CONTROL_PENDING = 16
+
 export const ALLOWLIST_FILENAME = "cm-browser-allowlist.json"
 export const STATE_DIRECTORY_NAME = "CookieMonster"
 export const MAX_URL_LENGTH = 2_048
@@ -1116,4 +1121,15 @@ export function hostAllowed(url: string, allowlist: readonly string[]): boolean 
     const allowed = entry.trim().toLowerCase()
     return Boolean(allowed) && (host === allowed || host.endsWith(`.${allowed}`))
   })
+}
+
+// Reject before parsing the inner request; the outer transport allocation already exists.
+export function parseBrowserWireRequest(message: string) {
+  if (Buffer.byteLength(message) > MAX_BROWSER_REQUEST_BYTES) return
+  try {
+    const value: unknown = JSON.parse(message)
+    return parseBrowserIpcRequest(value) ?? parseBrowserIpcCancel(value)
+  } catch {
+    return
+  }
 }

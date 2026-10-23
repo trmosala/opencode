@@ -3,6 +3,9 @@ import { EventEmitter, getEventListeners } from "node:events"
 import { ipcPort } from "../src/port"
 import {
   OPERATION_TIMEOUT_MS,
+  MAX_BROWSER_PENDING,
+  MAX_BROWSER_CONTROL_PENDING,
+  MAX_BROWSER_REQUEST_BYTES,
   failure,
   success,
   type BrowserIpcRequest,
@@ -133,4 +136,48 @@ test("correlates out-of-order utility-process results", async () => {
   const secondResult = await second
   expect(firstResult.ok ? firstResult.result.url : "").toBe("https://one.test")
   expect(secondResult.ok ? secondResult.result.url : "").toBe("https://two.test")
+})
+
+test("request capacity rejects immediately and completion and disconnect restore capacity", async () => {
+  const f = fixture()
+  const pending = Array.from({ length: MAX_BROWSER_PENDING }, () => f.port.send("session", { op: "list_tabs" }))
+  expect(await f.port.send("session", { op: "list_tabs" })).toMatchObject({ code: "unavailable" })
+  expect(f.sent).toHaveLength(MAX_BROWSER_PENDING)
+  f.reply(f.sent[0].id)
+  const next = f.port.send("session", { op: "list_tabs" })
+  expect(f.sent).toHaveLength(MAX_BROWSER_PENDING + 1)
+  f.port.disconnect()
+  await Promise.all([...pending, next])
+  expect(f.parent.listenerCount("message")).toBe(0)
+  const reopened = f.port.send("session", { op: "list_tabs" })
+  f.reply(f.sent.at(-1)!.id)
+  expect(await reopened).toMatchObject({ code: "no_target" })
+})
+
+test("oversized envelopes never dispatch or retain a listener", async () => {
+  const f = fixture()
+  expect(await f.port.send("x".repeat(MAX_BROWSER_REQUEST_BYTES), { op: "list_tabs" })).toMatchObject({
+    code: "bad_request",
+  })
+  expect(f.sent).toHaveLength(0)
+  expect(f.parent.listenerCount("message")).toBe(0)
+})
+
+test("revocations have bounded reserved capacity and cancellation still dispatches", async () => {
+  const f = fixture()
+  const controller = new AbortController()
+  const pending = Array.from({ length: MAX_BROWSER_PENDING }, () =>
+    f.port.send("session", { op: "list_tabs" }, controller.signal),
+  )
+  const revocations = Array.from({ length: MAX_BROWSER_CONTROL_PENDING }, (_, id) =>
+    f.port.send("session", { op: "revoke_tabs", executionID: String(id) }),
+  )
+  expect(f.sent).toHaveLength(MAX_BROWSER_PENDING + MAX_BROWSER_CONTROL_PENDING)
+  expect(await f.port.send("session", { op: "revoke_tabs", executionID: "overflow" })).toMatchObject({
+    code: "unavailable",
+  })
+  controller.abort()
+  expect(f.sent.filter((message) => message.type === "browser_cancel")).toHaveLength(MAX_BROWSER_PENDING)
+  f.port.disconnect()
+  await Promise.all([...pending, ...revocations])
 })

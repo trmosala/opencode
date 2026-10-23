@@ -1,5 +1,7 @@
 import {
   OPERATION_TIMEOUT_MS,
+  MAX_BROWSER_PENDING,
+  MAX_BROWSER_CONTROL_PENDING,
   failure,
   parseBrowserIpcCancel,
   parseBrowserIpcRequest,
@@ -88,7 +90,22 @@ export function attachBrowserBridge(child: Sidecar, route = routeBrowserRequest,
     // An occupied correlation ID belongs to its original waiter, even across sessions.
     if (active.has(request.id)) return
 
-    if (active.size >= 256 && request.request.op !== "revoke_tabs") return
+    if (active.size >= MAX_BROWSER_PENDING + (request.request.op === "revoke_tabs" ? MAX_BROWSER_CONTROL_PENDING : 0)) {
+      post(
+        {
+          type: "browser_result",
+          id: request.id,
+          response: {
+            ...failure("unavailable", "Browser request capacity reached."),
+            actionStatus: "not_dispatched",
+          },
+        },
+        request.request.op,
+      )
+
+      return
+    }
+
     const controller = new AbortController()
     active.set(request.id, {
       sessionID: request.sessionID,

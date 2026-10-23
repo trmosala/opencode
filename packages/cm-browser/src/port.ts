@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto"
 import {
   OPERATION_TIMEOUT_MS,
+  MAX_BROWSER_REQUEST_BYTES,
+  MAX_BROWSER_PENDING,
+  MAX_BROWSER_CONTROL_PENDING,
   failure,
   parseBrowserIpcResult,
   type BrowserIpcRequest,
@@ -75,6 +78,19 @@ export function ipcPort(
           ...(actionRequest(request) ? { actionStatus: "not_dispatched" as const } : {}),
         })
       const id = randomUUID()
+      const message: BrowserIpcRequest = { type: "browser_request", id, sessionID, request }
+      const oversized = Buffer.byteLength(JSON.stringify(message)) > MAX_BROWSER_REQUEST_BYTES
+      if (
+        oversized ||
+        pending.size >= MAX_BROWSER_PENDING + (request.op === "revoke_tabs" ? MAX_BROWSER_CONTROL_PENDING : 0)
+      )
+        return Promise.resolve({
+          ...failure(
+            oversized ? "bad_request" : "unavailable",
+            oversized ? "Browser request exceeds the size limit." : "Browser request capacity reached.",
+          ),
+          ...(actionRequest(request) ? { actionStatus: "not_dispatched" as const } : {}),
+        })
       return new Promise((resolve) => {
         let dispatched = false
         let cancelTimeout: ReturnType<typeof setTimeout> | undefined
@@ -134,7 +150,7 @@ export function ipcPort(
         if (signal?.aborted) return abort()
         try {
           dispatched = true
-          parent.postMessage({ type: "browser_request", id, sessionID, request })
+          parent.postMessage(message)
         } catch {
           finish(
             {

@@ -469,3 +469,35 @@ test.each([
     stop()
   }
 })
+
+test("bridge reports overload and admits work again after settlement", async () => {
+  const replies: BrowserIpcResult[] = []
+  const pending = Promise.withResolvers<ReturnType<typeof failure>>()
+  const child = Object.assign(new EventEmitter(), { postMessage: (reply: BrowserIpcResult) => replies.push(reply) })
+  const stop = attachBrowserBridge(child, () => pending.promise)
+
+  try {
+    Array.from({ length: 256 }, (_, id) =>
+      child.emit("message", {
+        type: "browser_request",
+        id: String(id),
+        sessionID: "one",
+        request: { op: "list_tabs" },
+      }),
+    )
+    child.emit("message", { type: "browser_request", id: "overflow", sessionID: "one", request: { op: "list_tabs" } })
+    expect(replies).toHaveLength(1)
+    expect(replies[0]).toMatchObject({
+      id: "overflow",
+      response: { code: "unavailable", actionStatus: "not_dispatched" },
+    })
+    pending.resolve(failure("no_target", "fixture"))
+    await new Promise((resolve) => setImmediate(resolve))
+    child.emit("message", { type: "browser_request", id: "next", sessionID: "one", request: { op: "list_tabs" } })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(replies.at(-1)).toMatchObject({ id: "next", response: { code: "no_target" } })
+  } finally {
+    stop()
+    pending.resolve(failure("no_target", "fixture"))
+  }
+})
