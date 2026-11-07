@@ -1762,3 +1762,6 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
 }
+
+// New CookieMonster copy uses English until reviewed translations are available.
+export const fallback = dict

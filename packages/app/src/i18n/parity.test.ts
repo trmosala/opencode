@@ -97,6 +97,20 @@ const domains = [
 ] as const
 
 describe("i18n parity", () => {
+  test("native menu translations stay attached to their keys", async () => {
+    for (const [locale, file] of [
+      ["hr", "Datoteka"],
+      ["hu", "Fájl"],
+      ["is", "Skrá"],
+      ["lt", "Failas"],
+    ]) {
+      const target = await dictionary(`./${locale}.ts`)
+      expect(target["desktop.menu.file"]).toBe(file)
+      expect(target["desktop.browser.tabs.create_tab"]).toBe("Create one blank private tab?")
+      expect(target["session.workflow.working"]).toBe("Working")
+    }
+  })
+
   test("non-English locales have every English key and required plural variants", async () => {
     for (const domain of domains) {
       const source = await dictionary(domain.source)

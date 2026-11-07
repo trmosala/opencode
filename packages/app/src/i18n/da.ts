@@ -1,7 +1,7 @@
-import { browser } from "./en"
+import { fallback } from "./en"
 
 export const dict = {
-  ...browser,
+  ...fallback,
   "command.category.suggested": "Foreslået",
   "command.category.view": "Vis",
   "command.category.project": "Projekt",

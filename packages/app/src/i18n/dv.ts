@@ -1,7 +1,7 @@
-import { browser } from "./en"
+import { fallback } from "./en"
 
 export const dict = {
-  ...browser,
+  ...fallback,
   "desktop.menu.app": "OpenCode އެވެ",
   "desktop.menu.file": "ފައިލް",
   "desktop.menu.edit": "ބަދަލު ގެނައުން",

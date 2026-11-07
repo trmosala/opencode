@@ -1,7 +1,7 @@
-import { browser } from "./en"
+import { fallback } from "./en"
 
 export const dict = {
-  ...browser,
+  ...fallback,
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "ໄຟລ໌",
   "desktop.menu.edit": "ແກ້ໄຂ",

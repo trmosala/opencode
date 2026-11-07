@@ -2,3 +2,10 @@ sst-env.d.ts
 packages/desktop/src/bindings.ts
 packages/client/src/generated/
 packages/client/src/generated-effect/
+
+# Third-party bundles are staged byte-for-byte, not maintained source.
+packages/desktop/vendor/
+
+# Local build output is not source.
+**/out/
+**/dist/
