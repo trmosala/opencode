@@ -44,10 +44,7 @@ export type RecorderEvent = { type: string; status?: string | null; runId?: stri
 // Register the probe + recorder scripts with the shared target hub. Caller must armTargetAttach
 // after all installers are registered (and before loadURL) so child iframes stay paused until
 // these scripts land. Events arrive asynchronously via onEvent as the page loads.
-export async function installRecorder(
-  contents: WebContents,
-  onEvent?: (event: RecorderEvent) => void,
-): Promise<void> {
+export async function installRecorder(contents: WebContents, onEvent?: (event: RecorderEvent) => void): Promise<void> {
   await waitForInitialDocument(contents)
   const dbg = contents.debugger
 
@@ -68,18 +65,30 @@ export async function installRecorder(
     await dbg.sendCommand("Page.enable", {}, sessionId)
     // Probe before recorder so the relay listener exists when the recorder posts its first frame.
     // runImmediately covers the case where a document already exists when we attach.
-    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-      source: PROBE_SOURCE,
-      runImmediately: true,
-    }, sessionId)
-    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-      source: MODEL_REQUEST_FILTER_SOURCE,
-      runImmediately: true,
-    }, sessionId)
-    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-      source: recorderSource,
-      runImmediately: true,
-    }, sessionId)
+    await dbg.sendCommand(
+      "Page.addScriptToEvaluateOnNewDocument",
+      {
+        source: PROBE_SOURCE,
+        runImmediately: true,
+      },
+      sessionId,
+    )
+    await dbg.sendCommand(
+      "Page.addScriptToEvaluateOnNewDocument",
+      {
+        source: MODEL_REQUEST_FILTER_SOURCE,
+        runImmediately: true,
+      },
+      sessionId,
+    )
+    await dbg.sendCommand(
+      "Page.addScriptToEvaluateOnNewDocument",
+      {
+        source: recorderSource,
+        runImmediately: true,
+      },
+      sessionId,
+    )
   })
 }
 

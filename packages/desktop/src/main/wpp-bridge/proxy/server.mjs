@@ -1,236 +1,237 @@
-import http from "node:http";
-import { handleChatCompletions, listModels, writeJson } from "./openaiCompat.mjs";
-import { extensionBridge } from "./extensionBridge.mjs";
-import { renderStatusPage } from "./statusPage.mjs";
-import { shouldIgnoreListenError } from "./server-startup.mjs";
+import http from "node:http"
+import { handleChatCompletions, listModels, writeJson } from "./openaiCompat.mjs"
+import { extensionBridge } from "./extensionBridge.mjs"
+import { renderStatusPage } from "./statusPage.mjs"
+import { shouldIgnoreListenError } from "./server-startup.mjs"
 
-const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1";
-const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787);
-export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
+const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1"
+const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787)
+export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
 
 export async function startServer(options = {}) {
-  return startServerWithActions(options);
+  return startServerWithActions(options)
 }
 
-export async function startServerWithActions({ host = DEFAULT_HOST, port = DEFAULT_PORT, openLogin = null, checkAuth = null, chatMode = "assistant" } = {}) {
-  extensionBridge.setChatMode(chatMode);
-  if (typeof openLogin === "function") extensionBridge.onAuthRequired = openLogin;
+export async function startServerWithActions({
+  host = DEFAULT_HOST,
+  port = DEFAULT_PORT,
+  openLogin = null,
+  checkAuth = null,
+  chatMode = "assistant",
+} = {}) {
+  extensionBridge.setChatMode(chatMode)
+  if (typeof openLogin === "function") extensionBridge.onAuthRequired = openLogin
   const server = http.createServer(async (request, response) => {
     try {
-      await route(request, response, { openLogin, checkAuth });
+      await route(request, response, { openLogin, checkAuth })
     } catch (error) {
       writeJson(response, error.statusCode || 500, {
         error: {
           message: error.message,
-          type: error.type || "o1_code_proxy_error"
-        }
-      });
+          type: error.type || "o1_code_proxy_error",
+        },
+      })
     }
-  });
+  })
 
   try {
     await new Promise((resolve, reject) => {
-      server.once("error", reject);
+      server.once("error", reject)
       server.listen(port, host, () => {
-        server.removeListener("error", reject);
-        resolve();
-      });
-    });
+        server.removeListener("error", reject)
+        resolve()
+      })
+    })
   } catch (error) {
     if (shouldIgnoreListenError(error)) {
-      console.log(`o1-code-openai-proxy: already running on http://${host}:${port}/ — nothing to do.`);
-      return;
+      console.log(`o1-code-openai-proxy: already running on http://${host}:${port}/ — nothing to do.`)
+      return
     }
 
-    throw error;
+    throw error
   }
 
-  console.log(`o1-code-openai-proxy listening on http://${host}:${port}/v1`);
-  return server;
+  console.log(`o1-code-openai-proxy listening on http://${host}:${port}/v1`)
+  return server
 }
 
 async function route(request, response, actions = {}) {
-  const url = new URL(request.url, "http://127.0.0.1");
+  const url = new URL(request.url, "http://127.0.0.1")
 
   if (!enforceBrowserOrigin(request, response)) {
-    return;
+    return
   }
 
   if (request.method === "OPTIONS") {
-    writeCors(response, request);
-    response.writeHead(204);
-    response.end();
-    return;
+    writeCors(response, request)
+    response.writeHead(204)
+    response.end()
+    return
   }
 
   if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/status")) {
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(renderStatusPage());
-    return;
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+    response.end(renderStatusPage())
+    return
   }
 
   if (request.method === "GET" && url.pathname === "/health") {
-    writeJson(response, 200, { ok: true });
-    return;
+    writeJson(response, 200, { ok: true })
+    return
   }
 
   if (request.method === "GET" && url.pathname === "/bridge/health") {
-    writeJson(response, 200, extensionBridge.health());
-    return;
+    writeJson(response, 200, extensionBridge.health())
+    return
   }
 
   if (request.method === "GET" && url.pathname === "/bridge/auth") {
-    const state = typeof actions.checkAuth === "function" ? await actions.checkAuth() : { status: "unknown" };
-    writeJson(response, 200, { status: state.status });
-    return;
+    const state = typeof actions.checkAuth === "function" ? await actions.checkAuth() : { status: "unknown" }
+    writeJson(response, 200, { status: state.status })
+    return
   }
 
   if (request.method === "POST" && url.pathname === "/bridge/login") {
     if (typeof actions.openLogin !== "function") {
-      writeJson(response, 501, { ok: false, error: "WPP login window is not available." });
-      return;
+      writeJson(response, 501, { ok: false, error: "WPP login window is not available." })
+      return
     }
 
-    await actions.openLogin();
-    writeJson(response, 200, { ok: true });
-    return;
+    await actions.openLogin()
+    writeJson(response, 200, { ok: true })
+    return
   }
 
   if (request.method === "GET" && url.pathname === "/v1/models") {
-    writeCors(response, request);
-    writeJson(response, 200, listModels());
-    return;
+    writeCors(response, request)
+    writeJson(response, 200, listModels())
+    return
   }
 
   if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
-    writeCors(response, request);
-    const controller = new AbortController();
+    writeCors(response, request)
+    const controller = new AbortController()
     const abort = () => {
-      if (!response.writableEnded) controller.abort();
-    };
-    request.once("aborted", abort);
-    response.once("close", abort);
-    try {
-      const body = await readJson(request);
-      await handleChatCompletions(request, response, body, { signal: controller.signal });
-    } finally {
-      request.removeListener("aborted", abort);
-      response.removeListener("close", abort);
+      if (!response.writableEnded) controller.abort()
     }
-    return;
+    request.once("aborted", abort)
+    response.once("close", abort)
+    try {
+      const body = await readJson(request)
+      await handleChatCompletions(request, response, body, { signal: controller.signal })
+    } finally {
+      request.removeListener("aborted", abort)
+      response.removeListener("close", abort)
+    }
+    return
   }
 
   writeJson(response, 404, {
     error: {
       message: `No route for ${request.method} ${url.pathname}`,
-      type: "not_found"
-    }
-  });
+      type: "not_found",
+    },
+  })
 }
 
 function enforceBrowserOrigin(request, response) {
   if (isAllowedBrowserRequest(request.headers)) {
-    return true;
+    return true
   }
 
-  const origin = request.headers.origin || "(no origin)";
-  const fetchSite = request.headers["sec-fetch-site"] || "(no sec-fetch-site)";
+  const origin = request.headers.origin || "(no origin)"
+  const fetchSite = request.headers["sec-fetch-site"] || "(no sec-fetch-site)"
 
   writeJson(response, 403, {
     error: {
       message: `Browser request is not allowed to access the local O1-Code proxy: origin=${origin}, sec-fetch-site=${fetchSite}`,
-      type: "forbidden_origin"
-    }
-  });
-  return false;
+      type: "forbidden_origin",
+    },
+  })
+  return false
 }
 
 function writeCors(response, request) {
-  const origin = request.headers.origin;
+  const origin = request.headers.origin
 
   if (!origin || !isAllowedBrowserOrigin(origin)) {
-    return;
+    return
   }
 
-  response.setHeader("access-control-allow-origin", origin);
-  response.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  response.setHeader("access-control-allow-headers", "content-type,authorization");
-  response.setHeader("vary", "origin");
+  response.setHeader("access-control-allow-origin", origin)
+  response.setHeader("access-control-allow-methods", "GET,POST,OPTIONS")
+  response.setHeader("access-control-allow-headers", "content-type,authorization")
+  response.setHeader("vary", "origin")
 }
 
 export function isAllowedBrowserOrigin(origin) {
   if (!origin) {
-    return true;
+    return true
   }
 
   if (String(origin).startsWith("chrome-extension://")) {
-    return true;
+    return true
   }
 
   try {
-    const url = new URL(origin);
+    const url = new URL(origin)
 
-    return url.protocol === "http:" && [
-      "localhost",
-      "127.0.0.1",
-      "::1",
-      "[::1]"
-    ].includes(url.hostname);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)
   } catch {
-    return false;
+    return false
   }
 }
 
 export function isAllowedBrowserRequest(headers = {}) {
-  const origin = headers.origin;
-  const fetchSite = headers["sec-fetch-site"];
+  const origin = headers.origin
+  const fetchSite = headers["sec-fetch-site"]
 
   if (isAllowedBrowserOrigin(origin) && String(origin || "").startsWith("chrome-extension://")) {
-    return true;
+    return true
   }
 
   if (fetchSite === "cross-site") {
-    return false;
+    return false
   }
 
-  return isAllowedBrowserOrigin(origin);
+  return isAllowedBrowserOrigin(origin)
 }
 
 export async function readJson(request, maxBytes = MAX_REQUEST_BODY_BYTES) {
-  const chunks = [];
-  let totalBytes = 0;
+  const chunks = []
+  let totalBytes = 0
 
-  const contentLength = Number(request.headers?.["content-length"]);
+  const contentLength = Number(request.headers?.["content-length"])
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw requestTooLarge(maxBytes);
+    throw requestTooLarge(maxBytes)
   }
 
   for await (const chunk of request) {
-    totalBytes += chunk.length;
+    totalBytes += chunk.length
     if (totalBytes > maxBytes) {
-      throw requestTooLarge(maxBytes);
+      throw requestTooLarge(maxBytes)
     }
-    chunks.push(chunk);
+    chunks.push(chunk)
   }
 
-  const raw = Buffer.concat(chunks).toString("utf8");
+  const raw = Buffer.concat(chunks).toString("utf8")
 
   if (!raw.trim()) {
-    return {};
+    return {}
   }
 
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw)
   } catch {
-    const error = new Error("Request body must be valid JSON.");
-    error.statusCode = 400;
-    throw error;
+    const error = new Error("Request body must be valid JSON.")
+    error.statusCode = 400
+    throw error
   }
 }
 
 function requestTooLarge(maxBytes) {
-  const error = new Error(`Request body exceeds the ${maxBytes} byte limit.`);
-  error.statusCode = 413;
-  error.type = "request_too_large";
-  return error;
+  const error = new Error(`Request body exceeds the ${maxBytes} byte limit.`)
+  error.statusCode = 413
+  error.type = "request_too_large"
+  return error
 }

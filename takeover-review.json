@@ -1,19 +1,6 @@
 {
   "checkout": "D:\\Workarea\\CookieMonster\\browser-gaps",
-  "implemented": [
-    49,
-    50,
-    51,
-    52,
-    53,
-    54,
-    55,
-    56,
-    57,
-    59,
-    60,
-    61
-  ],
+  "implemented": [49, 50, 51, 52, 53, 54, 55, 56, 57, 59, 60, 61],
   "pending": {
     "58": "Human desktop dev-build corner finding required; existing 10px inset and radius preserved.",
     "62": "Human component swap-versus-override decision required before implementation.",
@@ -44,12 +31,7 @@
     "pageErrors": 0,
     "tooltipHoverCases": 168,
     "settingsGeneralScreenshotsPerBaseline": 8,
-    "conditionalTooltipControls": [
-      "accounts",
-      "go",
-      "new tab",
-      "all tabs"
-    ]
+    "conditionalTooltipControls": ["accounts", "go", "new tab", "all tabs"]
   },
   "evidence": [
     "before/records-review.json",

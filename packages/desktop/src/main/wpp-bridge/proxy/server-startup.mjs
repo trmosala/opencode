@@ -1,3 +1,3 @@
 export function shouldIgnoreListenError(error) {
-  return error?.code === "EADDRINUSE";
+  return error?.code === "EADDRINUSE"
 }

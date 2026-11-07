@@ -1682,5 +1682,7 @@ test("global draft rows show their project and open the matching draft", async (
   await expect(page.getByRole("heading", { name: "What should we build in OtherProject?", exact: true })).toBeVisible()
   await first.locator('[data-action="project-draft"]').click()
   await expect(page).toHaveURL(/draftId=draft_project_a/)
-  await expect(page.getByRole("heading", { name: `What should we build in ${fixture.project.name}?`, exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: `What should we build in ${fixture.project.name}?`, exact: true }),
+  ).toBeVisible()
 })

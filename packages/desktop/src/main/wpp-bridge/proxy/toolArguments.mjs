@@ -5,20 +5,20 @@
 export function parseToolArguments(argumentsValue) {
   if (typeof argumentsValue === "string") {
     if (!argumentsValue.trim()) {
-      return {};
+      return {}
     }
 
     try {
-      const parsed = JSON.parse(argumentsValue);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      const parsed = JSON.parse(argumentsValue)
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
     } catch {
-      return {};
+      return {}
     }
   }
 
   if (argumentsValue && typeof argumentsValue === "object" && !Array.isArray(argumentsValue)) {
-    return argumentsValue;
+    return argumentsValue
   }
 
-  return {};
+  return {}
 }

@@ -207,11 +207,11 @@ When syncing upstream OpenCode:
 
 ## Usage-field contract
 
-| Field               | Exact network usage                       | Confirmed WPP pill                                            | Heuristic fallback           |
-| ------------------- | ----------------------------------------- | ------------------------------------------------------------- | ---------------------------- |
-| `total_tokens`      | Network prompt + completion                | Current WPP context pill                                      | Estimated prompt + completion |
-| `completion_tokens` | Exact network value                        | Estimated from current output, capped at total                | Estimated                    |
-| `prompt_tokens`     | Exact network value                        | Derived as total minus estimated completion                   | Estimated                    |
+| Field               | Exact network usage         | Confirmed WPP pill                             | Heuristic fallback            |
+| ------------------- | --------------------------- | ---------------------------------------------- | ----------------------------- |
+| `total_tokens`      | Network prompt + completion | Current WPP context pill                       | Estimated prompt + completion |
+| `completion_tokens` | Exact network value         | Estimated from current output, capped at total | Estimated                     |
+| `prompt_tokens`     | Exact network value         | Derived as total minus estimated completion    | Estimated                     |
 
 For the current WPP response shape, only the DOM `total_tokens` is WPP-owned;
 the prompt/completion split remains estimated. If structured network usage is

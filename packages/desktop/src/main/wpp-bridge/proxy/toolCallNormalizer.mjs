@@ -1,33 +1,33 @@
-import { looksLikeIncompleteAnthropicToolCall } from "./anthropicToolFormat.mjs";
+import { looksLikeIncompleteAnthropicToolCall } from "./anthropicToolFormat.mjs"
 
 export function chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts = []) {
-  const fromText = normalizeAssistantMessage(finalText);
-  const fromParts = normalizeFromToolCallParts(toolCallParts);
+  const fromText = normalizeAssistantMessage(finalText)
+  const fromParts = normalizeFromToolCallParts(toolCallParts)
 
   if (fromText?.finish_reason === "tool_calls" && fromText.tool_calls?.length) {
-    return fromText;
+    return fromText
   }
 
   if (fromParts?.tool_calls?.length) {
-    return withPreamble(fromParts, finalText);
+    return withPreamble(fromParts, finalText)
   }
 
   const fromAlternate = alternateAssistantTexts
     .map((content) => normalizeAssistantMessage(content))
-    .find((response) => response?.finish_reason === "tool_calls" && response.tool_calls?.length);
+    .find((response) => response?.finish_reason === "tool_calls" && response.tool_calls?.length)
 
   if (fromAlternate) {
-    return withPreamble(fromAlternate, finalText);
+    return withPreamble(fromAlternate, finalText)
   }
 
-  return fromText;
+  return fromText
 }
 
 export function normalizeFromToolCallParts(toolCallParts) {
-  const parts = Object.values(toolCallParts || {}).filter((p) => p?.name);
+  const parts = Object.values(toolCallParts || {}).filter((p) => p?.name)
 
   if (parts.length === 0) {
-    return null;
+    return null
   }
 
   const tool_calls = parts.map((part) => ({
@@ -35,40 +35,38 @@ export function normalizeFromToolCallParts(toolCallParts) {
     type: "function",
     function: {
       name: part.name,
-      arguments: part.arguments || "{}"
-    }
-  }));
+      arguments: part.arguments || "{}",
+    },
+  }))
 
   return {
     content: null,
     tool_calls,
-    finish_reason: "tool_calls"
-  };
+    finish_reason: "tool_calls",
+  }
 }
 
 export function normalizeAssistantMessage(content) {
-  const unwrappedContent = unwrapSingleCodeFence(content);
-  const extractionContent = unwrappedContent === content
-    ? removeCodeFencedBlocks(content)
-    : unwrappedContent;
+  const unwrappedContent = unwrapSingleCodeFence(content)
+  const extractionContent = unwrappedContent === content ? removeCodeFencedBlocks(content) : unwrappedContent
 
   // A real XML tool call is emitted bare (the system prompt forbids fencing it), so parse it from
   // the RAW text starting at the first UNFENCED <function_calls>/<invoke>. This keeps code fences
   // INSIDE a parameter value intact — stripping them (removeCodeFencedBlocks) decapitates the
   // closing </parameter> when the model writes a markdown/code file, dropping the `content` arg.
   // A fenced *example* has its marker inside a fence, so it isn't found here and stays inert.
-  let xmlCalls = null;
-  let xmlPreamble = null;
-  let incompleteXml = false;
+  let xmlCalls = null
+  let xmlPreamble = null
+  let incompleteXml = false
   if (unwrappedContent !== content) {
-    xmlCalls = parseAnthropicXmlToolCalls(unwrappedContent);
+    xmlCalls = parseAnthropicXmlToolCalls(unwrappedContent)
   } else {
-    const start = unfencedToolCallStart(content);
+    const start = unfencedToolCallStart(content)
     if (start >= 0) {
-      const xmlContent = content.slice(start);
-      xmlCalls = parseAnthropicXmlToolCalls(xmlContent);
-      xmlPreamble = content.slice(0, start).trimEnd() || null;
-      incompleteXml = !xmlCalls && looksLikeIncompleteAnthropicToolCall(xmlContent);
+      const xmlContent = content.slice(start)
+      xmlCalls = parseAnthropicXmlToolCalls(xmlContent)
+      xmlPreamble = content.slice(0, start).trimEnd() || null
+      incompleteXml = !xmlCalls && looksLikeIncompleteAnthropicToolCall(xmlContent)
     }
   }
 
@@ -80,79 +78,78 @@ export function normalizeAssistantMessage(content) {
         type: "function",
         function: {
           name: call.name,
-          arguments: JSON.stringify(call.args || {})
-        }
+          arguments: JSON.stringify(call.args || {}),
+        },
       })),
-      finish_reason: "tool_calls"
-    };
+      finish_reason: "tool_calls",
+    }
   }
 
   if (incompleteXml) {
-    const error = new Error("The WPP agent returned an incomplete XML tool call.");
-    error.statusCode = 502;
-    error.type = "o1_code_incomplete_tool_call";
-    throw error;
+    const error = new Error("The WPP agent returned an incomplete XML tool call.")
+    error.statusCode = 502
+    error.type = "o1_code_incomplete_tool_call"
+    throw error
   }
 
-  const jsonToolCalls = parseTrailingToolCallJsons(extractionContent);
+  const jsonToolCalls = parseTrailingToolCallJsons(extractionContent)
 
   if (jsonToolCalls?.length) {
     return {
       content: null,
       tool_calls: toolCallsFromJsonCalls(dedupeToolCalls(jsonToolCalls)),
-      finish_reason: "tool_calls"
-    };
+      finish_reason: "tool_calls",
+    }
   }
 
   // A model may emit several calls as one trailing JSON array ([{...},{...}]) rather than
   // back-to-back objects; accept that shape too.
-  const arrayToolCalls = parseTrailingToolCallArray(extractionContent);
+  const arrayToolCalls = parseTrailingToolCallArray(extractionContent)
 
   if (arrayToolCalls?.length) {
     return {
       content: null,
       tool_calls: toolCallsFromJsonCalls(dedupeToolCalls(arrayToolCalls)),
-      finish_reason: "tool_calls"
-    };
+      finish_reason: "tool_calls",
+    }
   }
 
-  const leadingJsonToolCall = parseLeadingToolCallJson(extractionContent);
+  const leadingJsonToolCall = parseLeadingToolCallJson(extractionContent)
 
   if (leadingJsonToolCall) {
     return {
       content: null,
       tool_calls: toolCallsFromJsonCalls([leadingJsonToolCall]),
-      finish_reason: "tool_calls"
-    };
+      finish_reason: "tool_calls",
+    }
   }
 
-  const embeddedJsonToolCalls = parseEmbeddedToolCallJsons(extractionContent);
+  const embeddedJsonToolCalls = parseEmbeddedToolCallJsons(extractionContent)
 
   if (embeddedJsonToolCalls?.length) {
     return {
       content: null,
       tool_calls: toolCallsFromJsonCalls(dedupeToolCalls(embeddedJsonToolCalls)),
-      finish_reason: "tool_calls"
-    };
+      finish_reason: "tool_calls",
+    }
   }
 
-  const parsed = parseDelegatedAgentJson(extractionContent)
-    || parseStrictJson(unwrappedContent);
+  const parsed = parseDelegatedAgentJson(extractionContent) || parseStrictJson(unwrappedContent)
 
   if (!parsed) {
     return {
       content,
       tool_calls: undefined,
-      finish_reason: "stop"
-    };
+      finish_reason: "stop",
+    }
   }
 
   if (parsed.type === "final") {
     return {
       content: parsed.message || "",
       tool_calls: undefined,
-      finish_reason: "stop"
-    };
+      finish_reason: "stop",
+    }
   }
 
   if (parsed.type === "tool_call" && parsed.tool) {
@@ -164,29 +161,29 @@ export function normalizeAssistantMessage(content) {
           type: "function",
           function: {
             name: parsed.tool,
-            arguments: JSON.stringify(parsed.args || {})
-          }
-        }
+            arguments: JSON.stringify(parsed.args || {}),
+          },
+        },
       ],
-      finish_reason: "tool_calls"
-    };
+      finish_reason: "tool_calls",
+    }
   }
 
   return {
     content,
     tool_calls: undefined,
-    finish_reason: "stop"
-  };
+    finish_reason: "stop",
+  }
 }
 
 function withPreamble(message, content) {
-  const text = typeof content === "string" ? content.trimEnd() : "";
+  const text = typeof content === "string" ? content.trimEnd() : ""
 
   if (!text || normalizeAssistantMessage(text).tool_calls?.length) {
-    return message;
+    return message
   }
 
-  return { ...message, content: text };
+  return { ...message, content: text }
 }
 
 // Index of the first <function_calls>/<invoke> marker that is NOT inside a ``` fenced block, or
@@ -195,60 +192,60 @@ function withPreamble(message, content) {
 // inside a span and is skipped.
 function unfencedToolCallStart(content) {
   if (typeof content !== "string") {
-    return -1;
+    return -1
   }
 
-  const ticks = [];
-  const fence = /```/g;
-  let f;
+  const ticks = []
+  const fence = /```/g
+  let f
   while ((f = fence.exec(content)) !== null) {
-    ticks.push(f.index);
+    ticks.push(f.index)
   }
 
-  const spans = [];
+  const spans = []
   for (let i = 0; i + 1 < ticks.length; i += 2) {
-    spans.push([ticks[i], ticks[i + 1] + 3]);
+    spans.push([ticks[i], ticks[i + 1] + 3])
   }
 
-  const marker = /<function_calls\b|<invoke\b/g;
-  let m;
+  const marker = /<function_calls\b|<invoke\b/g
+  let m
   while ((m = marker.exec(content)) !== null) {
     if (!spans.some(([start, end]) => m.index >= start && m.index < end)) {
-      return m.index;
+      return m.index
     }
   }
 
-  return -1;
+  return -1
 }
 
 export function parseAnthropicXmlToolCalls(content) {
   if (typeof content !== "string" || !content.includes("<invoke")) {
-    return null;
+    return null
   }
 
-  const calls = [];
-  const invokeRegex = /<invoke\b([^>]*)>([\s\S]*?)<\/invoke>/gi;
-  let match;
+  const calls = []
+  const invokeRegex = /<invoke\b([^>]*)>([\s\S]*?)<\/invoke>/gi
+  let match
 
   while ((match = invokeRegex.exec(content)) !== null) {
-    const attributes = parseXmlAttributes(match[1]);
-    const name = attributes.name;
-    if (!name) continue;
-    const body = match[2];
-    calls.push(normalizeAnthropicInvoke({ id: attributes.id || "", name, args: extractInvokeParameters(body, name) }));
+    const attributes = parseXmlAttributes(match[1])
+    const name = attributes.name
+    if (!name) continue
+    const body = match[2]
+    calls.push(normalizeAnthropicInvoke({ id: attributes.id || "", name, args: extractInvokeParameters(body, name) }))
   }
 
-  return calls.length > 0 ? calls : null;
+  return calls.length > 0 ? calls : null
 }
 
 function parseXmlAttributes(text) {
-  const attributes = {};
-  const attributeRegex = /([:\w-]+)\s*=\s*(["'])(.*?)\2/g;
-  let match;
+  const attributes = {}
+  const attributeRegex = /([:\w-]+)\s*=\s*(["'])(.*?)\2/g
+  let match
   while ((match = attributeRegex.exec(String(text || ""))) !== null) {
-    attributes[match[1].toLowerCase()] = decodeXmlEntities(match[3]);
+    attributes[match[1].toLowerCase()] = decodeXmlEntities(match[3])
   }
-  return attributes;
+  return attributes
 }
 
 // Extract <parameter name="X"> values from an invoke body. Each value runs from its opening tag to
@@ -257,47 +254,47 @@ function parseXmlAttributes(text) {
 // tolerates the common Opus failure mode of closing the final/large parameter with the wrong tag or
 // omitting it entirely, which otherwise drops the argument (observed: `write` losing `content`).
 function extractInvokeParameters(body, toolName) {
-  const args = {};
-  const openRegex = /<parameter\s+name=(["'])([^"']+)\1\s*>/gi;
-  const opens = [];
-  let open;
+  const args = {}
+  const openRegex = /<parameter\s+name=(["'])([^"']+)\1\s*>/gi
+  const opens = []
+  let open
 
   while ((open = openRegex.exec(body)) !== null) {
-    opens.push({ name: open[2], valueStart: openRegex.lastIndex, openStart: open.index });
+    opens.push({ name: open[2], valueStart: openRegex.lastIndex, openStart: open.index })
   }
 
   for (let i = 0; i < opens.length; i += 1) {
-    const { name, valueStart } = opens[i];
-    const hardEnd = i + 1 < opens.length ? opens[i + 1].openStart : body.length;
-    const slice = body.slice(valueStart, hardEnd);
-    const raw = decodeXmlEntities(trimParameterClose(slice, name));
+    const { name, valueStart } = opens[i]
+    const hardEnd = i + 1 < opens.length ? opens[i + 1].openStart : body.length
+    const slice = body.slice(valueStart, hardEnd)
+    const raw = decodeXmlEntities(trimParameterClose(slice, name))
     // Site-tool arguments are JSON text, not a nested transport object.
-    args[name] = toolName === "browser_execute_site_tool" && name === "arguments" ? raw : coerceParameterValue(raw);
+    args[name] = toolName === "browser_execute_site_tool" && name === "arguments" ? raw : coerceParameterValue(raw)
   }
 
-  return args;
+  return args
 }
 
 function trimParameterClose(value, name) {
-  const ends = [];
-  const standard = value.indexOf("</parameter>");
+  const ends = []
+  const standard = value.indexOf("</parameter>")
   if (standard >= 0) {
-    ends.push(standard);
+    ends.push(standard)
   }
-  const named = value.search(new RegExp(`</${escapeRegExp(name)}\\s*>`, "i"));
+  const named = value.search(new RegExp(`</${escapeRegExp(name)}\\s*>`, "i"))
   if (named >= 0) {
-    ends.push(named);
+    ends.push(named)
   }
 
-  return ends.length > 0 ? value.slice(0, Math.min(...ends)) : value;
+  return ends.length > 0 ? value.slice(0, Math.min(...ends)) : value
 }
 
 function escapeRegExp(text) {
-  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function normalizeAnthropicInvoke(call) {
-  const name = String(call.name || "").trim();
+  const name = String(call.name || "").trim()
 
   if (isSubagentName(name) && typeof call.args?.prompt === "string") {
     return {
@@ -306,181 +303,178 @@ function normalizeAnthropicInvoke(call) {
       args: {
         subagent_type: name.toLowerCase(),
         prompt: call.args.prompt,
-        description: typeof call.args.description === "string"
-          ? call.args.description
-          : summarizeTaskDescription(call.args.prompt)
-      }
-    };
+        description:
+          typeof call.args.description === "string"
+            ? call.args.description
+            : summarizeTaskDescription(call.args.prompt),
+      },
+    }
   }
 
-  return call;
+  return call
 }
 
 function decodeXmlEntities(text) {
   return text
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
+    .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-    .replace(/&amp;/g, "&");
+    .replace(/&amp;/g, "&")
 }
 
 function coerceParameterValue(raw) {
-  const trimmed = raw.trim();
+  const trimmed = raw.trim()
 
   if (trimmed === "") {
-    return raw;
+    return raw
   }
 
-  if (trimmed === "true") return true;
-  if (trimmed === "false") return false;
-  if (trimmed === "null") return null;
+  if (trimmed === "true") return true
+  if (trimmed === "false") return false
+  if (trimmed === "null") return null
 
-  if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-      (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+  if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
     try {
-      return parseJsonWithRawWindowsPathRepair(trimmed);
+      return parseJsonWithRawWindowsPathRepair(trimmed)
     } catch {
-      return raw;
+      return raw
     }
   }
 
   if (/^-?\d+$/.test(trimmed)) {
-    const n = Number(trimmed);
-    if (Number.isSafeInteger(n)) return n;
+    const n = Number(trimmed)
+    if (Number.isSafeInteger(n)) return n
   }
 
   if (/^-?\d+\.\d+$/.test(trimmed)) {
-    return Number(trimmed);
+    return Number(trimmed)
   }
 
-  return raw;
+  return raw
 }
 
 function unwrapSingleCodeFence(content) {
   if (typeof content !== "string") {
-    return content;
+    return content
   }
 
-  const match = content.trim().match(/^```(?:json|xml)?\s*\n?([\s\S]*?)\n?```$/);
+  const match = content.trim().match(/^```(?:json|xml)?\s*\n?([\s\S]*?)\n?```$/)
 
-  return match ? match[1] : content;
+  return match ? match[1] : content
 }
 
 function removeCodeFencedBlocks(content) {
   if (typeof content !== "string") {
-    return content;
+    return content
   }
 
-  return content.replace(/```[\s\S]*?```/g, "");
+  return content.replace(/```[\s\S]*?```/g, "")
 }
 
 function parseStrictJson(content) {
   if (typeof content !== "string") {
-    return null;
+    return null
   }
 
-  const trimmed = content.trim();
+  const trimmed = content.trim()
 
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-    return null;
+    return null
   }
 
   try {
-    return parseJsonWithRawWindowsPathRepair(trimmed);
+    return parseJsonWithRawWindowsPathRepair(trimmed)
   } catch {
-    return null;
+    return null
   }
 }
 
 function parseJsonWithRawWindowsPathRepair(content) {
-  const repaired = repairRawWindowsBackslashesInJsonStrings(content);
+  const repaired = repairRawWindowsBackslashesInJsonStrings(content)
 
   if (repaired !== content) {
     try {
-      return JSON.parse(repaired);
+      return JSON.parse(repaired)
     } catch {
       // Fall through to the original parse so callers keep their existing behavior.
     }
   }
 
-  return JSON.parse(content);
+  return JSON.parse(content)
 }
 
 function repairRawWindowsBackslashesInJsonStrings(content) {
   if (typeof content !== "string" || !/[A-Za-z]:\\/.test(content)) {
-    return content;
+    return content
   }
 
-  let output = "";
-  let index = 0;
+  let output = ""
+  let index = 0
 
   while (index < content.length) {
-    if (content[index] !== "\"") {
-      output += content[index];
-      index += 1;
-      continue;
+    if (content[index] !== '"') {
+      output += content[index]
+      index += 1
+      continue
     }
 
-    const start = index;
-    index += 1;
-    const valueStart = index;
-    let slashCount = 0;
+    const start = index
+    index += 1
+    const valueStart = index
+    let slashCount = 0
 
     while (index < content.length) {
-      const char = content[index];
+      const char = content[index]
 
-      if (char === "\"" && slashCount % 2 === 0) {
-        break;
+      if (char === '"' && slashCount % 2 === 0) {
+        break
       }
 
       if (char === "\\") {
-        slashCount += 1;
+        slashCount += 1
       } else {
-        slashCount = 0;
+        slashCount = 0
       }
 
-      index += 1;
+      index += 1
     }
 
-    const rawValue = content.slice(valueStart, index);
-    const value = hasRawWindowsBackslash(rawValue)
-      ? rawValue.replace(/(^|[^\\])\\(?!\\)/g, "$1\\\\")
-      : rawValue;
+    const rawValue = content.slice(valueStart, index)
+    const value = hasRawWindowsBackslash(rawValue) ? rawValue.replace(/(^|[^\\])\\(?!\\)/g, "$1\\\\") : rawValue
 
-    output += content[start] + value;
+    output += content[start] + value
 
     if (index < content.length) {
-      output += content[index];
-      index += 1;
+      output += content[index]
+      index += 1
     }
   }
 
-  return output;
+  return output
 }
 
 function hasRawWindowsBackslash(value) {
-  return /[A-Za-z]:/.test(value)
-    && /(^|[^\\])\\(?!\\)/.test(value);
+  return /[A-Za-z]:/.test(value) && /(^|[^\\])\\(?!\\)/.test(value)
 }
 
 function parseDelegatedAgentJson(content) {
   if (typeof content !== "string") {
-    return null;
+    return null
   }
 
   for (const candidate of extractJsonObjects(content).reverse()) {
     try {
-      const parsed = JSON.parse(candidate);
-      const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
+      const parsed = JSON.parse(candidate)
+      const name = typeof parsed?.name === "string" ? parsed.name.trim() : ""
 
       if (!name || parsed?.type === "tool_call") {
-        continue;
+        continue
       }
 
-      const args = { ...parsed };
-      delete args.name;
+      const args = { ...parsed }
+      delete args.name
 
       if (isSubagentName(name) && typeof args.prompt === "string") {
         return {
@@ -489,39 +483,40 @@ function parseDelegatedAgentJson(content) {
           args: {
             subagent_type: name.toLowerCase(),
             prompt: args.prompt,
-            description: typeof args.description === "string"
-              ? args.description
-              : summarizeTaskDescription(args.prompt)
-          }
-        };
+            description:
+              typeof args.description === "string" ? args.description : summarizeTaskDescription(args.prompt),
+          },
+        }
       }
 
       return {
         type: "tool_call",
         tool: name,
-        args
-      };
+        args,
+      }
     } catch {
-      continue;
+      continue
     }
   }
 
-  return null;
+  return null
 }
 
 function isSubagentName(name) {
-  return ["explore", "general", "scout", "search"].includes(String(name).toLowerCase());
+  return ["explore", "general", "scout", "search"].includes(String(name).toLowerCase())
 }
 
 function summarizeTaskDescription(prompt) {
-  const text = String(prompt || "").trim().replace(/\s+/g, " ");
+  const text = String(prompt || "")
+    .trim()
+    .replace(/\s+/g, " ")
 
   if (!text) {
-    return "Run subagent task";
+    return "Run subagent task"
   }
 
-  const words = text.split(" ").slice(0, 5).join(" ");
-  return words.length > 48 ? `${words.slice(0, 45)}...` : words;
+  const words = text.split(" ").slice(0, 5).join(" ")
+  return words.length > 48 ? `${words.slice(0, 45)}...` : words
 }
 
 function toolCallsFromJsonCalls(calls) {
@@ -530,109 +525,108 @@ function toolCallsFromJsonCalls(calls) {
     type: "function",
     function: {
       name: call.tool,
-      arguments: JSON.stringify(call.args || {})
-    }
-  }));
+      arguments: JSON.stringify(call.args || {}),
+    },
+  }))
 }
 
 // Accept a trailing JSON array whose elements are all tool_call objects, e.g.
 // [{"type":"tool_call","tool":"a","args":{}},{"type":"tool_call","tool":"b","args":{}}].
 function parseTrailingToolCallArray(content) {
   if (typeof content !== "string") {
-    return null;
+    return null
   }
 
-  const arrays = extractJsonArraysWithPositions(content);
+  const arrays = extractJsonArraysWithPositions(content)
 
   if (arrays.length === 0) {
-    return null;
+    return null
   }
 
-  const last = arrays[arrays.length - 1];
+  const last = arrays[arrays.length - 1]
 
   if (content.slice(last.end).trim()) {
-    return null;
+    return null
   }
 
-  let parsed;
+  let parsed
 
   try {
-    parsed = parseJsonWithRawWindowsPathRepair(last.text);
+    parsed = parseJsonWithRawWindowsPathRepair(last.text)
   } catch {
-    return null;
+    return null
   }
 
   if (!Array.isArray(parsed) || parsed.length === 0) {
-    return null;
+    return null
   }
 
   if (!parsed.every((call) => call?.type === "tool_call" && call.tool)) {
-    return null;
+    return null
   }
 
-  return parsed;
+  return parsed
 }
 
 function parseTrailingToolCallJsons(content) {
   if (typeof content !== "string") {
-    return null;
+    return null
   }
 
-  const objects = extractJsonObjectsWithPositions(content);
-  const calls = [];
-  let cursor = content.length;
+  const objects = extractJsonObjectsWithPositions(content)
+  const calls = []
+  let cursor = content.length
 
   for (let index = objects.length - 1; index >= 0; index -= 1) {
-    const candidate = objects[index];
+    const candidate = objects[index]
 
     if (content.slice(candidate.end, cursor).trim()) {
-      break;
+      break
     }
 
-    let parsed;
+    let parsed
 
     try {
-      parsed = parseJsonWithRawWindowsPathRepair(candidate.text);
+      parsed = parseJsonWithRawWindowsPathRepair(candidate.text)
     } catch (err) {
-      process.stderr.write(`[toolCallNormalizer] JSON parse failed: ${err.message}\n`);
-      break;
+      process.stderr.write(`[toolCallNormalizer] JSON parse failed: ${err.message}\n`)
+      break
     }
 
     if (!(parsed?.type === "tool_call" && parsed.tool)) {
-      break;
+      break
     }
 
-    calls.unshift(parsed);
-    cursor = candidate.start;
+    calls.unshift(parsed)
+    cursor = candidate.start
   }
 
-  return calls.length > 0 ? calls : null;
+  return calls.length > 0 ? calls : null
 }
 
 function parseLeadingToolCallJson(content) {
   if (typeof content !== "string") {
-    return null;
+    return null
   }
 
-  const trimmedStart = content.search(/\S/u);
+  const trimmedStart = content.search(/\S/u)
 
   if (trimmedStart < 0) {
-    return null;
+    return null
   }
 
-  const firstObject = extractJsonObjectsWithPositions(content)
-    .find((object) => object.start === trimmedStart);
+  const firstObject = extractJsonObjectsWithPositions(content).find((object) => object.start === trimmedStart)
 
   if (!firstObject) {
-    return null;
+    return null
   }
 
   try {
-    const parsed = parseJsonWithRawWindowsPathRepair(firstObject.text);
+    const parsed = parseJsonWithRawWindowsPathRepair(firstObject.text)
 
-    return parsed?.type === "tool_call" && parsed.tool ? parsed : null;
+    return parsed?.type === "tool_call" && parsed.tool ? parsed : null
   } catch {
-    return null;
+    return null
   }
 }
 
@@ -643,156 +637,156 @@ function parseLeadingToolCallJson(content) {
 // tool-call JSON ("I'll do X… {tool_call} …then Y"). Operates on the same fence-stripped
 // extraction content as the XML scan, so fenced examples stay inert (XML parity).
 function parseEmbeddedToolCallJsons(content) {
-  if (typeof content !== "string" || !content.includes("\"tool_call\"")) {
-    return null;
+  if (typeof content !== "string" || !content.includes('"tool_call"')) {
+    return null
   }
 
-  const calls = [];
+  const calls = []
 
   for (const candidate of extractJsonObjectsWithPositions(content)) {
-    let parsed;
+    let parsed
 
     try {
-      parsed = parseJsonWithRawWindowsPathRepair(candidate.text);
+      parsed = parseJsonWithRawWindowsPathRepair(candidate.text)
     } catch {
-      continue;
+      continue
     }
 
     if (parsed?.type === "tool_call" && parsed.tool) {
-      calls.push(parsed);
+      calls.push(parsed)
     }
   }
 
-  return calls.length > 0 ? calls : null;
+  return calls.length > 0 ? calls : null
 }
 
 function dedupeToolCalls(calls) {
-  const seen = new Set();
-  const result = [];
+  const seen = new Set()
+  const result = []
 
   for (const call of calls) {
     const key = JSON.stringify({
       tool: call.tool,
-      args: call.args || {}
-    });
+      args: call.args || {},
+    })
 
     if (seen.has(key)) {
-      continue;
+      continue
     }
 
-    seen.add(key);
-    result.push(call);
+    seen.add(key)
+    result.push(call)
   }
 
-  return result;
+  return result
 }
 
 function extractJsonObjects(content) {
-  return extractJsonObjectsWithPositions(content).map((object) => object.text);
+  return extractJsonObjectsWithPositions(content).map((object) => object.text)
 }
 
 // Like extractJsonObjectsWithPositions but for top-level [...] arrays, with the same
 // string/escape awareness so brackets inside string literals are ignored.
 function extractJsonArraysWithPositions(content) {
-  const arrays = [];
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
+  const arrays = []
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
 
   for (let i = 0; i < content.length; i++) {
-    const char = content[i];
+    const char = content[i]
 
     if (inString) {
       if (escaped) {
-        escaped = false;
+        escaped = false
       } else if (char === "\\") {
-        escaped = true;
-      } else if (char === "\"") {
-        inString = false;
+        escaped = true
+      } else if (char === '"') {
+        inString = false
       }
-      continue;
+      continue
     }
 
-    if (char === "\"") {
-      inString = true;
-      continue;
+    if (char === '"') {
+      inString = true
+      continue
     }
 
     if (char === "[") {
       if (depth === 0) {
-        start = i;
+        start = i
       }
-      depth += 1;
-      continue;
+      depth += 1
+      continue
     }
 
     if (char === "]" && depth > 0) {
-      depth -= 1;
+      depth -= 1
 
       if (depth === 0 && start !== -1) {
         arrays.push({
           text: content.slice(start, i + 1),
           start,
-          end: i + 1
-        });
-        start = -1;
+          end: i + 1,
+        })
+        start = -1
       }
     }
   }
 
-  return arrays;
+  return arrays
 }
 
 function extractJsonObjectsWithPositions(content) {
-  const objects = [];
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
+  const objects = []
+  let start = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
 
   for (let i = 0; i < content.length; i++) {
-    const char = content[i];
+    const char = content[i]
 
     if (inString) {
       if (escaped) {
-        escaped = false;
+        escaped = false
       } else if (char === "\\") {
-        escaped = true;
-      } else if (char === "\"") {
-        inString = false;
+        escaped = true
+      } else if (char === '"') {
+        inString = false
       }
-      continue;
+      continue
     }
 
-    if (char === "\"") {
-      inString = true;
-      continue;
+    if (char === '"') {
+      inString = true
+      continue
     }
 
     if (char === "{") {
       if (depth === 0) {
-        start = i;
+        start = i
       }
-      depth += 1;
-      continue;
+      depth += 1
+      continue
     }
 
     if (char === "}" && depth > 0) {
-      depth -= 1;
+      depth -= 1
 
       if (depth === 0 && start !== -1) {
         objects.push({
           text: content.slice(start, i + 1),
           start,
-          end: i + 1
-        });
-        start = -1;
+          end: i + 1,
+        })
+        start = -1
       }
     }
   }
 
-  return objects;
+  return objects
 }
 
-export { looksLikeIncompleteAnthropicToolCall };
+export { looksLikeIncompleteAnthropicToolCall }

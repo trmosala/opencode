@@ -1,42 +1,44 @@
-import { WorkerPool } from "../worker-pool";
-import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs";
-import { DEFAULT_MODEL_ID } from "./modelProfiles.mjs";
-import { wppAuth } from "../session";
+import { WorkerPool } from "../worker-pool"
+import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs"
+import { DEFAULT_MODEL_ID } from "./modelProfiles.mjs"
+import { wppAuth } from "../session"
 
-const DEFAULT_EXTENSION_TIMEOUT_MS = Number(process.env.O1_CODE_EXTENSION_TIMEOUT_MS || process.env.O1_CODE_TIMEOUT_MS || 900000);
-const DEFAULT_CLIENT_TTL_MS = Number(process.env.O1_CODE_CLIENT_TTL_MS || 10 * 60 * 1000);
-const MAX_RECENT_JOBS = 20;
+const DEFAULT_EXTENSION_TIMEOUT_MS = Number(
+  process.env.O1_CODE_EXTENSION_TIMEOUT_MS || process.env.O1_CODE_TIMEOUT_MS || 900000,
+)
+const DEFAULT_CLIENT_TTL_MS = Number(process.env.O1_CODE_CLIENT_TTL_MS || 10 * 60 * 1000)
+const MAX_RECENT_JOBS = 20
 
 export class ExtensionBridge {
   constructor() {
-    this.jobs = new Map();
+    this.jobs = new Map()
     // ponytail: vestigial since the extension HTTP queue was axed — nothing populates pendingJobs,
     // waiters or clients now; expireJob/health/cleanupStaleClients still read them as empties.
     // Drop them (and trim expireJob to the worker path) once the tree builds and typechecks.
-    this.pendingJobs = [];
-    this.waiters = new Map();
-    this.clients = new Map();
+    this.pendingJobs = []
+    this.waiters = new Map()
+    this.clients = new Map()
     this.counters = {
       enqueued: 0,
       leased: 0,
       succeeded: 0,
       failed: 0,
-      expired: 0
-    };
-    this.recentJobs = [];
+      expired: 0,
+    }
+    this.recentJobs = []
     // Live progress pub/sub for streaming. progressListeners maps a job id to the set of
     // subscriber callbacks (the SSE handler); lastProgress holds the most recent
     // { seq, finalText } frame per job so a subscriber that attaches slightly after the first
     // frame arrives can be replayed immediately (covers the enqueue->subscribe race).
-    this.progressListeners = new Map();
-    this.lastProgress = new Map();
-    this.workerPool = null;
-    this.workerPoolUrl = null;
-    this.chatMode = "assistant";
-    this.auth = { required: false, reason: null, detectedAt: null };
+    this.progressListeners = new Map()
+    this.lastProgress = new Map()
+    this.workerPool = null
+    this.workerPoolUrl = null
+    this.chatMode = "assistant"
+    this.auth = { required: false, reason: null, detectedAt: null }
     // Set by the proxy server to openWppLogin; fired once when auth first goes required so a
     // failed job auto-pops the SSO window instead of silently flipping the status banner.
-    this.onAuthRequired = null;
+    this.onAuthRequired = null
   }
 
   // Publish a cumulative progress frame for a job. Frames carry a monotonic seq and the full
@@ -45,48 +47,48 @@ export class ExtensionBridge {
   // authoritative result still arrives via complete().
   pushProgress(jobId, frame = {}) {
     if (!jobId || !this.jobs.has(jobId)) {
-      return { ok: true, matched: false };
+      return { ok: true, matched: false }
     }
 
-    const seq = Number(frame.seq);
-    const finalText = typeof frame.finalText === "string" ? frame.finalText : "";
+    const seq = Number(frame.seq)
+    const finalText = typeof frame.finalText === "string" ? frame.finalText : ""
 
     if (!Number.isFinite(seq)) {
-      return { ok: true, matched: false };
+      return { ok: true, matched: false }
     }
 
-    const previous = this.lastProgress.get(jobId);
+    const previous = this.lastProgress.get(jobId)
     if (previous && seq <= previous.seq) {
-      return { ok: true, matched: true, stale: true };
+      return { ok: true, matched: true, stale: true }
     }
 
-    const next = { seq, finalText };
-    this.lastProgress.set(jobId, next);
+    const next = { seq, finalText }
+    this.lastProgress.set(jobId, next)
 
-    const listeners = this.progressListeners.get(jobId);
+    const listeners = this.progressListeners.get(jobId)
     if (listeners) {
       for (const listener of listeners) {
         try {
-          listener(next);
+          listener(next)
         } catch {
           // A subscriber failure must never interfere with progress fan-out.
         }
       }
     }
 
-    return { ok: true, matched: true };
+    return { ok: true, matched: true }
   }
 
   teardownProgress(jobId) {
-    this.progressListeners.delete(jobId);
-    this.lastProgress.delete(jobId);
+    this.progressListeners.delete(jobId)
+    this.lastProgress.delete(jobId)
   }
 
   health() {
-    this.cleanupExpiredJobs();
-    this.cleanupStaleClients();
-    const now = Date.now();
-    const activeJobs = Array.from(this.jobs.values());
+    this.cleanupExpiredJobs()
+    this.cleanupStaleClients()
+    const now = Date.now()
+    const activeJobs = Array.from(this.jobs.values())
 
     return {
       ok: true,
@@ -101,83 +103,83 @@ export class ExtensionBridge {
         lastSeenAt: client.lastSeenAt,
         phase: client.phase || null,
         status: client.status || null,
-        counters: client.counters || null
-      }))
-    };
+        counters: client.counters || null,
+      })),
+    }
   }
 
   cleanupExpiredJobs(now = Date.now()) {
     for (const job of Array.from(this.jobs.values())) {
       if (now - job.createdAtMs >= job.timeoutMs) {
-        this.expireJob(job.id);
+        this.expireJob(job.id)
       }
     }
   }
 
   cleanupStaleClients(now = Date.now()) {
     for (const [id, lastSeenAt] of this.clients.entries()) {
-      const lastSeenMs = Date.parse(typeof lastSeenAt === "string" ? lastSeenAt : lastSeenAt?.lastSeenAt);
+      const lastSeenMs = Date.parse(typeof lastSeenAt === "string" ? lastSeenAt : lastSeenAt?.lastSeenAt)
 
       if (!Number.isFinite(lastSeenMs) || now - lastSeenMs >= DEFAULT_CLIENT_TTL_MS) {
-        this.clients.delete(id);
+        this.clients.delete(id)
       }
     }
   }
 
   expireJob(id) {
-    const job = this.jobs.get(id);
-    const waiter = this.waiters.get(id);
+    const job = this.jobs.get(id)
+    const waiter = this.waiters.get(id)
 
-    this.pendingJobs = this.pendingJobs.filter((pendingJob) => pendingJob.id !== id);
-    this.waiters.delete(id);
-    this.jobs.delete(id);
-    this.teardownProgress(id);
-    this.finishJob(job, "expired");
+    this.pendingJobs = this.pendingJobs.filter((pendingJob) => pendingJob.id !== id)
+    this.waiters.delete(id)
+    this.jobs.delete(id)
+    this.teardownProgress(id)
+    this.finishJob(job, "expired")
 
     if (!waiter) {
-      return;
+      return
     }
 
-    clearTimeout(waiter.timeout);
-    const timeoutMs = job?.timeoutMs || DEFAULT_EXTENSION_TIMEOUT_MS;
-    const error = new Error(`Timed out waiting for O1-Code extension result after ${timeoutMs} ms.`);
-    error.statusCode = 504;
-    error.type = "o1_code_extension_timeout";
-    waiter.reject(error);
+    clearTimeout(waiter.timeout)
+    const timeoutMs = job?.timeoutMs || DEFAULT_EXTENSION_TIMEOUT_MS
+    const error = new Error(`Timed out waiting for O1-Code extension result after ${timeoutMs} ms.`)
+    error.statusCode = 504
+    error.type = "o1_code_extension_timeout"
+    waiter.reject(error)
   }
 
   leaseJob(job, clientId) {
-    const now = Date.now();
-    job.state = "leased";
-    job.leaseId = crypto.randomUUID();
-    job.clientId = clientId;
-    job.leasedAtMs = now;
-    job.leasedAt = new Date(now).toISOString();
-    job.attempts += 1;
-    this.counters.leased += 1;
-    return job;
+    const now = Date.now()
+    job.state = "leased"
+    job.leaseId = crypto.randomUUID()
+    job.clientId = clientId
+    job.leasedAtMs = now
+    job.leasedAt = new Date(now).toISOString()
+    job.attempts += 1
+    this.counters.leased += 1
+    return job
   }
 
   finishJob(job, state, result = null) {
     if (!job) {
-      return;
+      return
     }
 
-    const now = Date.now();
-    job.state = state;
-    job.completedAtMs = now;
-    job.completedAt = new Date(now).toISOString();
-    job.durationMs = Math.max(0, now - job.createdAtMs);
-    job.diagnostics = compactDiagnostics(result?.diagnostics);
-    job.resultSummary = summarizeResult(result);
+    const now = Date.now()
+    job.state = state
+    job.completedAtMs = now
+    job.completedAt = new Date(now).toISOString()
+    job.durationMs = Math.max(0, now - job.createdAtMs)
+    job.diagnostics = compactDiagnostics(result?.diagnostics)
+    job.resultSummary = summarizeResult(result)
     if (state === "succeeded") {
-      this.counters.succeeded += 1;
+      this.counters.succeeded += 1
     } else if (state === "failed") {
-      this.counters.failed += 1;
+      this.counters.failed += 1
     } else if (state === "expired") {
-      this.counters.expired += 1;
+      this.counters.expired += 1
     }
-    this.rememberRecentJob(job);
+    this.rememberRecentJob(job)
   }
 
   rememberRecentJob(job) {
@@ -197,14 +199,14 @@ export class ExtensionBridge {
       completedAtMs: job.completedAtMs,
       durationMs: job.durationMs,
       diagnostics: job.diagnostics,
-      resultSummary: job.resultSummary
-    };
+      resultSummary: job.resultSummary,
+    }
 
-    this.recentJobs = this.recentJobs.filter((recentJob) => recentJob.id !== job.id);
-    this.recentJobs.unshift(snapshot);
+    this.recentJobs = this.recentJobs.filter((recentJob) => recentJob.id !== job.id)
+    this.recentJobs.unshift(snapshot)
 
     if (this.recentJobs.length > MAX_RECENT_JOBS) {
-      this.recentJobs.length = MAX_RECENT_JOBS;
+      this.recentJobs.length = MAX_RECENT_JOBS
     }
   }
 
@@ -225,8 +227,8 @@ export class ExtensionBridge {
       completedAt: job.completedAt,
       durationMs: job.durationMs,
       diagnostics: job.diagnostics,
-      resultSummary: job.resultSummary
-    };
+      resultSummary: job.resultSummary,
+    }
   }
 
   // Single entry point for a completion turn: enqueue the prompt, forward live progress frames to
@@ -235,84 +237,89 @@ export class ExtensionBridge {
   // once the job settles — so callers never touch subscribeProgress and no late frame can land
   // after the turn is done.
   async run(prompt, options = {}) {
-    return this.runInWorkerPool(prompt, options);
+    return this.runInWorkerPool(prompt, options)
   }
 
   async runInWorkerPool(prompt, options = {}) {
-    const startedAt = new Date().toISOString();
-    const timeoutMs = Number(options.timeoutMs || DEFAULT_EXTENSION_TIMEOUT_MS);
-    const job = this.createWorkerJob(prompt, options, timeoutMs);
-    this.jobs.set(job.id, job);
-    this.counters.enqueued += 1;
-    this.leaseJob(job, "worker-pool");
-    const cancellation = new AbortController();
-    const abort = () => cancellation.abort(options.signal?.reason);
-    if (options.signal?.aborted) abort();
-    else options.signal?.addEventListener("abort", abort, { once: true });
+    const startedAt = new Date().toISOString()
+    const timeoutMs = Number(options.timeoutMs || DEFAULT_EXTENSION_TIMEOUT_MS)
+    const job = this.createWorkerJob(prompt, options, timeoutMs)
+    this.jobs.set(job.id, job)
+    this.counters.enqueued += 1
+    this.leaseJob(job, "worker-pool")
+    const cancellation = new AbortController()
+    const abort = () => cancellation.abort(options.signal?.reason)
+    if (options.signal?.aborted) abort()
+    else options.signal?.addEventListener("abort", abort, { once: true })
 
     try {
       const result = await withTimeout(
-        this.poolFor(job.payload.url).run(job, (frame) => {
-          this.pushProgress(job.id, frame);
-          options.onProgress?.(frame);
-        }, cancellation.signal),
+        this.poolFor(job.payload.url).run(
+          job,
+          (frame) => {
+            this.pushProgress(job.id, frame)
+            options.onProgress?.(frame)
+          },
+          cancellation.signal,
+        ),
         timeoutMs,
         () => cancellation.abort(),
-      );
+      )
       if (result?.ok === false) {
-        const error = new Error(result.error || "O1-Code worker job failed.");
-        error.statusCode = result.statusCode || 502;
-        error.type = result.type || "o1_code_worker_pool_error";
-        error.bridgeResult = result;
-        error.worker = result.worker;
-        throw error;
+        const error = new Error(result.error || "O1-Code worker job failed.")
+        error.statusCode = result.statusCode || 502
+        error.type = result.type || "o1_code_worker_pool_error"
+        error.bridgeResult = result
+        error.worker = result.worker
+        throw error
       }
-      this.clearAuthRequired();
-      wppAuth.observe("signed-in");
-      this.jobs.delete(job.id);
-      this.teardownProgress(job.id);
-      this.finishJob(job, "succeeded", result);
-      return buildRunEnvelope(prompt, options, { ...result, id: job.id, jobId: job.id }, startedAt, "worker");
+      this.clearAuthRequired()
+      wppAuth.observe("signed-in")
+      this.jobs.delete(job.id)
+      this.teardownProgress(job.id)
+      this.finishJob(job, "succeeded", result)
+      return buildRunEnvelope(prompt, options, { ...result, id: job.id, jobId: job.id }, startedAt, "worker")
     } catch (error) {
       if (error.type === "wpp_auth_required") {
-        this.markAuthRequired(error.message);
-        this.workerPool?.destroy();
-        this.workerPool = null;
-        this.workerPoolUrl = null;
+        this.markAuthRequired(error.message)
+        this.workerPool?.destroy()
+        this.workerPool = null
+        this.workerPoolUrl = null
       }
-      this.jobs.delete(job.id);
-      this.teardownProgress(job.id);
+      this.jobs.delete(job.id)
+      this.teardownProgress(job.id)
       this.finishJob(job, error.type === "o1_code_extension_timeout" ? "expired" : "failed", {
         ok: false,
         error: error.message,
         statusCode: error.statusCode || 502,
         type: error.type || "o1_code_worker_pool_error",
-        diagnostics: error.diagnostics || null
-      });
-      throw error;
+        diagnostics: error.diagnostics || null,
+      })
+      throw error
     } finally {
-      options.signal?.removeEventListener("abort", abort);
+      options.signal?.removeEventListener("abort", abort)
     }
   }
 
   markAuthRequired(reason) {
-    wppAuth.observe("signed-out");
-    const wasRequired = this.auth.required;
-    this.auth = { required: true, reason, detectedAt: new Date().toISOString() };
+    wppAuth.observe("signed-out")
+    const wasRequired = this.auth.required
+    this.auth = { required: true, reason, detectedAt: new Date().toISOString() }
     // Fire only on the false->true edge so repeated failed jobs don't spawn a window each.
     if (!wasRequired && typeof this.onAuthRequired === "function") {
-      Promise.resolve(this.onAuthRequired()).catch(() => {});
+      Promise.resolve(this.onAuthRequired()).catch(() => {})
     }
   }
 
   clearAuthRequired() {
-    if (!this.auth.required) return;
-    this.auth = { required: false, reason: null, detectedAt: null };
+    if (!this.auth.required) return
+    this.auth = { required: false, reason: null, detectedAt: null }
   }
 
   createWorkerJob(prompt, options, timeoutMs) {
-    const createdAtMs = Date.now();
-    const url = options.url || process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || WPP_COOKIE_MONSTER_PROJECT_URL;
+    const createdAtMs = Date.now()
+    const url =
+      options.url || process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || WPP_COOKIE_MONSTER_PROJECT_URL
     return {
       id: crypto.randomUUID(),
       runId: options.runId,
@@ -333,7 +340,7 @@ export class ExtensionBridge {
         // When true, content.js continues the pinned thread (no New Chat) — the proxy has sent only
         // the delta turn. False replays the full transcript into a fresh chat.
         continueThread: options.continueThread === true,
-        verboseRecorder: process.env.O1_CODE_VERBOSE_RECORDER === "1"
+        verboseRecorder: process.env.O1_CODE_VERBOSE_RECORDER === "1",
       },
       state: "queued",
       leaseId: null,
@@ -345,15 +352,15 @@ export class ExtensionBridge {
       completedAtMs: null,
       durationMs: null,
       diagnostics: null,
-      resultSummary: null
-    };
+      resultSummary: null,
+    }
   }
 
   // Is a live worker tab pinned to this session? The proxy checks before deciding to send a delta —
   // there's one active pool at a time (poolFor destroys the old when the url changes), so the
   // current pool is authoritative.
   hasSession(sessionKey) {
-    return this.workerPool ? this.workerPool.hasSession(sessionKey) : false;
+    return this.workerPool ? this.workerPool.hasSession(sessionKey) : false
   }
 
   // Best-effort: does the live WPP session look logged out? Returns a reason string when a live
@@ -361,33 +368,33 @@ export class ExtensionBridge {
   // calls this after a turn fails so a stale-session failure is reported as "log in" rather than a
   // bare capture/recorder error. Never spawns — probes only an already-live worker.
   checkAuthState() {
-    return this.workerPool ? this.workerPool.checkAuthState() : Promise.resolve(null);
+    return this.workerPool ? this.workerPool.checkAuthState() : Promise.resolve(null)
   }
 
   setChatMode(mode) {
-    if (mode !== "assistant" && mode !== "agent") throw new Error("Invalid WPP chat mode");
-    if (mode === this.chatMode) return true;
+    if (mode !== "assistant" && mode !== "agent") throw new Error("Invalid WPP chat mode")
+    if (mode === this.chatMode) return true
     // A mode change must never interrupt a submitted model turn or race its continuation mirror.
-    if (this.jobs.size > 0) return false;
-    this.workerPool?.destroy();
-    this.workerPool = null;
-    this.workerPoolUrl = null;
-    this.chatMode = mode;
-    return true;
+    if (this.jobs.size > 0) return false
+    this.workerPool?.destroy()
+    this.workerPool = null
+    this.workerPoolUrl = null
+    this.chatMode = mode
+    return true
   }
 
   poolFor(url) {
-    if (this.workerPool && this.workerPoolUrl === url) return this.workerPool;
-    this.workerPool?.destroy();
-    this.workerPoolUrl = url;
-    this.workerPool = new WorkerPool({ chatUrl: url, chatMode: this.chatMode });
-    return this.workerPool;
+    if (this.workerPool && this.workerPoolUrl === url) return this.workerPool
+    this.workerPool?.destroy()
+    this.workerPoolUrl = url
+    this.workerPool = new WorkerPool({ chatUrl: url, chatMode: this.chatMode })
+    return this.workerPool
   }
 }
 
 function compactDiagnostics(diagnostics) {
   if (!diagnostics || typeof diagnostics !== "object") {
-    return null;
+    return null
   }
 
   return {
@@ -401,64 +408,75 @@ function compactDiagnostics(diagnostics) {
     expectedAgent: diagnostics.expectedAgent || null,
     selectedAgent: diagnostics.selectedAgent || null,
     wireModel: diagnostics.wireModel || null,
-    agentSelection: diagnostics.agentSelection ? {
-      ok: diagnostics.agentSelection.ok ?? null,
-      pillFound: diagnostics.agentSelection.pillFound ?? null,
-      label: diagnostics.agentSelection.label || null,
-      beforeLabel: diagnostics.agentSelection.beforeLabel || null,
-      afterLabel: diagnostics.agentSelection.afterLabel || null,
-      pickerOpened: diagnostics.agentSelection.pickerOpened ?? null,
-      searchFound: diagnostics.agentSelection.searchFound ?? null,
-      optionFound: diagnostics.agentSelection.optionFound ?? null,
-      groupExpanded: diagnostics.agentSelection.groupExpanded ?? null,
-      groupExpansionMethod: diagnostics.agentSelection.groupExpansionMethod || null,
-      groupCount: diagnostics.agentSelection.groupCount ?? null,
-      groupToggleOpened: diagnostics.agentSelection.groupToggleOpened ?? null,
-      optionText: diagnostics.agentSelection.optionText || null,
-      activationMethod: diagnostics.agentSelection.activationMethod || null,
-      failureReason: diagnostics.agentSelection.failureReason || null,
-      pickerText: diagnostics.agentSelection.pickerText || null,
-      rosterReadiness: diagnostics.agentSelection.rosterReadiness ?? null
-    } : null,
-    target: {      tabId: diagnostics.tabId ?? null,
+    agentSelection: diagnostics.agentSelection
+      ? {
+          ok: diagnostics.agentSelection.ok ?? null,
+          pillFound: diagnostics.agentSelection.pillFound ?? null,
+          label: diagnostics.agentSelection.label || null,
+          beforeLabel: diagnostics.agentSelection.beforeLabel || null,
+          afterLabel: diagnostics.agentSelection.afterLabel || null,
+          pickerOpened: diagnostics.agentSelection.pickerOpened ?? null,
+          searchFound: diagnostics.agentSelection.searchFound ?? null,
+          optionFound: diagnostics.agentSelection.optionFound ?? null,
+          groupExpanded: diagnostics.agentSelection.groupExpanded ?? null,
+          groupExpansionMethod: diagnostics.agentSelection.groupExpansionMethod || null,
+          groupCount: diagnostics.agentSelection.groupCount ?? null,
+          groupToggleOpened: diagnostics.agentSelection.groupToggleOpened ?? null,
+          optionText: diagnostics.agentSelection.optionText || null,
+          activationMethod: diagnostics.agentSelection.activationMethod || null,
+          failureReason: diagnostics.agentSelection.failureReason || null,
+          pickerText: diagnostics.agentSelection.pickerText || null,
+          rosterReadiness: diagnostics.agentSelection.rosterReadiness ?? null,
+        }
+      : null,
+    target: {
+      tabId: diagnostics.tabId ?? null,
       frameId: diagnostics.frameId ?? null,
       tabUrl: diagnostics.tabUrl || null,
       frameUrl: diagnostics.frameUrl || null,
-      targetKind: diagnostics.targetKind || null
+      targetKind: diagnostics.targetKind || null,
     },
-    domMessage: diagnostics.domMessage ? {
-      textLength: String(diagnostics.domMessage.text || "").length,
-      key: diagnostics.domMessage.key || null,
-      tag: diagnostics.domMessage.tag || null
-    } : null,
-    recorder: diagnostics.recorder ? {
-      ready: diagnostics.recorder.ready ?? null,
-      reset: diagnostics.recorder.reset ?? null,
-      requestCount: diagnostics.recorder.requestCount ?? null,
-      activeRecordCount: diagnostics.recorder.activeRecordCount ?? null,
-      incompleteRecordCount: diagnostics.recorder.incompleteRecordCount ?? null
-    } : null,
-    assistantUi: diagnostics.assistantUi ? {
-      error: diagnostics.assistantUi.error || null,
-      warning: diagnostics.assistantUi.warning || null
-    } : null,
-    usage: diagnostics.usage ? {
-      scope: diagnostics.usage.measurement?.scope || null,
-      source: diagnostics.usage.measurement?.source || "estimate",
-      fidelity: diagnostics.usage.measurement?.fidelity || "estimated",
-      observation: diagnostics.usage.observation || null
-    } : null
-  };
+    domMessage: diagnostics.domMessage
+      ? {
+          textLength: String(diagnostics.domMessage.text || "").length,
+          key: diagnostics.domMessage.key || null,
+          tag: diagnostics.domMessage.tag || null,
+        }
+      : null,
+    recorder: diagnostics.recorder
+      ? {
+          ready: diagnostics.recorder.ready ?? null,
+          reset: diagnostics.recorder.reset ?? null,
+          requestCount: diagnostics.recorder.requestCount ?? null,
+          activeRecordCount: diagnostics.recorder.activeRecordCount ?? null,
+          incompleteRecordCount: diagnostics.recorder.incompleteRecordCount ?? null,
+        }
+      : null,
+    assistantUi: diagnostics.assistantUi
+      ? {
+          error: diagnostics.assistantUi.error || null,
+          warning: diagnostics.assistantUi.warning || null,
+        }
+      : null,
+    usage: diagnostics.usage
+      ? {
+          scope: diagnostics.usage.measurement?.scope || null,
+          source: diagnostics.usage.measurement?.source || "estimate",
+          fidelity: diagnostics.usage.measurement?.fidelity || "estimated",
+          observation: diagnostics.usage.observation || null,
+        }
+      : null,
+  }
 }
 
 function summarizeResult(result) {
   if (!result || typeof result !== "object") {
-    return null;
+    return null
   }
 
-  const finalText = result.finalText || result.response?.finalText || "";
-  const toolCallParts = result.toolCallParts || result.response?.toolCallParts || {};
-  const response = result.response || {};
+  const finalText = result.finalText || result.response?.finalText || ""
+  const toolCallParts = result.toolCallParts || result.response?.toolCallParts || {}
+  const response = result.response || {}
 
   return {
     ok: result.ok !== false,
@@ -471,32 +489,34 @@ function summarizeResult(result) {
     toolCallCount: Object.values(toolCallParts || {}).filter((part) => part?.name).length,
     recorder: result.recorder || null,
     capture: result.capture || null,
-    usage: response.usage ? {
-      scope: response.usage.scope || null,
-      source: response.usage.source || null,
-      fidelity: response.usage.fidelity || null,
-      totalTokens: Number(response.usage.totalTokens) || null
-    } : null,
-    counts: responseCounts(result.response)
-  };
+    usage: response.usage
+      ? {
+          scope: response.usage.scope || null,
+          source: response.usage.source || null,
+          fidelity: response.usage.fidelity || null,
+          totalTokens: Number(response.usage.totalTokens) || null,
+        }
+      : null,
+    counts: responseCounts(result.response),
+  }
 }
 
 function responseCounts(response) {
   if (!response || typeof response !== "object") {
-    return null;
+    return null
   }
 
-  const counts = response.counts && typeof response.counts === "object" ? response.counts : {};
+  const counts = response.counts && typeof response.counts === "object" ? response.counts : {}
 
   return {
     chunks: Number(counts.chunks) || (Array.isArray(response.chunks) ? response.chunks.length : 0),
     events: Number(counts.events) || (Array.isArray(response.events) ? response.events.length : 0),
     unparsed: Number(counts.unparsed) || (Array.isArray(response.unparsed) ? response.unparsed.length : 0),
     eventCount: Number(response.eventCount ?? counts.eventCount) || null,
-    byteCount: Number(response.byteCount ?? counts.byteCount) || null
-  };
+    byteCount: Number(response.byteCount ?? counts.byteCount) || null,
+  }
 }
-export const extensionBridge = new ExtensionBridge();
+export const extensionBridge = new ExtensionBridge()
 
 // Shape the raw extension `complete()` result into the one run envelope callers consume. The
 // single place the ambiguous finalText/toolCallParts location (top-level vs nested under
@@ -511,7 +531,7 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
       id: image.id,
       name: image.name,
       mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes
+      sizeBytes: image.sizeBytes,
     })),
     timeoutMs: Number(options.timeoutMs || DEFAULT_EXTENSION_TIMEOUT_MS),
     timedOut: false,
@@ -522,20 +542,19 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
       endpoint: "extension://o1-code-bridge",
       method: "EXTENSION",
       responseStatus: result.ok === false ? 500 : 200,
-      error: result.error || null
+      error: result.error || null,
     },
     response: {
       finalText: result.finalText || result.response?.finalText || "",
       toolCallParts: result.toolCallParts || result.response?.toolCallParts || {},
-      alternateAssistantTexts:
-        result.alternateAssistantTexts || result.response?.alternateAssistantTexts || [],
+      alternateAssistantTexts: result.alternateAssistantTexts || result.response?.alternateAssistantTexts || [],
       source: result.responseSource || null,
       capture: result.capture || null,
       usage: result.response?.usage || null,
       usageObservation: result.response?.usageObservation || null,
       chunks: result.response?.chunks || [],
       events: result.response?.events || [],
-      unparsed: result.response?.unparsed || []
+      unparsed: result.response?.unparsed || [],
     },
     extension: {
       jobId: result.id || result.jobId,
@@ -546,23 +565,23 @@ function buildRunEnvelope(prompt, options, result, startedAt, transport = "exten
       recorder: result.recorder || null,
       counts: responseCounts(result.response),
       startedAt,
-      finishedAt: new Date().toISOString()
+      finishedAt: new Date().toISOString(),
     },
-    allRequests: []
-  };
+    allRequests: [],
+  }
 }
 
 function withTimeout(promise, timeoutMs, onTimeout) {
-  let timeout;
+  let timeout
   const timeoutPromise = new Promise((_resolve, reject) => {
     timeout = setTimeout(() => {
-      const error = new Error(`Timed out waiting for O1-Code worker result after ${timeoutMs} ms.`);
-      error.statusCode = 504;
-      error.type = "o1_code_extension_timeout";
-      reject(error);
-      onTimeout?.();
-    }, timeoutMs);
-  });
+      const error = new Error(`Timed out waiting for O1-Code worker result after ${timeoutMs} ms.`)
+      error.statusCode = 504
+      error.type = "o1_code_extension_timeout"
+      reject(error)
+      onTimeout?.()
+    }, timeoutMs)
+  })
 
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout))
 }

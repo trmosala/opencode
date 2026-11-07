@@ -22,36 +22,36 @@
 // finalize). This is the only added latency on a prose turn: the first ~24 non-whitespace chars
 // are buffered before prose starts flowing. Large enough to contain a leading "<function_calls>"
 // (16 chars) or "<invoke name=" marker so XML tool calls are caught before the gate opens.
-export const DECISION_THRESHOLD = 24;
+export const DECISION_THRESHOLD = 24
 
 export class StreamGate {
   // How many chars of cumulative text we've already emitted as live prose. Internal: callers get
   // the un-emitted tail via trailingDiff() at finalize rather than slicing on this cursor themselves.
-  #emittedLength = 0;
+  #emittedLength = 0
 
   constructor({ threshold = DECISION_THRESHOLD, sentenceQuarantine = false } = {}) {
-    this.threshold = Math.max(1, threshold || DECISION_THRESHOLD);
-    this.sentenceQuarantine = sentenceQuarantine;
-    this.state = "undecided"; // "undecided" | "prose" | "suppressed"
-    this.cumulative = "";
+    this.threshold = Math.max(1, threshold || DECISION_THRESHOLD)
+    this.sentenceQuarantine = sentenceQuarantine
+    this.state = "undecided" // "undecided" | "prose" | "suppressed"
+    this.cumulative = ""
   }
 
   // Feed the latest cumulative text-so-far. Returns { state, delta } where delta is the new
   // prose text to emit since the previous call (empty string while undecided or suppressed).
   update(cumulativeText) {
-    this.cumulative = typeof cumulativeText === "string" ? cumulativeText : "";
+    this.cumulative = typeof cumulativeText === "string" ? cumulativeText : ""
 
     if (this.state === "undecided") {
       if (nonWhitespaceLength(this.cumulative) < this.threshold) {
-        return { state: this.state, delta: "" };
+        return { state: this.state, delta: "" }
       }
 
-      this.#decide(this.cumulative);
+      this.#decide(this.cumulative)
     }
 
     // Compute the delta first: it may flip the gate to "suppressed" on a mid-stream marker.
-    const delta = this.#takeProseDelta();
-    return { state: this.state, delta };
+    const delta = this.#takeProseDelta()
+    return { state: this.state, delta }
   }
 
   // Force a terminal decision using the authoritative final text (defaults to the last
@@ -59,118 +59,115 @@ export class StreamGate {
   // trailing prose delta (empty for suppressed/tool-call turns).
   finalize(finalText) {
     if (typeof finalText === "string") {
-      this.cumulative = finalText;
+      this.cumulative = finalText
     }
 
     if (this.state === "undecided") {
-      this.#decide(this.cumulative);
+      this.#decide(this.cumulative)
     }
 
-    const delta = this.#takeProseDelta();
-    return { state: this.state, delta };
+    const delta = this.#takeProseDelta()
+    return { state: this.state, delta }
   }
 
   // At stream end, return the portion of the authoritative final content not yet emitted live.
   // Unlike update(), no partial-marker hold-back: the content is final, so the whole un-emitted
   // tail is safe to flush. Keeps the emitted-char cursor internal to the gate.
   trailingDiff(finalContent) {
-    const content = typeof finalContent === "string" ? finalContent : "";
-    return content.length > this.#emittedLength ? content.slice(this.#emittedLength) : "";
+    const content = typeof finalContent === "string" ? finalContent : ""
+    return content.length > this.#emittedLength ? content.slice(this.#emittedLength) : ""
   }
 
   #decide(text) {
-    this.state = leadingLooksLikeToolCall(text) ? "suppressed" : "prose";
+    this.state = leadingLooksLikeToolCall(text) ? "suppressed" : "prose"
   }
 
   #takeProseDelta() {
     if (this.state !== "prose") {
-      return "";
+      return ""
     }
 
     // A turn can lead with prose and THEN emit a tool call ("I'll search…" → {"type":"tool_call"}
     // → trailing refusal). The leading check can't catch that, so cap live prose at the first
     // tool-call marker and suppress everything after it — the call is delivered structurally at
     // finalize, never as raw text.
-    const markerIndex = firstToolCallMarker(this.cumulative);
+    const markerIndex = firstToolCallMarker(this.cumulative)
     // Otherwise stop short of a trailing fragment that could be the start of a marker split across
     // frames (e.g. cumulative ending in "{\"ty" or "<inv"), so we never stream a partial marker.
-    let emitEnd = markerIndex >= 0
-      ? markerIndex
-      : this.cumulative.length - trailingMarkerPrefixLength(this.cumulative);
+    let emitEnd = markerIndex >= 0 ? markerIndex : this.cumulative.length - trailingMarkerPrefixLength(this.cumulative)
 
     // Tool-bearing turns need one reversible sentence so a terminal no-tool answer can be discarded
     // after the final structural check without flashing in the UI. Release prose only once the next
     // sentence begins; trailingDiff() flushes the final held sentence for an ordinary response.
     if (this.sentenceQuarantine) {
-      emitEnd = sentenceReleaseEnd(this.cumulative, emitEnd);
+      emitEnd = sentenceReleaseEnd(this.cumulative, emitEnd)
     }
-
 
     if (emitEnd <= this.#emittedLength) {
       if (markerIndex >= 0) {
-        this.state = "suppressed";
+        this.state = "suppressed"
       }
-      return "";
+      return ""
     }
 
-    const delta = this.cumulative.slice(this.#emittedLength, emitEnd);
-    this.#emittedLength = emitEnd;
+    const delta = this.cumulative.slice(this.#emittedLength, emitEnd)
+    this.#emittedLength = emitEnd
 
     if (markerIndex >= 0) {
-      this.state = "suppressed";
+      this.state = "suppressed"
     }
 
-    return delta;
+    return delta
   }
 }
 
 // Return the end of the latest completed sentence that is followed by non-whitespace content.
 // The current sentence, including a terminal sentence with only trailing whitespace, remains held.
 function sentenceReleaseEnd(text, maxEnd) {
-  const value = String(text || "");
-  const limit = Math.max(0, maxEnd);
-  const boundary = /(?:[.!?](?:["')\]]*)?|[\r\n]+)[ \t\r\n]+(?=\S)/g;
-  let releaseEnd = 0;
-  let match;
+  const value = String(text || "")
+  const limit = Math.max(0, maxEnd)
+  const boundary = /(?:[.!?](?:["')\]]*)?|[\r\n]+)[ \t\r\n]+(?=\S)/g
+  let releaseEnd = 0
+  let match
 
   while ((match = boundary.exec(value)) !== null) {
-    const end = match.index + match[0].length;
-    if (end > limit) break;
-    releaseEnd = end;
+    const end = match.index + match[0].length
+    if (end > limit) break
+    releaseEnd = end
   }
 
-  return releaseEnd;
+  return releaseEnd
 }
 
 // Literal prefixes the tool-call markers begin with, used both to locate a complete marker and to
 // hold back a partial one at a frame boundary. Kept in one place so the live gate and
 // leadingLooksLikeToolCall can't drift apart on what counts as a tool call.
-const TOOL_CALL_MARKER_PREFIXES = ["<function_calls", "<invoke", "{\"type\":\"tool_call\""];
+const TOOL_CALL_MARKER_PREFIXES = ["<function_calls", "<invoke", '{"type":"tool_call"']
 
 // Index of the first complete tool-call marker anywhere in the text, or -1. The JSON form tolerates
 // whitespace the literal prefix doesn't (e.g. `{ "type" : "tool_call"`).
 function firstToolCallMarker(text) {
-  const value = String(text || "");
-  const match = value.match(/<function_calls\b|<invoke\b|\{\s*"type"\s*:\s*"tool_call"/i);
-  return match ? match.index : -1;
+  const value = String(text || "")
+  const match = value.match(/<function_calls\b|<invoke\b|\{\s*"type"\s*:\s*"tool_call"/i)
+  return match ? match.index : -1
 }
 
 // Length of a trailing run that is a (proper, incomplete) prefix of some marker, so it can be held
 // back until the next frame resolves it. 0 when the tail can't be the start of a marker.
 function trailingMarkerPrefixLength(text) {
-  const value = String(text || "");
-  let longest = 0;
+  const value = String(text || "")
+  let longest = 0
 
   for (const prefix of TOOL_CALL_MARKER_PREFIXES) {
     for (let k = Math.min(prefix.length - 1, value.length); k > 0; k -= 1) {
       if (value.endsWith(prefix.slice(0, k))) {
-        longest = Math.max(longest, k);
-        break;
+        longest = Math.max(longest, k)
+        break
       }
     }
   }
 
-  return longest;
+  return longest
 }
 
 // True when the LEADING non-whitespace content looks like the start of a tool call. Mirrors the
@@ -180,50 +177,50 @@ function trailingMarkerPrefixLength(text) {
 // a potential tool call — prose almost never starts with a brace, and if it turns out to be
 // content the finalize path still emits it as a trailing diff (just not streamed live).
 export function leadingLooksLikeToolCall(text) {
-  const trimmed = String(text || "").trimStart();
+  const trimmed = String(text || "").trimStart()
 
   if (!trimmed) {
-    return false;
+    return false
   }
 
-  const candidate = stripLeadingCodeFence(trimmed).trimStart();
+  const candidate = stripLeadingCodeFence(trimmed).trimStart()
 
   if (!candidate) {
     // Nothing but an opening code fence so far — undecidable; treat as potential tool call so we
     // don't stream a fence that may wrap tool-call XML. Resolves once more text arrives.
-    return true;
+    return true
   }
 
   if (/^<function_calls\b/i.test(candidate) || /^<invoke\b/i.test(candidate)) {
-    return true;
+    return true
   }
 
   // A lone "<" with nothing after it yet could become "<function_calls" — hold back.
   if (candidate === "<") {
-    return true;
+    return true
   }
 
   if (candidate.startsWith("{")) {
-    return true;
+    return true
   }
 
-  return false;
+  return false
 }
 
 // Strip a single leading opening code fence (three backticks, optionally followed by a language
 // tag and end-of-line) so a tool call wrapped in a fenced block is detected by its inner leading
 // content rather than by the fence itself.
 function stripLeadingCodeFence(text) {
-  const match = String(text || "").match(/^```[a-zA-Z]*[ \t]*\r?\n?/);
-  return match ? text.slice(match[0].length) : text;
+  const match = String(text || "").match(/^```[a-zA-Z]*[ \t]*\r?\n?/)
+  return match ? text.slice(match[0].length) : text
 }
 
 function nonWhitespaceLength(text) {
-  let count = 0;
+  let count = 0
   for (const char of text) {
     if (!/\s/.test(char)) {
-      count += 1;
+      count += 1
     }
   }
-  return count;
+  return count
 }

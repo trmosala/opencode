@@ -63,11 +63,10 @@ export function createCdpNetworkReducer(now = () => Date.now()) {
   return {
     handle(method: string, params: unknown, sessionId?: string) {
       if (method === "Target.attachedToTarget") {
-        const value = params && typeof params === "object" ? params as Record<string, unknown> : {}
+        const value = params && typeof params === "object" ? (params as Record<string, unknown>) : {}
         const childSessionId = typeof value.sessionId === "string" ? value.sessionId : ""
-        const info = value.targetInfo && typeof value.targetInfo === "object"
-          ? value.targetInfo as { type?: string }
-          : {}
+        const info =
+          value.targetInfo && typeof value.targetInfo === "object" ? (value.targetInfo as { type?: string }) : {}
         if (childSessionId && info.type) sessionTargets.set(childSessionId, String(info.type))
         return
       }
@@ -89,18 +88,16 @@ export function reduceCdpNetworkEvent(
   sessionId = "",
   sessionTargets?: Map<string, string>,
 ) {
-  const value = params && typeof params === "object" ? params as Record<string, unknown> : {}
+  const value = params && typeof params === "object" ? (params as Record<string, unknown>) : {}
   const key = requestKey(value.requestId, sessionId)
   if (!key) return
 
   if (method === "Network.requestWillBeSent") {
-    const request = value.request && typeof value.request === "object"
-      ? value.request as { url?: string; method?: string }
-      : {}
+    const request =
+      value.request && typeof value.request === "object" ? (value.request as { url?: string; method?: string }) : {}
     if (!isWppModelRequest(request)) return
-    const initiator = value.initiator && typeof value.initiator === "object"
-      ? value.initiator as { type?: string }
-      : {}
+    const initiator =
+      value.initiator && typeof value.initiator === "object" ? (value.initiator as { type?: string }) : {}
     records.push({
       key,
       requestId: String(value.requestId),
@@ -128,9 +125,10 @@ export function reduceCdpNetworkEvent(
   record.updatedAt = ts
 
   if (method === "Network.responseReceived") {
-    const response = value.response && typeof value.response === "object"
-      ? value.response as { status?: number; mimeType?: string }
-      : {}
+    const response =
+      value.response && typeof value.response === "object"
+        ? (value.response as { status?: number; mimeType?: string })
+        : {}
     record.status = Number(response.status) || record.status
     if (response.mimeType) record.mimeType = String(response.mimeType)
     return
@@ -197,7 +195,11 @@ function selectPrimaryRecord(relevant: CdpRecord[]): CdpRecord | undefined {
 }
 
 function isStreamLikeRecord(record: CdpRecord): boolean {
-  return String(record.mimeType || "").toLowerCase().includes("event-stream") || record.eventSourceMessages > 0
+  return (
+    String(record.mimeType || "")
+      .toLowerCase()
+      .includes("event-stream") || record.eventSourceMessages > 0
+  )
 }
 
 function requestKey(requestId: unknown, sessionId: string) {

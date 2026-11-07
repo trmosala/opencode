@@ -19,7 +19,10 @@ test("lifecycle defaults precede user wildcard and exact rules without overridin
   await hooks.config!(fresh)
   expect(fresh).toEqual({
     permission: {
-      browser_create_tab: "allow", browser_select_tab: "allow", browser_close_tab: "allow", desktop_set_panel: "allow",
+      browser_create_tab: "allow",
+      browser_select_tab: "allow",
+      browser_close_tab: "allow",
+      desktop_set_panel: "allow",
     },
   })
   for (const permission of ["ask", "deny", "allow"] as const) {

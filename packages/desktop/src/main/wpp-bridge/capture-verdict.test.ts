@@ -14,32 +14,40 @@ const witness = (overrides: Partial<CdpNetworkSummary> = {}): CdpNetworkSummary 
 
 describe("decideCaptureVerdict", () => {
   test("accepts page-recorder network output", () => {
-    expect(decideCaptureVerdict({
-      responseSource: "network",
-      pageRecorderRequestSeen: true,
-      witness: witness({ cdpRequestSeen: true, cdpFinished: true }),
-    })).toEqual({ accept: true, verdict: "network", kind: null, message: null })
+    expect(
+      decideCaptureVerdict({
+        responseSource: "network",
+        pageRecorderRequestSeen: true,
+        witness: witness({ cdpRequestSeen: true, cdpFinished: true }),
+      }),
+    ).toEqual({ accept: true, verdict: "network", kind: null, message: null })
   })
 
   test("rejects DOM fallback when CDP saw a failed request", () => {
-    expect(decideCaptureVerdict({
-      responseSource: "dom",
-      witness: witness({ cdpRequestSeen: true, cdpFailed: true, failureText: "net::ERR_FAILED" }),
-    })).toMatchObject({ accept: false, kind: "wpp_request_failed" })
+    expect(
+      decideCaptureVerdict({
+        responseSource: "dom",
+        witness: witness({ cdpRequestSeen: true, cdpFailed: true, failureText: "net::ERR_FAILED" }),
+      }),
+    ).toMatchObject({ accept: false, kind: "wpp_request_failed" })
   })
 
   test("rejects DOM fallback when CDP saw a completed request the parser missed", () => {
-    expect(decideCaptureVerdict({
-      responseSource: "dom",
-      witness: witness({ cdpRequestSeen: true, cdpFinished: true }),
-    })).toMatchObject({ accept: false, kind: "recorder_parser_miss" })
+    expect(
+      decideCaptureVerdict({
+        responseSource: "dom",
+        witness: witness({ cdpRequestSeen: true, cdpFinished: true }),
+      }),
+    ).toMatchObject({ accept: false, kind: "recorder_parser_miss" })
   })
 
   test("rejects DOM fallback when no model request was observed", () => {
-    expect(decideCaptureVerdict({
-      responseSource: "dom",
-      witness: witness(),
-    })).toMatchObject({ accept: false, kind: "submit_or_ui_failure" })
+    expect(
+      decideCaptureVerdict({
+        responseSource: "dom",
+        witness: witness(),
+      }),
+    ).toMatchObject({ accept: false, kind: "submit_or_ui_failure" })
   })
 
   test("inlines branch-deciding witness facts in the failure message", () => {

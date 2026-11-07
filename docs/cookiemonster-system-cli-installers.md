@@ -58,10 +58,10 @@ CookieMonster must still be running when Open Design sends WPP-backed requests b
 
 Keep `resources/opencode-cli` and `resources/opencode-cli.exe` for the desktop sidecar. Add an installer-facing copy named as the public command:
 
-| Platform | Packaged path |
-| --- | --- |
-| Windows | `resources/cli/opencode.exe` |
-| macOS | `Contents/Resources/cli/opencode` |
+| Platform | Packaged path                     |
+| -------- | --------------------------------- |
+| Windows  | `resources/cli/opencode.exe`      |
+| macOS    | `Contents/Resources/cli/opencode` |
 
 Both copies must come from the same downloaded artifact. Do not download the CLI twice.
 
@@ -339,20 +339,20 @@ Update internal installation guidance:
 
 ## Expected file changes
 
-| File | Change |
-| --- | --- |
-| `packages/desktop/scripts/utils.ts` | Produce internal and public CLI resource names from one download |
-| `packages/desktop/scripts/prebuild.ts` | Require both CLI outputs in branded builds |
-| `packages/desktop/electron-builder.config.ts` | Gate public resources, NSIS include, and PKG settings behind `CM_BRAND` |
-| `packages/desktop/resources/windows/cli-install.nsh` | Register and unregister the Windows command |
-| `packages/desktop/resources/macos/pkg-scripts/postinstall` | Register `/usr/local/bin/opencode` |
-| `packages/desktop/scripts/uninstall-macos-cli.sh` | Remove only the CookieMonster-owned symlink |
-| `packages/desktop/src/main/system-cli.ts` | Diagnostics and optional repair logic |
-| `packages/desktop/src/main/ipc.ts` | Restore the `install-cli` repair handler |
-| `packages/desktop/electron-builder.config.test.ts` | Assert branded and upstream package separation |
-| `packages/desktop/src/main/system-cli.test.ts` | Test path and ownership decisions |
-| `.github/workflows/cookiemonster-desktop.yml` | Build, smoke-test, upload, and release new artifacts |
-| `AGENTS.md` | Update packaging commands and artifact guidance |
+| File                                                       | Change                                                                  |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `packages/desktop/scripts/utils.ts`                        | Produce internal and public CLI resource names from one download        |
+| `packages/desktop/scripts/prebuild.ts`                     | Require both CLI outputs in branded builds                              |
+| `packages/desktop/electron-builder.config.ts`              | Gate public resources, NSIS include, and PKG settings behind `CM_BRAND` |
+| `packages/desktop/resources/windows/cli-install.nsh`       | Register and unregister the Windows command                             |
+| `packages/desktop/resources/macos/pkg-scripts/postinstall` | Register `/usr/local/bin/opencode`                                      |
+| `packages/desktop/scripts/uninstall-macos-cli.sh`          | Remove only the CookieMonster-owned symlink                             |
+| `packages/desktop/src/main/system-cli.ts`                  | Diagnostics and optional repair logic                                   |
+| `packages/desktop/src/main/ipc.ts`                         | Restore the `install-cli` repair handler                                |
+| `packages/desktop/electron-builder.config.test.ts`         | Assert branded and upstream package separation                          |
+| `packages/desktop/src/main/system-cli.test.ts`             | Test path and ownership decisions                                       |
+| `.github/workflows/cookiemonster-desktop.yml`              | Build, smoke-test, upload, and release new artifacts                    |
+| `AGENTS.md`                                                | Update packaging commands and artifact guidance                         |
 
 ## Implementation order
 

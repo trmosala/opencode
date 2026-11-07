@@ -382,7 +382,7 @@ it.instance(
           npm: "@ai-sdk/openai-compatible",
           env: [],
           models: {
-            "CM_GPT6_Astra_Max": { name: "Astra Max" },
+            CM_GPT6_Astra_Max: { name: "Astra Max" },
             "CM_GPT-5.6 Sol - Medium": { name: "Sol Medium" },
             "CM_GPT-5.6-Sol_High": { name: "Sol High" },
           },

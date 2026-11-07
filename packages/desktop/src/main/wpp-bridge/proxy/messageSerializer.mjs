@@ -54,18 +54,14 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
   const delta = sinceIndex > 0
   const turnMessages = delta ? nonSystemMessages.slice(sinceIndex) : nonSystemMessages
   const tools = serializeTools(body.tools)
-  const toolInstructions = purpose === "chat" && tools.length > 0
-    ? toolCallInstructions(toolFormat, profile)
-    : undefined
+  const toolInstructions =
+    purpose === "chat" && tools.length > 0 ? toolCallInstructions(toolFormat, profile) : undefined
   const delegatedInstructions = systemMessages
     .map((message) => stringifyContent(message.content, state))
     .filter((content) => content.trim())
   const freshInstructions = toolInstructions
     ? delegatedInstructions.length > 0
-      ? [
-          ...delegatedInstructions.slice(0, -1),
-          `${delegatedInstructions.at(-1)}\n\n${toolInstructions}`,
-        ]
+      ? [...delegatedInstructions.slice(0, -1), `${delegatedInstructions.at(-1)}\n\n${toolInstructions}`]
       : [toolInstructions]
     : delegatedInstructions
   const envelope = {
@@ -100,18 +96,22 @@ export function serializeIncompleteTaskContinuationRequest(body, { purpose = "ch
   const tools = serializeTools(body.tools)
   const profile = resolveRequestModelProfile(body)
   const { toolFormat } = profile
-  return JSON.stringify({
-    type: CM_REQUEST_TYPE,
-    version: CM_REQUEST_VERSION,
-    mode: "continue",
-    purpose,
-    toolCallProtocol: toolCallProtocol(toolFormat),
-    completionProtocol: CM_TASK_COMPLETE_PROTOCOL,
-    instructions: [toolCallInstructions(toolFormat, profile)],
-    tools,
-    resumeIncomplete: true,
-    messages: [],
-  }, null, 2)
+  return JSON.stringify(
+    {
+      type: CM_REQUEST_TYPE,
+      version: CM_REQUEST_VERSION,
+      mode: "continue",
+      purpose,
+      toolCallProtocol: toolCallProtocol(toolFormat),
+      completionProtocol: CM_TASK_COMPLETE_PROTOCOL,
+      instructions: [toolCallInstructions(toolFormat, profile)],
+      tools,
+      resumeIncomplete: true,
+      messages: [],
+    },
+    null,
+    2,
+  )
 }
 
 // A terminal answer that violates an explicit first-tool requirement is recovered through a
@@ -127,10 +127,7 @@ export function serializeToolRecoveryRequest(body, { purpose = "chat" } = {}) {
   return serializeChatCompletionRequest(
     {
       ...body,
-      messages: [
-        { role: "system", content: router },
-        ...toolRecoveryMessages(messages),
-      ],
+      messages: [{ role: "system", content: router }, ...toolRecoveryMessages(messages)],
     },
     { purpose },
   )

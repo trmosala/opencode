@@ -17,14 +17,21 @@ import type { BrowserOwnerScope } from "./session-resolver"
 export type TabLifecycleRequest = Extract<Request, { op: "prepare_tab" | "create_tab" | "select_tab" | "close_tab" }>
 export const browserOperationBusy = new Set<string>()
 let panelHandler:
-  | ((sessionID: string, request: PanelRequest, signal: AbortSignal, deadline: number) => Promise<Response<BrowserState>>)
+  | ((
+      sessionID: string,
+      request: PanelRequest,
+      signal: AbortSignal,
+      deadline: number,
+    ) => Promise<Response<BrowserState>>)
   | undefined
 export function setBrowserPanelHandler(handler: typeof panelHandler) {
   panelHandler = handler
 }
 export function routeBrowserPanel(sessionID: string, request: PanelRequest, signal: AbortSignal, deadline: number) {
-  return panelHandler?.(sessionID, request, signal, deadline) ??
+  return (
+    panelHandler?.(sessionID, request, signal, deadline) ??
     Promise.resolve(failure("no_target", nativeT("desktop.browser.tabs.noTarget")))
+  )
 }
 let tabHandler:
   | ((
