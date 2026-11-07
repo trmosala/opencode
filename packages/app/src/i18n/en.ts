@@ -1123,6 +1123,7 @@ export const dict = {
   "notification.session.responseReady.title": "Response ready",
   "notification.session.error.title": "Session error",
   "notification.session.error.fallbackDescription": "An error occurred",
+  "notification.schedule.attention": "{{name}}: {{detail}}. Use the schedule tool to view run history.",
 
   "home.recentProjects": "Recent projects",
   "home.empty.title": "No recent projects",

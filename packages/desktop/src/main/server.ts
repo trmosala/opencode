@@ -23,7 +23,7 @@ type SidecarMessage =
 export type SidecarListener = { stop: () => Promise<void> }
 
 const SIDECAR_SERVICE_NAME = "opencode server"
-const SIDECAR_START_STALL_TIMEOUT = 60_000
+const SIDECAR_START_STALL_TIMEOUT = 300_000
 const SIDECAR_STOP_TIMEOUT = 6_000
 
 type SpawnLocalServerOptions = {
@@ -74,7 +74,12 @@ export async function spawnLocalServer(
   const sidecar = join(dirname(fileURLToPath(import.meta.url)), "sidecar.js")
   const child = utilityProcess.fork(sidecar, [], {
     cwd: process.cwd(),
-    env: createSidecarEnv(bundledConfigContent),
+    env: {
+      ...createSidecarEnv(bundledConfigContent),
+      ...(app.isPackaged
+        ? { CM_V2_FEATURE_PLUGIN: pathToFileURL(join(process.resourcesPath, "cm-v2-features")).href }
+        : {}),
+    },
     serviceName: SIDECAR_SERVICE_NAME,
     stdio: "pipe",
   })
@@ -168,13 +173,14 @@ export async function spawnLocalServer(
     })
 
     const ready = async () => {
-      while (true) {
+      while (!exited) {
         await new Promise((resolve) => setTimeout(resolve, 100))
         if (await checkHealth(url, password)) {
           healthy = true
           return
         }
       }
+      throw new Error("Sidecar exited during health check")
     }
 
     await Promise.race([ready(), gone])
@@ -205,7 +211,7 @@ export async function spawnLocalServer(
 export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
   let healthUrls: URL[]
   try {
-    healthUrls = [new URL("/api/health", url), new URL("/global/health", url)]
+    healthUrls = [new URL("/api/info", url), new URL("/global/health", url)]
   } catch {
     return false
   }
@@ -231,22 +237,29 @@ export async function checkHealth(url: string, password?: string | null): Promis
 
 function bundledConfigContent() {
   // Bundled plugins are local to this utility process, never global OpenCode/WSL config.
-  return o1CodeConfigContent(
-    browserPluginEntry(),
-    resolveCmAePlugin({
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      appPath: app.getAppPath(),
-      version: app.getVersion(),
-      warn: (message) => getLogger().warn(message),
-    }),
+  const content = JSON.parse(
+    o1CodeConfigContent(
+      browserPluginEntry(),
+      resolveCmAePlugin({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+        version: app.getVersion(),
+        warn: (message) => getLogger().warn(message),
+      }),
+    ),
   )
+  content.plugin = [
+    ...(content.plugin ?? []),
+    app.isPackaged
+      ? pathToFileURL(join(process.resourcesPath, "cm-v2-wpp")).href
+      : import.meta.resolve("@cookiemonster/cm-v2/wpp-plugin"),
+  ]
+  return JSON.stringify(content)
 }
 
 function browserPluginEntry() {
-  const path = app.isPackaged
-    ? join(process.resourcesPath, "cm-browser", "plugin.mjs")
-    : join(app.getAppPath(), "..", "cm-browser", "dist", "plugin.mjs")
+  const path = app.isPackaged ? join(process.resourcesPath, "cm-browser") : join(app.getAppPath(), "..", "cm-browser")
   return existsSync(path) ? pathToFileURL(path).href : undefined
 }
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
-import { CM_AE_FILES, stageCmAeBundle } from "./src/cm-ae"
+import { CM_AE_STAGE_FILES, stageCmAeBundle } from "./src/cm-ae"
 
 // Fork CI has no Apple certificate and no Azure Trusted Signing account. CM_UNSIGNED=1 strips every
 // signing and notarization step so electron-builder emits unsigned installers instead of failing on
@@ -65,7 +65,9 @@ const getBase = (appId: string): Configuration => ({
   extraMetadata: {
     desktopName: `${appId}.desktop`,
   },
+  asarUnpack: ["**/node_modules/@opencode/pty-*/bin/**"],
   files: [
+    "package.json",
     "out/**/*",
     "resources/**/*",
     "!resources/opencode-cli*",
@@ -111,13 +113,22 @@ const getBase = (appId: string): Configuration => ({
         ]
       : []),
     {
-      from: "../cm-browser/dist/plugin.mjs",
-      to: "cm-browser/plugin.mjs",
+      from: "../cm-browser",
+      to: "cm-browser",
+      filter: ["package.json", "dist/plugin-v2.mjs"],
+    },
+    {
+      from: "../cm-v2/dist/features-plugin",
+      to: "cm-v2-features",
+    },
+    {
+      from: "../cm-v2/dist/wpp-plugin",
+      to: "cm-v2-wpp",
     },
     {
       from: "resources/cm-ae",
       to: "cm-ae",
-      filter: [...CM_AE_FILES],
+      filter: [...CM_AE_STAGE_FILES],
     },
     // native/ is produced by `bun run native:build` and is not committed. electron-builder treats a
     // missing extraResources source as a hard error, so only declare it when it is actually present.

@@ -3,7 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { CM_AE_FILES, resolveCmAePlugin, stageCmAeBundle } from "../cm-ae"
+import { CM_AE_STAGE_FILES, resolveCmAePlugin, stageCmAeBundle } from "../cm-ae"
 import { o1CodeConfigContent } from "./wpp-bridge/proxy/providerConfig.mjs"
 
 test("validated AE bundles compose with browser config in dev and packaged layouts", async () => {
@@ -21,7 +21,7 @@ test("validated AE bundles compose with browser config in dev and packaged layou
     }
     const ae = resolveCmAePlugin(options)
     expect(ae).toEqual([
-      pathToFileURL(join(desktop, "resources", "cm-ae", "plugin.mjs")).href,
+      pathToFileURL(join(desktop, "resources", "cm-ae")).href,
       { releaseMetadata: { cookieMonsterVersion: options.version } },
     ])
     const browser = "file:///cm-browser/plugin.mjs"
@@ -41,7 +41,7 @@ test("validated AE bundles compose with browser config in dev and packaged layou
       isPackaged: true,
       appPath: join(root, "missing-app.asar"),
     })
-    expect(installed?.[0]).toBe(pathToFileURL(join(options.resourcesPath, "cm-ae", "plugin.mjs")).href)
+    expect(installed?.[0]).toBe(pathToFileURL(join(options.resourcesPath, "cm-ae")).href)
     expect(installed?.[1]).toEqual(ae?.[1])
     expect(warnings).toEqual([])
 
@@ -57,7 +57,11 @@ test("validated AE bundles compose with browser config in dev and packaged layou
 test("packaging keeps the browser resource and requires all five AE files outside the app archive", async () => {
   const { default: config } = await import("../../electron-builder.config")
   const resources = config.extraResources as { from: string; to: string; filter?: string[] }[]
-  expect(resources).toContainEqual({ from: "../cm-browser/dist/plugin.mjs", to: "cm-browser/plugin.mjs" })
-  expect(resources).toContainEqual({ from: "resources/cm-ae", to: "cm-ae", filter: [...CM_AE_FILES] })
+  expect(resources).toContainEqual({
+    from: "../cm-browser",
+    to: "cm-browser",
+    filter: ["package.json", "dist/plugin-v2.mjs"],
+  })
+  expect(resources).toContainEqual({ from: "resources/cm-ae", to: "cm-ae", filter: [...CM_AE_STAGE_FILES] })
   expect(config.files).toContain("!resources/cm-ae{,/**/*}")
 })

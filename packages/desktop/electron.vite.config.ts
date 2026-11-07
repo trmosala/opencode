@@ -1,12 +1,9 @@
 import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
-import * as fs from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
 // Keep the app's @ alias anchored to this checkout when dependencies are shared across worktrees.
 const { default: appPlugin } = await import(new URL("../app/vite.js", import.meta.url).href)
-
-const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
@@ -55,7 +52,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
 `,
         },
       },
-      externalizeDeps: { include: [nodePtyPkg] },
+      externalizeDeps: { include: [nodePtyPkg, "@cookiemonster/cm-v2"] },
     },
     plugins: [
       {
@@ -63,22 +60,6 @@ const require = __cjs_mod__.createRequire(import.meta.url);
         enforce: "pre",
         resolveId(s) {
           if (s === "@lydell/node-pty") return nodePtyPkg
-        },
-      },
-      {
-        name: "opencode:virtual-server-module",
-        enforce: "pre",
-        resolveId(id) {
-          if (id === "virtual:opencode-server") return this.resolve(`${OPENCODE_SERVER_DIST}/node.js`)
-        },
-      },
-      {
-        name: "opencode:copy-server-assets",
-        async writeBundle() {
-          for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
-            if (!l.endsWith(".wasm")) continue
-            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
-          }
         },
       },
     ],

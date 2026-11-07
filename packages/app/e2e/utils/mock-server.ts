@@ -76,6 +76,26 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
     if (path === "/api/health" && config.protocol === "v2")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
+    // Published 2.2.5 servers identify themselves at /api/info.
+    if (path === "/api/info" && config.protocol === "v2")
+      return json(route, { version: "2.2.5", pid: 1, urls: [], paths: { tmp: "/tmp" } })
+    if (path === "/api/location" && config.protocol === "v2")
+      return json(route, { ...location(config), project: { ...location(config).project, canonical: config.directory } })
+    if (path === "/api/config" && config.protocol === "v2") return json(route, [])
+    if (path === "/api/fs/list" && config.protocol === "v2" && config.fileList) {
+      const nodes = (await config.fileList(url.searchParams.get("path") ?? "")) as { path: string; type: string }[]
+      return json(route, {
+        location: location(config),
+        data: nodes.map((node) => ({ path: node.type === "directory" ? `${node.path}/` : node.path, type: node.type })),
+      })
+    }
+    const fsRead = path.match(/^\/api\/fs\/read\/(.+)$/)?.[1]
+    if (fsRead && config.protocol === "v2" && config.fileContent) {
+      const file = (await config.fileContent(decodeURIComponent(fsRead))) as { content?: string; encoding?: string }
+      const body =
+        file.encoding === "base64" ? Buffer.from(file.content ?? "", "base64") : Buffer.from(file.content ?? "")
+      return route.fulfill({ status: 200, contentType: "application/octet-stream", body })
+    }
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
     if (path === "/provider")
       return json(route, typeof config.provider === "function" ? config.provider() : config.provider)
@@ -174,7 +194,7 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         data: typeof config.questions === "function" ? config.questions() : (config.questions ?? []),
       })
     if (path === "/api/vcs")
-      return json(route, { location: location(config), data: { branch: "main", defaultBranch: "main" } })
+      return json(route, { location: location(config), data: { branch: { current: "main", default: "main" } } })
     if (path === "/api/vcs/status") return json(route, { location: location(config), data: [] })
     if (path === "/api/vcs/diff") return json(route, { location: location(config), data: config.vcsDiff ?? [] })
     if (path === "/api/pty/shells") return json(route, { location: location(config), data: [] })

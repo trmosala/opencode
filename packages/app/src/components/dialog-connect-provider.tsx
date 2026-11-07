@@ -1,4 +1,4 @@
-import type { IntegrationMethod, IntegrationOauthConnectOutput } from "@opencode-ai/client/promise"
+import type { FormWhen, IntegrationMethod, IntegrationOauthConnectOutput } from "@opencode/client/promise"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -548,7 +548,7 @@ function ProviderConnection(props: {
     dispatch({ type: "method.select", index })
 
     if (method.type === "oauth") {
-      if (method.prompts?.length && !inputs) {
+      if (method.form?.length && !inputs) {
         dispatch({ type: "auth.prompt" })
         return
       }
@@ -557,7 +557,7 @@ function ProviderConnection(props: {
         .api.integration.oauth.connect({
           integrationID: props.provider,
           methodID: method.id,
-          inputs: inputs ?? {},
+          answer: inputs ?? {},
           location: location(),
         })
         .then((x) => {
@@ -582,15 +582,35 @@ function ProviderConnection(props: {
       index: 0,
     })
 
+    // 2.2.5 OAuth methods describe their questions as Form fields; string fields with options render as selects.
     const prompts = createMemo(() => {
       const value = method()
-      return value?.type === "oauth" ? (value.prompts ?? []) : []
+      if (value?.type !== "oauth") return []
+      return (value.form ?? []).flatMap((field): AuthPrompt[] => {
+        if (field.type !== "string") return []
+        const when = field.when?.[0]
+        if (field.options)
+          return [
+            {
+              type: "select",
+              key: field.key,
+              message: field.title ?? "",
+              options: field.options.map((option) => ({
+                value: option.value,
+                label: option.label,
+                hint: option.description,
+              })),
+              when,
+            },
+          ]
+        return [{ type: "text", key: field.key, message: field.title ?? "", placeholder: field.placeholder, when }]
+      })
     })
     const matches = (prompt: NonNullable<ReturnType<typeof prompts>[number]>, value: Record<string, string>) => {
       if (!prompt.when) return true
       const actual = value[prompt.when.key]
       if (actual === undefined) return false
-      return prompt.when.op === "eq" ? actual === prompt.when.value : actual !== prompt.when.value
+      return prompt.when.op === "eq" ? actual === String(prompt.when.value) : actual !== String(prompt.when.value)
     }
     const current = createMemo(() => {
       const all = prompts()
@@ -1189,3 +1209,13 @@ function ProviderConnection(props: {
     </div>
   )
 }
+
+type AuthPrompt =
+  | { type: "text"; key: string; message: string; placeholder?: string; when?: FormWhen }
+  | {
+      type: "select"
+      key: string
+      message: string
+      options: { value: string; label: string; hint?: string }[]
+      when?: FormWhen
+    }

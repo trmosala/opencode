@@ -10,10 +10,12 @@
     ".": "./src/plugin.ts",
     "./protocol": "./src/protocol.ts",
     "./port": "./src/port.ts",
-    "./tools": "./src/tools.ts"
+    "./tools": "./src/tools.ts",
+    "./v2": "./src/v2.ts",
+    "./server": "./dist/plugin-v2.mjs"
   },
   "scripts": {
-    "build": "bun build src/plugin.ts --outfile dist/plugin.mjs --target node --format esm",
+    "build": "bun build src/plugin.ts --outfile dist/plugin.mjs --target node --format esm && bun build src/v2.ts --outfile dist/plugin-v2.mjs --target node --format esm",
     "typecheck": "tsgo --noEmit",
     "test": "bun test"
   },
@@ -23,8 +25,12 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@opencode/client": "2.2.5",
+    "@opencode/plugin": "2.2.5",
+    "@opencode/server": "2.2.5",
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
-    "@typescript/native-preview": "catalog:"
+    "@typescript/native-preview": "catalog:",
+    "effect": "4.0.6"
   }
 }

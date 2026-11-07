@@ -399,14 +399,7 @@ export function createHomeSessionsController(
         await archiveHomeSession({
           server: ServerConnection.key(conn),
           session,
-          archive: async (sessionID) =>
-            (await ctx.sdk.protocol) === "v2"
-              ? ctx.sdk.client.v2.session.archive({ sessionID })
-              : ctx.sdk.client.session.update({
-                  sessionID,
-                  directory: session.directory,
-                  time: { archived: Date.now() },
-                }),
+          archive: (sessionID) => ctx.sdk.api.session.archive({ sessionID, directory: session.directory }),
           remove: () => {
             server.sessionPins.set(ServerConnection.key(conn), session.id, false)
             server.sessionWorkflow.set(ServerConnection.key(conn), session.id, undefined)

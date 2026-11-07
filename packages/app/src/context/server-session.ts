@@ -1,6 +1,9 @@
 import { Binary } from "@opencode-ai/core/util/binary"
 import { retry } from "@opencode-ai/core/util/retry"
-import type { OpenCodeEvent, SessionApi, SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { OpenCodeEvent, SessionMessageInfo } from "@opencode/client/promise"
+import type { CompatibleApi } from "@/utils/server-compat"
+
+type SessionApi = CompatibleApi["session"]
 import type {
   Message,
   OpencodeClient,
@@ -11,7 +14,7 @@ import type {
   SessionStatus,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { FileDiffInfo } from "@opencode/client/promise"
 import { batch } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { message as cleanMessage } from "@/utils/diffs"
@@ -585,7 +588,7 @@ export function createServerSession(
     if (sessionApi && (await options?.protocol) !== "v1") {
       const response = await (options?.retry ?? retry)(() => {
         onAttempt?.()
-        return sessionApi.message({ sessionID, messageID })
+        return sessionApi.message.get({ sessionID, messageID })
       })
       const normalized = normalizeSessionMessages(sessionID, [response])
       const message = normalized.messages[0]
@@ -842,7 +845,7 @@ export function createServerSession(
         resolve(sessionID, options),
         cached && !options?.force
           ? Promise.resolve()
-          : loadMessages(sessionID, options?.messageLimit ?? meta.limit[sessionID] ?? initialMessagePageSize),
+          : loadMessages(sessionID, options?.messageLimit ?? (meta.limit[sessionID] || initialMessagePageSize)),
       ])
     })
   }
@@ -923,8 +926,8 @@ export function createServerSession(
 
   const hydrateV2Message = (sessionID: string, messageID: string) => {
     if (!sessionApi) return
-    void sessionApi
-      .message({ sessionID, messageID })
+    void sessionApi.message
+      .get({ sessionID, messageID })
       .then((message) => {
         const current = data.session_message[sessionID] ?? []
         const messages = [...current.filter((item) => item.id !== message.id), message].sort(compareMessages)

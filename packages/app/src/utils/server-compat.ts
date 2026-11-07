@@ -1,9 +1,21 @@
 import type { ServerApi } from "./server"
 import type { ServerProtocol } from "./server-protocol"
-import type { AgentPartInput, FilePartInput, OpencodeClient, Session, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type {
+  AgentPartInput,
+  FileContent,
+  FileNode,
+  FilePartInput,
+  OpencodeClient,
+  ProviderAuthMethod,
+  QuestionRequest,
+  Session,
+  TextPartInput,
+} from "@opencode-ai/sdk/v2/client"
+import type {
+  FormField,
+  FormFields,
+  FormInfo,
   Project,
-  ProjectCurrent,
   SessionApi,
   SessionCommandInput,
   SessionCommandOutput,
@@ -14,20 +26,20 @@ import type {
   SessionPromptOutput,
   SessionShellInput,
   SessionShellOutput,
-} from "@opencode-ai/client/promise"
+} from "@opencode/client/promise"
+import { fileExtension, mediaKindFromPath } from "@opencode-ai/session-ui/pierre/media"
 
 type LegacyClient = OpencodeClient
+type LegacyProject = NonNullable<Awaited<ReturnType<LegacyClient["project"]["current"]>>["data"]>
 type LegacyFor = (directory?: string) => LegacyClient
-type CompatibleSessionApi = Omit<
-  SessionApi,
-  "prompt" | "command" | "shell" | "compact" | "rename" | "archive" | "remove"
-> & {
+type CompatibleSessionApi = Omit<SessionApi, "prompt" | "command" | "shell" | "compact" | "remove"> & {
   prompt: (input: SessionPromptInput & LegacyPrompt) => Promise<SessionPromptOutput>
-  command: (input: SessionCommandInput) => Promise<SessionCommandOutput>
+  command: (input: LegacyCommandInput) => Promise<SessionCommandOutput>
   shell: (input: SessionShellInput & LegacyPrompt) => Promise<SessionShellOutput>
   compact: (input: SessionCompactInput & { model?: LegacyPrompt["model"] }) => Promise<SessionCompactOutput>
-  rename: (input: Parameters<SessionApi["rename"]>[0] & LegacyLocation) => ReturnType<SessionApi["rename"]>
-  // archive: (input: Parameters<SessionApi["archive"]>[0] & LegacyLocation) => ReturnType<SessionApi["archive"]>
+  // 2.2.5 renames and archives through session.update; kept as one call each for both protocols.
+  rename: (input: { sessionID: string; title: string } & LegacyLocation) => Promise<void>
+  archive: (input: { sessionID: string } & LegacyLocation) => Promise<void>
   remove: (input: Parameters<SessionApi["remove"]>[0] & LegacyLocation) => ReturnType<SessionApi["remove"]>
 }
 type CompatiblePermissionApi = Omit<ServerApi["permission"], "reply"> & {
@@ -35,9 +47,45 @@ type CompatiblePermissionApi = Omit<ServerApi["permission"], "reply"> & {
     input: Parameters<ServerApi["permission"]["reply"]>[0] & { location?: { directory?: string } },
   ) => ReturnType<ServerApi["permission"]["reply"]>
 }
-export type CompatibleApi = Omit<ServerApi, "session" | "permission"> & {
+export type ProjectCurrent = { id: string; directory: string }
+type CompatibleProjectApi = ServerApi["project"] & {
+  current: (input?: { location?: LegacyLocation }) => Promise<ProjectCurrent>
+  directories: (input: { projectID: string; location?: LegacyLocation }) => Promise<{ directory: string }[]>
+  // Initializes git in the Location and returns its (possibly new) project.
+  initGit: (input?: { location?: LegacyLocation }) => Promise<Project | LegacyProject>
+}
+// 2.2.5 asks the question tool's questions through a Form; the app keeps its question UI and request shape.
+type CompatibleQuestionApi = {
+  request: { list: (input?: { location?: LegacyLocation }) => Promise<{ data: QuestionRequest[] }> }
+  reply: (input: { sessionID: string; requestID: string; answers: readonly (readonly string[])[] }) => Promise<void>
+  reject: (input: { sessionID: string; requestID: string }) => Promise<void>
+}
+// The file tree and viewers keep the V1 FileNode / FileContent shapes on both protocols.
+type CompatibleFileApi = ServerApi["file"] & {
+  nodes: (input: { path: string; location?: LegacyLocation }) => Promise<FileNode[]>
+  content: (input: { path: string; location?: LegacyLocation }) => Promise<FileContent>
+}
+type CompatibleIntegrationApi = ServerApi["integration"] & {
+  // Removes every stored credential for the integration (V1: auth.remove).
+  disconnect: (input: { integrationID: string; location?: LegacyLocation }) => Promise<void>
+}
+export type CompatibleApi = Omit<ServerApi, "session" | "permission" | "project" | "file" | "integration"> & {
   readonly session: CompatibleSessionApi
   readonly permission: CompatiblePermissionApi
+  readonly project: CompatibleProjectApi
+  readonly question: CompatibleQuestionApi
+  readonly file: CompatibleFileApi
+  readonly integration: CompatibleIntegrationApi
+}
+// The app keeps the V1 command vocabulary; 2.2.5 runs commands with the Session's selected agent and model.
+type LegacyCommandInput = {
+  sessionID: string
+  id?: string
+  command: string
+  arguments?: string
+  agent?: string
+  model?: { providerID: string; id: string; variant?: string }
+  files?: SessionCommandInput["files"]
 }
 type LegacyPrompt = {
   agent?: string
@@ -73,7 +121,7 @@ function sessionInfo(session: Session): SessionInfo {
     tokens: session.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: session.time,
     title: session.title,
-    location: { directory: session.directory, workspaceID: session.workspaceID },
+    location: { directory: session.directory },
     subpath: session.path,
     revert: session.revert && {
       messageID: session.revert.messageID,
@@ -85,10 +133,126 @@ function sessionInfo(session: Session): SessionInfo {
 
 export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
   const v1 = createV1Api(input)
+  const v2 = createV2Api(input.current, input.directory)
   return lazyApi(
-    input.protocol.then((protocol) => (protocol === "v1" ? v1 : input.current)),
-    input.current,
+    input.protocol.then((protocol) => (protocol === "v1" ? v1 : v2)),
+    v2,
   )
+}
+
+export function questionFromForm(form: FormInfo): QuestionRequest | undefined {
+  if (form.metadata?.kind !== "question") return
+  const tool = form.metadata.tool as { messageID?: unknown; id?: unknown } | undefined
+  return {
+    id: form.id,
+    sessionID: form.sessionID,
+    questions: form.fields.flatMap((field) =>
+      field.type === "string" || field.type === "multiselect"
+        ? [
+            {
+              header: field.title ?? "",
+              question: field.description ?? "",
+              options: (field.options ?? []).map((option) => ({
+                label: option.label,
+                description: option.description ?? "",
+              })),
+              multiple: field.type === "multiselect",
+              custom: field.custom,
+            },
+          ]
+        : [],
+    ),
+    tool:
+      typeof tool?.messageID === "string" && typeof tool.id === "string"
+        ? { messageID: tool.messageID, callID: tool.id }
+        : undefined,
+  }
+}
+
+function createV2Api(current: ServerApi, directory?: string): CompatibleApi {
+  const forms = (location?: LegacyLocation) => current.form.list({ location }).then((result) => result.data)
+  const at = (location?: LegacyLocation) => {
+    const value = location?.directory ?? directory
+    return value ? { directory: value } : undefined
+  }
+  return {
+    ...current,
+    file: {
+      ...current.file,
+      nodes: async (value) => {
+        const location = at(value.location)
+        const result = await current.file.list({ location, path: value.path || undefined })
+        return result.data.map((entry) => fileNode(result.location.directory, entry))
+      },
+      content: async (value) =>
+        fileContent(value.path, await current.file.read({ location: at(value.location), path: value.path })),
+    },
+    integration: {
+      ...current.integration,
+      disconnect: async (value) => {
+        const credentials = await current.credential.list()
+        await Promise.all(
+          credentials
+            .filter((item) => item.integrationID === value.integrationID)
+            .map((item) => current.credential.remove({ credentialID: item.id })),
+        )
+      },
+    },
+    session: {
+      ...current.session,
+      rename: (value) => current.session.update({ sessionID: value.sessionID, title: value.title }).then(() => {}),
+      archive: (value) => current.session.update({ sessionID: value.sessionID, archived: true }),
+      command: (value) =>
+        current.session.command({
+          sessionID: value.sessionID,
+          name: value.command,
+          text: value.arguments ?? "",
+          files: value.files,
+        }),
+    },
+    project: {
+      ...current.project,
+      current: (value) =>
+        current.location
+          .get({ location: value?.location })
+          .then((location) => ({ id: location.project.id, directory: location.project.directory })),
+      directories: (value) =>
+        current.worktree
+          .list({ projectID: value.projectID })
+          .then((list) => list.map((item) => ({ directory: item.directory }))),
+      async initGit(value) {
+        const location = at(value?.location)
+        await current.vcs.init({ location })
+        const info = await current.location.get({ location })
+        const project = (await current.project.list()).find((item) => item.id === info.project.id)
+        if (!project) throw new Error(`Project not found: ${info.project.id}`)
+        return project
+      },
+    },
+    question: {
+      request: {
+        list: (value) =>
+          forms(at(value?.location)).then((list) => ({ data: list.flatMap((form) => questionFromForm(form) ?? []) })),
+      },
+      async reply(value) {
+        // Session-scoped lookup: the form lives in the Session's Location, not the server default.
+        const form = await current.session.form.get({ sessionID: value.sessionID, formID: value.requestID })
+        // Fields follow the question order (q0, q1, ...); multiselect keeps every answer, string keeps the first.
+        await current.session.form.reply({
+          sessionID: value.sessionID,
+          formID: value.requestID,
+          answer: Object.fromEntries(
+            form.fields.flatMap((field, index): [string, string | string[]][] => {
+              const answer = value.answers[index] ?? []
+              if (field.type === "multiselect") return [[field.key, [...answer]]]
+              return answer[0] === undefined ? [] : [[field.key, answer[0]]]
+            }),
+          ),
+        })
+      },
+      reject: (value) => current.session.form.cancel({ sessionID: value.sessionID, formID: value.requestID }),
+    },
+  }
 }
 
 function lazyApi<T extends object>(implementation: Promise<T>, shape: T): T {
@@ -180,22 +344,27 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           ),
         )
       },
-      async rename(value: Parameters<ServerApi["session"]["rename"]>[0] & LegacyLocation) {
+      async rename(value: { sessionID: string; title: string } & LegacyLocation) {
         await legacy(value).session.update({ sessionID: value.sessionID, title: value.title })
       },
-      // async archive(value: Parameters<ServerApi["session"]["archive"]>[0] & LegacyLocation) {
-      //   await legacy(value).session.update({ sessionID: value.sessionID, time: { archived: Date.now() } })
-      // },
+      async archive(value: { sessionID: string } & LegacyLocation) {
+        await legacy(value).session.update({
+          sessionID: value.sessionID,
+          directory: directory(value),
+          time: { archived: Date.now() },
+        })
+      },
       async remove(value: Parameters<ServerApi["session"]["remove"]>[0] & LegacyLocation) {
         await legacy(value).session.delete(value)
       },
       async fork(value: Parameters<ServerApi["session"]["fork"]>[0]) {
-        const result = await legacy().session.fork(value)
+        const result = await legacy().session.fork({ sessionID: value.sessionID, messageID: value.before })
         if (!result.data) throw new Error("Failed to fork session")
         return sessionInfo(result.data)
       },
       async interrupt(value: Parameters<ServerApi["session"]["interrupt"]>[0]) {
         await legacy().session.abort(value)
+        return { interrupted: true }
       },
       async prompt(value: SessionPromptInput & LegacyPrompt) {
         await legacy().session.promptAsync({
@@ -229,16 +398,15 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           ],
         })
         return {
-          admittedSeq: 0,
           id: value.id ?? "",
           sessionID: value.sessionID,
-          timeCreated: Date.now(),
-          type: "user",
-          data: { text: value.text },
+          time: { created: Date.now() },
+          type: "user" as const,
+          payload: { text: value.text },
           delivery: value.delivery ?? "steer",
         }
       },
-      async command(value: SessionCommandInput) {
+      async command(value: LegacyCommandInput) {
         await legacy().session.command({
           sessionID: value.sessionID,
           messageID: value.id ?? undefined,
@@ -254,15 +422,6 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
             filename: file.name,
           })),
         })
-        return {
-          admittedSeq: 0,
-          id: value.id ?? "",
-          sessionID: value.sessionID,
-          timeCreated: Date.now(),
-          type: "user",
-          data: { text: `/${value.command} ${value.arguments ?? ""}`.trim() },
-          delivery: value.delivery ?? "steer",
-        }
       },
       async shell(value: SessionShellInput & LegacyPrompt) {
         await legacy().session.shell({
@@ -280,11 +439,12 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
           modelID: value.model.modelID,
         })
         return {
-          admittedSeq: 0,
           id: value.id ?? "",
           sessionID: value.sessionID,
-          timeCreated: Date.now(),
-          type: "compaction",
+          time: { created: Date.now() },
+          type: "compaction" as const,
+          payload: {},
+          delivery: value.delivery ?? "steer",
         }
       },
       revert: {
@@ -301,9 +461,20 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     project: {
       ...input.current.project,
       async list() {
-        return ((await legacy().project.list()).data ?? []) as Project[]
+        return ((await legacy().project.list()).data ?? []).map(
+          (project): Project => ({
+            id: project.id,
+            canonical: project.worktree,
+            vcs: project.vcs,
+            name: project.name,
+            icon: project.icon,
+            commands: project.commands,
+            time: { ...project.time, active: project.time.updated },
+            sandboxes: project.sandboxes,
+          }),
+        )
       },
-      async current(value?: Parameters<ServerApi["project"]["current"]>[0]) {
+      async current(value?: { location?: LegacyLocation }) {
         const result = await legacy(value?.location).project.current()
         if (!result.data) throw new Error("Project not found")
         return { id: result.data.id, directory: result.data.worktree } satisfies ProjectCurrent
@@ -317,9 +488,14 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       //   if (!result.data) throw new Error(`Project not found: ${value.projectID}`)
       //   return result.data as Project
       // },
-      async directories(value: Parameters<ServerApi["project"]["directories"]>[0]) {
+      async directories(value: { projectID: string; location?: LegacyLocation }) {
         const result = await legacy(value.location).worktree.list()
         return (result.data ?? []).map((item) => ({ directory: item }))
+      },
+      async initGit(value?: { location?: LegacyLocation }) {
+        const result = await legacy(value?.location).project.initGit()
+        if (!result.data) throw new Error("Failed to initialize git")
+        return result.data
       },
     },
     // path: {
@@ -342,7 +518,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
       },
       async diff(value: Parameters<ServerApi["vcs"]["diff"]>[0]) {
         const result = await legacy(value.location).vcs.diff({
-          mode: value.mode === "working" ? "git" : value.mode,
+          mode: value.mode === "working" ? "git" : value.mode === "branch" ? "branch" : unsupported("committed diff"),
           context: value.context,
         })
         return located(
@@ -359,6 +535,14 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     },
     file: {
       ...input.current.file,
+      async nodes(value: { path: string; location?: LegacyLocation }) {
+        return (await legacy(value.location).file.list({ path: value.path })).data ?? []
+      },
+      async content(value: { path: string; location?: LegacyLocation }) {
+        const result = await legacy(value.location).file.read({ path: value.path })
+        if (!result.data) throw new Error(`File not found: ${value.path}`)
+        return result.data
+      },
       async list(value?: Parameters<ServerApi["file"]["list"]>[0]) {
         const result = await legacy(value?.location).file.list({ path: value?.path ?? "" })
         return located(result.data ?? [], value?.location)
@@ -377,12 +561,16 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     },
     integration: {
       ...input.current.integration,
+      async disconnect(value: { integrationID: string; location?: LegacyLocation }) {
+        await legacy(value.location).auth.remove({ providerID: value.integrationID })
+        await input.legacy().global.dispose()
+      },
       async get(value: Parameters<ServerApi["integration"]["get"]>[0]) {
         const methods = ((await legacy(value.location).provider.auth()).data?.[value.integrationID] ?? []).map(
           (method, index) =>
             method.type === "api"
               ? { type: "key" as const, label: method.label }
-              : { type: "oauth" as const, id: String(index), label: method.label, prompts: method.prompts },
+              : { type: "oauth" as const, id: String(index), label: method.label, form: oauthForm(method.prompts) },
         )
         return located(
           {
@@ -410,7 +598,13 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         connect: async (value: Parameters<ServerApi["integration"]["oauth"]["connect"]>[0]) => {
           const method = Number(value.methodID)
           const result = await legacy(value.location).provider.oauth.authorize(
-            { providerID: value.integrationID, method, inputs: value.inputs },
+            {
+              providerID: value.integrationID,
+              method,
+              inputs:
+                value.answer &&
+                Object.fromEntries(Object.entries(value.answer).map(([key, item]) => [key, String(item)])),
+            },
             { throwOnError: true },
           )
           if (!result.data) throw new Error("Failed to start OAuth authorization")
@@ -497,22 +691,94 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         await legacy(value.location).permission.respond({
           sessionID: value.sessionID,
           permissionID: value.requestID,
-          response: value.reply,
+          response: value.decision,
           directory: directory(value.location),
         })
       },
     },
     question: {
-      ...input.current.question,
-      async reply(value: Parameters<ServerApi["question"]["reply"]>[0]) {
+      request: {
+        list: async (value) => ({ data: (await legacy(value?.location).question.list()).data ?? [] }),
+      },
+      async reply(value) {
         await legacy().question.reply({
           requestID: value.requestID,
           answers: value.answers.map((answer) => [...answer]),
         })
       },
-      async reject(value: Parameters<ServerApi["question"]["reject"]>[0]) {
+      async reject(value) {
         await legacy().question.reject({ requestID: value.requestID })
       },
     },
   }
+}
+
+// 2.2.5 lists paths relative to the Location root, with a trailing separator on directories.
+export function fileNode(root: string, entry: { path: string; type: "file" | "directory" }): FileNode {
+  const path = entry.path.replace(/[\\/]+$/, "")
+  const separator = root.includes("\\") && !root.includes("/") ? "\\" : "/"
+  return {
+    name: path.split(/[\\/]/).at(-1) ?? path,
+    path,
+    absolute: root.replace(/[\\/]+$/, "") + separator + path,
+    type: entry.type,
+    // shortcut: 2.2.5 does not report ignore status, so ignored paths render like tracked ones.
+    ignored: false,
+  }
+}
+
+const mediaMime: Record<string, string> = {
+  jpg: "image/jpeg",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+  tif: "image/tiff",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  opus: "audio/ogg",
+}
+
+// 2.2.5 returns raw bytes; viewers expect V1 text, or base64 plus a mime type for media.
+export function fileContent(path: string, bytes: Uint8Array): FileContent {
+  const kind = mediaKindFromPath(path)
+  const ext = fileExtension(path)
+  if (kind && kind !== "svg") {
+    let binary = ""
+    for (let index = 0; index < bytes.length; index += 0x8000)
+      binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+    return { type: "binary", content: btoa(binary), encoding: "base64", mimeType: mediaMime[ext] ?? `${kind}/${ext}` }
+  }
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+    if (!text.includes("\u0000")) return { type: "text", content: text, mimeType: kind ? mediaMime.svg : undefined }
+  } catch {}
+  return { type: "binary", content: "" }
+}
+
+function unsupported(feature: string): never {
+  throw new Error(`The V1 server does not support ${feature}`)
+}
+
+type LegacyAuthPrompts = ProviderAuthMethod["prompts"]
+
+// V1 OAuth prompts become the 2.2.5 Form fields the connect dialog renders: text fields, or option lists for selects.
+function oauthForm(prompts: LegacyAuthPrompts): FormFields | undefined {
+  const fields = (prompts ?? []).map(
+    (prompt): FormField => ({
+      type: "string",
+      key: prompt.key,
+      title: prompt.message,
+      ...(prompt.type === "text"
+        ? { placeholder: prompt.placeholder }
+        : {
+            options: prompt.options.map((option) => ({
+              value: option.value,
+              label: option.label,
+              description: option.hint,
+            })),
+          }),
+      ...(prompt.when ? { when: [prompt.when] } : {}),
+    }),
+  )
+  const [first, ...rest] = fields
+  return first ? [first, ...rest] : undefined
 }

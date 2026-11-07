@@ -31,7 +31,8 @@ const promotedDrafts: Array<{ draftID: string; server: string; sessionId: string
 const sentPrompts: string[] = []
 const promptInputs: unknown[] = []
 const sentCommands: unknown[] = []
-const commands: Array<{ name: string }> = []
+const commands: Array<{ name: string; skill?: { name: string; source: string; revision: string } }> = []
+const selectedSkills: Array<{ directory: string; sessionID: string; names: string[]; at: number }> = []
 let serverSessionSyncs = 0
 
 let params: { id?: string } = {}
@@ -73,6 +74,16 @@ const prompt = {
 const clientFor = (directory: string) => {
   createdClients.push(directory)
   return {
+    skills: {
+      select: async (target: string, sessionID: string, selected: Array<{ name: string }>) => {
+        selectedSkills.push({
+          directory: target,
+          sessionID,
+          names: selected.map((item) => item.name),
+          at: promptInputs.length,
+        })
+      },
+    },
     api: {
       session: {
         create: async (input: (typeof sessionCreateInputs)[number]) => {
@@ -199,6 +210,7 @@ beforeAll(async () => {
         directory: "/repo/main",
         client: rootClient,
         api: rootClient.api,
+        skills: rootClient.skills,
         url: "http://localhost:4096",
         createClient(opts: any) {
           return clientFor(opts.directory)
@@ -279,6 +291,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  selectedSkills.length = 0
   createdClients.length = 0
   createdSessions.length = 0
   sessionCreateInputs.length = 0
@@ -531,6 +544,41 @@ describe("prompt submit worktree selection", () => {
       },
     ])
     expect(serverSessionSyncs).toBe(0)
+  })
+
+  test("admits a managed skill by exact identity before prompting", async () => {
+    params = { id: "session-1" }
+    commands.push({
+      name: "deploy",
+      skill: { name: "deploy", source: "/repo/.opencode/skill/deploy/SKILL.md", revision: "r2" },
+    })
+    promptValue = [{ type: "text", content: "/deploy staging", start: 0, end: 15 }]
+
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    for (let turn = 0; turn < 50 && promptInputs.length === 0; turn++) await Bun.sleep(0)
+
+    expect(sentCommands).toEqual([])
+    expect(selectedSkills).toEqual([
+      { directory: expect.any(String), sessionID: "session-1", names: ["deploy"], at: 0 },
+    ])
+    expect(promptInputs).toEqual([expect.objectContaining({ sessionID: "session-1", text: "/deploy staging" })])
   })
 
   test("uses an injected model selection", async () => {

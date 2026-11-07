@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createApiForServer, createSdkForServer } from "./server"
-import { createCompatibleApi } from "./server-compat"
+import { createCompatibleApi, fileContent, fileNode } from "./server-compat"
 
 function setup(
   protocol: "v1" | "v2" | Promise<"v1" | "v2">,
@@ -53,7 +53,6 @@ function setup(
 }
 
 describe("createCompatibleApi", () => {
-  /*
   test("routes V1 archive through the legacy session update", async () => {
     const { api, requests } = setup("v1")
     await api.session.archive({ sessionID: "ses_1", directory: "/repo" })
@@ -64,7 +63,6 @@ describe("createCompatibleApi", () => {
     expect(requests[0]!.method).toBe("PATCH")
     expect(await requests[0]!.json()).toMatchObject({ time: { archived: expect.any(Number) } })
   })
-  */
 
   test("converts current prompts to the V1 prompt contract", async () => {
     const { api, requests } = setup("v1")
@@ -147,15 +145,14 @@ describe("createCompatibleApi", () => {
     expect(detections).toBe(1)
   })
 
-  /*
   test("keeps V2 session actions on the current API", async () => {
-    const { api, requests } = setup("v2")
+    const { api, requests } = setupCurrent({})
     await api.session.archive({ sessionID: "ses_1" })
 
-    expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/archive")
-    expect(requests[0]!.method).toBe("POST")
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1")
+    expect(requests[0]!.method).toBe("PATCH")
+    expect(await requests[0]!.json()).toEqual({ archived: true })
   })
-  */
 
   test("uses the global V1 session search endpoint", async () => {
     const { api, requests } = setup("v1")
@@ -189,7 +186,7 @@ describe("createCompatibleApi", () => {
     await api.permission.reply({
       sessionID: "ses_1",
       requestID: "permission_1",
-      reply: "once",
+      decision: "once",
       location: { directory: "/other" },
     })
 
@@ -232,5 +229,110 @@ describe("createCompatibleApi", () => {
     ])
     expect(requests[1]!.headers.get("x-opencode-directory")).toBe("%2Frepo")
     expect(requests[2]!.headers.get("x-opencode-directory")).toBeNull()
+  })
+})
+
+function setupCurrent(routes: Record<string, (request: Request) => Response | Promise<Response>>) {
+  const requests: Request[] = []
+  const fetcher = Object.assign(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init)
+      requests.push(request)
+      const route = routes[`${request.method} ${new URL(request.url).pathname}`]
+      return route ? route(request.clone()) : new Response(undefined, { status: 204 })
+    },
+    { preconnect: globalThis.fetch.preconnect },
+  )
+  const server = { url: "http://localhost:4096" }
+  const api = createCompatibleApi({
+    protocol: Promise.resolve("v2"),
+    current: createApiForServer({ server, fetch: fetcher }),
+    legacy: (directory) => createSdkForServer({ server, fetch: fetcher, directory, throwOnError: true }),
+    directory: "/repo",
+  })
+  return { api, requests }
+}
+
+describe("V1 projects", () => {
+  test("keep their VCS kind through the 2.2.5 project shape", async () => {
+    const fetcher = Object.assign(
+      async () =>
+        Response.json([{ id: "p", worktree: "/repo", vcs: "git", time: { created: 1, updated: 2 }, sandboxes: [] }]),
+      { preconnect: globalThis.fetch.preconnect },
+    )
+    const server = { url: "http://localhost:4096" }
+    const api = createCompatibleApi({
+      protocol: Promise.resolve("v1"),
+      current: createApiForServer({ server, fetch: fetcher }),
+      legacy: (directory) => createSdkForServer({ server, fetch: fetcher, directory, throwOnError: true }),
+    })
+    expect(await api.project.list()).toEqual([
+      expect.objectContaining({ id: "p", canonical: "/repo", vcs: "git", sandboxes: [] }),
+    ])
+  })
+})
+
+describe("2.2.5 compatibility", () => {
+  test("maps Location-relative entries to V1 file nodes", () => {
+    expect(fileNode("/repo/", { path: "src/app/", type: "directory" })).toEqual({
+      name: "app",
+      path: "src/app",
+      absolute: "/repo/src/app",
+      type: "directory",
+      ignored: false,
+    })
+    expect(fileNode("C:\\repo", { path: "a\\b.ts", type: "file" }).absolute).toBe("C:\\repo\\a\\b.ts")
+  })
+
+  test("converts raw file bytes to V1 file content", () => {
+    expect(fileContent("a.ts", new TextEncoder().encode("const a = 1"))).toEqual({
+      type: "text",
+      content: "const a = 1",
+    })
+    expect(fileContent("logo.svg", new TextEncoder().encode("<svg/>"))).toMatchObject({
+      type: "text",
+      content: "<svg/>",
+      mimeType: "image/svg+xml",
+    })
+    expect(fileContent("a.jpg", new Uint8Array([255, 216, 255]))).toEqual({
+      type: "binary",
+      content: btoa(String.fromCharCode(255, 216, 255)),
+      encoding: "base64",
+      mimeType: "image/jpeg",
+    })
+    expect(fileContent("a.bin", new Uint8Array([0, 159, 146, 150]))).toEqual({ type: "binary", content: "" })
+  })
+
+  test("disconnects every credential of one integration", async () => {
+    const { api, requests } = setupCurrent({
+      "GET /api/credential": () =>
+        Response.json({
+          data: [
+            { id: "c1", integrationID: "openai", label: "a", active: true, value: { type: "key", key: "x" } },
+            { id: "c2", integrationID: "anthropic", label: "b", active: true, value: { type: "key", key: "y" } },
+            { id: "c3", integrationID: "openai", label: "c", active: false, value: { type: "key", key: "z" } },
+          ],
+        }),
+    })
+    await api.integration.disconnect({ integrationID: "openai" })
+
+    expect(requests.filter((item) => item.method === "DELETE").map((item) => new URL(item.url).pathname)).toEqual([
+      "/api/credential/c1",
+      "/api/credential/c3",
+    ])
+  })
+
+  test("initializes git and returns the Location project", async () => {
+    const project = { id: "p1", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }
+    const { api, requests } = setupCurrent({
+      "POST /api/vcs/init": () => new Response(undefined, { status: 204 }),
+      "GET /api/location": () =>
+        Response.json({ directory: "/repo", project: { id: "p1", directory: "/repo", canonical: "/repo" } }),
+      "GET /api/project": () => Response.json([{ ...project, id: "p0", canonical: "/other" }, project]),
+    })
+
+    expect(await api.project.initGit()).toMatchObject({ id: "p1", canonical: "/repo" })
+    expect(requests[0]!.method).toBe("POST")
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/vcs/init")
   })
 })

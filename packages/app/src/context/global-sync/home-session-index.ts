@@ -7,7 +7,8 @@ export const HOME_V2_SESSION_PAGE_LIMIT = 5_000
 
 export type HomeSessionEvent = {
   type: "session.created" | "session.updated" | "session.deleted"
-  properties: { sessionID: string; info: Session }
+  // 2.2.5 deletions carry only the session id.
+  properties: { sessionID: string; info?: Session }
 }
 export type HomeSessionEvents = {
   sequence: number
@@ -172,8 +173,9 @@ export function retainHomeSessions(
 
 export function applyHomeSessionEvent(sessions: Session[], event: HomeSessionEvent) {
   const info = event.properties.info
-  const index = sessions.findIndex((session) => session.id === info.id)
-  if (event.type === "session.deleted" || info.parentID || typeof info.time.archived === "number") {
+  const id = info?.id ?? event.properties.sessionID
+  const index = sessions.findIndex((session) => session.id === id)
+  if (event.type === "session.deleted" || !info || info.parentID || typeof info.time.archived === "number") {
     if (index === -1) return sessions
     return sessions.toSpliced(index, 1)
   }

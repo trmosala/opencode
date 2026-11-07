@@ -6,7 +6,7 @@ import type {
   SessionApi,
   SessionInfo,
   SessionListInput,
-} from "@opencode-ai/client/promise"
+} from "@opencode/client/promise"
 import { QueryClient } from "@tanstack/solid-query"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessions } from "./global-sync/session-load"

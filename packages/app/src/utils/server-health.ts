@@ -1,7 +1,7 @@
 import { usePlatform } from "@/context/platform"
 import { ServerConnection } from "@/context/server"
 import { authTokenFromCredentials, createSdkForServer } from "./server"
-import { ClientError, OpenCode } from "@opencode-ai/client"
+import { ClientError, OpenCode } from "@opencode/client"
 import { Accessor, createEffect, onCleanup } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 
@@ -94,11 +94,11 @@ export async function checkServerHealth(
           }
         : undefined,
     })
-      .health.get({ signal })
+      .server.info({ signal })
       .then((x) =>
-        typeof x.healthy === "boolean"
-          ? { data: { healthy: x.healthy, version: x.version } }
-          : { error: new Error("Invalid health response") },
+        typeof x.pid === "number"
+          ? { data: { healthy: true, version: x.version } }
+          : { error: new Error("Invalid server info response") },
       )
       .catch((error) => ({ error }))
     if ("data" in current && current.data) return current.data

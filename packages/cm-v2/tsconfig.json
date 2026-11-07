@@ -1,0 +1,14 @@
+{
+  "extends": "@tsconfig/bun/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["bun", "node"],
+    "noUncheckedIndexedAccess": false,
+    "paths": {
+      "@opencode-ai/core/config/markdown": ["./node_modules/@opencode/core/dist/types/config/markdown.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "script/**/*.ts"]
+}

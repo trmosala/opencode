@@ -120,15 +120,17 @@ export const SettingsProvidersV2: Component<{
   const disconnect = async (providerID: string, name: string) => {
     if (isConfigCustom(providerID)) {
       await serverSdk()
-        .client.auth.remove({ providerID })
+        .api.integration.disconnect({ integrationID: providerID })
         .catch(() => undefined)
       await disableProvider(providerID, name)
       return
     }
     await serverSdk()
-      .client.auth.remove({ providerID })
+      .api.integration.disconnect({ integrationID: providerID })
       .then(async () => {
-        await serverSdk().client.global.dispose()
+        await serverSync()
+          .refreshProviders()
+          .catch(() => undefined)
         showToast({
           variant: "success",
           icon: "circle-check",

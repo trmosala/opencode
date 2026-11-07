@@ -588,16 +588,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const projectID = project.id
         void (async () => {
           const sdk = serverSdk()
-          if ((await sdk.protocol) !== "v1") return
-          return sdk.client.project
-            .update({ projectID, directory: worktree, icon: { color } })
-            .then((response) => response.data)
-            .then((result) => {
-              if (!result) return
-              serverSync().set("project", (items) =>
-                items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
-              )
-            })
+          const update =
+            (await sdk.protocol) === "v1"
+              ? sdk.client.project
+                  .update({ projectID, directory: worktree, icon: { color } })
+                  .then((response) => response.data)
+              : sdk.api.project.update({ projectID, icon: { color } })
+          return update.then((result) => {
+            if (!result) return
+            serverSync().set("project", (items) =>
+              items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
+            )
+          })
         })().catch(() => {
           if (colorRequested.get(worktree) === color) colorRequested.delete(worktree)
         })

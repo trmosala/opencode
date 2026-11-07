@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionApi, SessionInfo, SessionListInput } from "@opencode-ai/client/promise"
+import type { SessionApi, SessionInfo, SessionListInput } from "@opencode/client/promise"
 import { listAllSessions, normalizeSessionInfo } from "./session"
 
 describe("normalizeSessionInfo", () => {
@@ -13,7 +13,7 @@ describe("normalizeSessionInfo", () => {
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
       time: { created: 1, updated: 1 },
       title: "New session",
-      location: { directory: "/repo/worktree", workspaceID: "workspace-1" },
+      location: { directory: "/repo/worktree" },
       subpath: "worktree",
       revert: { messageID: "message-1", partID: "part-1", snapshot: "snapshot", files: [] },
     } as SessionInfo)
@@ -22,7 +22,6 @@ describe("normalizeSessionInfo", () => {
       id: "session-1",
       slug: "session-1",
       projectID: "project-1",
-      workspaceID: "workspace-1",
       directory: "/repo/worktree",
       path: "worktree",
       parentID: undefined,

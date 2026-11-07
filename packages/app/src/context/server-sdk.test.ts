@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { adaptServerEvent, coalesceServerEvents, enqueueServerEvent, resumeStreamAfterPageShow } from "./server-sdk"
-import type { OpenCodeEvent } from "@opencode-ai/client/promise"
+import {
+  adaptServerEvent,
+  coalesceServerEvents,
+  eventDirectory,
+  enqueueServerEvent,
+  resumeStreamAfterPageShow,
+} from "./server-sdk"
+import type { OpenCodeEvent } from "@opencode/client/promise"
 import type { Event } from "@opencode-ai/sdk/v2/client"
 
 describe("resumeStreamAfterPageShow", () => {
@@ -29,7 +35,7 @@ describe("adaptServerEvent", () => {
     const current = {
       id: "evt_1",
       created: 1,
-      type: "permission.v2.asked",
+      type: "permission.asked",
       data: { id: "perm_1", sessionID: "ses_1", action: "read", resources: ["src/**"] },
     } as OpenCodeEvent
 
@@ -37,6 +43,76 @@ describe("adaptServerEvent", () => {
       type: "permission.asked",
       properties: { id: "perm_1", sessionID: "ses_1", permission: "read", patterns: ["src/**"] },
       current,
+    })
+  })
+  test("adapts 2.2.5 session lifecycle events to the records the sync reducers keep", () => {
+    const created = {
+      id: "evt_c",
+      created: 50,
+      type: "session.created",
+      durable: { aggregateID: "ses_1", seq: 1, version: 1 },
+      data: {
+        sessionID: "ses_1",
+        projectID: "prj",
+        location: { directory: "/repo" },
+        slug: "brave-otter",
+        version: "2.2.5",
+      },
+    } as OpenCodeEvent
+    expect(adaptServerEvent(created)).toMatchObject({
+      type: "session.created",
+      properties: {
+        sessionID: "ses_1",
+        info: {
+          id: "ses_1",
+          slug: "brave-otter",
+          projectID: "prj",
+          directory: "/repo",
+          title: "",
+          time: { created: 50, updated: 50 },
+        },
+      },
+      current: created,
+    })
+
+    const archived = {
+      id: "evt_a",
+      created: 77,
+      type: "session.archived",
+      durable: { aggregateID: "ses_1", seq: 2, version: 1 },
+      data: { sessionID: "ses_1" },
+    } as OpenCodeEvent
+    expect(adaptServerEvent(archived)).toMatchObject({
+      type: "session.next.archived",
+      properties: { sessionID: "ses_1", timestamp: 77 },
+      current: archived,
+    })
+  })
+})
+
+describe("eventDirectory", () => {
+  test("routes location-less 2.2.5 session events to the cached session directory", () => {
+    const resolve = (sessionID: string) => (sessionID === "ses_known" ? "/repo" : undefined)
+    const event = (sessionID: string, location?: { directory: string }) =>
+      ({ id: "e", created: 1, type: "session.renamed", data: { sessionID, title: "t" }, location }) as OpenCodeEvent
+    expect(eventDirectory(event("ses_known"), resolve)).toBe("/repo")
+    expect(eventDirectory(event("ses_known", { directory: "/elsewhere" }), resolve)).toBe("/elsewhere")
+    expect(eventDirectory(event("ses_unknown"), resolve)).toBe("global")
+    expect(eventDirectory({ id: "p", type: "project.updated", data: {} } as unknown as OpenCodeEvent, resolve)).toBe(
+      "global",
+    )
+  })
+
+  test("adapts 2.2.5 project updates to worktree-rooted project records", () => {
+    const current = {
+      id: "evt_p",
+      created: 1,
+      type: "project.updated",
+      data: { id: "prj", canonical: "/repo", time: { created: 1, updated: 2 }, sandboxes: [] },
+    } as unknown as OpenCodeEvent
+    expect(adaptServerEvent(current)).toMatchObject({
+      type: "project.updated",
+      properties: { id: "prj", worktree: "/repo" },
     })
   })
 })

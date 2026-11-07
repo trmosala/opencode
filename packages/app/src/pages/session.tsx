@@ -1,6 +1,7 @@
 import { useChatPaneActive } from "@/context/chat-split"
 import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { getFilename } from "@opencode-ai/core/util/path"
+import { normalizeProjectInfo } from "@/context/global-sync/utils"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createQuery, skipToken, useMutation, useQueryClient } from "@tanstack/solid-query"
 import {
@@ -867,11 +868,8 @@ export default function Page() {
   }
 
   const gitMutation = useMutation(() => ({
-    mutationFn: () => sdk().client.project.initGit(),
-    onSuccess: (x) => {
-      if (!x.data) return
-      upsert(x.data)
-    },
+    mutationFn: () => sdk().api.project.initGit(),
+    onSuccess: (project) => upsert(normalizeProjectInfo(project)),
     onError: (err) => {
       showToast({
         variant: "error",
@@ -1746,6 +1744,7 @@ export default function Page() {
 
       const ok = await sendFollowupDraft({
         api: sdk().api.session,
+        skills: sdk().skills,
         sync: sync(),
         serverSync: serverSync(),
         draft: item,

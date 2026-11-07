@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { createStore } from "solid-js/store"
 import { QueryClient } from "@tanstack/solid-query"
 import type { Config, OpencodeClient, Project } from "@opencode-ai/sdk/v2/client"
-import type { AgentApi, CatalogApi, CommandApi, ReferenceApi } from "@opencode-ai/client/promise"
+import type { AgentApi, CommandApi, ReferenceApi } from "@opencode/client/promise"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import {
   bootstrapDirectory,
   loadAgentsQuery,
+  inferHomeDirectory,
   loadCommands,
   loadGlobalConfigQuery,
   loadPathQuery,
@@ -16,9 +17,11 @@ import {
 } from "./bootstrap"
 import type { State, VcsCache } from "./types"
 import { ServerScope } from "@/utils/server-scope"
-import type { ServerApi } from "@/utils/server"
+import type { CompatibleApi } from "@/utils/server-compat"
 
-type ProjectApi = ServerApi["project"]
+type CatalogApi = Pick<CompatibleApi, "provider" | "model">
+
+type ProjectApi = CompatibleApi["project"]
 
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
 const api = {
@@ -35,8 +38,8 @@ const api = {
   },
   question: { request: { list: async () => ({ location: {}, data: [] }) } },
   reference: { list: async () => ({ location: {}, data: [] }) },
-  vcs: { get: async () => ({ location: {}, data: {} }) },
-} as unknown as ServerApi
+  vcs: { get: async () => ({ location: {}, data: { branch: {} } }) },
+} as unknown as CompatibleApi
 
 function directoryState() {
   return createStore<State>({
@@ -202,6 +205,44 @@ describe("config queries", () => {
     expect(result).toEqual({})
   })
 
+  test("derives the v2 path and home from the 2.2.5 Location", async () => {
+    const location = {
+      get: async (input?: { location?: { directory?: string } }) => ({
+        directory: input?.location?.directory ?? "/home/me",
+        project: { id: "p", directory: "/home/me/repo", canonical: "/home/me/repo" },
+      }),
+    }
+    const result = await new QueryClient().fetchQuery(
+      loadPathQuery(ServerScope.local, "/home/me/repo/sub", {} as OpencodeClient, Promise.resolve("v2"), location),
+    )
+    expect(result).toEqual({
+      state: "",
+      config: "",
+      worktree: "/home/me/repo",
+      directory: "/home/me/repo/sub",
+      home: "/home/me",
+    })
+    expect(inferHomeDirectory("C:\\Users\\me\\repo")).toBe("C:\\Users\\me")
+    expect(inferHomeDirectory("/srv/repo")).toBe("")
+  })
+
+  test("maps the 2.2.5 shell setting for v2 servers", async () => {
+    const sdk = {} as OpencodeClient
+    const api = {
+      get: async () => [
+        { type: "document" as const, info: { shell: "/bin/bash" } },
+        { type: "document" as const, info: { shell: "/bin/zsh", username: "me" } },
+        { type: "document" as const, info: {} },
+      ],
+    }
+
+    const result = await new QueryClient().fetchQuery(
+      loadGlobalConfigQuery(ServerScope.local, sdk, Promise.resolve("v2"), api),
+    )
+
+    expect(result).toEqual({ shell: "/bin/zsh" })
+  })
+
   test("loads legacy global config for v1 servers", async () => {
     const calls: string[] = []
     const config = { shell: "zsh" } satisfies Config
@@ -289,7 +330,7 @@ describe("query keys", () => {
         calls.push(input)
         return {
           location: {},
-          data: [{ name: "review", template: "Review files" /* source: "command" as const */ }],
+          data: [{ name: "review", description: "Review files" }],
         }
       },
     } as unknown as CommandApi
@@ -297,20 +338,47 @@ describe("query keys", () => {
     const result = await loadCommands("/repo", api)
 
     expect(calls).toEqual([{ location: { directory: "/repo" } }])
-    expect(result).toEqual([{ name: "review", template: "Review files" /* source: "command" */ }])
+    expect(result).toEqual([{ name: "review", description: "Review files" }])
+  })
+
+  test("adds managed skills as slash entries without shadowing commands", async () => {
+    const api = {
+      list: async () => ({ location: { directory: "/repo" }, data: [{ name: "review", description: "Review files" }] }),
+    } as unknown as CommandApi
+    const skill = {
+      name: "deploy",
+      description: "Ship it",
+      source: "/repo/.opencode/skill/deploy/SKILL.md",
+      revision: "r2",
+    }
+    const directories: string[] = []
+
+    const result = await loadCommands("/repo", api, undefined, Promise.resolve("v2"), async (directory) => {
+      directories.push(directory)
+      return [{ name: "review", source: "/s", revision: "r1" }, skill]
+    })
+
+    expect(directories).toEqual(["/repo"])
+    expect(result).toEqual([
+      { name: "review", description: "Review files" },
+      { name: "deploy", description: "Ship it", skill },
+    ])
   })
 
   test("loads projects from the current endpoint", async () => {
     const api = {
       list: async () => [
-        { id: "b", worktree: "/b", time: { created: 1, updated: 1 }, sandboxes: [] },
-        { id: "a", worktree: "/a", time: { created: 1, updated: 1 }, sandboxes: [] },
+        { id: "b", canonical: "/b", time: { created: 1, updated: 1, active: 1 }, sandboxes: [] },
+        { id: "a", canonical: "/a", time: { created: 1, updated: 1, active: 1 }, sandboxes: [] },
       ],
     } as unknown as ProjectApi
 
     const result = await new QueryClient().fetchQuery(loadProjectsQuery(ServerScope.local, api))
 
-    expect(result.map((project) => project.id)).toEqual(["a", "b"])
+    expect(result.map((project) => [project.id, project.worktree])).toEqual([
+      ["a", "/a"],
+      ["b", "/b"],
+    ])
   })
 
   test("loads references from the current location-scoped endpoint", async () => {

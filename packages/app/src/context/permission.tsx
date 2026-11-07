@@ -255,7 +255,7 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
       .reply({
         sessionID: request.sessionID,
         requestID: request.permissionID,
-        reply: request.response,
+        decision: request.response,
         location: request.directory ? { directory: request.directory } : undefined,
       })
       .catch(() => {

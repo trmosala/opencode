@@ -51,12 +51,8 @@ export function useSessionArchive() {
     const index = sessions.findIndex((s) => s.id === sessionID)
     const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
 
-    await current.protocol
-      .then(async (protocol) => {
-        await (protocol === "v2"
-          ? current.client.v2.session.archive({ sessionID })
-          : current.client.session.update({ sessionID, directory: current.directory, time: { archived: Date.now() } }))
-      })
+    await current.api.session
+      .archive({ sessionID, directory: current.directory })
       .then(() => {
         currentSync.set(
           produce((draft) => {

@@ -709,7 +709,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: cmd.name,
       description: cmd.description,
       type: "custom" as const,
-      // source: cmd.source,
+      source: cmd.skill ? ("skill" as const) : undefined,
     }))
 
     return [...custom, ...builtin]

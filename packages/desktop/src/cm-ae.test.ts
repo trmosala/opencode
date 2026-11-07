@@ -3,6 +3,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  linkSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -15,7 +16,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
-import { CM_AE_FILES, readCmAeBundle, resolveCmAePlugin, stageCmAeBundle } from "./cm-ae"
+import { CM_AE_FILES, CM_AE_STAGE_FILES, readCmAeBundle, resolveCmAePlugin, stageCmAeBundle } from "./cm-ae"
 
 const temporary: string[] = []
 afterEach(() => {
@@ -61,10 +62,10 @@ function fixture() {
   return { dir, source, desktop, stage: join(desktop, "resources", "cm-ae"), permissions, marker }
 }
 
-test("stages exactly five validated files byte-for-byte without executing modules", () => {
+test("stages the five unchanged artifacts with the app-owned V2 directory wrapper without execution", () => {
   const f = fixture()
   expect(stageCmAeBundle(f.source, f.desktop, () => {})).toBe(f.stage)
-  expect(readdirSync(f.stage).sort()).toEqual([...CM_AE_FILES].sort())
+  expect(readdirSync(f.stage).sort()).toEqual([...CM_AE_STAGE_FILES].sort())
   for (const name of CM_AE_FILES) expect(readFileSync(join(f.stage, name))).toEqual(readFileSync(join(f.source, name)))
   expect(existsSync(f.marker)).toBe(false)
 })
@@ -76,7 +77,7 @@ test("unset override stages the default source relative to desktopDir and replac
   writeFileSync(join(f.stage, "obsolete"), "stale")
   const messages: string[] = []
   expect(stageCmAeBundle(undefined, f.desktop, (message) => messages.push(message))).toBe(f.stage)
-  expect(readdirSync(f.stage).sort()).toEqual([...CM_AE_FILES].sort())
+  expect(readdirSync(f.stage).sort()).toEqual([...CM_AE_STAGE_FILES].sort())
   for (const name of CM_AE_FILES) expect(readFileSync(join(f.stage, name))).toEqual(readFileSync(join(f.source, name)))
   expect(messages.join()).toContain("vendored")
 })
@@ -253,7 +254,7 @@ test("resolves packaged and dev staged bundles as URL tuples with release metada
         warn: (message) => warnings.push(message),
       }),
     ).toEqual([
-      pathToFileURL(join(f.stage, "plugin.mjs")).href,
+      pathToFileURL(f.stage).href,
       {
         releaseMetadata: { cookieMonsterVersion: "1.18.27+cm.1" },
       },
@@ -279,4 +280,18 @@ test("runtime warns and omits missing or invalid installed resources, without fa
   expect(resolveCmAePlugin({ ...options, resourcesPath: join(f.desktop, "resources") })).toBeUndefined()
   expect(warnings[0]).toContain("absent")
   expect(warnings[1]).toContain("invalid")
+})
+
+test("rejects hardlinked artifact files and tampered generated wrapper files", () => {
+  const f = fixture()
+  linkSync(join(f.source, "plugin.mjs"), join(f.dir, "linked.mjs"))
+  expect(() => readCmAeBundle(f.source)).toThrow("invalid regular file")
+  rmSync(join(f.dir, "linked.mjs"))
+  const options = { isPackaged: false, appPath: f.desktop, resourcesPath: "", version: "2.2.5", warn() {} }
+  for (const name of ["server.js", "package.json"]) {
+    stageCmAeBundle(f.source, f.desktop, () => {})
+    expect(resolveCmAePlugin(options)).toBeDefined()
+    writeFileSync(join(f.stage, name), name === "server.js" ? "export default {}" : "{}")
+    expect(resolveCmAePlugin(options)).toBeUndefined()
+  }
 })

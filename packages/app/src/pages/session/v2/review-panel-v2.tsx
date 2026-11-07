@@ -1,7 +1,7 @@
 import { CMLoading } from "@/components/cm-loading"
 import { createMemo, createResource, createSignal, Show, type JSX } from "solid-js"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
-import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { FileDiffInfo } from "@opencode/client/promise"
 import {
   SESSION_REVIEW_V2_SIDEBAR_WIDTH_MAX,
   SESSION_REVIEW_V2_SIDEBAR_WIDTH_MIN,
@@ -103,8 +103,7 @@ export function ReviewPanelV2(props: ReviewPanelV2Props) {
 
   const readFile = async (path: string) =>
     sdk()
-      .client.file.read({ path })
-      .then((x) => x.data)
+      .api.file.content({ path })
       .catch((error) => {
         console.debug("[session-review-v2] failed to read file", { path, error })
         return undefined

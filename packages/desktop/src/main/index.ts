@@ -54,11 +54,10 @@ import { createTray, destroyTray } from "./tray"
 import { startWppBridge } from "./wpp-bridge"
 import { ensureO1CodeProvider } from "./wpp-bridge/proxy/providerConfig.mjs"
 import { openWppLogin, wppAuth } from "./wpp-bridge/session"
-import { startBackgroundCli } from "./background-cli"
 import { setNativeTranslations } from "./native-translations"
 
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
-const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
+const SIDECAR_VERSION = "v2"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 const webMCPFeature = "WebMCP"
 
@@ -269,7 +268,7 @@ const main = Effect.gen(function* () {
     }
   }
 
-  const shellEnv = preferAppEnv(app.getPath("userData"))
+  preferAppEnv(app.getPath("userData"))
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
@@ -419,23 +418,6 @@ const main = Effect.gen(function* () {
     )
     ensureLoopbackNoProxy()
     useEnvProxy()
-
-    if (SIDECAR_VERSION === "v2") {
-      logger.log("spawning v2 sidecar")
-      const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
-      yield* Deferred.succeed(serverReady, {
-        url: sidecar.url,
-        username: sidecar.username,
-        password: sidecar.password,
-      })
-
-      if (process.platform === "win32") {
-        void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
-      }
-
-      logger.log("loading task finished")
-      return
-    }
 
     const port = yield* Effect.gen(function* () {
       const fromEnv = process.env.OPENCODE_PORT

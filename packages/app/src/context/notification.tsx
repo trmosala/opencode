@@ -52,6 +52,14 @@ type NotificationIndex = {
   }
 }
 
+// Payload of rpc.cookiemonster.features.schedule (cm-v2 features plugin); the event itself is untyped RPC data.
+export function scheduleNotification(data: Record<string, unknown>) {
+  const { sessionID, name, detail, state } = data
+  if (typeof sessionID !== "string" || typeof name !== "string" || typeof detail !== "string") return
+  if (typeof state !== "string") return
+  return { sessionID, name, detail, state }
+}
+
 const MAX_NOTIFICATIONS = 500
 const NOTIFICATION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 
@@ -398,6 +406,39 @@ function createServerNotificationState(input: {
 
   const unsub = serverSDK().event.listen((e) => {
     const event = e.details
+    // 2.2.5 reports turn outcomes only as execution events; it never publishes session.idle or session.error.
+    const current = event.current
+    // Location-less 2.2.5 events for sessions the cache has not seen yet resolve their directory from the session.
+    const located = (sessionID: string, run: (directory: string) => void) => {
+      if (e.name !== "global") return run(e.name)
+      void serverSync()
+        .session.resolve(sessionID)
+        .then((session) => run(session.directory))
+        .catch(() => undefined)
+    }
+    if (current?.type === "session.execution.succeeded") {
+      const sessionID = current.data.sessionID
+      const time = Date.now()
+      located(sessionID, (directory) => handleSessionIdle(directory, { properties: { sessionID } }, time))
+      return
+    }
+    if (current?.type === "session.execution.failed") {
+      const sessionID = current.data.sessionID
+      const error = { name: "UnknownError" as const, data: { message: current.data.error.message } }
+      const time = Date.now()
+      located(sessionID, (directory) => handleSessionError(directory, { properties: { sessionID, error } }, time))
+      return
+    }
+    // CookieMonster scheduler (cm-v2 features plugin); covers pre-admission waits such as awaiting_auth.
+    if (current?.type === "rpc.cookiemonster.features.schedule") {
+      const schedule = scheduleNotification(current.data)
+      // Completed runs already report through session.execution.succeeded, as V1 did through session.idle.
+      if (!schedule || schedule.state === "completed") return
+      const message = language.t("notification.schedule.attention", { name: schedule.name, detail: schedule.detail })
+      const error = { name: "UnknownError" as const, data: { message } }
+      handleSessionError(e.name, { properties: { sessionID: schedule.sessionID || undefined, error } }, Date.now())
+      return
+    }
     if (event.type !== "session.idle" && event.type !== "session.error") return
 
     const directory = e.name

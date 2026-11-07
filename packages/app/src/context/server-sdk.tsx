@@ -1,5 +1,5 @@
-import type { OpenCodeEvent } from "@opencode-ai/client/promise"
-import type { Event, SessionNextArchived } from "@opencode-ai/sdk/v2/client"
+import type { OpenCodeEvent } from "@opencode/client/promise"
+import type { Event, Session, SessionNextArchived } from "@opencode-ai/sdk/v2/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -12,7 +12,9 @@ import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
 import { ServerScope } from "@/utils/server-scope"
 import { detectServerProtocol, type ServerProtocol } from "@/utils/server-protocol"
-import { createCompatibleApi, type CompatibleApi } from "@/utils/server-compat"
+import { createCompatibleApi, questionFromForm, type CompatibleApi } from "@/utils/server-compat"
+import { normalizeProjectInfo } from "@/context/global-sync/utils"
+import { createExtensionClient, type ExtensionClient, type ManagedSkillClient } from "@/utils/cm-extensions"
 
 const isAbortError = (error: unknown) =>
   error !== null && typeof error === "object" && "name" in error && error.name === "AbortError"
@@ -25,10 +27,18 @@ type CurrentDelta = Extract<
   { type: "session.text.delta" | "session.reasoning.delta" | "session.tool.input.delta" | "session.compaction.delta" }
 >
 
+// 2.2.5 publishes many session events (execution, rename, archive, usage) without a Location; route them to the
+// session's directory (server-sync registers its session cache as the resolver) instead of the "global" bucket.
+export function eventDirectory(event: OpenCodeEvent, sessionDirectory?: (sessionID: string) => string | undefined) {
+  if (event.location?.directory) return event.location.directory
+  const sessionID = "data" in event && event.data && "sessionID" in event.data ? event.data.sessionID : undefined
+  return (typeof sessionID === "string" ? sessionDirectory?.(sessionID) : undefined) ?? "global"
+}
+
 export function adaptServerEvent(event: OpenCodeEvent | SessionNextArchived): ServerEvent {
   if (event.type === "session.next.archived")
     return { id: event.id, type: event.type, properties: event.data } as ServerEvent
-  if (event.type === "permission.v2.asked") {
+  if (event.type === "permission.asked") {
     return {
       id: event.id,
       type: "permission.asked",
@@ -41,20 +51,70 @@ export function adaptServerEvent(event: OpenCodeEvent | SessionNextArchived): Se
         metadata: event.data.metadata ?? {},
         tool:
           event.data.source?.type === "tool"
-            ? { messageID: event.data.source.messageID, callID: event.data.source.callID }
+            ? { messageID: event.data.source.messageID, callID: event.data.source.id }
             : undefined,
       },
       current: event,
     } as ServerEvent
   }
-  if (event.type === "permission.v2.replied")
-    return { id: event.id, type: "permission.replied", properties: event.data, current: event } as ServerEvent
-  if (event.type === "question.v2.asked")
-    return { id: event.id, type: "question.asked", properties: event.data, current: event } as ServerEvent
-  if (event.type === "question.v2.replied")
-    return { id: event.id, type: "question.replied", properties: event.data, current: event } as ServerEvent
-  if (event.type === "question.v2.rejected")
-    return { id: event.id, type: "question.rejected", properties: event.data, current: event } as ServerEvent
+  // 2.2.5 projects are canonical-rooted; the global project store keeps V1 worktree-rooted records.
+  if (event.type === "project.updated")
+    return {
+      id: event.id,
+      type: "project.updated",
+      properties: normalizeProjectInfo(event.data),
+      current: event,
+    } as ServerEvent
+  // 2.2.5 lifecycle events carry ids; the sync reducers keep V1 Session records and archive through session.next.archived.
+  if (event.type === "session.created") {
+    const data = event.data
+    const info: Session = {
+      id: data.sessionID,
+      slug: data.slug,
+      projectID: data.projectID,
+      workspaceID: data.location.workspaceID,
+      directory: data.location.directory,
+      path: data.subpath,
+      parentID: data.parentID,
+      title: data.title ?? "",
+      agent: data.agent,
+      model: data.model,
+      version: data.version,
+      time: { created: event.created, updated: event.created },
+    }
+    return {
+      id: event.id,
+      type: "session.created",
+      properties: { sessionID: data.sessionID, info },
+      current: event,
+    } as ServerEvent
+  }
+  if (event.type === "session.archived")
+    return {
+      id: event.id,
+      type: "session.next.archived",
+      properties: { sessionID: event.data.sessionID, timestamp: event.created },
+      current: event,
+    } as ServerEvent
+  // The question tool asks through Forms in 2.2.5; the app keeps its question events.
+  if (event.type === "form.created") {
+    const question = questionFromForm(event.data.form)
+    if (question) return { id: event.id, type: "question.asked", properties: question, current: event } as ServerEvent
+  }
+  if (event.type === "form.replied")
+    return {
+      id: event.id,
+      type: "question.replied",
+      properties: { sessionID: event.data.sessionID, requestID: event.data.id, answers: [] },
+      current: event,
+    } as ServerEvent
+  if (event.type === "form.cancelled")
+    return {
+      id: event.id,
+      type: "question.rejected",
+      properties: { sessionID: event.data.sessionID, requestID: event.data.id },
+      current: event,
+    } as ServerEvent
   return { id: event.id, type: event.type, properties: event.data, current: event } as ServerEvent
 }
 
@@ -152,7 +212,7 @@ function currentDelta(event: OpenCodeEvent | undefined): CurrentDelta | undefine
 
 function currentDeltaKey(event: CurrentDelta) {
   if (event.type === "session.tool.input.delta")
-    return `${event.type}:${event.data.sessionID}:${event.data.assistantMessageID}:${event.data.callID}`
+    return `${event.type}:${event.data.sessionID}:${event.data.assistantMessageID}:${event.data.id}`
   if (event.type === "session.compaction.delta") return `${event.type}:${event.data.sessionID}`
   return `${event.type}:${event.data.sessionID}:${event.data.assistantMessageID}:${event.data.ordinal}`
 }
@@ -176,6 +236,9 @@ type ServerSDKBase = {
   client: ReturnType<typeof createSdkForServer>
   api: CompatibleApi
   currentApi: ServerApi
+  skills: ManagedSkillClient
+  resolveSessionDirectory: (resolve: (sessionID: string) => string | undefined) => void
+  extensions: ExtensionClient
   event: {
     on: ServerEventEmitter["on"]
     listen: ServerEventEmitter["listen"]
@@ -284,7 +347,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
             streamErrorLogged = false
             const legacy = "payload" in event
             if (legacy && event.payload.type === "sync") continue
-            const directory = legacy ? (event.directory ?? "global") : (event.location?.directory ?? "global")
+            const directory = legacy ? (event.directory ?? "global") : eventDirectory(event, sessionDirectoryOf)
             const payload = legacy ? (event.payload as Event) : adaptServerEvent(event)
             if (enqueueServerEvent(queue, { directory, payload })) schedule()
 
@@ -340,6 +403,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     fetch: platform.fetch,
     throwOnError: true,
   })
+  let sessionDirectoryOf: ((sessionID: string) => string | undefined) | undefined
   const currentApi: ServerApi = createApiForServer({ server: server.http, fetch: platform.fetch })
   const legacy = (directory?: string) =>
     createSdkForServer({
@@ -349,6 +413,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
       directory,
     })
   const api = createCompatibleApi({ protocol, current: currentApi, legacy })
+  const extensions = createExtensionClient(server.http, platform.fetch)
+  const skills = extensions.skills
 
   return {
     server,
@@ -359,6 +425,11 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     client: sdk,
     api,
     currentApi,
+    resolveSessionDirectory: (resolve: (sessionID: string) => string | undefined) => {
+      sessionDirectoryOf = resolve
+    },
+    skills,
+    extensions,
     event: {
       on: emitter.on.bind(emitter),
       listen: emitter.listen.bind(emitter),
@@ -435,6 +506,7 @@ function createDirSdkContext(directory: string, serverSDK: ServerSDKBase) {
       legacy: (next) => serverSDK.createClient({ directory: next ?? directory, throwOnError: true }),
       directory,
     }),
+    skills: serverSDK.skills,
     event: emitter,
     get url() {
       return serverSDK.url

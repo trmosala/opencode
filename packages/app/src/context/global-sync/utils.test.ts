@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type {
-  AgentListOutput,
-  ModelDefaultOutput,
-  ModelListOutput,
-  ProviderListOutput,
-} from "@opencode-ai/client/promise"
+import type { AgentListOutput, ModelDefaultOutput, ModelListOutput, ProviderListOutput } from "@opencode/client/promise"
 import { directoryKey, normalizeAgentList, normalizePermissionRequest, normalizeProviderList } from "./utils"
 
 describe("normalizeAgentList", () => {
@@ -53,7 +48,7 @@ describe("normalizePermissionRequest", () => {
         resources: ["README.md"],
         save: ["*.md"],
         metadata: { path: "README.md" },
-        source: { type: "tool", messageID: "message-1", callID: "call-1" },
+        source: { type: "tool", messageID: "message-1", id: "call-1" },
       }),
     ).toEqual({
       id: "permission-1",

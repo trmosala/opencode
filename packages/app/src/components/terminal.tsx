@@ -576,13 +576,10 @@ export const Terminal = (props: TerminalProps) => {
           if (result.response.status === 403) throw new Error(language.t("terminal.connectTicket.csrfError"))
           throw new Error(language.t("terminal.connectTicket.statusError", { status: result.response.status }))
         }
-        // return sdk()
-        //   .api.pty.connectToken({
-        //     ptyID: id,
-        //     location: { directory },
-        //     "x-opencode-ticket": "1",
-        //   })
-        //   .then((result) => result.data.ticket)
+        // 2.2.5 WebSockets authenticate only by ticket; browsers cannot send Basic auth on upgrades.
+        return sdk()
+          .api.pty.connect.token({ ptyID: id, location: { directory }, "x-opencode-ticket": "1" })
+          .then((result) => result.data.ticket)
       }
 
       const retry = (err: unknown) => {
@@ -613,7 +610,7 @@ export const Terminal = (props: TerminalProps) => {
           return undefined
         })
         const protocol = await sdk().protocol
-        // if (protocol === "v2" && !ticket) return
+        if (protocol === "v2" && !ticket) return
         if (once.value) return
         if (disposed) return
 

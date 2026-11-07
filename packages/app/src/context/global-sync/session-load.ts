@@ -1,4 +1,4 @@
-import type { SessionApi } from "@opencode-ai/client/promise"
+import type { SessionApi } from "@opencode/client/promise"
 import { normalizeSessionInfo } from "@/utils/session"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 

@@ -2,11 +2,11 @@ import type {
   AgentListOutput,
   ModelDefaultOutput,
   ModelListOutput,
-  PermissionV2Request,
+  PermissionRequest as CurrentPermissionRequest,
   ProviderListOutput,
-} from "@opencode-ai/client/promise"
+} from "@opencode/client/promise"
 import type { Agent, PermissionRequest, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
-import type { Project as CurrentProject } from "@opencode-ai/client/promise"
+import type { Project as CurrentProject } from "@opencode/client/promise"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
 
@@ -36,7 +36,7 @@ export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Ag
   }))
 }
 
-export function normalizePermissionRequest(input: PermissionV2Request | PermissionRequest): PermissionRequest {
+export function normalizePermissionRequest(input: CurrentPermissionRequest | PermissionRequest): PermissionRequest {
   if ("permission" in input) return input
   return {
     id: input.id,
@@ -45,8 +45,7 @@ export function normalizePermissionRequest(input: PermissionV2Request | Permissi
     patterns: input.resources,
     always: input.save ?? [],
     metadata: input.metadata ?? {},
-    tool:
-      input.source?.type === "tool" ? { messageID: input.source.messageID, callID: input.source.callID } : undefined,
+    tool: input.source?.type === "tool" ? { messageID: input.source.messageID, callID: input.source.id } : undefined,
   }
 }
 
@@ -165,8 +164,15 @@ export function sanitizeProject(project: Project) {
 }
 
 export function normalizeProjectInfo(project: Project | CurrentProject): Project {
+  if ("worktree" in project) return { ...project, vcs: project.vcs === "git" ? "git" : undefined }
   return {
-    ...project,
+    id: project.id,
+    worktree: project.canonical,
+    name: project.name,
+    icon: project.icon,
+    commands: project.commands,
+    time: project.time,
+    sandboxes: project.sandboxes,
     vcs: project.vcs === "git" ? "git" : undefined,
   }
 }

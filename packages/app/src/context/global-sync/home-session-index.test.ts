@@ -191,3 +191,20 @@ describe("Home V2 session index", () => {
     expect(cache.sessions({ sessions, eventSequence: 0 }, undefined).map((item) => item.id)).toEqual(["b"])
   })
 })
+
+describe("2.2.5 home index events", () => {
+  test("removes a session from an id-only deletion", () => {
+    const session = {
+      id: "ses_1",
+      slug: "s",
+      projectID: "p",
+      directory: "/repo",
+      title: "t",
+      version: "",
+      time: { created: 1, updated: 1 },
+    } as Session
+    expect(applyHomeSessionEvent([session], { type: "session.deleted", properties: { sessionID: "ses_1" } })).toEqual(
+      [],
+    )
+  })
+})

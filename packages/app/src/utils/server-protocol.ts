@@ -28,8 +28,8 @@ export async function detectServerProtocol(
   const legacy = await probe(server, fetch, "/global/health").catch(() => undefined)
   if (legacy && "healthy" in legacy && legacy.healthy === true) return "v1"
 
-  const current = await probe(server, fetch, "/api/health").catch(() => undefined)
+  // Published 2.2.x V2 servers describe themselves at /api/info; there is no /api/health.
+  const current = await probe(server, fetch, "/api/info").catch(() => undefined)
   if (current && "pid" in current && typeof current.pid === "number") return "v2"
-  if (current && "healthy" in current && current.healthy === true) return "v1"
-  return "v2"
+  return "v1"
 }

@@ -137,6 +137,7 @@
     "electron"
   ],
   "overrides": {
+    "node-abi": "4.40.0",
     "@ai-sdk/anthropic": "3.0.111",
     "@opentui/core": "catalog:",
     "@opentui/keymap": "catalog:",
