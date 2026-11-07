@@ -9,7 +9,11 @@ export default {
   testDir: ".",
   outputDir: "./test-results/cm3",
   reporter: [["html", { outputFolder: "./playwright-report/cm3", open: "never" }], ["line"]],
-  testMatch: ["regression/cm3-live-integration.spec.ts", "regression/cm3-drafts.spec.ts"],
+  testMatch: [
+    "regression/cm3-live-integration.spec.ts",
+    "regression/cm3-drafts.spec.ts",
+    "regression/cm3-workflow-split.spec.ts",
+  ],
   workers: 1,
   fullyParallel: false,
   webServer: {

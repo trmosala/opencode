@@ -32,6 +32,7 @@ export function TabNavItem(props: {
   forceTruncate?: boolean
   suppressNavigation?: () => boolean
   dragging?: boolean
+  deferNavigation?: boolean
   pressed?: boolean
   hidden?: boolean
 }) {
@@ -214,7 +215,8 @@ export function TabNavItem(props: {
           event.stopPropagation()
         }}
         onMouseDown={(event) => {
-          // Navigate on mousedown to shave the press-release delay off tab switches.
+          // Split-capable tabs must distinguish a click from dragging into another pane.
+          if (props.deferNavigation) return
           if (event.button !== 0) return
           if (editing()) return
           if (props.suppressNavigation?.()) return
@@ -223,7 +225,7 @@ export function TabNavItem(props: {
         onClick={(event) => {
           event.preventDefault()
           // Mouse navigation already happened on mousedown; detail 0 means keyboard activation.
-          if (event.detail > 0) return
+          if (event.detail > 0 && !props.deferNavigation) return
           if (editing()) return
           if (props.suppressNavigation?.()) return
           props.onNavigate()
@@ -352,6 +354,7 @@ export function DraftTabItem(props: {
   onClose: () => void
   suppressNavigation?: () => boolean
   dragging?: boolean
+  deferNavigation?: boolean
   pressed?: boolean
   hidden?: boolean
 }) {
@@ -391,7 +394,8 @@ export function DraftTabItem(props: {
           event.stopPropagation()
         }}
         onMouseDown={(event) => {
-          // Navigate on mousedown to shave the press-release delay off tab switches.
+          // Split-capable tabs must distinguish a click from dragging into another pane.
+          if (props.deferNavigation) return
           if (event.button !== 0) return
           if (props.suppressNavigation?.()) return
           props.onNavigate()
@@ -399,7 +403,7 @@ export function DraftTabItem(props: {
         onClick={(event) => {
           event.preventDefault()
           // Mouse navigation already happened on mousedown; detail 0 means keyboard activation.
-          if (event.detail > 0) return
+          if (event.detail > 0 && !props.deferNavigation) return
           if (props.suppressNavigation?.()) return
           props.onNavigate()
         }}

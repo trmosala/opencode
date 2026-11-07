@@ -398,11 +398,10 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   />
                 </TooltipV2>
 
-                {/* CM3 moves this strip to its sidebar while retaining session hydration and shortcuts. */}
                 <div
                   ref={(mount) => setTabStrip("mount", mount)}
                   class="min-w-0"
-                  classList={{ hidden: settings.general.quietCompanion() }}
+                  classList={{ hidden: !!layout.tabStrip.mount() }}
                 >
                   <Portal mount={layout.tabStrip.mount() ?? tabStrip.mount}>
                     <TitlebarTabStrip

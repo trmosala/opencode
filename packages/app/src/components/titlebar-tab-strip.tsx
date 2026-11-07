@@ -1,3 +1,5 @@
+import { useChatSplit } from "@/context/chat-split"
+import { useSettings } from "@/context/settings"
 import { createEffect, createMemo, createResource, createRoot, For, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
@@ -33,6 +35,7 @@ function SessionTabSlot(props: {
   onNavigate: (element: HTMLDivElement) => void
   onClose: () => void
 }) {
+  const settings = useSettings()
   const sortable = useSortable({
     get id() {
       return props.id
@@ -65,6 +68,7 @@ function SessionTabSlot(props: {
         active={props.active()}
         forceTruncate={props.forceTruncate}
         dragging={sortable.isDragSource()}
+        deferNavigation={settings.general.newLayoutDesigns()}
       />
     </div>
   )
@@ -176,6 +180,7 @@ function DraftTabSlot(props: {
   onNavigate: (element: HTMLDivElement) => void
   onClose: () => void
 }) {
+  const settings = useSettings()
   const sortable = useSortable({
     get id() {
       return props.id
@@ -204,6 +209,7 @@ function DraftTabSlot(props: {
         onClose={props.onClose}
         active={props.active()}
         dragging={sortable.isDragSource()}
+        deferNavigation={settings.general.newLayoutDesigns()}
       />
     </div>
   )
@@ -222,6 +228,8 @@ export function TitlebarTabStrip(props: {
   const global = useGlobal()
   const language = useLanguage()
   const command = useCommand()
+  const split = useChatSplit()
+  const settings = useSettings()
   let scrollRef!: HTMLDivElement
   let listRef!: HTMLDivElement
   let resizeFrame: number | undefined
@@ -303,10 +311,14 @@ export function TitlebarTabStrip(props: {
                 (event.target instanceof Element && !!event.target.closest('[contenteditable="true"]')),
             }),
           ]}
-          modifiers={[
-            props.vertical ? RestrictToVerticalAxis : RestrictToHorizontalAxis,
-            RestrictToElement.configure({ element: () => listRef }),
-          ]}
+          modifiers={
+            settings.general.newLayoutDesigns()
+              ? []
+              : [
+                  props.vertical ? RestrictToVerticalAxis : RestrictToHorizontalAxis,
+                  RestrictToElement.configure({ element: () => listRef }),
+                ]
+          }
           plugins={(defaults) => [
             ...defaults.filter((plugin) => plugin !== Accessibility),
             AutoScroller.configure({
@@ -321,9 +333,20 @@ export function TitlebarTabStrip(props: {
             const tab = props.tabs.find((item) => tabKey(item) === source.id.toString())
             if (!tab) return
             const tabEl = source.element?.querySelector<HTMLDivElement>("[data-titlebar-tab]")
+            if (settings.general.newLayoutDesigns()) {
+              split.startDrag(tabHref(tab))
+              return
+            }
             props.onNavigate(tab, tabEl ?? undefined)
           }}
           onDragEnd={(event) => {
+            const href = split.state.drag
+            const dropped = !event.canceled && split.state.over && !!href
+            split.endDrag()
+            if (dropped) {
+              split.open(href)
+              return
+            }
             const current = visibleTabIds()
             const source = event.operation.source
             if (event.canceled || !isSortable(source)) return

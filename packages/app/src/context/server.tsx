@@ -1,7 +1,8 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { type Accessor, batch, createMemo } from "solid-js"
+import { type Accessor, batch, createMemo, onCleanup } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
+import { sessionWorkflowState, type SessionActivity, type SessionWorkflow } from "./session-workflow"
 import { pathKey } from "@/utils/path-key"
 import { ServerScope } from "@/utils/server-scope"
 
@@ -275,6 +276,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         lastProject: {} as Record<string, string>,
         recentlyClosed: {} as Record<string, string[]>,
         pinnedSessions: {} as Record<string, string[]>,
+        sessionWorkflow: {} as Record<string, SessionWorkflow | undefined>,
       }),
     )
 
@@ -286,7 +288,11 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     const [state, setState] = createStore({
       active: props.defaultServer,
+      now: Date.now(),
     })
+
+    const clock = setInterval(() => setState("now", Date.now()), 1_000)
+    onCleanup(() => clearInterval(clock))
 
     function setActive(input: ServerConnection.Key) {
       if (state.active !== input) setState("active", input)
@@ -356,6 +362,17 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       add,
       remove,
       scope,
+      sessionWorkflow: {
+        get: (key: ServerConnection.Key, id: string) => store.sessionWorkflow[JSON.stringify([scope(key), id])],
+        state: (key: ServerConnection.Key, id: string, activity: SessionActivity) => {
+          const entry = store.sessionWorkflow[JSON.stringify([scope(key), id])]
+          return sessionWorkflowState(entry, entry?.state === "snoozed" ? state.now : 0, activity)
+        },
+        set: (key: ServerConnection.Key, id: string, entry: SessionWorkflow | undefined) => {
+          if (!ready()) return
+          setStore("sessionWorkflow", JSON.stringify([scope(key), id]), entry)
+        },
+      },
       sessionPins: {
         list: (key: ServerConnection.Key) => store.pinnedSessions[scope(key)] ?? [],
         set: (key: ServerConnection.Key, sessionID: string, pinned: boolean) => {

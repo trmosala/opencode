@@ -5,7 +5,7 @@ import { previewSelectedLines } from "@opencode-ai/session-ui/pierre/selection-b
 import { useFile, selectionFromLines, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { usePermission } from "@/context/permission"
+import { useSessionPermission } from "@/context/permission"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { usePlatform } from "@/context/platform"
@@ -44,7 +44,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const dialog = useDialog()
   const file = useFile()
   const language = useLanguage()
-  const permission = usePermission()
+  const permission = useSessionPermission()
   const prompt = usePrompt()
   const sdk = useSDK()
   const settings = useSettings()
@@ -146,8 +146,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
   const isAutoAcceptActive = () => {
     const sessionID = params.id
-    if (sessionID) return permission.isAutoAccepting(sessionID, sdk().directory)
-    return permission.isAutoAcceptingDirectory(sdk().directory)
+    if (sessionID) return permission().isAutoAccepting(sessionID, sdk().directory)
+    return permission().isAutoAcceptingDirectory(sdk().directory)
   }
   const write = async (value: string) => {
     const body = typeof document === "undefined" ? undefined : document.body
@@ -321,12 +321,12 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
   const toggleAutoAccept = () => {
     const sessionID = params.id
-    if (sessionID) permission.toggleAutoAccept(sessionID, sdk().directory)
-    else permission.toggleAutoAcceptDirectory(sdk().directory)
+    if (sessionID) permission().toggleAutoAccept(sessionID, sdk().directory)
+    else permission().toggleAutoAcceptDirectory(sdk().directory)
 
     const active = sessionID
-      ? permission.isAutoAccepting(sessionID, sdk().directory)
-      : permission.isAutoAcceptingDirectory(sdk().directory)
+      ? permission().isAutoAccepting(sessionID, sdk().directory)
+      : permission().isAutoAcceptingDirectory(sdk().directory)
     showToast({
       title: active
         ? language.t("toast.permissions.autoaccept.on.title")

@@ -1,3 +1,4 @@
+import { useChatPaneActive } from "@/context/chat-split"
 import { For, Show, createEffect, createMemo, onCleanup, onMount, type Component } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
@@ -131,7 +132,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const measure = () => {
     if (!root) return
 
-    const scroller = document.querySelector(".scroll-view__viewport")
+    const scroller = (root?.closest("[data-chat-pane]") ?? document).querySelector(".scroll-view__viewport")
     const head = scroller instanceof HTMLElement ? scroller.firstElementChild : undefined
     const top =
       head instanceof HTMLElement && head.classList.contains("sticky") ? head.getBoundingClientRect().bottom : 0
@@ -173,6 +174,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     })
   }
 
+  const paneActive = useChatPaneActive()
   onMount(() => {
     let raf: number | undefined
     const update = () => {
@@ -188,14 +190,14 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     makeEventListener(window, "resize", update)
 
     const dock = root?.closest('[data-component="session-prompt-dock"]')
-    const scroller = document.querySelector(".scroll-view__viewport")
+    const scroller = (root?.closest("[data-chat-pane]") ?? document).querySelector(".scroll-view__viewport")
     createResizeObserver([dock, scroller], update)
 
     onCleanup(() => {
       if (raf !== undefined) cancelAnimationFrame(raf)
     })
 
-    focus(pickFocus())
+    if (!paneActive || paneActive()) focus(pickFocus())
   })
 
   createEffect(() => {

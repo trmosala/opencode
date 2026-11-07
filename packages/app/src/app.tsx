@@ -13,6 +13,8 @@ import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
 import {
   type BaseRouterProps,
+  createMemoryHistory,
+  MemoryRouter,
   Navigate,
   Route,
   Router,
@@ -69,6 +71,7 @@ import { useCheckServerHealth } from "./utils/server-health"
 import { legacySessionHref, legacySessionServer, requireServerKey, sessionHref } from "./utils/session-route"
 import { createSessionLineage } from "@/pages/session/session-lineage"
 
+import { ChatSplitProvider, useChatSplit } from "@/context/chat-split"
 import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } from "@/pages/session"
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
@@ -139,6 +142,29 @@ const TargetSessionRoute = () => (
     <TargetSessionRouteContent />
   </TargetServerRoute>
 )
+
+function SplitSessionRoutes() {
+  const split = useChatSplit()
+  const history = createMemoryHistory()
+  history.set({ value: split.store.href, replace: true })
+  createEffect(() => {
+    if (history.get() === split.store.href) return
+    history.set({ value: split.store.href, replace: true })
+  })
+  onCleanup(history.listen((href) => split.navigate(href)))
+  return (
+    <MemoryRouter
+      history={history}
+      preload={false}
+      explicitLinks
+      root={(props) => <LayoutProvider secondary>{props.children}</LayoutProvider>}
+    >
+      <Route path="/server/:serverKey/session/:id" component={TargetSessionRoute} />
+      <Route path="/new-session" component={DraftRoute} />
+      <Route path="*" component={() => <NewHome />} />
+    </MemoryRouter>
+  )
+}
 
 function LegacyTargetSessionRoute() {
   const params = useParams<{ serverKey: string; id: string }>()
@@ -391,7 +417,7 @@ function NewAppLayout(props: ParentProps<{ serverScoped?: JSX.Element }>) {
   return (
     <SelectedServerProviders>
       <ServerScopedProviders serverScoped={props.serverScoped}>
-        <NewLayout>{props.children}</NewLayout>
+        <NewLayout secondary={SplitSessionRoutes}>{props.children}</NewLayout>
       </ServerScopedProviders>
     </SelectedServerProviders>
   )
@@ -614,17 +640,19 @@ export function AppInterface(props: {
               <Dynamic
                 component={props.router ?? Router}
                 root={(routerProps) => (
-                  <TabsProvider>
-                    <PermissionProvider>
-                      <NotificationProvider>
-                        <ServerShell>
-                          <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                            <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
-                          </Show>
-                        </ServerShell>
-                      </NotificationProvider>
-                    </PermissionProvider>
-                  </TabsProvider>
+                  <ChatSplitProvider>
+                    <TabsProvider>
+                      <PermissionProvider>
+                        <NotificationProvider>
+                          <ServerShell>
+                            <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
+                              <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
+                            </Show>
+                          </ServerShell>
+                        </NotificationProvider>
+                      </PermissionProvider>
+                    </TabsProvider>
+                  </ChatSplitProvider>
                 )}
               >
                 <Routes serverScoped={props.serverScoped} />

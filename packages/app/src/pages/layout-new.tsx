@@ -1,4 +1,5 @@
-import { Show } from "solid-js"
+import { SplitWorkspace } from "@/components/split-workspace"
+import { Show, type Component } from "solid-js"
 import { Cm3Shell } from "@/components/cm3-shell"
 import { SchedulingPanel } from "@/components/scheduling-panel"
 import { useSettings } from "@/context/settings"
@@ -10,7 +11,7 @@ import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
 import { usePlatform } from "@/context/platform"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
 
-export default function NewLayout(props: ParentProps) {
+export default function NewLayout(props: ParentProps<{ secondary: Component }>) {
   const platform = usePlatform()
   const settings = useSettings()
   const [state, setState] = createStore({ debugTools: true })
@@ -47,9 +48,9 @@ export default function NewLayout(props: ParentProps) {
         <Show when={settings.general.quietCompanion()}>
           <Cm3Shell />
         </Show>
-        <main class="cm3-live-route flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
+        <SplitWorkspace secondary={props.secondary}>
           <Suspense>{props.children}</Suspense>
-        </main>
+        </SplitWorkspace>
         <SchedulingPanel />
       </div>
       {import.meta.env.DEV && state.debugTools && <DebugBar inline />}

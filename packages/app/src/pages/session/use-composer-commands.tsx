@@ -1,3 +1,4 @@
+import { useChatPaneActive } from "@/context/chat-split"
 import { useCommand, type CommandOption } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLocal, type ModelSelection } from "@/context/local"
@@ -14,6 +15,7 @@ const withCategory = (category: string) => {
 }
 
 export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
+  const paneActive = useChatPaneActive()
   const command = useCommand()
   const dialog = useDialog()
   const language = useLanguage()
@@ -26,7 +28,11 @@ export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
 
   const chooseModel = async () => {
     const owner = sessionOwnership.capture()
-    const editor = document.querySelector<HTMLElement>('[data-component="prompt-input"]')
+    const editor = document.querySelector<HTMLElement>(
+      paneActive
+        ? '[data-chat-pane][data-focused="true"] [data-component="prompt-input"]'
+        : '[data-component="prompt-input"]',
+    )
     const selection = window.getSelection()
     const cursor =
       editor && selection?.rangeCount && editor.contains(selection.anchorNode) ? getCursorPosition(editor) : null
@@ -34,8 +40,7 @@ export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
       // Kobalte restores focus during its teardown effect; defer past it so the
       // composer keeps focus and the caret returns to where the user left it.
       requestAnimationFrame(() => {
-        const editor = document.querySelector<HTMLElement>('[data-component="prompt-input"]')
-        if (!editor) return
+        if (!editor?.isConnected || !owner.current() || (paneActive && !paneActive())) return
         editor.focus()
         if (cursor !== null) setCursorPosition(editor, cursor)
       })
