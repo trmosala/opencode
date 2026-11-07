@@ -41,6 +41,18 @@ describe("command registrations", () => {
     expect(restored[0]?.options).toBe(one)
   })
 
+  test("only the focused pane shadows shared commands", () => {
+    const primary = { key: "session", active: () => true, options: () => [{ id: "send", title: "Left" }] }
+    const secondary = { key: "session", active: () => false, options: () => [{ id: "send", title: "Right" }] }
+    expect(activeCommandRegistrations([secondary, primary])).toEqual([primary])
+    expect(
+      activeCommandRegistrations([
+        { ...secondary, active: () => true },
+        { ...primary, active: () => false },
+      ])[0]?.options()[0]?.title,
+    ).toBe("Right")
+  })
+
   test("keeps unkeyed registrations additive", () => {
     const one = () => [{ id: "one", title: "One" }]
     const two = () => [{ id: "two", title: "Two" }]

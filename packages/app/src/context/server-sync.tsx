@@ -704,6 +704,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     updateConfig: updateConfigMutation.mutateAsync,
     project: projectApi,
     session,
+    activeSessionsReady: () => activeSessionsQuery.isSuccess,
     homeSessions,
     mcp: {
       toggle: async (directory: string, name: string) => {

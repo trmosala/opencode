@@ -76,7 +76,7 @@ export const useSessionHashScroll = (input: {
 
   const seek = (id: string, behavior: ScrollBehavior, left = 4): boolean => {
     input.revealMessage?.(id)
-    const el = document.getElementById(input.anchor(id))
+    const el = input.scroller()?.querySelector<HTMLElement>(`#${CSS.escape(input.anchor(id))}`)
     if (el) return scrollToElement(el, behavior)
     if (left <= 0) return false
     queue(() => {
@@ -118,7 +118,7 @@ export const useSessionHashScroll = (input: {
       return
     }
 
-    const target = document.getElementById(hash)
+    const target = input.scroller()?.querySelector<HTMLElement>(`#${CSS.escape(hash)}`)
     if (target) {
       input.autoScroll.pause()
       scrollToElement(target, behavior)

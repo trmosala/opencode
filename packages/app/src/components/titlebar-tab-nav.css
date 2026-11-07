@@ -42,6 +42,7 @@
 [data-titlebar-tab-slot] {
   --tab-separator: var(--v2-background-bg-layer-03);
   position: relative;
+  min-width: 64px;
 }
 
 [data-color-scheme="dark"] [data-titlebar-tab-slot] {
@@ -136,15 +137,10 @@
     justify-content: center;
     gap: 0;
     padding-inline: 0;
+    margin-inline-end: 24px;
   }
 
   [data-titlebar-tab-title] {
     display: none;
-  }
-
-  [data-slot="tab-close"] {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
   }
 }

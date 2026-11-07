@@ -1,3 +1,4 @@
+import { useChatPaneActive } from "@/context/chat-split"
 import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -363,6 +364,7 @@ function SessionPanelFrame(props: ParentProps<{ newLayout: boolean; raised?: boo
 }
 
 export default function Page() {
+  const paneActive = useChatPaneActive()
   const serverSync = useServerSync()
   const layout = useLayout()
   const local = useLocal()
@@ -1062,6 +1064,7 @@ export default function Page() {
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (paneActive && !paneActive()) return
     const path = event.composedPath()
     const target = path.find((item): item is HTMLElement => item instanceof HTMLElement)
     const activeElement = deepActiveElement()
@@ -1418,7 +1421,7 @@ export default function Page() {
     const id = reviewDiffId(path)
     if (!id) return
 
-    const el = document.getElementById(id)
+    const el = root.querySelector(`#${CSS.escape(id)}`)
     if (!(el instanceof HTMLElement)) return
     if (!root.contains(el)) return
 

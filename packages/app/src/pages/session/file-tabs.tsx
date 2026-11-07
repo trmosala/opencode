@@ -19,6 +19,7 @@ import { showToast } from "@/utils/toast"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useLanguage } from "@/context/language"
+import { useChatPaneActive } from "@/context/chat-split"
 import { usePrompt } from "@/context/prompt"
 import { useSettings } from "@/context/settings"
 import { getSessionHandoff } from "@/pages/session/handoff"
@@ -225,6 +226,7 @@ export function SessionFileView(props: SessionFileViewProps) {
 }
 
 function SessionFileViewV1(props: { tab: string }) {
+  const paneActive = useChatPaneActive()
   const file = useFile()
   const comments = useComments()
   const language = useLanguage()
@@ -395,6 +397,7 @@ function SessionFileViewV1(props: { tab: string }) {
     if (typeof window === "undefined") return
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (paneActive && !paneActive()) return
       if (activeFileTab() !== props.tab) return
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       if (event.key.toLowerCase() !== "f") return
@@ -513,6 +516,7 @@ function SessionFileViewV1(props: { tab: string }) {
 }
 
 function SessionFileViewV2(props: { tab: string }) {
+  const paneActive = useChatPaneActive()
   const file = useFile()
   const comments = useComments()
   const language = useLanguage()
@@ -681,6 +685,7 @@ function SessionFileViewV2(props: { tab: string }) {
     if (typeof window === "undefined") return
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (paneActive && !paneActive()) return
       if (activeFileTab() !== props.tab) return
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       if (event.key.toLowerCase() !== "f") return

@@ -132,7 +132,7 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("@opencode-ai/ui/toast", () => ({
+  mock.module("@/utils/toast", () => ({
     Toast: { Region: () => null },
     showToast: () => 0,
   }))
@@ -164,7 +164,7 @@ beforeAll(async () => {
         enabledAutoAccept.push({ server, sessionID, directory })
       },
     })
-    return { usePermission: () => ({ currentServerState: () => state(permissionServer) }) }
+    return { useSessionPermission: () => () => state(permissionServer) }
   })
 
   mock.module("@/context/server", () => ({

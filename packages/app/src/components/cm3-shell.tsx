@@ -1,3 +1,5 @@
+import { useChatSplit } from "@/context/chat-split"
+import { sessionHref } from "@/utils/session-route"
 import { createStore, reconcile } from "solid-js/store"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { createEffect, createMemo, For, on, onCleanup, Show, type Accessor } from "solid-js"
@@ -10,7 +12,7 @@ import { decode64 } from "@/utils/base64"
 import { pathKey } from "@/utils/path-key"
 import { tabKey, useTabs, type DraftTab } from "@/context/tabs"
 import { createDraftPromptSession } from "@/context/prompt-state"
-import { useLayout, type LocalProject } from "@/context/layout"
+import type { LocalProject } from "@/context/layout"
 import { displayName } from "@/pages/layout/helpers"
 import { legacySessionHref } from "@/utils/session-route"
 import { Persist, persisted } from "@/utils/persist"
@@ -39,13 +41,13 @@ type ProjectChat = { key: string; title: string; updated: number } & (
 )
 
 export function Cm3Shell() {
+  const split = useChatSplit()
   const scheduling = useScheduling()
   const home = createHomeController()
   const sessions = createHomeSessionsController(home, { registerPalette: false, allProjects: true })
   const language = useLanguage()
   const theme = useTheme()
   const settings = useSettings()
-  const layout = useLayout()
   const server = useServer()
   const location = useLocation()
   const tabs = useTabs()
@@ -53,7 +55,10 @@ export function Cm3Shell() {
   const pickDirectory = useDirectoryPicker()
   const openSettings = useSettingsDialog()
   const projects = createHomeProjectsController(home, { openSettings })
-  const [state, setState] = createStore({ search: "", navigation: false })
+  const [state, setState] = createStore({
+    search: "",
+    navigation: false,
+  })
   const [sessionLimits, setSessionLimits] = createStore<Record<string, number>>({})
   createEffect(
     on(
@@ -62,24 +67,28 @@ export function Cm3Shell() {
       { defer: true },
     ),
   )
-  const [sidebar, setSidebar] = persisted(Persist.global("cm3.sidebar"), createStore({ collapsed: false, width: 260 }))
+  const [sidebar, setSidebar] = persisted(
+    Persist.global("cm3.sidebar"),
+    createStore({ collapsed: false, width: 260, expanded: {} as Record<string, boolean> }),
+  )
   const refs: { toggle?: HTMLButtonElement; nav?: HTMLElement; search?: HTMLInputElement } = {}
   createEffect(() => {
     refs.nav?.parentElement?.style.setProperty("--cm3-sidebar-width", `${sidebar.collapsed ? 48 : sidebar.width}px`)
   })
   onCleanup(() => {
     refs.nav?.parentElement?.style.removeProperty("--cm3-sidebar-width")
-    layout.tabStrip.setMount(undefined)
   })
   const closeNavigation = () => {
     setState("navigation", false)
     refs.toggle?.focus({ preventScroll: true })
   }
   createEffect(on(() => `${location.pathname}${location.search}`, closeNavigation, { defer: true }))
+  const activePath = () =>
+    split.state.active === "secondary" && split.store.href ? split.path() : `${location.pathname}${location.search}`
   const routeProject = createMemo(
     () => {
-      const path = `${location.pathname}${location.search}`
-      const target = location.pathname.match(/^\/server\/([^/]+)\/session\/([^/]+)$/)
+      const path = activePath()
+      const target = path.split("?")[0].match(/^\/server\/([^/]+)\/session\/([^/]+)$/)
       if (target) {
         const key = decode64(target[1])
         const conn = home.server.list().find((item) => ServerConnection.key(item) === key)
@@ -91,14 +100,14 @@ export function Cm3Shell() {
         if (!directory) return undefined
         return { path, server: ServerConnection.key(conn), directory }
       }
-      const legacy = location.pathname.match(/^\/([^/]+)\/session(?:\/[^/]+)?$/)
+      const legacy = path.split("?")[0].match(/^\/([^/]+)\/session(?:\/[^/]+)?$/)
       if (legacy) {
         const directory = decode64(legacy[1])
         if (directory) return { path, server: server.key, directory }
         return undefined
       }
-      if (location.pathname !== "/new-session") return undefined
-      const draftID = new URLSearchParams(location.search).get("draftId")
+      if (path.split("?")[0] !== "/new-session") return undefined
+      const draftID = new URLSearchParams(path.split("?")[1]).get("draftId")
       const draft = tabs.store.find((item) => item.type === "draft" && item.draftID === draftID)
       if (draft?.type === "draft") return { path, server: draft.server, directory: draft.directory }
       return undefined
@@ -134,15 +143,13 @@ export function Cm3Shell() {
       .searchRecords()
       .filter((record) => `${record.session.title} ${record.projectName}`.toLowerCase().includes(value))
   })
-  const records = createMemo(() => (state.search.trim() ? searchRecords() : sessions.data.records()))
-  const pinnedRecords = createMemo(() => searchRecords().filter((record) => sessions.session.isPinned(record.session)))
-  const recentRecords = createMemo(() => records().filter((record) => !sessions.session.isPinned(record.session)))
   const drafts = createMemo(() =>
     tabs.store.filter((tab): tab is DraftTab => tab.type === "draft" && tab.server === sessions.session.server()),
   )
-  const draftID = () => location.pathname === "/new-session" && new URLSearchParams(location.search).get("draftId")
+  const draftID = () =>
+    activePath().startsWith("/new-session?") && new URLSearchParams(activePath().split("?")[1]).get("draftId")
   const activeSession = (id: string) =>
-    location.pathname.endsWith(`/session/${id}`) && routeProject()?.server === sessions.session.server()
+    activePath().split("?")[0].endsWith(`/session/${id}`) && routeProject()?.server === sessions.session.server()
   const chats = createMemo<ProjectChat[]>(() => {
     const value = state.search.trim().toLowerCase()
     return [
@@ -150,7 +157,7 @@ export function Cm3Shell() {
         type: "session" as const,
         key: record.session.id,
         title: record.session.title,
-        updated: record.session.time.updated ?? record.session.time.created,
+        updated: sessions.session.workflowTime(record.session),
         record,
       })),
       ...drafts().flatMap((tab) => {
@@ -175,20 +182,23 @@ export function Cm3Shell() {
         if (!`${title} ${displayName(project)}`.toLowerCase().includes(value)) return []
         return [{ type: "draft" as const, key: `draft:${tab.draftID}`, title, updated: tab.updated ?? 0, tab, project }]
       }),
-    ].sort((a, b) => b.updated - a.updated || a.key.localeCompare(b.key))
+    ].sort(
+      (a, b) =>
+        Number(b.type === "session" && sessions.session.needsAttention(b.record.session)) -
+          Number(a.type === "session" && sessions.session.needsAttention(a.record.session)) ||
+        b.updated - a.updated ||
+        a.key.localeCompare(b.key),
+    )
   })
   const activeChat = (chat: ProjectChat) =>
     chat.type === "draft" ? draftID() === chat.tab.draftID : activeSession(chat.record.session.id)
-  const projectSessions = createMemo(() => {
-    const grouped = new Map<string, ProjectChat[]>()
-    chats().forEach((chat) => {
-      const key = pathKey(chat.type === "draft" ? chat.project.worktree : chat.record.project.worktree)
-      const group = grouped.get(key)
-      if (group) group.push(chat)
-      if (!group) grouped.set(key, [chat])
-    })
-    return grouped
-  })
+  const section = (chat: ProjectChat) => {
+    if (chat.type === "draft") return "inbox"
+    const state = sessions.session.workflow(chat.record.session)
+    if (state === "snoozed" || state === "settled") return state
+    return sessions.session.isPinned(chat.record.session) ? "pinned" : state
+  }
+  const sectionKey = (value: string) => JSON.stringify([sessions.session.server(), "workflow", value])
   const openChat = (chat: ProjectChat, background = false) => {
     if (chat.type === "session") return openSession(chat.record, background)
     if (background) return
@@ -226,10 +236,28 @@ export function Cm3Shell() {
       return
     }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
-    const controls = Array.from(refs.nav?.querySelectorAll<HTMLButtonElement>(".cm3-sidebar-task") ?? [])
+    const seen = new Set<string>()
+    const controls = Array.from(refs.nav?.querySelectorAll<HTMLButtonElement>(".cm3-sidebar-task") ?? []).filter(
+      (element) => {
+        if (!element.getClientRects().length) return false
+        const id = element.closest<HTMLElement>("[data-session-id], [data-draft-id]")?.dataset
+        const key = id?.sessionId ?? id?.draftId
+        if (!key || seen.has(key)) return false
+        seen.add(key)
+        return true
+      },
+    )
     if (!controls.length) return
     event.preventDefault()
-    const index = controls.findIndex((element) => element === event.currentTarget)
+    const current =
+      event.currentTarget instanceof HTMLElement
+        ? event.currentTarget.closest<HTMLElement>("[data-session-id], [data-draft-id]")?.dataset
+        : undefined
+    const key = current?.sessionId ?? current?.draftId
+    const index = controls.findIndex((element) => {
+      const id = element.closest<HTMLElement>("[data-session-id], [data-draft-id]")?.dataset
+      return key !== undefined && key === (id?.sessionId ?? id?.draftId)
+    })
     const next =
       index < 0
         ? event.key === "ArrowDown"
@@ -265,13 +293,14 @@ export function Cm3Shell() {
     }
     openTask(conn, project.worktree)
   }
-  const renderSession = (record: Accessor<HomeSessionRecord>, recent = false) => {
+  const renderSession = (record: Accessor<HomeSessionRecord>) => {
     const avatar = useSessionTabAvatarState(
       sessions.session.server,
       () => record().session.directory,
       () => record().session.id,
     )
     const description = () => {
+      if (sessions.session.settling(record().session)) return language.t("session.workflow.settling")
       if (avatar.hasQuestions()) return language.t("sidebar.session.status.question")
       if (avatar.hasPermissions()) return language.t("sidebar.session.status.permission")
       if (avatar.loading()) return language.t("sidebar.session.status.running")
@@ -287,7 +316,15 @@ export function Cm3Shell() {
       >
         <button
           class="cm3-sidebar-task"
-          data-action={recent ? "recent-session" : "project-session"}
+          data-action="sidebar-session"
+          aria-label={record().session.title}
+          draggable={settings.general.newLayoutDesigns() && split.state.available}
+          onDragStart={(event) => {
+            const href = sessionHref(sessions.session.server(), record().session.id)
+            event.dataTransfer?.setData("text/plain", href)
+            split.startDrag(href)
+          }}
+          onDragEnd={split.endDrag}
           type="button"
           data-active={activeSession(record().session.id)}
           aria-current={activeSession(record().session.id) ? "page" : undefined}
@@ -314,12 +351,13 @@ export function Cm3Shell() {
           </div>
           <span class="cm3-sidebar-task-copy">
             <span dir="auto">{record().session.title}</span>
-            <Show when={recent}>
-              <span class="cm3-sidebar-task-project" dir="auto">
-                {record().projectName}
-              </span>
-            </Show>
+            <span class="cm3-sidebar-task-project" dir="auto">
+              {record().projectName}
+            </span>
           </span>
+          <Show when={sessions.session.settling(record().session)}>
+            <span class="cm3-sidebar-draft-label">{language.t("session.workflow.settling")}</span>
+          </Show>
         </button>
         <button
           class="cm3-sidebar-session-pin"
@@ -332,15 +370,27 @@ export function Cm3Shell() {
           title={language.t(
             sessions.session.isPinned(record().session) ? "sidebar.session.unpin" : "sidebar.session.pin",
           )}
-          onClick={(event) => {
-            const selector = event.currentTarget.closest(".cm3-sidebar-project-sessions")
-              ? ".cm3-sidebar-project-sessions"
-              : "section >"
-            sessions.session.pin(record().session, !sessions.session.isPinned(record().session))
+          onClick={() => {
+            const item = record()
+            const pin = !sessions.session.isPinned(item.session)
+            const state = sessions.session.workflow(item.session)
+            const destination = state === "snoozed" || state === "settled" ? state : pin ? "pinned" : state
+            const key = sectionKey(destination)
+            const items = chats().filter((chat) => chat.key === item.session.id || section(chat) === destination)
+            const position = items.findIndex((chat) => chat.key === item.session.id)
+            setSidebar("expanded", key, true)
+            setSessionLimits(
+              key,
+              Math.max(
+                sessionLimits[key] ?? PROJECT_SESSIONS_PAGE,
+                position + 1 + Number(items.findIndex(activeChat) > position),
+              ),
+            )
+            sessions.session.pin(item.session, pin)
             queueMicrotask(() =>
               refs.nav
                 ?.querySelector<HTMLButtonElement>(
-                  `${selector} [data-session-id="${CSS.escape(record().session.id)}"] .cm3-sidebar-session-pin`,
+                  `[data-session-id="${CSS.escape(item.session.id)}"] .cm3-sidebar-session-pin`,
                 )
                 ?.focus({ preventScroll: true }),
             )
@@ -362,6 +412,86 @@ export function Cm3Shell() {
             <Icon name="archive" size="small" />
           </button>
         </Show>
+        <MenuV2 modal={false} placement="bottom-end">
+          <MenuV2.Trigger class="cm3-sidebar-session-menu" type="button" aria-label={language.t("common.moreOptions")}>
+            <Icon name="outline-dots" size="small" />
+          </MenuV2.Trigger>
+          <MenuV2.Portal>
+            <MenuV2.Content>
+              <Show when={settings.general.newLayoutDesigns()}>
+                <MenuV2.Item
+                  disabled={!split.state.available}
+                  onSelect={() => split.open(sessionHref(sessions.session.server(), record().session.id))}
+                >
+                  {language.t("chat.split.open")}
+                </MenuV2.Item>
+              </Show>
+              <MenuV2.Item
+                disabled={
+                  !server.ready() ||
+                  (!sessions.session.settling(record().session) &&
+                    sessions.session.workflow(record().session) !== "settled" &&
+                    !sessions.session.canSettle(record().session))
+                }
+                onSelect={() =>
+                  sessions.session.organize(
+                    record().session,
+                    sessions.session.workflow(record().session) === "settled" ||
+                      sessions.session.settling(record().session)
+                      ? "inbox"
+                      : "settled",
+                  )
+                }
+              >
+                {language.t(
+                  sessions.session.settling(record().session)
+                    ? "session.workflow.cancelSettle"
+                    : sessions.session.workflow(record().session) === "settled"
+                      ? "session.workflow.moveToInbox"
+                      : "session.workflow.settle",
+                )}
+              </MenuV2.Item>
+              <Show
+                when={sessions.session.workflow(record().session) === "snoozed"}
+                fallback={
+                  <>
+                    <MenuV2.Item
+                      disabled={!server.ready() || !sessions.session.canSnooze(record().session)}
+                      onSelect={() =>
+                        sessions.session.organize(record().session, "snoozed", Date.now() + 60 * 60 * 1000)
+                      }
+                    >
+                      {language.t("session.workflow.snoozeHour")}
+                    </MenuV2.Item>
+                    <MenuV2.Item
+                      disabled={!server.ready() || !sessions.session.canSnooze(record().session)}
+                      onSelect={() => {
+                        const tomorrow = new Date()
+                        tomorrow.setDate(tomorrow.getDate() + 1)
+                        tomorrow.setHours(9, 0, 0, 0)
+                        void sessions.session.organize(record().session, "snoozed", tomorrow.getTime())
+                      }}
+                    >
+                      {language.t("session.workflow.snoozeTomorrow")}
+                    </MenuV2.Item>
+                  </>
+                }
+              >
+                <MenuV2.Item
+                  disabled={!server.ready()}
+                  onSelect={() => sessions.session.organize(record().session, "inbox")}
+                >
+                  {language.t("session.workflow.wake")}
+                </MenuV2.Item>
+              </Show>
+              <Show when={settings.general.newLayoutDesigns()}>
+                <MenuV2.Item onSelect={() => void sessions.session.archive(record().session)}>
+                  {language.t("common.archive")}
+                </MenuV2.Item>
+              </Show>
+            </MenuV2.Content>
+          </MenuV2.Portal>
+        </MenuV2>
       </div>
     )
   }
@@ -381,6 +511,9 @@ export function Cm3Shell() {
         </div>
         <span class="cm3-sidebar-task-copy">
           <span dir="auto">{chat().title}</span>
+          <span class="cm3-sidebar-task-project" dir="auto">
+            {displayName(chat().project)}
+          </span>
         </span>
         <span class="cm3-sidebar-draft-label">{language.t("sidebar.session.draft")}</span>
       </button>
@@ -410,6 +543,72 @@ export function Cm3Shell() {
     </div>
   )
 
+  const renderWorkflow = (values: Array<"pinned" | "inbox" | "working" | "snoozed" | "settled">) => (
+    <For each={values}>
+      {(value) => {
+        const key = () => sectionKey(value)
+        const items = () => chats().filter((chat) => section(chat) === value)
+        const expanded = () =>
+          !!state.search.trim() || (sidebar.expanded[key()] ?? (value === "inbox" || value === "pinned"))
+        const limit = () => sessionLimits[key()] ?? (value === "settled" ? 10 : PROJECT_SESSIONS_PAGE)
+        const visible = () => {
+          if (!expanded()) return items().filter(activeChat)
+          const page = items().slice(0, limit())
+          const active = items().find(activeChat)
+          if (!active || page.includes(active)) return page
+          return [...page.slice(0, -1), active]
+        }
+        const label = () =>
+          value === "pinned" ? language.t("sidebar.session.pinned") : language.t(`session.workflow.${value}`)
+        return (
+          <Show when={value !== "pinned" || items().length}>
+            <section data-workflow={value} aria-label={label()}>
+              <button
+                class="cm-workflow-heading"
+                type="button"
+                aria-label={label()}
+                aria-expanded={expanded()}
+                onClick={() => setSidebar("expanded", key(), !expanded())}
+              >
+                <span aria-hidden="true">{expanded() ? "▾" : "▸"}</span>
+                <span>{label()}</span>
+                <span class="cm-workflow-count">{items().length}</span>
+              </button>
+              <For each={visible().map((chat) => chat.key)}>
+                {(key) => {
+                  const chat = createMemo(() => items().find((chat) => chat.key === key))
+                  const draft = () => {
+                    const value = chat()
+                    return value?.type === "draft" ? value : undefined
+                  }
+                  const record = () => {
+                    const value = chat()
+                    return value?.type === "session" ? value.record : undefined
+                  }
+                  return (
+                    <>
+                      <Show when={draft()}>{renderDraft}</Show>
+                      <Show when={record()}>{(record) => renderSession(record)}</Show>
+                    </>
+                  )
+                }}
+              </For>
+              <Show when={expanded() && items().length > limit()}>
+                <button
+                  class="cm3-sidebar-action"
+                  type="button"
+                  data-action="workflow-show-more"
+                  onClick={() => setSessionLimits(key(), limit() + (value === "settled" ? 25 : PROJECT_SESSIONS_PAGE))}
+                >
+                  {language.t("common.showMore")}
+                </button>
+              </Show>
+            </section>
+          </Show>
+        )
+      }}
+    </For>
+  )
   return (
     <>
       <button
@@ -535,92 +734,8 @@ export function Cm3Shell() {
             />
           </label>
           <div class="cm3-sidebar-scroll">
-            <Show when={settings.general.newLayoutDesigns()}>
-              <div class="cm3-sidebar-tabs" ref={(element) => layout.tabStrip.setMount(element)} />
-            </Show>
-            <HomeProjects
-              projects={projects}
-              sidebar
-              onOpenProjectNewSession={openTask}
-              onSelectProject={home.project.select}
-              onActivateProject={closeNavigation}
-              renderProjectSessions={(conn, project) => {
-                const limitKey = () => JSON.stringify([ServerConnection.key(conn), pathKey(project.worktree)])
-                const group = () => projectSessions().get(pathKey(project.worktree)) ?? []
-                const limit = () => sessionLimits[limitKey()] ?? PROJECT_SESSIONS_PAGE
-                const visible = () => {
-                  const page = group().slice(0, limit())
-                  const active = group().find(activeChat)
-                  if (!active || page.includes(active)) return page
-                  // Keep the active chat within the page size without advancing Show more.
-                  return [...page.slice(0, -1), active]
-                }
-                return (
-                  <Show when={ServerConnection.key(conn) === sessions.session.server()}>
-                    <div class="cm3-sidebar-project-sessions">
-                      <For each={visible().map((chat) => chat.key)}>
-                        {(key) => {
-                          const chat = createMemo(() => group().find((chat) => chat.key === key))
-                          const draft = () => {
-                            const value = chat()
-                            return value?.type === "draft" ? value : undefined
-                          }
-                          const record = () => {
-                            const value = chat()
-                            return value?.type === "session" ? value.record : undefined
-                          }
-                          return (
-                            <>
-                              <Show when={draft()}>{renderDraft}</Show>
-                              <Show when={record()}>{(record) => renderSession(record)}</Show>
-                            </>
-                          )
-                        }}
-                      </For>
-                      <Show when={group().length > limit()}>
-                        <button
-                          class="cm3-sidebar-action"
-                          type="button"
-                          data-action="project-sessions-show-more"
-                          onClick={() => setSessionLimits(limitKey(), limit() + PROJECT_SESSIONS_PAGE)}
-                        >
-                          {language.t("common.showMore")}
-                        </button>
-                      </Show>
-                    </div>
-                  </Show>
-                )
-              }}
-            />
-            <button
-              class="cm3-sidebar-action"
-              type="button"
-              onClick={() => {
-                const conn = home.server.focused()
-                if (!conn) return
-                pickDirectory({
-                  server: conn,
-                  onSelect: (result) => {
-                    if (!result) return
-                    const directories = Array.isArray(result) ? result : [result]
-                    home.project.add(conn, directories)
-                    if (directories[0]) openTask(conn, directories[0])
-                  },
-                })
-              }}
-            >
-              <Cm3Icon name="plus" />
-              {language.t("command.project.open")}
-            </button>
-            <Show when={pinnedRecords().length > 0}>
-              <section aria-label={language.t("sidebar.session.pinned")}>
-                <p class="cm3-sidebar-section">{language.t("sidebar.session.pinned")}</p>
-                <For each={pinnedRecords()}>{(record) => renderSession(() => record, true)}</For>
-              </section>
-            </Show>
-            <section aria-label={language.t("sidebar.project.recentSessions")}>
-              <p class="cm3-sidebar-section">{language.t("sidebar.project.recentSessions")}</p>
-              <For each={recentRecords()}>{(record) => renderSession(() => record, true)}</For>
+            <div class="cm3-sidebar-workflow cm3-sidebar-inbox">
+              {renderWorkflow(["pinned", "inbox"])}
               <Show
                 when={!sessions.data.loading()}
                 fallback={<p role="status">{language.t("quietCompanion.loading")}</p>}
@@ -631,11 +746,49 @@ export function Cm3Shell() {
                     {language.t("browser.action.reload")}
                   </button>
                 </Show>
-                <Show when={!chats().length && !pinnedRecords().length && !sessions.data.error()}>
+                <Show when={!chats().length && !sessions.data.error()}>
                   <p role="status">{language.t("quietCompanion.noThreads")}</p>
                 </Show>
               </Show>
-            </section>
+            </div>
+            <details class="cm3-sidebar-project-navigation">
+              <summary class="cm3-sidebar-section">
+                <span class="cm3-project-disclosure-arrow" aria-hidden="true">
+                  ▸
+                </span>
+                {language.t("home.projects")}
+              </summary>
+              <HomeProjects
+                projects={projects}
+                sidebar
+                onOpenProjectNewSession={openTask}
+                onSelectProject={home.project.select}
+                onActivateProject={closeNavigation}
+              />
+              <button
+                class="cm3-sidebar-action"
+                type="button"
+                onClick={() => {
+                  const conn = home.server.focused()
+                  if (!conn) return
+                  pickDirectory({
+                    server: conn,
+                    onSelect: (result) => {
+                      if (!result) return
+                      const directories = Array.isArray(result) ? result : [result]
+                      home.project.add(conn, directories)
+                      if (directories[0]) openTask(conn, directories[0])
+                    },
+                  })
+                }}
+              >
+                <Cm3Icon name="plus" />
+                {language.t("command.project.open")}
+              </button>
+            </details>
+          </div>
+          <div class="cm3-sidebar-workflow cm3-sidebar-shelves">
+            {renderWorkflow(["working", "snoozed", "settled"])}
           </div>
           <div class="cm3-sidebar-footer">
             <WppAuthControl />

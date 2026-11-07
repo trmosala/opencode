@@ -209,22 +209,26 @@ test("CM3 keeps draft navigation in project chats across UI switches", async ({ 
   })
   await page.goto("/new-session?draftId=draft_cm3_tabs")
   const strip = page.locator('[data-slot="titlebar-tabs"]')
-  const draft = page.locator('.cm3-sidebar-project-sessions [data-draft-id="draft_cm3_tabs"]')
+  const draft = page.locator('.cm3-sidebar-workflow [data-draft-id="draft_cm3_tabs"]')
   const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
   await expect(input).toBeEditable()
   await input.fill("Keep this unsent chat")
-  await expect(draft.getByRole("button", { name: "Keep this unsent chat Draft", exact: true })).toBeVisible()
+  await expect(
+    draft.getByRole("button", { name: `Keep this unsent chat ${fixture.project.name} Draft`, exact: true }),
+  ).toBeVisible()
   await expect(strip).toBeVisible()
   await expect(strip.locator("[data-titlebar-tab-slot]")).toHaveCount(3)
-  await expect(page.locator(".cm3-sidebar-tabs").locator('[data-slot="titlebar-tabs"]')).toBeVisible()
+  await expect(page.locator(".cm3-sidebar-tabs")).toHaveCount(0)
   await page.getByRole("switch", { name: "CM3 UI", exact: true }).click()
   await expect(strip).toBeVisible()
   await expect(input).toHaveText("Keep this unsent chat")
   await page.getByRole("switch", { name: "CM3 UI", exact: true }).click()
   await expect(strip).toBeVisible()
-  await expect(draft.getByRole("button", { name: "Keep this unsent chat Draft", exact: true })).toBeVisible()
+  await expect(
+    draft.getByRole("button", { name: `Keep this unsent chat ${fixture.project.name} Draft`, exact: true }),
+  ).toBeVisible()
   await expect(input).toHaveText("Keep this unsent chat")
-  await expect(page.locator(".cm3-sidebar-tabs").locator('[data-slot="titlebar-tabs"]')).toBeVisible()
+  await expect(page.locator(".cm3-sidebar-tabs")).toHaveCount(0)
   const tab = strip
     .locator("[data-titlebar-tab-slot]")
     .filter({ has: page.locator('[href="/new-session?draftId=draft_cm3_tabs"]') })
@@ -267,6 +271,7 @@ test("cold CM3 sessions hydrate their project before starting a new chat", async
   )
   await page.goto(stressSessionHref(fixture.sourceID))
   await expectSessionTitle(page, fixture.expected.sourceTitle)
+  await openProjectNavigation(page)
   const project = page.locator(`.cm3-sidebar-project[title="${fixture.directory}"]`)
   await expect(project).toHaveAttribute("data-active", "true")
   const projectName = (await project.locator(":scope > span").innerText()).trim()
@@ -309,6 +314,7 @@ for (const remote of [false, true]) {
     )
     await page.goto(stressSessionHref(fixture.sourceID))
     await expectSessionTitle(page, fixture.expected.sourceTitle)
+    await openProjectNavigation(page)
     const selected = page.locator('.cm3-sidebar-project[title="C:/OpenCode/OtherProject"]')
     await selected.click()
     await expect(selected).toHaveAttribute("data-active", "true")
@@ -352,6 +358,7 @@ test("CM3 projects retain editing, closing, and persistent drag ordering", async
     { directory: fixture.directory },
   )
   await page.goto("/")
+  await openProjectNavigation(page)
   const projects = page.getByRole("complementary", { name: "Projects", exact: true })
   const other = projects.locator('[data-component="home-project-row"][title="C:/OpenCode/OtherProject"]')
   const third = projects.locator('[data-component="home-project-row"][title="C:/OpenCode/ThirdProject"]')
@@ -381,6 +388,7 @@ test("CM3 projects retain editing, closing, and persistent drag ordering", async
   await page.getByRole("menuitem", { name: "Close", exact: true }).click()
   await expect(third).toHaveCount(0)
   await page.reload()
+  await openProjectNavigation(page)
   await expect(projects.locator('[data-component="home-project-row"] > span')).toHaveText([
     fixture.project.name,
     "Renamed project",
@@ -418,7 +426,9 @@ for (const width of [1280, 390]) {
       await page.goto("/")
       const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
       if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      await openProjectNavigation(page)
       const projects = page.getByRole("complementary", { name: "Projects", exact: true })
       const pinned = projects.getByRole("region", { name: "Pinned", exact: true })
       const other = projects.getByTitle("C:/OpenCode/OtherProject", { exact: true })
@@ -440,6 +450,7 @@ for (const width of [1280, 390]) {
 
       await page.reload()
       if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
       await expect(pinned.getByTitle("C:/OpenCode/OtherProject", { exact: true })).toBeVisible()
       await other.hover()
@@ -471,6 +482,7 @@ for (const width of [1280, 390]) {
         .toEqual(["C:/OpenCode/OtherProject"])
       await page.reload()
       if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
       await expect(other).toHaveCount(0)
       await expect(pinned).toHaveCount(0)
       await expect(third).toBeEnabled()
@@ -486,6 +498,7 @@ for (const width of [1280, 390]) {
       await picker.getByRole("button", { name: "C:/OpenCode/ OtherProject /", exact: true }).click()
       await expect(picker).toHaveCount(0)
       if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
       const reopened = projects.getByTitle("C:\\OpenCode\\OtherProject", { exact: true })
       await expect(reopened).toBeEnabled()
       await expect(pinned).toHaveCount(0)
@@ -494,6 +507,7 @@ for (const width of [1280, 390]) {
       await page.keyboard.press("Escape")
       await page.reload()
       if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
       await expect(reopened).toBeEnabled()
       await expect(pinned).toHaveCount(0)
     })
@@ -526,6 +540,7 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
     { directory: fixture.directory },
   )
   await page.goto("/")
+  await openProjectNavigation(page)
   const projects = page.getByRole("complementary", { name: "Projects", exact: true })
   const rows = projects.locator('[data-component="home-project-row"] > span')
   await expect(rows).toHaveText([fixture.project.name, "ThirdProject", "OtherProject", "FourthProject"])
@@ -569,6 +584,7 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
     await page.mouse.up()
     await expect(rows).toHaveText(move.order)
     await page.reload()
+    await openProjectNavigation(page)
     await expect(rows).toHaveText(move.order)
     await expect(
       projects.getByRole("region", { name: "Pinned", exact: true }).locator('[data-component="home-project-row"]'),
@@ -578,9 +594,7 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
 
 for (const width of [1280, 390]) {
   for (const direction of ["ltr", "rtl"]) {
-    test(`CM3 pinned and unpinned project groups expand independently and persist at ${width}px ${direction}`, async ({
-      page,
-    }) => {
+    test(`CM3 project selection preserves the unified Inbox at ${width}px ${direction}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 })
       const other = {
         ...fixture.sessions[0],
@@ -625,95 +639,25 @@ for (const width of [1280, 390]) {
       const navigation = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
       const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
       if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
+      await openProjectNavigation(page)
       const projects = navigation.getByRole("complementary", { name: "Projects", exact: true })
       const pinned = projects.getByRole("region", { name: "Pinned", exact: true })
       const titles = ".cm3-sidebar-session .cm3-sidebar-task-copy > span:first-child"
-      const recent = navigation.getByRole("region", { name: "Recent sessions", exact: true }).locator(titles)
+      const recent = navigation.getByRole("region", { name: "Inbox", exact: true }).locator(titles)
       const expected = [other.title, fixture.expected.targetTitle, fixture.expected.sourceTitle]
-      const groups = [
-        {
-          directory: fixture.directory,
-          name: fixture.project.name,
-          expanded: true,
-          titles: [fixture.expected.targetTitle, fixture.expected.sourceTitle],
-        },
-        { directory: other.directory, name: "OtherProject", expanded: false, titles: [other.title] },
-      ].map((group) => {
-        const row = projects.getByTitle(group.directory, { exact: true })
-        return { ...group, row, button: row.locator("..").locator('button[data-action="home-project-expand"]') }
-      })
-      const assertGroup = async (group: (typeof groups)[number], expanded: boolean) => {
-        await expect(group.button).toHaveAccessibleName(`${expanded ? "Collapse" : "Expand"} ${group.name}`)
-        await expect(group.button).toHaveAttribute("aria-expanded", String(expanded))
-        await expect(group.button.locator("svg use")).toHaveAttribute(
-          "href",
-          `#opencode-v2-icon-folder${expanded ? "-open" : ""}`,
-        )
-        await expect(group.button).toHaveAttribute("aria-controls", /\S+/)
-        const children = projects.locator(`[id=${JSON.stringify(await group.button.getAttribute("aria-controls"))}]`)
-        await expect(children).toBeAttached()
-        if (expanded) {
-          await expect(children).toBeVisible()
-          await expect(children.locator(titles)).toHaveText(group.titles)
-        } else {
-          await expect(children).toBeHidden()
-          await expect(children.locator(":scope > *")).toHaveCount(0)
-        }
-        await expect(recent).toHaveText(expected)
-        if (width === 390) await expect(toggle).toHaveAttribute("aria-expanded", "true")
-      }
+      await expect(recent).toHaveText(expected)
       await expect(pinned.getByTitle(fixture.directory, { exact: true })).toBeVisible()
-      await expect(pinned.getByTitle(other.directory, { exact: true })).toHaveCount(0)
-      await expect(projects.locator('[data-component="home-project-row"][data-active="true"]')).toHaveCount(0)
-      for (const group of groups) {
-        await assertGroup(group, group.expanded)
-        await expect(group.row).toHaveAttribute("data-active", "false")
-        const controls = await group.button.getAttribute("aria-controls")
-        await group.button.click()
-        await assertGroup(group, !group.expanded)
-        await expect(group.row).toHaveAttribute("data-active", "false")
-
-        await group.row.click()
-        if (width === 390) {
-          await expect(toggle).toHaveAttribute("aria-expanded", "false")
-          await toggle.click()
-        }
-        await expect(group.row).toHaveAttribute("data-active", "true")
-        await assertGroup(group, group.expanded)
-        await group.button.click()
-        await assertGroup(group, !group.expanded)
-        await group.button.focus()
-        await group.button.press("Tab")
-        await expect(group.row).toBeFocused()
-        await group.row.press("Shift+Tab")
-        await expect(group.button).toBeFocused()
-        await group.button.press("Enter")
-        await assertGroup(group, group.expanded)
-        await expect(group.button).toBeFocused()
-        await expect(group.row).toHaveAttribute("data-active", "true")
-        await group.button.press("Space")
-        await assertGroup(group, !group.expanded)
-        await expect(group.button).toBeFocused()
-        await expect(group.row).toHaveAttribute("data-active", "true")
-        await expect(group.button).toHaveAttribute("aria-controls", controls!)
-      }
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const store = JSON.parse(localStorage.getItem("opencode.global.dat:server") ?? "{}")
-            return store.projects?.local
-          }),
-        )
-        .toEqual([
-          { worktree: fixture.directory, expanded: false, pinned: true },
-          { worktree: other.directory, expanded: true },
-        ])
+      await projects.getByTitle(other.directory, { exact: true }).click()
+      if (width === 390) await toggle.click()
+      await openProjectNavigation(page)
+      await expect(recent).toHaveText(expected)
+      await expect(navigation.locator("[data-session-id]")).toHaveCount(3)
       await page.reload()
       if (width === 390) await toggle.click()
-      await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
-      await expect(pinned.getByTitle(fixture.directory, { exact: true })).toBeVisible()
-      for (const group of groups) await assertGroup(group, !group.expanded)
+      await openProjectNavigation(page)
+      await expect(recent).toHaveText(expected)
       await expect(page).toHaveURL("/")
     })
   }
@@ -816,7 +760,8 @@ test("CM3 home keeps project navigation in the sidebar", async ({ page }) => {
     localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
   })
   await page.goto("/")
-  await expect(page.locator(".cm3-sidebar-project").first()).toBeVisible()
+  await openProjectNavigation(page)
+  await expect(page.locator(`.cm3-sidebar-project[title="${fixture.directory}"]`)).toBeVisible()
   await expect(page.locator('[data-slot="home-projects-scroll"]')).toHaveCount(0)
   await expect(page.locator(".cm3-sidebar-footer").getByRole("button", { name: "Projects", exact: true })).toHaveCount(
     0,
@@ -1008,7 +953,7 @@ test("CM3 desktop Review and sidebar search use live session state", async ({ pa
   const search = navigation.getByRole("searchbox", { name: "Search threads", exact: true })
   await search.fill(fixture.expected.targetTitle)
   const target = navigation
-    .locator(".cm3-sidebar-scroll > .cm3-sidebar-task")
+    .locator(".cm3-sidebar-workflow .cm3-sidebar-task")
     .filter({ hasText: fixture.expected.targetTitle })
   await expect(target).toBeVisible()
   await expect(navigation.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })).toHaveCount(0)
@@ -1018,7 +963,7 @@ test("CM3 desktop Review and sidebar search use live session state", async ({ pa
   await expect(page.locator('[data-component="prompt-input"][contenteditable="true"]')).toHaveCount(1)
 })
 
-test("CM3 recent threads show running status and unscoped project names", async ({ page }) => {
+test("CM3 running threads move to Working and retain their status", async ({ page }) => {
   await mockOpenCodeServer(page, {
     sessions: fixture.sessions,
     provider: fixture.provider,
@@ -1029,16 +974,20 @@ test("CM3 recent threads show running status and unscoped project names", async 
   })
   await installCm3Sidebar(page)
   await page.goto("/")
-  const recent = page
-    .getByRole("region", { name: "Recent sessions", exact: true })
-    .locator('[data-action="recent-session"]')
-    .filter({ hasText: fixture.expected.targetTitle })
-  await expect(recent.locator('[data-component="session-progress-indicator-v2"]')).toBeVisible()
-  await expect(recent).toHaveAccessibleDescription("Running")
-  await expect(recent.locator(".cm3-sidebar-task-project")).toHaveText(fixture.project.name)
-  await recent.click()
+  const section = page.locator('.cm3-sidebar-workflow [data-workflow="working"]')
+  await section.getByRole("button", { name: "Working", exact: true }).click()
+  const running = section.locator('[data-action="sidebar-session"]').filter({ hasText: fixture.expected.targetTitle })
+  await expect(running.locator('[data-component="session-progress-indicator-v2"]')).toBeVisible()
+  await expect(running).toHaveAccessibleDescription("Running")
+  await expect(
+    page
+      .getByRole("region", { name: "Inbox", exact: true })
+      .getByRole("group", { name: fixture.expected.targetTitle, exact: true }),
+  ).toHaveCount(0)
+  await running.click()
   await expectSessionTitle(page, fixture.expected.targetTitle)
-  await expect(recent.locator(".cm3-sidebar-task-project")).toHaveText(fixture.project.name)
+  await section.getByRole("button", { name: "Working", exact: true }).click()
+  await expect(running).toBeVisible()
 })
 
 for (const kind of ["permission", "question"] as const) {
@@ -1078,7 +1027,7 @@ for (const kind of ["permission", "question"] as const) {
     await page.goto(stressSessionHref(fixture.sourceID))
     await expectSessionTitle(page, fixture.expected.sourceTitle)
     const recent = page
-      .getByRole("region", { name: "Recent sessions", exact: true })
+      .getByRole("region", { name: "Inbox", exact: true })
       .locator(".cm3-sidebar-task")
       .filter({ hasText: fixture.expected.targetTitle })
     await expect(recent.locator('[data-slot="project-avatar-unread-dot"]')).toBeVisible()
@@ -1102,7 +1051,7 @@ test("CM3 recent threads show unread completion notifications", async ({ page })
   await page.goto(stressSessionHref(fixture.sourceID))
   await expectSessionTitle(page, fixture.expected.sourceTitle)
   const recent = page
-    .getByRole("region", { name: "Recent sessions", exact: true })
+    .getByRole("region", { name: "Inbox", exact: true })
     .locator(".cm3-sidebar-task")
     .filter({ hasText: fixture.expected.targetTitle })
   await expect(recent.locator('[data-slot="project-avatar-unread-dot"]')).toBeVisible()
@@ -1130,21 +1079,24 @@ for (const gesture of ["Control", "Meta", "middle"] as const) {
     const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
     await toggle.click()
     await expect(toggle).toHaveAttribute("aria-expanded", "true")
-    const recent = page.locator(".cm3-sidebar-task").filter({ hasText: fixture.expected.targetTitle })
+    const recent = page.locator('[data-action="sidebar-session"]').filter({ hasText: fixture.expected.targetTitle })
     await recent.click(gesture === "middle" ? { button: "middle" } : { modifiers: [gesture] })
     const tab = page.locator(
-      `.cm3-sidebar-tabs [data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`,
+      `[data-slot="titlebar-tabs"] [data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`,
     )
-    await expect(tab).toBeVisible()
+    await expect(tab).toBeAttached()
     await expect(page).toHaveURL(new RegExp(`draftId=${draftID}`))
     await expect(input).toHaveText("Keep my active draft")
     await expect(toggle).toHaveAttribute("aria-expanded", "true")
     await recent.click()
     await expectSessionTitle(page, fixture.expected.targetTitle)
     await expect(toggle).toHaveAttribute("aria-expanded", "false")
-    await toggle.click()
-    await page.locator(`.cm3-sidebar-tabs [data-titlebar-tab-link][href="/new-session?draftId=${draftID}"]`).click()
+    const draft = page.locator(`[data-titlebar-tab-link][href="/new-session?draftId=${draftID}"]`)
+    await expect(draft).toBeVisible()
+    await draft.click()
+    await expect(page).toHaveURL(new RegExp(`draftId=${draftID}`))
     await expect(input).toHaveText("Keep my active draft")
+    await expect(page.locator("[data-titlebar-tab-slot]")).toHaveCount(3)
   })
 }
 
@@ -1178,7 +1130,7 @@ test("CM3 sidebar search supports arrows, Enter, empty results and composition",
   await search.press("Enter")
   await expectSessionTitle(page, fixture.expected.sourceTitle)
   await search.fill("")
-  await expect(sidebar.locator(".cm3-sidebar-task")).toHaveCount(2)
+  await expect(sidebar.locator(".cm3-sidebar-workflow .cm3-sidebar-task")).toHaveCount(2)
   const source = sidebar.getByRole("button", { name: fixture.expected.sourceTitle, exact: true })
   await search.press("ArrowDown")
   await expect(target).toBeFocused()
@@ -1192,8 +1144,8 @@ test("CM3 sidebar search supports arrows, Enter, empty results and composition",
   await expectSessionTitle(page, fixture.expected.sourceTitle)
 })
 
-for (const control of ["link", "close"] as const) {
-  test(`CM3 mobile Escape closes the drawer from a portaled tab ${control}`, async ({ page }) => {
+for (const control of ["row", "pin"] as const) {
+  test(`CM3 mobile Escape closes the drawer from a session ${control}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 800 })
     await mockStressTimeline(page)
     await installCm3Sidebar(page)
@@ -1201,13 +1153,11 @@ for (const control of ["link", "close"] as const) {
     await expectSessionTitle(page, fixture.expected.sourceTitle)
     const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
     await toggle.click()
-    const slot = page.locator(
-      `.cm3-sidebar-tabs [data-titlebar-tab-slot]:has([data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"])`,
-    )
+    const row = page.locator(`.cm3-sidebar [data-session-id="${fixture.sourceID}"]`)
     const target =
-      control === "link"
-        ? slot.locator("[data-titlebar-tab-link]")
-        : slot.getByRole("button", { name: "Close tab", exact: true })
+      control === "row"
+        ? row.locator('[data-action="sidebar-session"]')
+        : row.getByRole("button", { name: "Pin session", exact: true })
     await expect(target).toBeVisible()
     await target.focus()
     await expect(target).toBeFocused()
@@ -1217,7 +1167,7 @@ for (const control of ["link", "close"] as const) {
   })
 }
 
-test("CM3 mobile focus stays in the drawer and Escape cancels tab rename first", async ({ page }) => {
+test("CM3 mobile focus stays in the drawer through the Inbox and footer", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 })
   await mockStressTimeline(page)
   await installCm3Sidebar(page)
@@ -1236,16 +1186,7 @@ test("CM3 mobile focus stays in the drawer and Escape cancels tab rename first",
   const search = sidebar.getByRole("searchbox", { name: "Search threads", exact: true })
   await search.focus()
   await search.press("Tab")
-  await expect(sidebar.locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"]`)).toBeFocused()
-  const title = sidebar.locator(
-    `[data-titlebar-tab-link][href="${stressSessionHref(fixture.sourceID)}"] [data-titlebar-tab-title]`,
-  )
-  await title.dblclick()
-  await expect(title).toHaveAttribute("contenteditable", "true")
-  await title.fill("Cancel this rename")
-  await title.press("Escape")
-  await expect(title).toHaveText(fixture.expected.sourceTitle)
-  await expect(title).not.toHaveAttribute("contenteditable", "true")
+  await expect(sidebar.getByRole("button", { name: "Inbox", exact: true })).toBeFocused()
   await expect(toggle).toHaveAttribute("aria-expanded", "true")
   await close.focus()
   await close.press("Escape")
@@ -1292,17 +1233,17 @@ for (const width of [1280, 390]) {
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
       const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
       if (width === 390) await toggle.click()
-      const recent = page.getByRole("region", { name: "Recent sessions", exact: true })
+      const recent = page.getByRole("region", { name: "Inbox", exact: true })
       const source = recent.getByRole("group", { name: fixture.expected.sourceTitle, exact: true })
       const target = recent.getByRole("group", { name: fixture.expected.targetTitle, exact: true })
       const archive = target.getByRole("button", { name: "Archive", exact: true })
       await expect(source.getByRole("button", { name: "Archive", exact: true })).toBeVisible()
       await expect(archive).toBeVisible()
-      await source.locator('[data-action="recent-session"]').hover()
+      await source.locator('[data-action="sidebar-session"]').hover()
       await expect(archive).toHaveCSS("opacity", "0")
-      await target.locator('[data-action="recent-session"]').hover()
+      await target.locator('[data-action="sidebar-session"]').hover()
       await expect(archive).toHaveCSS("opacity", "1")
-      await source.locator('[data-action="recent-session"]').hover()
+      await source.locator('[data-action="sidebar-session"]').hover()
       await expect(archive).toHaveCSS("opacity", "0")
       const bounds = await target.evaluate((element) => {
         const row = element.getBoundingClientRect()
@@ -1324,7 +1265,7 @@ for (const width of [1280, 390]) {
       await expect(page).toHaveURL(stressSessionHref(fixture.sourceID))
       if (width === 390) await expect(toggle).toHaveAttribute("aria-expanded", "true")
 
-      await source.locator('[data-action="recent-session"]').hover()
+      await source.locator('[data-action="sidebar-session"]').hover()
       await source.getByRole("button", { name: "Archive", exact: true }).click()
       await expect(source).toHaveCount(0)
       await expect(page).toHaveURL("/")
@@ -1347,7 +1288,7 @@ async function installCm3Sidebar(page: Page, input?: Parameters<typeof installSt
 
 for (const width of [1280, 390]) {
   for (const direction of ["ltr", "rtl"]) {
-    test(`CM3 session pins persist and share state with project chats at ${width}px ${direction}`, async ({ page }) => {
+    test(`CM3 session pins persist in the unified sidebar at ${width}px ${direction}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 })
       await mockStressTimeline(page)
       await page.addInitScript(
@@ -1378,7 +1319,7 @@ for (const width of [1280, 390]) {
       const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
       if (width === 390) await toggle.click()
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
-      const recent = page.getByRole("region", { name: "Recent sessions", exact: true })
+      const recent = page.getByRole("region", { name: "Inbox", exact: true })
       const pinned = page.getByRole("region", { name: "Pinned sessions", exact: true })
       const target = recent.getByRole("group", { name: fixture.expected.targetTitle, exact: true })
       await expect(pinned).toHaveCount(0)
@@ -1418,16 +1359,14 @@ for (const width of [1280, 390]) {
       await expect(pinnedTarget).toBeVisible()
       await expect(recent.getByRole("group")).toHaveCount(0)
       await search.fill("")
-      const projectCopy = page
-        .getByRole("complementary", { name: "Projects", exact: true })
-        .getByRole("group", { name: fixture.expected.targetTitle, exact: true })
+      const projectCopy = pinnedTarget
       await projectCopy.hover()
       await projectCopy.getByRole("button", { name: "Unpin session", exact: true }).click()
       await expect(pinned).toHaveCount(0)
       await expect(recent.getByRole("group")).toHaveCount(2)
       await target.hover()
       await pin.click()
-      await pinnedTarget.locator('[data-action="recent-session"]').click()
+      await pinnedTarget.locator('[data-action="sidebar-session"]').click()
       await expect(page).toHaveURL(stressSessionHref(fixture.targetID))
       await expect(page.locator('[data-component="prompt-input"][contenteditable="true"]')).toBeEditable()
       if (width === 390) await toggle.click()
@@ -1459,7 +1398,7 @@ for (const width of [1280, 390]) {
   }
 }
 
-test("CM3 reveals project sessions five at a time and retains independent limits", async ({ page }) => {
+test("CM3 pages the unified Inbox and resets its limit after search", async ({ page }) => {
   const groups = [
     { directory: fixture.directory, projectID: fixture.project.id, name: "Primary", count: 12 },
     { directory: "C:/OpenCode/OtherProject", projectID: "proj_cm3_OtherProject", name: "Secondary", count: 7 },
@@ -1495,99 +1434,23 @@ test("CM3 reveals project sessions five at a time and retains independent limits
     groups.map((group) => group.directory),
   )
   await page.goto("/")
-  const projects = page.getByRole("complementary", { name: "Projects", exact: true })
-  const primary = projects.getByTitle(fixture.directory, { exact: true })
-  const secondary = projects.getByTitle("C:/OpenCode/OtherProject", { exact: true })
-  const small = projects.getByTitle("C:/OpenCode/ThirdProject", { exact: true })
-  await expect(primary).toHaveAttribute("aria-expanded", "true")
-  await expect(primary).toHaveAttribute("aria-controls", /\S+/)
-  const primarySessions = projects.locator(`[id=${JSON.stringify(await primary.getAttribute("aria-controls"))}]`)
-  const secondarySessions = projects.locator(`[id=${JSON.stringify(await secondary.getAttribute("aria-controls"))}]`)
-  const smallSessions = projects.locator(`[id=${JSON.stringify(await small.getAttribute("aria-controls"))}]`)
-  const titles = ".cm3-sidebar-session .cm3-sidebar-task-copy > span:first-child"
-  const more = primarySessions.getByRole("button", { name: "Show more", exact: true })
-  const secondaryMore = secondarySessions.getByRole("button", { name: "Show more", exact: true })
-  const recent = page.getByRole("region", { name: "Recent sessions", exact: true }).locator(titles)
-  await expect(recent).toHaveCount(24)
-  const recentTitles = await recent.allTextContents()
-  await expect(primarySessions.locator(titles)).toHaveText([
-    "Primary session 12",
-    "Primary session 11",
-    "Primary session 10",
-    "Primary session 9",
-    "Primary session 8",
-  ])
-  await expect(secondarySessions.locator(titles)).toHaveText([
-    "Secondary session 7",
-    "Secondary session 6",
-    "Secondary session 5",
-    "Secondary session 4",
-    "Secondary session 3",
-  ])
-  await expect(smallSessions.locator(titles)).toHaveText([
-    "Small session 5",
-    "Small session 4",
-    "Small session 3",
-    "Small session 2",
-    "Small session 1",
-  ])
-  await expect(smallSessions.getByRole("button", { name: "Show more", exact: true })).toHaveCount(0)
-  await more.click()
-  await expect(primarySessions.locator(titles)).toHaveText([
-    "Primary session 12",
-    "Primary session 11",
-    "Primary session 10",
-    "Primary session 9",
-    "Primary session 8",
-    "Primary session 7",
-    "Primary session 6",
-    "Primary session 5",
-    "Primary session 4",
-    "Primary session 3",
-  ])
-  await expect(secondarySessions.locator(titles)).toHaveCount(5)
-  await more.press("Enter")
-  await expect(primarySessions.locator(titles)).toHaveText([
-    "Primary session 12",
-    "Primary session 11",
-    "Primary session 10",
-    "Primary session 9",
-    "Primary session 8",
-    "Primary session 7",
-    "Primary session 6",
-    "Primary session 5",
-    "Primary session 4",
-    "Primary session 3",
-    "Primary session 2",
-    "Primary session 1",
-  ])
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true })
+  const rows = inbox.locator("[data-session-id]")
+  const more = inbox.getByRole("button", { name: "Show more", exact: true })
+  await expect(rows).toHaveCount(5)
+  for (const count of [10, 15, 20, 24]) {
+    await more.click()
+    await expect(rows).toHaveCount(count)
+  }
   await expect(more).toHaveCount(0)
-  await secondaryMore.click()
-  await expect(secondarySessions.locator(titles)).toHaveCount(7)
-  await expect(secondaryMore).toHaveCount(0)
-  await expect(primarySessions.locator(titles)).toHaveCount(12)
-  await primary.click()
-  await expect(primary).toHaveAttribute("aria-expanded", "false")
-  await expect(primarySessions).toBeHidden()
-  await primary.press("Enter")
-  await expect(primary).toHaveAttribute("aria-expanded", "true")
-  await expect(primarySessions.locator(titles)).toHaveCount(12)
-  await primary.press("Space")
-  await expect(primary).toHaveAttribute("aria-expanded", "false")
-  await primary.locator("..").locator('[data-action="home-project-expand"]').click()
-  await expect(primarySessions.locator(titles)).toHaveCount(12)
-  await expect(recent).toHaveText(recentTitles)
+  await expect(page.locator(".cm3-sidebar [data-session-id]")).toHaveCount(24)
   const search = page.getByRole("searchbox", { name: "Search threads", exact: true })
   await search.fill("Primary session")
-  await expect(primarySessions.locator(titles)).toHaveCount(5)
-  await expect(secondarySessions.locator(titles)).toHaveCount(0)
-  await expect(more).toBeVisible()
+  await expect(rows).toHaveCount(5)
   await more.click()
-  await expect(primarySessions.locator(titles)).toHaveCount(10)
+  await expect(rows).toHaveCount(10)
   await search.fill("")
-  await expect(primarySessions.locator(titles)).toHaveCount(5)
-  await expect(secondarySessions.locator(titles)).toHaveCount(5)
-  await expect(recent).toHaveText(recentTitles)
+  await expect(rows).toHaveCount(5)
 })
 
 for (const action of ["sidebar", "command", "failure"] as const) {
@@ -1620,10 +1483,12 @@ for (const action of ["sidebar", "command", "failure"] as const) {
     await page.goto(action === "command" ? stressSessionHref(fixture.targetID) : "/")
     if (action === "command") await expectSessionTitle(page, fixture.expected.targetTitle)
     const row = page
-      .getByRole("region", { name: "Recent sessions", exact: true })
+      .getByRole("region", { name: "Inbox", exact: true })
       .getByRole("group", { name: fixture.expected.targetTitle, exact: true })
     const archive = row.getByRole("button", { name: "Archive", exact: true })
-    const tab = page.locator(`.cm3-sidebar-tabs [data-titlebar-tab-link][href$="/session/${fixture.targetID}"]`)
+    const tab = page.locator(
+      `[data-slot="titlebar-tabs"] [data-titlebar-tab-link][href$="/session/${fixture.targetID}"]`,
+    )
     await expect(archive).toBeEnabled()
     await expect(tab).toBeVisible()
     if (action === "command") {
@@ -1635,7 +1500,7 @@ for (const action of ["sidebar", "command", "failure"] as const) {
       await page.keyboard.press("Enter")
     }
     if (action !== "command") {
-      await row.locator('[data-action="recent-session"]').hover()
+      await row.locator('[data-action="sidebar-session"]').hover()
       await archive.click()
     }
     if (failure) {
@@ -1649,7 +1514,7 @@ for (const action of ["sidebar", "command", "failure"] as const) {
     await expect(tab).toHaveCount(0)
     expect(requests).toHaveLength(failure ? 2 : 1)
     await page.reload()
-    await expect(page.getByRole("region", { name: "Recent sessions", exact: true }).getByRole("group")).toHaveCount(1)
+    await expect(page.getByRole("region", { name: "Inbox", exact: true }).getByRole("group")).toHaveCount(1)
     await expect(row).toHaveCount(0)
   })
 }
@@ -1673,14 +1538,14 @@ test("CM3 applies a V2 archive event before tab metadata has hydrated", async ({
   })
   await installCm3Sidebar(page)
   await page.goto("/")
-  const recent = page.getByRole("region", { name: "Recent sessions", exact: true })
+  const recent = page.getByRole("region", { name: "Inbox", exact: true })
   await expect(recent.getByRole("group")).toHaveCount(1)
   await expect(recent.getByRole("group", { name: fixture.expected.sourceTitle, exact: true })).toBeVisible()
   await expect(
-    page.locator(`.cm3-sidebar-tabs [data-titlebar-tab-link][href$="/session/${fixture.targetID}"]`),
+    page.locator(`[data-slot="titlebar-tabs"] [data-titlebar-tab-link][href$="/session/${fixture.targetID}"]`),
   ).toHaveCount(0)
   await expect(
-    page.locator(`.cm3-sidebar-tabs [data-titlebar-tab-link][href$="/session/${fixture.sourceID}"]`),
+    page.locator(`[data-slot="titlebar-tabs"] [data-titlebar-tab-link][href$="/session/${fixture.sourceID}"]`),
   ).toBeVisible()
 })
 
@@ -1699,8 +1564,8 @@ test("CM3 expands all 72 older project sessions and searches beyond the recent l
   })
   await installCm3Sidebar(page)
   await page.goto("/")
-  const project = page.locator(".cm3-sidebar-project-sessions")
-  const rows = project.locator('[data-action="project-session"]')
+  const project = page.locator(".cm3-sidebar-workflow")
+  const rows = project.locator('[data-action="sidebar-session"]')
   const more = project.getByRole("button", { name: "Show more", exact: true })
   await expect(rows).toHaveCount(5)
   for (const count of [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 72]) {
@@ -1750,5 +1615,72 @@ test("CM3 keeps saved old session pins beyond the recent-session limit", async (
   const pinned = page.getByRole("region", { name: "Pinned sessions", exact: true })
   await expect(pinned.getByRole("group", { name: fixture.expected.sourceTitle, exact: true })).toBeVisible()
   await expect(pinned.getByRole("group")).toHaveCount(1)
-  await expect(page.getByRole("region", { name: "Recent sessions", exact: true }).getByRole("group")).toHaveCount(64)
+  await expect(page.getByRole("region", { name: "Inbox", exact: true }).getByRole("group")).toHaveCount(5)
+})
+
+async function openProjectNavigation(page: Page) {
+  const disclosure = page.locator(".cm3-sidebar-project-navigation")
+  if ((await disclosure.getAttribute("open")) === null) await disclosure.locator("summary").click()
+}
+
+for (const direction of ["ltr", "rtl"] as const) {
+  test(`compact titlebar tabs keep navigation and close separate in ${direction}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 })
+    await mockStressTimeline(page)
+    await installCm3Sidebar(page, { draftID: "draft_compact" })
+    await page.goto(stressSessionHref(fixture.sourceID))
+    await expectSessionTitle(page, fixture.expected.sourceTitle)
+    await page.locator("html").evaluate((element, value) => element.setAttribute("dir", value), direction)
+    const draft = page.locator('[data-titlebar-tab-link][href="/new-session?draftId=draft_compact"]')
+    const slot = page.locator("[data-titlebar-tab-slot]").filter({ has: draft })
+    const close = slot.getByRole("button", { name: "Close tab", exact: true })
+    await expect(draft).toBeVisible()
+    await draft.scrollIntoViewIfNeeded()
+    const linkBounds = await draft.boundingBox()
+    const closeBounds = await close.boundingBox()
+    if (!linkBounds || !closeBounds) throw new Error("Missing compact tab controls")
+    expect(
+      Math.min(linkBounds.x + linkBounds.width, closeBounds.x + closeBounds.width) -
+        Math.max(linkBounds.x, closeBounds.x),
+    ).toBeLessThanOrEqual(0)
+    await draft.click()
+    await expect(page).toHaveURL(/draftId=draft_compact/)
+    await expect(page.locator('[data-component="prompt-input"][contenteditable="true"]')).toBeEditable()
+    await expect(slot).toHaveCount(1)
+    const session = page.locator(`[data-titlebar-tab-link][href="${stressSessionHref(fixture.targetID)}"]`)
+    await session.click()
+    await expectSessionTitle(page, fixture.expected.targetTitle)
+    await expect(page.locator("[data-titlebar-tab-slot]")).toHaveCount(3)
+    await close.click()
+    await expect(slot).toHaveCount(0)
+    await expectSessionTitle(page, fixture.expected.targetTitle)
+  })
+}
+
+test("global draft rows show their project and open the matching draft", async ({ page }) => {
+  await mockStressTimeline(page)
+  await mockCm3Projects(page)
+  await installCm3Sidebar(page, { sessionIDs: [], draftID: "draft_project_a" })
+  await page.addInitScript(() => {
+    const key = "opencode.global.dat:server"
+    const server = JSON.parse(localStorage.getItem(key)!)
+    server.projects.local.push({ worktree: "C:/OpenCode/OtherProject", expanded: true })
+    localStorage.setItem(key, JSON.stringify(server))
+    const tabsKey = "opencode.window.browser.dat:tabs"
+    const tabs = JSON.parse(localStorage.getItem(tabsKey)!)
+    tabs.push({ ...tabs[0], draftID: "draft_project_b", directory: "C:/OpenCode/OtherProject" })
+    localStorage.setItem(tabsKey, JSON.stringify(tabs))
+  })
+  await page.goto("/new-session?draftId=draft_project_a")
+  await expect(page.locator('[data-component="prompt-input"][contenteditable="true"]')).toBeEditable()
+  const first = page.locator('.cm3-sidebar [data-draft-id="draft_project_a"]')
+  const second = page.locator('.cm3-sidebar [data-draft-id="draft_project_b"]')
+  await expect(first.locator(".cm3-sidebar-task-copy > span")).toHaveText(["New chat", fixture.project.name])
+  await expect(second.locator(".cm3-sidebar-task-copy > span")).toHaveText(["New chat", "OtherProject"])
+  await second.locator('[data-action="project-draft"]').click()
+  await expect(page).toHaveURL(/draftId=draft_project_b/)
+  await expect(page.getByRole("heading", { name: "What should we build in OtherProject?", exact: true })).toBeVisible()
+  await first.locator('[data-action="project-draft"]').click()
+  await expect(page).toHaveURL(/draftId=draft_project_a/)
+  await expect(page.getByRole("heading", { name: `What should we build in ${fixture.project.name}?`, exact: true })).toBeVisible()
 })

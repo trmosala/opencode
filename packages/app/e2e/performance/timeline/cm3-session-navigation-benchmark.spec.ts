@@ -10,17 +10,17 @@ benchmark("opens a CM3 sidebar session", async ({ page, report }) => {
     localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
   })
   await page.goto("/")
-  const recent = page.getByRole("region", { name: "Recent sessions", exact: true })
+  const recent = page.getByRole("region", { name: "Inbox", exact: true })
   const target = recent
     .getByRole("group", { name: fixture.expected.targetTitle, exact: true })
-    .locator('[data-action="recent-session"]')
+    .locator('[data-action="sidebar-session"]')
   await expect(target).toBeEnabled()
   report(
     await measureNavigationMilestones(page, {
-      triggerSelector: '[data-action="recent-session"]',
+      triggerSelector: '[data-action="sidebar-session"]',
       milestones: {
         composer: { selector: '[data-component="prompt-input"][contenteditable="true"]' },
-        selected: { selector: '[data-action="recent-session"][data-active="true"]' },
+        selected: { selector: '[data-action="sidebar-session"][data-active="true"]' },
       },
       navigate: async () => {
         await target.click()

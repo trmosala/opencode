@@ -1,10 +1,22 @@
+import { sessionPermissionRequest, sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
+import { usePermission } from "@/context/permission"
+import { useNotification } from "@/context/notification"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { preloadMarkdown } from "@opencode-ai/session-ui/markdown-cache"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useQuery } from "@tanstack/solid-query"
 import { DateTime } from "luxon"
-import { type Accessor, createEffect, createMemo, createRoot, type JSX, startTransition } from "solid-js"
-import { produce } from "solid-js/store"
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createRoot,
+  type JSX,
+  onCleanup,
+  startTransition,
+  untrack,
+} from "solid-js"
+import { createStore, produce } from "solid-js/store"
 import { useCommand } from "@/context/command"
 import { loadHomeSessionIndex, type HomeSessionEvents } from "@/context/global-sync/home-session-index"
 import type { LocalProject } from "@/context/layout"
@@ -38,6 +50,8 @@ export function createHomeSessionsController(
   home: HomeController,
   options?: { registerPalette?: boolean; allProjects?: boolean },
 ) {
+  const notification = useNotification()
+  const permission = usePermission()
   const tabs = useTabs()
   const command = useCommand()
   const dialog = useDialog()
@@ -99,6 +113,117 @@ export function createHomeSessionsController(
       projectByID,
     }),
   )
+  const requestTree = createMemo(() =>
+    Object.values(home.server.focusedSync().session.data.info).filter((item): item is Session => !!item),
+  )
+  const hasQuestions = createMemo(() =>
+    Object.values(home.server.focusedSync().session.data.question).some((items) => items?.length),
+  )
+  const hasPermissions = createMemo(() =>
+    Object.values(home.server.focusedSync().session.data.permission).some((items) => items?.length),
+  )
+  const activity = (session: Session) => {
+    const key = home.selection.value().server
+    const data = home.server.focusedSync().session.data
+    const entry = server.sessionWorkflow.get(key, session.id)
+    const failed = notification
+      .ensureServerState(key)
+      .session.all(session.id)
+      .some((item) => item.type === "error" && (entry ? item.time >= (entry.at ?? entry.updated) : !item.viewed))
+    const blocked =
+      (hasQuestions() && !!sessionQuestionRequest(requestTree(), data.question, session.id)) ||
+      (hasPermissions() &&
+        !!sessionPermissionRequest(
+          requestTree(),
+          data.permission,
+          session.id,
+          (item) => !permission.ensureServerState(key).autoResponds(item, session.directory),
+        ))
+    return {
+      working: data.session_working(session.id),
+      attention: failed || blocked,
+      blocked,
+      prompt: (data.message[session.id] ?? []).reduce(
+        (latest, message) => (message.role === "user" ? Math.max(latest, message.time.created) : latest),
+        historyReady[JSON.stringify([key, session.id])] ?? 0,
+      ),
+    }
+  }
+  const [working, setWorking] = createStore<Record<string, { active: boolean; returned: number; attention?: boolean }>>(
+    {},
+  )
+  const [historyReady, setHistoryReady] = createStore<Record<string, number | undefined>>({})
+  const historyLoads = new Set<string>()
+  const historyFailures = new Map<string, string>()
+  const timers = new Map<string, ReturnType<typeof setTimeout>>()
+  const workflowKey = (session: Session) => JSON.stringify([home.selection.value().server, session.id])
+  onCleanup(() => timers.forEach(clearTimeout))
+  createEffect(() => {
+    const conn = home.server.focused()
+    if (!conn || !server.ready()) return
+    const key = ServerConnection.key(conn)
+    // Retry failed history reads when the index or session events advance, not on loading-state changes.
+    const revision = `${sessionLoad.dataUpdatedAt}:${sessionEventLoad.data.sequence}`
+    allRecords().forEach(({ session }) => {
+      const current = activity(session)
+      const entry = server.sessionWorkflow.get(key, session.id)
+      const id = workflowKey(session)
+      if (entry && historyReady[id] === undefined && !historyLoads.has(id) && historyFailures.get(id) !== revision) {
+        const sync = home.server.focusedSync()
+        historyLoads.add(id)
+        void loadWorkflowHistory(sync, session.id)
+          .then((prompt) => setHistoryReady(id, prompt))
+          .catch(() => historyFailures.set(id, revision))
+          .finally(() => historyLoads.delete(id))
+      }
+      const state = server.sessionWorkflow.state(key, session.id, current)
+      if (entry && !entry.pending && state !== entry.state) server.sessionWorkflow.set(key, session.id, undefined)
+      if (entry?.pending && historyReady[id] !== undefined && home.server.focusedSync().activeSessionsReady()) {
+        if (current.attention || current.prompt > (entry.prompt ?? entry.updated))
+          server.sessionWorkflow.set(key, session.id, undefined)
+        if (!current.attention && current.prompt <= (entry.prompt ?? entry.updated) && !current.working)
+          server.sessionWorkflow.set(key, session.id, {
+            ...entry,
+            pending: undefined,
+            prompt: current.prompt,
+            updated: session.time.updated,
+          })
+      }
+      const previous = untrack(() => working[id])
+      if (current.attention !== !!previous?.attention)
+        setWorking(id, {
+          active: previous?.active ?? false,
+          returned: current.attention ? Date.now() : (previous?.returned ?? 0),
+          attention: current.attention,
+        })
+      if (state === "working") {
+        clearTimeout(timers.get(id))
+        timers.delete(id)
+        if (!previous?.active) setWorking(id, { active: true, returned: previous?.returned ?? 0 })
+        return
+      }
+      if (!previous?.active) return
+      if (state !== "inbox" || current.attention) {
+        clearTimeout(timers.get(id))
+        timers.delete(id)
+        setWorking(id, { active: false, returned: Date.now() })
+        return
+      }
+      if (timers.has(id)) return
+      timers.set(
+        id,
+        setTimeout(() => {
+          timers.delete(id)
+          setWorking(id, { active: false, returned: Date.now() })
+        }, 2_000),
+      )
+    })
+  })
+  const workflow = (session: Session) => {
+    const current = activity(session)
+    const state = server.sessionWorkflow.state(home.selection.value().server, session.id, current)
+    return state === "inbox" && !current.attention && working[workflowKey(session)]?.active ? "working" : state
+  }
   const records = createMemo(() => allRecords().slice(0, HOME_SESSION_LIMIT))
   const groups = createMemo(() => groupSessions(records(), language))
   const prefetched = new Set<string>()
@@ -183,6 +308,53 @@ export function createHomeSessionsController(
     },
     session: {
       pinsReady: server.ready,
+      workflow,
+      needsAttention: (session: Session) => activity(session).attention,
+      workflowTime: (session: Session) => {
+        const state = workflow(session)
+        const entry = server.sessionWorkflow.get(home.selection.value().server, session.id)
+        if (state === "snoozed") return -(entry?.until ?? 0)
+        if (state === "settled") return entry?.at ?? entry?.updated ?? 0
+        if (state === "working") return activity(session).prompt || session.time.created
+        return Math.max(working[workflowKey(session)]?.returned ?? 0, session.time.updated)
+      },
+      settling: (session: Session) => !!server.sessionWorkflow.get(home.selection.value().server, session.id)?.pending,
+      canSettle: (session: Session) => home.server.focusedSync().activeSessionsReady() && !activity(session).working,
+      canSnooze: (session: Session) => home.server.focusedSync().activeSessionsReady() && !activity(session).blocked,
+      organize: async (session: Session, state: "inbox" | "snoozed" | "settled", until?: number) => {
+        const key = home.selection.value().server
+        const sync = home.server.focusedSync()
+        if (state === "inbox") {
+          server.sessionWorkflow.set(key, session.id, undefined)
+          return
+        }
+        const loaded = await loadWorkflowHistory(sync, session.id).catch((cause) => {
+          showToast({
+            title: language.t("common.requestFailed"),
+            description: errorMessage(cause, language.t("common.requestFailed")),
+          })
+          return undefined
+        })
+        if (loaded === undefined || home.selection.value().server !== key || home.server.focusedSync() !== sync) return
+        setHistoryReady(workflowKey(session), loaded)
+        if (state === "settled" && (!home.server.focusedSync().activeSessionsReady() || activity(session).working))
+          return
+        if (
+          state === "snoozed" &&
+          (!home.server.focusedSync().activeSessionsReady() ||
+            activity(session).blocked ||
+            !Number.isFinite(until) ||
+            until! <= Date.now())
+        )
+          return
+        server.sessionWorkflow.set(key, session.id, {
+          state,
+          at: Date.now(),
+          updated: session.time.updated,
+          prompt: activity(session).prompt,
+          ...(state === "snoozed" ? { until } : {}),
+        })
+      },
       isPinned: (session: Session) => pinnedIDs().has(session.id),
       pin: (session: Session, pinned: boolean) => {
         const conn = home.server.focused()
@@ -237,6 +409,7 @@ export function createHomeSessionsController(
                 }),
           remove: () => {
             server.sessionPins.set(ServerConnection.key(conn), session.id, false)
+            server.sessionWorkflow.set(ServerConnection.key(conn), session.id, undefined)
             ctx.sync.session.evict(session.id)
             setStore(
               produce((draft) => {
@@ -335,4 +508,22 @@ export function HomeSessionStatusController(props: {
     loading: avatar.loading,
     open: () => props.isOpenTab(props.record),
   })
+}
+
+async function loadWorkflowHistory(sync: ReturnType<HomeController["server"]["focusedSync"]>, id: string) {
+  await new Promise<void>((resolve) =>
+    createRoot((dispose) => {
+      createEffect(() => {
+        if (sync.session.history.loading(id)) return
+        dispose()
+        resolve()
+      })
+    }),
+  )
+  // Session sync also fetches the user parents of the latest assistant messages.
+  await sync.session.sync(id, { force: true })
+  return (sync.session.data.message[id] ?? []).reduce(
+    (latest, message) => (message.role === "user" ? Math.max(latest, message.time.created) : latest),
+    0,
+  )
 }

@@ -72,6 +72,7 @@ export type PromptInputV2AttachmentConfig = {
     onFile: (file: File) => Promise<unknown>,
   ) => Promise<void>
   directory: () => string
+  dropTarget?: () => HTMLElement | undefined
   isDialogActive: () => boolean
   warn: () => void
   duplicate: () => void
@@ -191,16 +192,18 @@ export function createPromptInputV2Attachments(
   }
 
   onMount(() => {
-    makeEventListener(document, "dragover", (event) => {
+    const target = input.dropTarget?.() ?? document
+    makeEventListener(target, "dragover", (event) => {
       if (input.isDialogActive()) return
       event.preventDefault()
       if (event.dataTransfer?.types.includes("Files")) input.setDraggingType("image")
       else if (event.dataTransfer?.types.includes("text/plain")) input.setDraggingType("@mention")
     })
-    makeEventListener(document, "dragleave", (event) => {
-      if (!input.isDialogActive() && !event.relatedTarget) input.setDraggingType(null)
+    makeEventListener(target, "dragleave", (event) => {
+      if (!input.isDialogActive() && (!(event.relatedTarget instanceof Node) || !target.contains(event.relatedTarget)))
+        input.setDraggingType(null)
     })
-    makeEventListener(document, "drop", handleDrop)
+    makeEventListener(target, "drop", handleDrop)
   })
 
   return {

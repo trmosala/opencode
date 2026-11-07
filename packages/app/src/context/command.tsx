@@ -1,3 +1,4 @@
+import { useChatPaneActive } from "./chat-split"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type Accessor, createEffect, createMemo, onCleanup, onMount } from "solid-js"
@@ -110,6 +111,7 @@ export type CommandCatalogItem = {
 }
 
 export type CommandRegistration = {
+  active?: Accessor<boolean>
   key?: string
   options: Accessor<CommandOption[]>
 }
@@ -121,6 +123,7 @@ export function addCommandRegistration(registrations: CommandRegistration[], ent
 export function activeCommandRegistrations(registrations: CommandRegistration[]) {
   const keys = new Set<string>()
   return registrations.filter((entry) => {
+    if (entry.active && !entry.active()) return false
     if (entry.key === undefined) return true
     if (keys.has(entry.key)) return false
     keys.add(entry.key)
@@ -432,6 +435,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
       const options = createMemo(next)
       const entry: CommandRegistration = {
         key: id,
+        active: useChatPaneActive(),
         options,
       }
       setStore("registrations", (arr) => addCommandRegistration(arr, entry))
