@@ -358,7 +358,7 @@ export function legacyMessages(
 export function aeProjection() {
   const live = new Map<
     string,
-    { sessionID: string; content: Map<number, { type: "text" | "reasoning"; text: string }> }
+    { sessionID: string; content: Map<string, { ordinal: number; type: "text" | "reasoning"; text: string }> }
   >()
   return {
     clear() {
@@ -385,15 +385,14 @@ export function aeProjection() {
         live.set(data.assistantMessageID, { sessionID: data.sessionID, content: new Map() })
       }
       const message = live.get(data.assistantMessageID)!
+      const type = event.type.startsWith("session.text.") ? "text" : "reasoning"
+      const key = `${type}:${data.ordinal}`
       const remaining =
-        400000 -
-        [...message.content].reduce(
-          (total, [ordinal, part]) => total + (ordinal === data.ordinal ? 0 : part.text.length),
-          0,
-        )
-      message.content.set(data.ordinal, {
-        type: event.type.startsWith("session.text.") ? "text" : "reasoning",
-        text: ("delta" in data ? (message.content.get(data.ordinal)?.text ?? "") + data.delta : data.text).slice(
+        400000 - [...message.content].reduce((total, [id, part]) => total + (id === key ? 0 : part.text.length), 0)
+      message.content.set(key, {
+        type,
+        ordinal: data.ordinal,
+        text: ("delta" in data ? (message.content.get(key)?.text ?? "") + data.delta : data.text).slice(
           0,
           Math.min(64000, remaining),
         ),
@@ -404,15 +403,22 @@ export function aeProjection() {
         const current = live.get(message.id)
         if (message.type !== "assistant" || !current || current.sessionID !== sessionID) return message
         const content = [...message.content]
-        current.content.forEach((part, ordinal) => {
-          const stored = content[ordinal]
-          if (!stored || (stored.type === part.type && stored.text.length < part.text.length)) content[ordinal] = part
+        current.content.forEach((part) => {
+          const index = content.flatMap((stored, index) => (stored.type === part.type ? [index] : []))[part.ordinal]
+          const stored = content[index]
+          if (
+            !stored ||
+            ((stored.type === "text" || stored.type === "reasoning") && stored.text.length < part.text.length)
+          )
+            content[index ?? content.length] = { type: part.type, text: part.text }
         })
         if (
           message.time.completed &&
-          [...current.content].every(([ordinal, part]) => {
-            const stored = message.content[ordinal]
-            return stored && stored.type === part.type && stored.text.startsWith(part.text)
+          [...current.content.values()].every((part) => {
+            const stored = message.content.filter((stored) => stored.type === part.type)[part.ordinal]
+            return (
+              stored && (stored.type === "text" || stored.type === "reasoning") && stored.text.startsWith(part.text)
+            )
           })
         )
           live.delete(message.id)

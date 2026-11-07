@@ -73,8 +73,42 @@ const reader = new Database(database)
 assert.equal(reader.query("SELECT COUNT(*) AS count FROM message").get().count, 1)
 assert.equal(reader.query("SELECT id FROM message WHERE id = ?").all(messageID)[0].id, messageID)
 assert.throws(() => reader.query("DELETE FROM message").run(), /readonly/)
+reader.run("BEGIN")
+assert.equal(reader.inTransaction, true)
+reader.run("ROLLBACK")
+assert.equal(reader.inTransaction, false)
+reader.run("BEGIN")
+reader.run("COMMIT")
+assert.equal(reader.inTransaction, false)
 reader.close()
 const before = await digest()
+await mkdir(join(process.env.XDG_DATA_HOME, "opencode"), { recursive: true })
+const previousPath = join(process.env.XDG_DATA_HOME, "opencode", "opencode-next.db")
+const previousNext = new DatabaseSync(previousPath)
+previousNext.exec(`
+CREATE TABLE project (id TEXT, worktree TEXT, time_created INTEGER, time_updated INTEGER, sandboxes TEXT);
+CREATE TABLE session (id TEXT, project_id TEXT, slug TEXT, directory TEXT, version TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER, time_created INTEGER, time_updated INTEGER);
+CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);
+`)
+previousNext.prepare("INSERT INTO project VALUES (?,?,?,?,?)").run("previous-project", root, 1, 1, "[]")
+previousNext
+  .prepare("INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+  .run("ses_previous_next", "previous-project", "previous", root, "1.19.5", 0, 0, 0, 0, 0, 0, 1, 1)
+previousNext
+  .prepare("INSERT INTO session_message VALUES (?,?,?,?,?,?,?)")
+  .run(
+    "msg_previous_next",
+    "ses_previous_next",
+    "user",
+    0,
+    1,
+    1,
+    JSON.stringify({ text: "Previous next history", time: { created: 1 } }),
+  )
+previousNext.close()
+const previousDigest = createHash("sha256")
+  .update(await readFile(previousPath))
+  .digest("hex")
 process.env.OPENCODE_DB = database
 const target = await prepareDatabase("dev")
 assert.notEqual(target, database)
@@ -164,6 +198,10 @@ const allowed = await fetch(`${url}/api/info`, { headers: { authorization, origi
 assert.equal(allowed.headers.get("access-control-allow-origin"), "oc://renderer")
 assert.equal((await client.server.info()).version, "2.2.5")
 assert.equal((await client.session.get({ sessionID })).title, "Preserved title")
+assert.equal((await client.session.get({ sessionID: "ses_previous_next" })).id, "ses_previous_next")
+const previousMessages = await client.message.list({ sessionID: "ses_previous_next" })
+assert.ok(JSON.stringify(previousMessages).includes("Previous next history"))
+assert.ok(JSON.stringify(previousMessages).includes("msg_previous_next"))
 const messages = await client.message.list({ sessionID })
 assert.ok(JSON.stringify(messages).includes("Preserve this history exactly."))
 assert.ok(JSON.stringify(messages).includes(messageID))
@@ -216,6 +254,12 @@ assert.equal(
 await restarted.stop()
 await new Promise((resolve) => model.close(resolve))
 assert.equal(await digest(), before)
+assert.equal(
+  createHash("sha256")
+    .update(await readFile(previousPath))
+    .digest("hex"),
+  previousDigest,
+)
 console.log(
   "Runtime fixture passed: authenticated startup, origin protection, exact SDK plugin load, native history import, idempotence, original preserved, lifecycle cleanup",
 )

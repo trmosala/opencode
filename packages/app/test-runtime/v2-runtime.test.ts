@@ -132,6 +132,73 @@ describe("app adapters on the published 2.2.5 runtime", () => {
     expect(await detectServerProtocol(server, fetch)).toBe("v2")
   })
 
+  test("follow-ups apply composer agent, model and variant before prompt admission", async () => {
+    const session = await create()
+    await prompt(session.id, "initial build turn")
+    await event("session.execution.succeeded", (item) => item.data.sessionID === session.id)
+    const selection = {
+      sessionID: session.id,
+      agent: "plan",
+      model: { providerID: "cookiemonster", modelID: "m2" },
+      variant: "high",
+    }
+    await api.session.prompt({ ...selection, text: "plan follow-up" })
+    await current.experimental.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(20_000) })
+    expect(await current.session.get({ sessionID: session.id })).toMatchObject({
+      agent: "plan",
+      model: { providerID: "cookiemonster", id: "m2", variant: "high" },
+    })
+    expect(
+      (await current.message.list({ sessionID: session.id })).data.some(
+        (message) =>
+          message.type === "assistant" &&
+          message.agent === "plan" &&
+          message.model.id === "m2" &&
+          message.model.variant === "high",
+      ),
+    ).toBe(true)
+    const switches = async () =>
+      (await current.message.list({ sessionID: session.id })).data.filter(
+        (message) => message.type === "agent-switched" || message.type === "model-switched",
+      )
+    const before = await switches()
+    await api.session.prompt({ ...selection, text: "same selections", resume: false })
+    expect(await switches()).toEqual(before)
+    await api.session.prompt({ ...selection, variant: "low", text: "variant change", resume: false })
+    expect((await current.session.get({ sessionID: session.id })).model?.variant).toBe("low")
+    await api.session.prompt({ ...selection, variant: undefined, text: "default variant", resume: false })
+    expect((await current.session.get({ sessionID: session.id })).model?.variant).toBe("default")
+  }, 60_000)
+
+  test("commands, compaction and shell apply their selected model before admission", async () => {
+    const session = await create()
+    await api.session.command({
+      sessionID: session.id,
+      command: "fixture",
+      arguments: "command marker",
+      agent: "plan",
+      model: { providerID: "cookiemonster", id: "m2", variant: "high" },
+    })
+    await event("session.execution.succeeded", (item) => item.data.sessionID === session.id)
+    expect(await current.session.get({ sessionID: session.id })).toMatchObject({
+      agent: "plan",
+      model: { providerID: "cookiemonster", id: "m2", variant: "high" },
+    })
+    await api.session.compact({ sessionID: session.id, model: { providerID: "cookiemonster", modelID: "m" } })
+    expect((await current.session.get({ sessionID: session.id })).model?.id).toBe("m")
+    await current.experimental.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(20_000) })
+    await api.session.shell({
+      sessionID: session.id,
+      command: "printf selection-check",
+      agent: "build",
+      model: { providerID: "cookiemonster", modelID: "m2" },
+    })
+    expect(await current.session.get({ sessionID: session.id })).toMatchObject({
+      agent: "build",
+      model: { providerID: "cookiemonster", id: "m2" },
+    })
+  }, 60_000)
+
   test("refreshes initially empty history after a prompt, as workflow actions do", async () => {
     const session = await create()
     const store = createServerSession(legacy(), api.session, current.message, {

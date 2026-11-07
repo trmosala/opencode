@@ -120,11 +120,15 @@ const config = {
   content: JSON.stringify({
     model: "cookiemonster/m",
     snapshots: false,
+    command: { fixture: { template: "Reply V2_APP_OK. $ARGUMENTS" } },
     provider: {
       cookiemonster: {
         npm: "@ai-sdk/openai-compatible",
         options: { baseURL: `${modelURL}/v1`, apiKey: "fixture" },
-        models: { m: { name: "Fixture", tool_call: true } },
+        models: {
+          m: { name: "Fixture", tool_call: true },
+          m2: { name: "Fixture 2", tool_call: true, variants: { high: {}, low: {} } },
+        },
       },
     },
   }),

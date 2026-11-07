@@ -175,6 +175,22 @@ function createV2Api(current: ServerApi, directory?: string): CompatibleApi {
     const value = location?.directory ?? directory
     return value ? { directory: value } : undefined
   }
+  const select = async (sessionID: string, value: LegacyPrompt) => {
+    if (!value.agent && !value.model) return
+    const session = await current.session.get({ sessionID })
+    if (value.agent && value.agent !== session.agent)
+      await current.session.switchAgent({ sessionID, agent: value.agent })
+    if (
+      value.model &&
+      (value.model.providerID !== session.model?.providerID ||
+        value.model.modelID !== session.model?.id ||
+        (value.variant ?? "default") !== (session.model?.variant ?? "default"))
+    )
+      await current.session.switchModel({
+        sessionID,
+        model: { providerID: value.model.providerID, id: value.model.modelID, variant: value.variant },
+      })
+  }
   return {
     ...current,
     file: {
@@ -202,13 +218,31 @@ function createV2Api(current: ServerApi, directory?: string): CompatibleApi {
       ...current.session,
       rename: (value) => current.session.update({ sessionID: value.sessionID, title: value.title }).then(() => {}),
       archive: (value) => current.session.update({ sessionID: value.sessionID, archived: true }),
-      command: (value) =>
-        current.session.command({
+      async prompt(value) {
+        await select(value.sessionID, value)
+        return current.session.prompt(value)
+      },
+      async command(value) {
+        await select(value.sessionID, {
+          agent: value.agent,
+          model: value.model && { providerID: value.model.providerID, modelID: value.model.id },
+          variant: value.model?.variant,
+        })
+        return current.session.command({
           sessionID: value.sessionID,
           name: value.command,
           text: value.arguments ?? "",
           files: value.files,
-        }),
+        })
+      },
+      async compact(value) {
+        await select(value.sessionID, value)
+        return current.session.compact(value)
+      },
+      async shell(value) {
+        await select(value.sessionID, value)
+        return current.session.shell(value)
+      },
     },
     project: {
       ...current.project,

@@ -9,4 +9,12 @@ export class Database extends DatabaseSync {
   query(sql: string) {
     return this.prepare(sql)
   }
+
+  run(sql: string) {
+    this.exec(sql)
+  }
+
+  get inTransaction() {
+    return this.isTransaction
+  }
 }

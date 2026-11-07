@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { SessionMessageInfo } from "@opencode/client"
+import type { SessionMessageAssistantTool, SessionMessageInfo } from "@opencode/client"
 import { aeProjection, legacyMessages } from "./ae-client"
 
 const message: SessionMessageInfo = {
@@ -23,7 +23,7 @@ test("live AE projection preserves streamed text/reasoning, Session isolation an
     id: "evt_b",
     created: 2,
     type: "session.reasoning.delta",
-    data: { sessionID: "ses_a", assistantMessageID: message.id, ordinal: 1, delta: "thinking" },
+    data: { sessionID: "ses_a", assistantMessageID: message.id, ordinal: 0, delta: "thinking" },
   })
   expect(live.apply([message], "ses_a")[0]).toMatchObject({
     content: [
@@ -47,6 +47,40 @@ test("live AE projection preserves streamed text/reasoning, Session isolation an
     durable: { aggregateID: "ses_a", seq: 1, version: 2 },
     data: { sessionID: "ses_a" },
   })
+  expect(live.apply([message], "ses_a")[0]).toEqual(message)
+})
+
+test("AE overlays use per-type ordinals even after durable reasoning and tool content", () => {
+  const live = aeProjection()
+  live.event({
+    id: "evt_reasoning",
+    created: 1,
+    type: "session.reasoning.delta",
+    data: { sessionID: "ses_a", assistantMessageID: message.id, ordinal: 0, delta: "thinking" },
+  })
+  live.event({
+    id: "evt_text",
+    created: 2,
+    type: "session.text.delta",
+    data: { sessionID: "ses_a", assistantMessageID: message.id, ordinal: 0, delta: "visible answer" },
+  })
+  const tool: SessionMessageAssistantTool = {
+    type: "tool",
+    id: "call_1",
+    name: "probe",
+    time: { created: 1 },
+    state: { status: "completed", input: {}, content: [{ type: "text", text: "done" }] },
+  }
+  const durable = { ...message, content: [tool, { type: "reasoning" as const, text: "thinking" }] }
+  expect(live.apply([durable], "ses_a")[0]).toMatchObject({
+    content: [tool, { type: "reasoning", text: "thinking" }, { type: "text", text: "visible answer" }],
+  })
+  const completed = {
+    ...durable,
+    time: { created: 1, completed: 3 },
+    content: [...durable.content, { type: "text" as const, text: "visible answer complete" }],
+  }
+  expect(live.apply([completed], "ses_a")[0]).toEqual(completed)
   expect(live.apply([message], "ses_a")[0]).toEqual(message)
 })
 
