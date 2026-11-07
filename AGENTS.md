@@ -169,7 +169,7 @@ const table = sqliteTable("session", {
 
 ## CookieMonster Desktop (this fork)
 
-This repo adds an Electron desktop shell ("CookieMonster") on top of upstream OpenCode. Bun 1.3+ workspaces + Turborepo; lockfile `bun.lock`; lint = oxlint, format = Prettier (no semicolons, 120 cols).
+This repo adds an Electron desktop shell ("CookieMonster") on top of upstream OpenCode. Bun 1.4.4+ workspaces + Turborepo; lockfile `bun.lock`; lint = oxlint, format = Prettier (no semicolons, 120 cols).
 
 **Distribution:** CookieMonster is internal Ogilvy One tooling built on WPP's own AI platform with employees' own SSO. Builds ship to the public `trmosala/opencode` repo only.
 
@@ -197,7 +197,7 @@ Desktop packaging targets macOS only (from `packages/desktop`): `CM_BRAND=1 bun 
 
 ### First hour on this fork
 
-1. `bun install` at the repo root (Bun 1.3.14, per `packageManager`). Default branch is `dev`; local `main` may not exist.
+1. `bun install` at the repo root (Bun 1.4.4, per `packageManager`). Default branch is `dev`; local `main` may not exist.
 2. `O1_CODE_SHOW_WORKERS=1 bun run dev:desktop`. Seeing the worker tabs is the difference between debugging this bridge and guessing at it — without the flag every WPP window is hidden. The same toggle lives in the View menu.
 3. First launch pops a _visible_ WPP SSO window. Log in once; the `persist:wpp` partition keeps the session for every later headless worker.
 4. Send one prompt, then open `http://127.0.0.1:8787/status` for the bridge diagnostic page, and confirm the response carried `x-o1-code-response-source: network`. Anything else means the page recorder missed and a lower-fidelity path served the turn.
