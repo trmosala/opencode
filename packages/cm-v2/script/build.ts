@@ -3,7 +3,7 @@ import { rm, writeFile } from "node:fs/promises"
 const shared: Bun.BunPlugin = {
   name: "cm-shared-safe-modules",
   setup(build) {
-    build.onLoad({ filter: /opencode\/src\/skill\/managed\.ts$/ }, async (args) => ({
+    build.onLoad({ filter: /opencode[\\/]src[\\/]skill[\\/]managed\.ts$/ }, async (args) => ({
       contents: (await Bun.file(args.path).text()).replaceAll("Schema.TaggedErrorClass", "Schema.TaggedError"),
       loader: "ts",
     }))
