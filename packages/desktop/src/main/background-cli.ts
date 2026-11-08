@@ -17,10 +17,12 @@ type Logger = {
   error(message: string, meta?: Record<string, unknown>): void
 }
 
-// The official OpenCode CLI staged by `downloadCliToResources` (predev and prebuild).
+// The official OpenCode CLI staged by `downloadCliToResources` (predev and prebuild). Builds that run from
+// app.asar keep it beside the archive, including the unpackaged startup smoke, so resolve from the archive.
 export function bundledCliPath() {
-  return app.isPackaged
-    ? join(process.resourcesPath, executableName())
+  const appPath = app.getAppPath()
+  return appPath.endsWith(".asar")
+    ? join(dirname(appPath), executableName())
     : join(root, "../../resources", executableName())
 }
 
