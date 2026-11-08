@@ -645,46 +645,44 @@ test("unpin reserves the last page slot while retaining the selected chat", asyn
   await expect(row(page, fixture.sourceID)).toBeVisible()
 })
 
-for (const width of [1280, 390]) {
-  for (const direction of ["ltr", "rtl"] as const) {
-    test(`workflow shelves stay collapsed at the bottom at ${width}px ${direction}`, async ({ page }, testInfo) => {
-      const snoozed = { ...fixture.sessions[0], id: "ses_bottom_snoozed", title: "Review later" }
-      const settled = { ...fixture.sessions[0], id: "ses_bottom_settled", title: "Finished review" }
-      await setup(page, {
-        sessions: [...fixture.sessions, snoozed, settled],
-        sessionStatus: { [fixture.targetID]: { type: "busy" } },
-      })
-      await organize(page, snoozed.id, "Snooze for 1 hour")
-      await organize(page, settled.id, "Settle")
-      await page.setViewportSize({ width, height: 900 })
-      await page.locator("html").evaluate((element, value) => element.setAttribute("dir", value), direction)
-      if (width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
-      const shelves = page.locator(".cm3-sidebar-shelves")
-      for (const value of ["working", "snoozed", "settled"]) {
-        const section = shelves.locator(`[data-workflow="${value}"]`)
-        await expect(section.locator(".cm-workflow-heading")).toHaveAttribute("aria-expanded", "false")
-        await expect(section.locator(".cm-workflow-count")).toHaveText("1")
-        await expect(section.getByRole("group")).toHaveCount(0)
-      }
-      await expect(row(page, fixture.sourceID)).toHaveCount(1)
-      await expect(page.locator(".cm3-sidebar-tabs")).toHaveCount(0)
-      await expect(page.getByRole("region", { name: "Recent sessions", exact: true })).toHaveCount(0)
-      await expect
-        .poll(async () => {
-          const shelf = await shelves.boundingBox()
-          const footer = await page.locator(".cm3-sidebar-footer").boundingBox()
-          return !!shelf && !!footer && shelf.y > 500 && Math.abs(shelf.y + shelf.height - footer.y) < 16
-        })
-        .toBe(true)
-      await shelves.getByRole("button", { name: "Working", exact: true }).click()
-      await expect(row(page, fixture.targetID)).toBeVisible()
-      await shelves.getByRole("button", { name: "Working", exact: true }).click()
-      if (width === 1280 && direction === "ltr") {
-        await page.screenshot({ path: testInfo.outputPath("sidebar-bottom.png") })
-        await page.locator(".cm3-sidebar").screenshot({ path: testInfo.outputPath("sidebar.png") })
-      }
+// Placement is vertical, so one pass per width covers both directions.
+for (const [width, direction] of [
+  [1280, "ltr"],
+  [390, "rtl"],
+] as const) {
+  test(`workflow shelves stay collapsed at the bottom at ${width}px ${direction}`, async ({ page }) => {
+    const snoozed = { ...fixture.sessions[0], id: "ses_bottom_snoozed", title: "Review later" }
+    const settled = { ...fixture.sessions[0], id: "ses_bottom_settled", title: "Finished review" }
+    await setup(page, {
+      sessions: [...fixture.sessions, snoozed, settled],
+      sessionStatus: { [fixture.targetID]: { type: "busy" } },
     })
-  }
+    await organize(page, snoozed.id, "Snooze for 1 hour")
+    await organize(page, settled.id, "Settle")
+    await page.setViewportSize({ width, height: 900 })
+    await page.locator("html").evaluate((element, value) => element.setAttribute("dir", value), direction)
+    if (width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
+    const shelves = page.locator(".cm3-sidebar-shelves")
+    for (const value of ["working", "snoozed", "settled"]) {
+      const section = shelves.locator(`[data-workflow="${value}"]`)
+      await expect(section.locator(".cm-workflow-heading")).toHaveAttribute("aria-expanded", "false")
+      await expect(section.locator(".cm-workflow-count")).toHaveText("1")
+      await expect(section.getByRole("group")).toHaveCount(0)
+    }
+    await expect(row(page, fixture.sourceID)).toHaveCount(1)
+    await expect(page.locator(".cm3-sidebar-tabs")).toHaveCount(0)
+    await expect(page.getByRole("region", { name: "Recent sessions", exact: true })).toHaveCount(0)
+    await expect
+      .poll(async () => {
+        const shelf = await shelves.boundingBox()
+        const footer = await page.locator(".cm3-sidebar-footer").boundingBox()
+        return !!shelf && !!footer && shelf.y > 500 && Math.abs(shelf.y + shelf.height - footer.y) < 16
+      })
+      .toBe(true)
+    await shelves.getByRole("button", { name: "Working", exact: true }).click()
+    await expect(row(page, fixture.targetID)).toBeVisible()
+    await shelves.getByRole("button", { name: "Working", exact: true }).click()
+  })
 }
 
 test("attention and completion bring an older working chat to the top of Inbox", async ({ page }) => {
