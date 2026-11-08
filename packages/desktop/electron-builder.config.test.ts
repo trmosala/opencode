@@ -12,7 +12,15 @@ test("default packaging includes AE outside asar without an environment override
     expect(config.extraResources).toContainEqual({
       from: "resources/cm-ae",
       to: "cm-ae",
-      filter: ["plugin.mjs", "render-worker.mjs", "permissions.json", "ZOD-LICENSE.txt", "MARKED-LICENSE.txt"],
+      filter: [
+        "plugin.mjs",
+        "render-worker.mjs",
+        "permissions.json",
+        "ZOD-LICENSE.txt",
+        "MARKED-LICENSE.txt",
+        "server.js",
+        "package.json",
+      ],
     })
     for (const name of [
       "plugin.mjs",
@@ -26,8 +34,9 @@ test("default packaging includes AE outside asar without an environment override
       )
     }
     expect(config.extraResources).toContainEqual({
-      from: "../cm-browser/dist/plugin.mjs",
-      to: "cm-browser/plugin.mjs",
+      from: "../cm-browser",
+      to: "cm-browser",
+      filter: ["package.json", "dist/plugin-v2.mjs"],
     })
   } finally {
     if (previous !== undefined) process.env.CM_AE_ARTIFACT_DIR = previous

@@ -58,7 +58,11 @@ jobs:
           CM_BRAND: "0"
           CM_UNSIGNED: "0"
           OPENCODE_CHANNEL: dev
-        run: bun test --timeout 20000 electron-builder.config.test.ts src/main/system-cli.test.ts
+        # The packaging config stages the AE adapter built by cm-v2.
+        run: |
+          bun run --cwd ../cm-v2 build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun test --timeout 20000 electron-builder.config.test.ts src/main/system-cli.test.ts
 
       - name: Build CookieMonster
         working-directory: packages/desktop
@@ -84,7 +88,7 @@ jobs:
           const resources = 'dist/win-unpacked/resources'
           assert.equal(JSON.parse(asar.extractFile(resources+'/app.asar', 'package.json')).version, process.env.CM_VERSION)
           assert(asar.extractFile(resources+'/app.asar', path.join('out', 'main', 'index.js')).toString().includes('protocol === "blob:"'))
-          for (const file of ['opencode-cli.exe', 'cli/opencode.exe', 'cm-browser/plugin.mjs', 'vault-auth/windows-x64.exe', 'vault-auth/windows-entry-x64.exe']) assert(fs.existsSync(resources+'/'+file), file)
+          for (const file of ['opencode-cli.exe', 'cli/opencode.exe', 'cm-browser/dist/plugin-v2.mjs', 'vault-auth/windows-x64.exe', 'vault-auth/windows-entry-x64.exe']) assert(fs.existsSync(resources+'/'+file), file)
           '@ | node
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ./dist/win-unpacked/resources/opencode-cli.exe --version
