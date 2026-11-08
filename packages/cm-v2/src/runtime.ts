@@ -25,6 +25,17 @@ export async function listen(input: import("./server").ListenOptions) {
           return nextResolve(specifier, { ...context, parentURL: import.meta.url })
         return nextResolve(specifier, context)
       },
+      load(url, context, nextLoad) {
+        const result = nextLoad(url, context)
+        if (!url.endsWith("/database/v1-migration.bun.js")) return result
+        // shortcut: the Bun migration's only Bun API is CryptoHasher for synthetic IDs; drop when 2.2.x stops needing Bun.
+        const source = typeof result.source === "string" ? result.source : new TextDecoder().decode(result.source)
+        return {
+          ...result,
+          source: `import { createHash as __cmCreateHash } from "node:crypto";\n${source.replaceAll("new Bun.CryptoHasher(", "__cmCreateHash(")}`,
+          shortCircuit: true,
+        }
+      },
     })
     installed = true
   }
