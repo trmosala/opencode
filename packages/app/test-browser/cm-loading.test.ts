@@ -55,6 +55,15 @@ test("cookie loaders retain their choice, inherit colour tokens, animate, and re
     })
     await page.goto(`http://127.0.0.1:${address.port}`)
     await page.waitForSelector('#variants [data-loading-animation="flip-3d"]', { timeout: 5000 })
+    const first = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
+    // Allow the embedded SVG image to advance several projected vector frames; slow runners can stall one window.
+    let animated = false
+    for (let attempt = 0; attempt < 10 && !animated; attempt++) {
+      await page.waitForTimeout(220)
+      const next = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
+      animated = !first.equals(next)
+    }
+    expect(animated).toBe(true)
     const before = await page
       .locator("#random svg")
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-loading-animation")))
@@ -117,15 +126,19 @@ test("cookie loaders retain their choice, inherit colour tokens, animate, and re
         .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-loading-animation"))),
     ).toEqual(before)
     await page.emulateMedia({ reducedMotion: "no-preference" })
-    const first = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
-    // Allow the embedded SVG image to advance several projected vector frames; slow runners can stall one window.
-    let animated = false
-    for (let attempt = 0; attempt < 10 && !animated; attempt++) {
-      await page.waitForTimeout(220)
-      const next = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
-      animated = !first.equals(next)
-    }
-    expect(animated).toBe(true)
+    // Windows Chromium does not restart an SVG <image>'s inner animation after display:none, so the frame
+    // check runs on the fresh page above; here we only prove motion is restored once reduced motion is off.
+    await page.waitForFunction(() =>
+      Array.from(document.querySelectorAll('[data-slot="loading-motion"]')).every(
+        (image) => getComputedStyle(image).display !== "none",
+      ),
+    )
+    expect(
+      await page
+        .locator('[data-slot="loading-still"]')
+        .first()
+        .evaluate((image) => getComputedStyle(image).display),
+    ).toBe("none")
     await page.screenshot({ path: join(directory, "preview.png"), fullPage: true })
   } finally {
     await browser.close()
