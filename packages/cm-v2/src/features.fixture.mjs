@@ -93,7 +93,14 @@ const config = {
     },
   }),
 }
-const input = { hostname: "127.0.0.1", port: 0, password: "feature-secret", database: join(root, "fixture.db"), config }
+const input = {
+  hostname: "127.0.0.1",
+  port: 0,
+  password: "feature-secret",
+  database: join(root, "fixture.db"),
+  config,
+  cli: process.env.CM_V2_CLI,
+}
 const store = join(process.env.XDG_DATA_HOME, "opencode/scheduling/schedules.json")
 await mkdir(join(process.env.XDG_DATA_HOME, "opencode/scheduling"), { recursive: true })
 const legacyDefinition = {

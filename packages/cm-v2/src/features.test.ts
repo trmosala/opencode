@@ -11,6 +11,7 @@ test("CM features execute on published V2 with isolated files and authenticated 
         ...process.env,
         HOME: root,
         FIXTURE_ROOT: root,
+        CM_V2_CLI: new URL("../../desktop/resources/opencode-cli", import.meta.url).pathname,
         XDG_DATA_HOME: join(root, "data"),
         XDG_CONFIG_HOME: join(root, "config"),
         XDG_STATE_HOME: join(root, "state"),

@@ -10,6 +10,7 @@ test("published Node runtime preserves history and plugin identity with isolated
       env: {
         ...process.env,
         FIXTURE_ROOT: root,
+        CM_V2_CLI: new URL("../../desktop/resources/opencode-cli", import.meta.url).pathname,
         XDG_DATA_HOME: join(root, "data"),
         XDG_CONFIG_HOME: join(root, "config"),
         XDG_STATE_HOME: join(root, "state"),

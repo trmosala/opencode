@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { existsSync } from "node:fs"
 import "./build-vault-auth"
+import { CLI_VERSION, downloadCliToResources, windowsify } from "./utils"
 
 // Bun skips lifecycle scripts by default, so electron's postinstall (which
 // downloads the actual binary into dist/ and writes path.txt) may not have run
@@ -17,6 +18,11 @@ if (!existsSync(join(electronDir, "path.txt"))) {
 await $`bun run install-electron`
 
 await $`bun ./scripts/copy-icons.ts ${process.env.OPENCODE_CHANNEL ?? "dev"}`
+
+// The sidecar serves the API through the official OpenCode CLI; stage it when missing or another version is pinned.
+const cli = windowsify("resources/opencode-cli")
+if (!existsSync(cli) || !(await $`${cli} --version`.nothrow().text()).includes(CLI_VERSION))
+  await downloadCliToResources()
 
 await $`bun run --cwd ../cm-v2 build`
 await import("./stage-cm-ae")

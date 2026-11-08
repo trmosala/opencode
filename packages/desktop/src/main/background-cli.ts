@@ -17,10 +17,15 @@ type Logger = {
   error(message: string, meta?: Record<string, unknown>): void
 }
 
-export async function startBackgroundCli(logger: Logger, shellStateHome?: string) {
-  const bundled = app.isPackaged
+// The official OpenCode CLI staged by `downloadCliToResources` (predev and prebuild).
+export function bundledCliPath() {
+  return app.isPackaged
     ? join(process.resourcesPath, executableName())
     : join(root, "../../resources", executableName())
+}
+
+export async function startBackgroundCli(logger: Logger, shellStateHome?: string) {
+  const bundled = bundledCliPath()
   logger.log("v2 CLI executable resolved", { bundled, packaged: app.isPackaged })
   const version = await run(bundled, ["--version"], logger)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled

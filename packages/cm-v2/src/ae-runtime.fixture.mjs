@@ -98,6 +98,7 @@ try {
     password: "ae-fixture",
     database: join(root, "db.sqlite"),
     config,
+    cli: process.env.CM_V2_CLI,
   })
   const baseUrl = `http://127.0.0.1:${runtime.address.port}`
   const client = OpenCode.make({

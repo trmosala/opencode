@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
+import { bundledCliPath } from "./background-cli"
 import { attachBrowserBridge } from "./browser/bridge"
 import { createBrowserSessionResolver } from "./browser/session-resolver"
 import { getLogger } from "./logging"
@@ -157,6 +158,7 @@ export async function spawnLocalServer(
       port,
       password,
       userDataPath: options.userDataPath,
+      cli: bundledCliPath(),
     })
   }).catch((error) => {
     stopBrowserBridge()
