@@ -8,7 +8,7 @@ import {
 import { mockOpenCodeServer } from "../utils/mock-server"
 
 const composer = (page: Page) => page.locator('[data-component="prompt-input"][contenteditable="true"]')
-const projectChats = (page: Page) => page.locator(".cm3-sidebar-project-sessions")
+const projectChats = (page: Page) => page.locator(".cm3-sidebar-workflow")
 const draftRow = (page: Page, title: string) => projectChats(page).getByRole("group", { name: title, exact: true })
 
 async function setup(page: Page) {
@@ -59,27 +59,33 @@ for (const viewport of [
     if (viewport.width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
     await expect(draftRow(page, "Plan the audit").getByText("Draft", { exact: true })).toBeVisible()
     await expect(
-      draftRow(page, "Plan the audit").getByRole("button", { name: "Plan the audit Draft", exact: true }),
+      draftRow(page, "Plan the audit").getByRole("button", { name: "Plan the audit smoke-project Draft", exact: true }),
     ).toHaveAttribute("aria-current", "page")
     await page.getByRole("button", { name: "New chat", exact: true }).click()
     await expect(composer(page)).toHaveText("")
     await composer(page).fill("Second draft")
     if (viewport.width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
-    await draftRow(page, "Plan the audit").getByRole("button", { name: "Plan the audit Draft", exact: true }).click()
+    await draftRow(page, "Plan the audit")
+      .getByRole("button", { name: "Plan the audit smoke-project Draft", exact: true })
+      .click()
     await expect(composer(page)).toHaveText("Plan the audit\nKeep these details")
     await page.reload()
     await expect(composer(page)).toHaveText("Plan the audit\nKeep these details")
     if (viewport.width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
-    await draftRow(page, "Second draft").getByRole("button", { name: "Second draft Draft", exact: true }).click()
+    await draftRow(page, "Second draft")
+      .getByRole("button", { name: "Second draft smoke-project Draft", exact: true })
+      .click()
     await expect(composer(page)).toHaveText("Second draft")
     if (viewport.width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
-    await projectChats(page).locator(`[data-session-id="${fixture.sourceID}"] [data-action="project-session"]`).click()
+    await projectChats(page).locator(`[data-session-id="${fixture.sourceID}"] [data-action="sidebar-session"]`).click()
     await expect(page).toHaveURL(stressSessionHref(fixture.sourceID))
     await expect(composer(page)).toBeEditable()
     if (viewport.width === 390) await page.getByRole("button", { name: "Toggle sidebar", exact: true }).click()
-    await draftRow(page, "Plan the audit").getByRole("button", { name: "Plan the audit Draft", exact: true }).click()
+    await draftRow(page, "Plan the audit")
+      .getByRole("button", { name: "Plan the audit smoke-project Draft", exact: true })
+      .click()
     await expect(composer(page)).toHaveText("Plan the audit\nKeep these details")
-    await expect(page.locator(".cm3-sidebar-tabs")).toHaveCount(1)
+    await expect(page.locator('[data-slot="titlebar-tabs"]')).toHaveCount(1)
     await expect(page.getByRole("button", { name: "Dismiss Tabs information", exact: true })).toHaveCount(0)
   })
 }
@@ -98,7 +104,7 @@ test("CM3 drafts can be searched and explicitly discarded without altering anoth
   await search.fill("Discard this")
   const discard = draftRow(page, "Discard this draft")
   await expect(discard).toBeVisible()
-  await expect(projectChats(page).locator('[data-action="project-session"]')).toHaveCount(0)
+  await expect(projectChats(page).locator('[data-action="sidebar-session"]')).toHaveCount(0)
   await discard.hover()
   await discard.getByRole("button", { name: "More options", exact: true }).click()
   await page.getByRole("menuitem", { name: "Discard draft", exact: true }).click()
@@ -135,9 +141,9 @@ test("CM3 chats keep an older active session within five rows and reveal the ful
     localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } })),
   )
   await page.goto(stressSessionHref(fixture.sourceID))
-  const rows = projectChats(page).locator('[data-action="project-session"]')
+  const rows = projectChats(page).locator('[data-action="sidebar-session"]')
   await expect(rows).toHaveCount(5)
-  await expect(rows.locator(".cm3-sidebar-task-copy > span")).toHaveText([
+  await expect(rows.locator(".cm3-sidebar-task-copy > span:first-child")).toHaveText([
     "Older chat 71",
     "Older chat 70",
     "Older chat 69",
@@ -201,7 +207,7 @@ test("CM3 drafts become one saved chat after submission", async ({ page }) => {
   await expect(projectChats(page).locator(`[data-session-id="${fixture.sourceID}"]`)).toHaveCount(1)
 })
 
-test("CM3 drafts stay under their own project and server", async ({ page }) => {
+test("CM3 drafts retain their project identity and stay on their own server", async ({ page }) => {
   await setup(page)
   const remote = `http://cm3-drafts.test:${process.env.PLAYWRIGHT_SERVER_PORT}`
   await page.addInitScript(
@@ -234,11 +240,12 @@ test("CM3 drafts stay under their own project and server", async ({ page }) => {
   await composer(page).fill("Local primary draft")
   const primary = page.locator(`.cm3-sidebar-project[title="${fixture.directory}"][aria-current="page"]`)
   const other = page.locator('.cm3-sidebar-project[title="C:/OpenCode/OtherProject"]')
-  const primaryChats = page.locator(`[id=${JSON.stringify(await primary.getAttribute("aria-controls"))}]`)
-  const otherChats = page.locator(`[id=${JSON.stringify(await other.getAttribute("aria-controls"))}]`)
-  await expect(primaryChats.locator('[data-draft-id="draft_cm3_list"]')).toBeVisible()
-  await expect(primaryChats.locator('[data-draft-id="draft_cm3_other"]')).toHaveCount(0)
-  await expect(otherChats.locator('[data-draft-id="draft_cm3_other"]')).toBeVisible()
+  await expect(primary).toHaveAttribute("data-selected", "")
+  await expect(other).toHaveCount(1)
+  const localDraft = projectChats(page).locator('[data-draft-id="draft_cm3_list"]')
+  const otherDraft = projectChats(page).locator('[data-draft-id="draft_cm3_other"]')
+  await expect(localDraft.locator(".cm3-sidebar-task-project")).toHaveText("smoke-project")
+  await expect(otherDraft.locator(".cm3-sidebar-task-project")).toHaveText("OtherProject")
   await expect(projectChats(page).locator('[data-draft-id="draft_cm3_remote"]')).toHaveCount(0)
   await page.goto("/new-session?draftId=draft_cm3_remote")
   await expect(composer(page)).toBeEditable()

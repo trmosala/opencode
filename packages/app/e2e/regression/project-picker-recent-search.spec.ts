@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test"
 import type { Page } from "@playwright/test"
 import { fixture, pageMessages } from "../smoke/session-timeline.fixture"
 import { mockOpenCodeServer } from "../utils/mock-server"
-import { expectAppVisible } from "../utils/waits"
+import { expectAppVisible, openSidebarProjects } from "../utils/waits"
 
 const NAMES = ["alpha-service", "bravo-web", "charlie-api", "delta-tools", "echo-infra", "foxtrot-docs"]
 const worktrees = NAMES.map((name) => `/opencode-demo/${name}`)
@@ -36,7 +36,11 @@ async function openProjectDialog(page: Page) {
     )
   }, worktrees)
   await page.goto("/")
-  const add = page.getByRole("button", { name: "Add project" }).first()
+  await page.getByRole("button", { name: "Home", exact: true }).click()
+  await openSidebarProjects(page)
+  const add = page
+    .locator("details.cm3-sidebar-project-navigation")
+    .getByRole("button", { name: "Open project", exact: true })
   await expectAppVisible(add)
   await add.click()
   await expect(rows(page)).toHaveCount(5)

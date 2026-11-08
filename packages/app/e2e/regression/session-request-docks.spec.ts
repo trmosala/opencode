@@ -42,7 +42,7 @@ test("shows a pending question dock", async ({ page }) => {
   const rejectRequests: string[] = []
   page.on("request", (request) => {
     if (request.method() !== "POST") return
-    if (new URL(request.url()).pathname === `/api/session/${sessionID}/question/question-request/reject`)
+    if (new URL(request.url()).pathname === `/api/session/${sessionID}/form/question-request`)
       rejectRequests.push(request.url())
   })
 
@@ -67,10 +67,10 @@ test("shows a pending question dock", async ({ page }) => {
   const reply = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
-      new URL(request.url()).pathname === `/api/session/${sessionID}/question/question-request/reply`,
+      new URL(request.url()).pathname === `/api/session/${sessionID}/form/question-request/reply`,
   )
   await question.getByRole("button", { name: "Submit" }).click()
-  expect((await reply).postDataJSON()).toEqual({ answers: [["Minimal"]] })
+  expect((await reply).postDataJSON()).toEqual({ answer: { q0: "Minimal" } })
 })
 
 test("shows a pending permission dock", async ({ page }) => {
@@ -101,7 +101,7 @@ test("shows a pending permission dock", async ({ page }) => {
   await permission.getByRole("button", { name: "Allow once" }).click()
   const request = await reply
   expect(new URL(request.url()).pathname).toBe(`/api/session/${sessionID}/permission/permission-request/reply`)
-  expect(request.postDataJSON()).toEqual({ reply: "once" })
+  expect(request.postDataJSON()).toEqual({ decision: "once" })
 })
 
 test("restores the draft caret before typing after a request dock closes", async ({ page }) => {

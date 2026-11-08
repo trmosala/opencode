@@ -5,7 +5,7 @@ import {
   mockStressTimeline,
   stressSessionHref,
 } from "../performance/timeline/timeline-test-helpers"
-import { expectSessionTitle } from "../utils/waits"
+import { expectSessionTitle, openSidebarProjects } from "../utils/waits"
 import { mockOpenCodeServer } from "../utils/mock-server"
 
 for (const newLayoutDesigns of [false, true]) {
@@ -271,7 +271,7 @@ test("cold CM3 sessions hydrate their project before starting a new chat", async
   )
   await page.goto(stressSessionHref(fixture.sourceID))
   await expectSessionTitle(page, fixture.expected.sourceTitle)
-  await openProjectNavigation(page)
+  await openSidebarProjects(page)
   const project = page.locator(`.cm3-sidebar-project[title="${fixture.directory}"]`)
   await expect(project).toHaveAttribute("data-active", "true")
   const projectName = (await project.locator(":scope > span").innerText()).trim()
@@ -314,7 +314,7 @@ for (const remote of [false, true]) {
     )
     await page.goto(stressSessionHref(fixture.sourceID))
     await expectSessionTitle(page, fixture.expected.sourceTitle)
-    await openProjectNavigation(page)
+    await openSidebarProjects(page)
     const selected = page.locator('.cm3-sidebar-project[title="C:/OpenCode/OtherProject"]')
     await selected.click()
     await expect(selected).toHaveAttribute("data-active", "true")
@@ -358,7 +358,7 @@ test("CM3 projects retain editing, closing, and persistent drag ordering", async
     { directory: fixture.directory },
   )
   await page.goto("/")
-  await openProjectNavigation(page)
+  await openSidebarProjects(page)
   const projects = page.getByRole("complementary", { name: "Projects", exact: true })
   const other = projects.locator('[data-component="home-project-row"][title="C:/OpenCode/OtherProject"]')
   const third = projects.locator('[data-component="home-project-row"][title="C:/OpenCode/ThirdProject"]')
@@ -388,7 +388,7 @@ test("CM3 projects retain editing, closing, and persistent drag ordering", async
   await page.getByRole("menuitem", { name: "Close", exact: true }).click()
   await expect(third).toHaveCount(0)
   await page.reload()
-  await openProjectNavigation(page)
+  await openSidebarProjects(page)
   await expect(projects.locator('[data-component="home-project-row"] > span')).toHaveText([
     fixture.project.name,
     "Renamed project",
@@ -426,9 +426,9 @@ for (const width of [1280, 390]) {
       await page.goto("/")
       const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       const projects = page.getByRole("complementary", { name: "Projects", exact: true })
       const pinned = projects.getByRole("region", { name: "Pinned", exact: true })
       const other = projects.getByTitle("C:/OpenCode/OtherProject", { exact: true })
@@ -450,7 +450,7 @@ for (const width of [1280, 390]) {
 
       await page.reload()
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
       await expect(pinned.getByTitle("C:/OpenCode/OtherProject", { exact: true })).toBeVisible()
       await other.hover()
@@ -482,7 +482,7 @@ for (const width of [1280, 390]) {
         .toEqual(["C:/OpenCode/OtherProject"])
       await page.reload()
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await expect(other).toHaveCount(0)
       await expect(pinned).toHaveCount(0)
       await expect(third).toBeEnabled()
@@ -498,7 +498,7 @@ for (const width of [1280, 390]) {
       await picker.getByRole("button", { name: "C:/OpenCode/ OtherProject /", exact: true }).click()
       await expect(picker).toHaveCount(0)
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       const reopened = projects.getByTitle("C:\\OpenCode\\OtherProject", { exact: true })
       await expect(reopened).toBeEnabled()
       await expect(pinned).toHaveCount(0)
@@ -507,7 +507,7 @@ for (const width of [1280, 390]) {
       await page.keyboard.press("Escape")
       await page.reload()
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await expect(reopened).toBeEnabled()
       await expect(pinned).toHaveCount(0)
     })
@@ -540,7 +540,7 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
     { directory: fixture.directory },
   )
   await page.goto("/")
-  await openProjectNavigation(page)
+  await openSidebarProjects(page)
   const projects = page.getByRole("complementary", { name: "Projects", exact: true })
   const rows = projects.locator('[data-component="home-project-row"] > span')
   await expect(rows).toHaveText([fixture.project.name, "ThirdProject", "OtherProject", "FourthProject"])
@@ -574,6 +574,9 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
     const target = projects.getByTitle(move.target, { exact: true })
     await expect(source).toBeEnabled()
     await expect(target).toBeEnabled()
+    // The workflow sections pin to the sidebar bottom, so the last project can start scrolled out of view.
+    await source.scrollIntoViewIfNeeded()
+    await target.scrollIntoViewIfNeeded()
     const sourceBox = await source.boundingBox()
     const targetBox = await target.boundingBox()
     expect(sourceBox).not.toBeNull()
@@ -584,7 +587,7 @@ test("CM3 project sections retain interleaved drag ordering in both directions",
     await page.mouse.up()
     await expect(rows).toHaveText(move.order)
     await page.reload()
-    await openProjectNavigation(page)
+    await openSidebarProjects(page)
     await expect(rows).toHaveText(move.order)
     await expect(
       projects.getByRole("region", { name: "Pinned", exact: true }).locator('[data-component="home-project-row"]'),
@@ -639,9 +642,9 @@ for (const width of [1280, 390]) {
       const navigation = page.getByRole("complementary", { name: "Projects and sessions", exact: true })
       const toggle = page.getByRole("button", { name: "Toggle sidebar", exact: true })
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await page.locator("html").evaluate((element, dir) => element.setAttribute("dir", dir), direction)
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       const projects = navigation.getByRole("complementary", { name: "Projects", exact: true })
       const pinned = projects.getByRole("region", { name: "Pinned", exact: true })
       const titles = ".cm3-sidebar-session .cm3-sidebar-task-copy > span:first-child"
@@ -651,12 +654,12 @@ for (const width of [1280, 390]) {
       await expect(pinned.getByTitle(fixture.directory, { exact: true })).toBeVisible()
       await projects.getByTitle(other.directory, { exact: true }).click()
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await expect(recent).toHaveText(expected)
       await expect(navigation.locator("[data-session-id]")).toHaveCount(3)
       await page.reload()
       if (width === 390) await toggle.click()
-      await openProjectNavigation(page)
+      await openSidebarProjects(page)
       await expect(recent).toHaveText(expected)
       await expect(page).toHaveURL("/")
     })
@@ -760,7 +763,7 @@ test("CM3 home keeps project navigation in the sidebar", async ({ page }) => {
     localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
   })
   await page.goto("/")
-  await openProjectNavigation(page)
+  await openSidebarProjects(page)
   await expect(page.locator(`.cm3-sidebar-project[title="${fixture.directory}"]`)).toBeVisible()
   await expect(page.locator('[data-slot="home-projects-scroll"]')).toHaveCount(0)
   await expect(page.locator(".cm3-sidebar-footer").getByRole("button", { name: "Projects", exact: true })).toHaveCount(
@@ -835,7 +838,9 @@ test("CM3 landing suggestions edit the real project draft", async ({ page }, tes
   })
   await page.goto("/new-session?draftId=draft_cm3_live")
   await expect(page.locator('[data-cm3-thread="false"]')).toBeVisible()
-  await expect(page.getByRole("heading", { name: "What should we build in SmokeProject?", exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: `What should we build in ${fixture.project.name}?`, exact: true }),
+  ).toBeVisible()
   const input = page.locator('[data-component="prompt-input"][contenteditable="true"]')
   await expect(input).toHaveCount(1)
   await page.getByRole("button", { name: "Trace a bug", exact: true }).click()
@@ -915,7 +920,7 @@ for (const newLayout of [true, false]) {
     await expect(page.locator('[data-cm3-thread="false"]')).toBeVisible()
     if (newLayout) {
       await expect(
-        page.getByRole("heading", { name: "What should we build in SmokeProject?", exact: true }),
+        page.getByRole("heading", { name: `What should we build in ${fixture.project.name}?`, exact: true }),
       ).toBeVisible()
     } else {
       const landing = page.locator('[data-component="cm3-legacy-landing"]')
@@ -1472,10 +1477,12 @@ for (const action of ["sidebar", "command", "failure"] as const) {
     })
     let fail = failure
     const requests: string[] = []
-    await page.route(`**/api/session/${fixture.targetID}/archive`, async (route) => {
-      expect(route.request().method()).toBe("POST")
+    await page.route(`**/api/session/${fixture.targetID}`, async (route) => {
+      if (route.request().method() !== "PATCH") return route.fallback()
+      expect(route.request().postDataJSON()).toEqual({ archived: true })
       requests.push(route.request().url())
-      if (fail) return route.fulfill({ status: 500, json: { message: "Archive failed" } })
+      // 2.2.5 session.update declares 400/401/404; the client drops bodies of undeclared statuses like 500.
+      if (fail) return route.fulfill({ status: 400, json: { _tag: "InvalidRequestError", message: "Archive failed" } })
       entries.find((session) => session.id === fixture.targetID)!.time.archived = Date.now()
       return route.fulfill({ status: 204 })
     })
@@ -1617,11 +1624,6 @@ test("CM3 keeps saved old session pins beyond the recent-session limit", async (
   await expect(pinned.getByRole("group")).toHaveCount(1)
   await expect(page.getByRole("region", { name: "Inbox", exact: true }).getByRole("group")).toHaveCount(5)
 })
-
-async function openProjectNavigation(page: Page) {
-  const disclosure = page.locator(".cm3-sidebar-project-navigation")
-  if ((await disclosure.getAttribute("open")) === null) await disclosure.locator("summary").click()
-}
 
 for (const direction of ["ltr", "rtl"] as const) {
   test(`compact titlebar tabs keep navigation and close separate in ${direction}`, async ({ page }) => {

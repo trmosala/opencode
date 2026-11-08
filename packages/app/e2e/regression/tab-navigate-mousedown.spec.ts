@@ -8,7 +8,7 @@ const sessionB = session("ses_tab_b", "Tab B session")
 const sessionC = session("ses_tab_c", "Tab C session")
 const unresolvedSessionID = "ses_tab_unresolved"
 
-test("pressing mouse down on a tab navigates before mouse up", async ({ page }) => {
+test("a split-capable tab preserves the current chat until a click completes", async ({ page }) => {
   await mockServer(page)
   await page.addInitScript(
     ({ server, sessionA, sessionB }) => {
@@ -36,8 +36,8 @@ test("pressing mouse down on a tab navigates before mouse up", async ({ page }) 
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
 
-  // Navigation must happen on mousedown, before the button is released.
-  await expect(page).toHaveURL(new RegExp(`${hrefB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`))
+  // Keep the source chat selected while the gesture could still become a split drag.
+  await expect(page).toHaveURL(new RegExp(`${hrefA.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`))
   await page.mouse.up()
   await expect(page).toHaveURL(new RegExp(`${hrefB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`))
 })

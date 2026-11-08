@@ -23,6 +23,8 @@ test("restores review mode and selected file per session", async ({ page }) => {
   await selectFile(page, "beta.ts")
 
   await switchSession(page, titleB)
+  // CM3 side-panel tabs are per session and Review is never auto-opened, so open it in B too.
+  await page.getByRole("button", { name: "Toggle review" }).click()
   await expect(page.getByRole("button", { name: "Git changes" })).toBeVisible()
   await selectFile(page, "gamma.ts")
 
@@ -109,7 +111,7 @@ async function setup(page: Page) {
   )
   await page.addInitScript(
     ({ directory, server, sessions }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({

@@ -51,7 +51,7 @@ for (const newLayoutDesigns of [false, true]) {
       await expect(page.getByRole("tab", { name: "Context", exact: true })).toHaveAttribute("aria-selected", "true")
       await context.click()
       await expect(page.getByRole("tab", { name: "Context", exact: true })).toHaveCount(0)
-      const editor = page.locator('[data-component="prompt-input"] [contenteditable="true"]')
+      const editor = page.locator('[data-component="prompt-input"][contenteditable="true"]')
       await editor.press("!")
       await expect(context).toBeHidden()
       await editor.press("Backspace")

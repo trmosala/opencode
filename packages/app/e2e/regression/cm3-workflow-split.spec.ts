@@ -167,6 +167,8 @@ test("new chats and closing tabs target the focused split pane", async ({ page }
   await organize(page, fixture.targetID, "Open in split view")
   await editor(page, "secondary").click()
   await page.getByRole("button", { name: "New chat", exact: true }).click()
+  // The target composer is also empty and stays mounted until the draft route commits; wait for it to leave.
+  await expect(pane(page, "secondary").getByRole("heading", { name: fixture.expected.targetTitle })).toHaveCount(0)
   await expect(editor(page, "secondary")).toHaveText("")
   await editor(page, "secondary").fill("New right draft")
   await expect(editor(page, "primary")).toHaveText("Left stays here")
@@ -228,6 +230,10 @@ for (const attention of ["question", "permission", "error", "prompt"] as const) 
     await setup(page, { events: () => events.splice(0).map((payload) => ({ directory: fixture.directory, payload })) })
     await organize(page, fixture.targetID, "Snooze for 1 hour")
     const sessionID = fixture.targetID
+    // Snoozing awaits a history read; prove it applied before attention arrives, or the wake is never exercised.
+    await expect(rows(page).locator('[data-workflow="inbox"]').locator(`[data-session-id="${sessionID}"]`)).toHaveCount(
+      0,
+    )
     if (attention === "question")
       events.push({
         id: "evt_question",

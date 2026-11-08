@@ -139,7 +139,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   )
   await page.routeWebSocket("**/pty/pty_review_terminal/connect", () => undefined)
   await page.addInitScript(() => {
-    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
     localStorage.setItem(
       "opencode.global.dat:layout",
       JSON.stringify({ review: { diffStyle: "split", panelOpened: true } }),
@@ -149,6 +149,8 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
   await expectSessionTitle(page, title)
   await expect(page.locator("#review-panel")).toBeVisible()
+  // CM3 no longer auto-selects Review when the panel opens without tabs.
+  await page.getByRole("button", { name: "Toggle review" }).click()
   await expectTree(page, 8, "git-0.ts")
 
   await selectMode(page, "Git changes", "Branch changes")
