@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { WebContents } from "electron"
-import {
-  armTargetAttach,
-  installInRootAndChildTargets,
-  runTargetInstallers,
-} from "./cdp-targets"
+import { armTargetAttach, installInRootAndChildTargets, runTargetInstallers } from "./cdp-targets"
 
 describe("runTargetInstallers", () => {
   test("runs installers in registration order before resume", async () => {
@@ -26,20 +22,17 @@ describe("runTargetInstallers", () => {
         steps.push(`resume:${sessionId}`)
       },
     )
-    expect(steps).toEqual([
-      "recorder:iframe-1",
-      "controller:iframe-1",
-      "network:iframe-1",
-      "resume:iframe-1",
-    ])
+    expect(steps).toEqual(["recorder:iframe-1", "controller:iframe-1", "network:iframe-1", "resume:iframe-1"])
   })
 
   test("does not resume the root target", async () => {
     const steps: string[] = []
     await runTargetInstallers(
-      [async () => {
-        steps.push("install")
-      }],
+      [
+        async () => {
+          steps.push("install")
+        },
+      ],
       undefined,
       async () => {
         steps.push("resume")
@@ -51,9 +44,11 @@ describe("runTargetInstallers", () => {
   test("does not resume when a resume callback is omitted", async () => {
     const steps: string[] = []
     await runTargetInstallers(
-      [async (sessionId) => {
-        steps.push(`install:${sessionId}`)
-      }],
+      [
+        async (sessionId) => {
+          steps.push(`install:${sessionId}`)
+        },
+      ],
       "iframe-2",
     )
     expect(steps).toEqual(["install:iframe-2"])
@@ -109,9 +104,9 @@ describe("armTargetAttach", () => {
     // installers are async; wait until resume has been issued for the child.
     const started = Date.now()
     while (
-      Date.now() - started < 1000
-      && !commands.some((command) =>
-        command.method === "Runtime.runIfWaitingForDebugger" && command.sessionId === "iframe-session"
+      Date.now() - started < 1000 &&
+      !commands.some(
+        (command) => command.method === "Runtime.runIfWaitingForDebugger" && command.sessionId === "iframe-session",
       )
     ) {
       await Bun.sleep(5)
@@ -122,8 +117,10 @@ describe("armTargetAttach", () => {
       "controller:iframe-session",
       "network:iframe-session",
     ])
-    expect(commands.some((command) =>
-      command.method === "Runtime.runIfWaitingForDebugger" && command.sessionId === "iframe-session"
-    )).toBe(true)
+    expect(
+      commands.some(
+        (command) => command.method === "Runtime.runIfWaitingForDebugger" && command.sessionId === "iframe-session",
+      ),
+    ).toBe(true)
   })
 })

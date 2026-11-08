@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { OpenCodeEvent, SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { OpenCodeEvent, SessionMessageInfo } from "@opencode/client/promise"
 import { createV2SessionReducer } from "./server-session-v2-reducer"
 
 const event = (input: object) => input as OpenCodeEvent
@@ -18,18 +18,18 @@ describe("v2 session reducer", () => {
     apply({
       ...base,
       id: "evt_admitted",
-      type: "session.input.admitted",
+      type: "session.inbox.enqueued",
       data: {
         sessionID: "ses_1",
-        inputID: "msg_user",
-        input: { type: "user", delivery: "steer", data: { text: "hello" } },
+        inboxID: "msg_user",
+        item: { type: "user", delivery: "steer", payload: { text: "hello" } },
       },
     })
     apply({
       ...base,
       id: "evt_promoted",
-      type: "session.input.promoted",
-      data: { sessionID: "ses_1", inputID: "msg_user" },
+      type: "session.inbox.delivered",
+      data: { sessionID: "ses_1", inboxID: "msg_user" },
     })
     apply({
       ...base,
@@ -92,19 +92,19 @@ describe("v2 session reducer", () => {
       ...base,
       id: "evt_tool_start",
       type: "session.tool.input.started",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", callID: "call_1", name: "bash" },
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", id: "call_1", name: "bash" },
     })
     apply({
       ...base,
       id: "evt_tool_delta",
       type: "session.tool.input.delta",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", callID: "call_1", delta: "{}" },
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", id: "call_1", delta: "{}" },
     })
     apply({
       ...base,
       id: "evt_tool_called",
       type: "session.tool.called",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", callID: "call_1", input: {}, executed: true },
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", id: "call_1", input: {}, executed: true },
     })
     apply({
       ...base,
@@ -113,7 +113,7 @@ describe("v2 session reducer", () => {
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
-        callID: "call_1",
+        id: "call_1",
         metadata: {},
         content: [{ type: "text", text: "done" }],
         executed: true,
@@ -146,8 +146,8 @@ describe("v2 session reducer", () => {
       event({
         ...base,
         id: "evt_promoted",
-        type: "session.input.promoted",
-        data: { sessionID: "ses_1", inputID: "msg_user" },
+        type: "session.inbox.delivered",
+        data: { sessionID: "ses_1", inboxID: "msg_user" },
       }),
     )
 

@@ -51,9 +51,9 @@ describe("parseWppArtifact", () => {
   })
 
   test("rejects a /resource/ URL that is NOT presigned (no bytes we can self-fetch)", () => {
-    expect(parseWppArtifact(
-      "https://wpp-ai-base-prd-persistentdatabucket.s3.eu-west-1.amazonaws.com/resource/x/y/z.png",
-    )).toBeNull()
+    expect(
+      parseWppArtifact("https://wpp-ai-base-prd-persistentdatabucket.s3.eu-west-1.amazonaws.com/resource/x/y/z.png"),
+    ).toBeNull()
   })
 
   test("video is gated off by default and opt-in via includeVideo", () => {

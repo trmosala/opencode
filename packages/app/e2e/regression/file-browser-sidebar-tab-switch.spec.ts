@@ -75,7 +75,9 @@ for (const direction of ["ltr", "rtl"] as const) {
     const tabs = page.locator(".session-side-panel-tabs")
     const list = tabs.getByRole("tablist")
     await expect(header.getByRole("tablist")).toBeVisible()
-    await expect(panel.getByRole("tablist")).toHaveCount(0)
+    // CM3 portals its header into #review-panel; the header's tablist must be the panel's only one.
+    await expect(panel.locator('[data-cm3-region="header"]')).toHaveCount(1)
+    await expect(panel.getByRole("tablist")).toHaveCount(1)
     const originalList = await list.elementHandle()
     await openPanelFileBrowser(page)
     await panel.getByRole("button", { name: "file-00.ts", exact: true }).dblclick()
@@ -126,9 +128,11 @@ for (const direction of ["ltr", "rtl"] as const) {
     await expect(tabs.getByRole("tab", { name: "file-01.ts", exact: true })).toHaveCount(0)
     await expect(filter).toHaveValue("file-0")
 
+    // CM3 auto-opens one New tab when the panel first opens without tabs.
+    await expect(tabs.getByRole("tab", { name: "New tab", exact: true })).toHaveCount(1)
     for (let index = 0; index < 6; index++) {
       await tabs.getByRole("button", { name: "New tab", exact: true }).click()
-      await expect(tabs.getByRole("tab", { name: "New tab", exact: true })).toHaveCount(index + 1)
+      await expect(tabs.getByRole("tab", { name: "New tab", exact: true })).toHaveCount(index + 2)
       await expect(tabs.locator('[role="tab"][aria-selected="true"]')).toHaveText("New tab")
     }
     await page.setViewportSize({ width: 1000, height: 900 })
@@ -287,7 +291,7 @@ async function setup(
 
   await page.addInitScript(
     ({ directory, server, sessionID }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({

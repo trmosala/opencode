@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { SessionMessageInfo } from "@opencode/client/promise"
 import { normalizeSessionMessages } from "./session-message"
 
 describe("normalizeSessionMessages", () => {
@@ -65,7 +65,6 @@ describe("normalizeSessionMessages", () => {
         status: "completed",
         reason: "auto",
         summary: "summary",
-        recent: "recent",
         time: { created: 8 },
       },
     ] satisfies SessionMessageInfo[]

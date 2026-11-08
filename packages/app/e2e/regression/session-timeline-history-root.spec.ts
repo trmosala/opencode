@@ -133,11 +133,18 @@ for (const scenario of scenarios) {
           const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
           const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
           const view = viewport?.getBoundingClientRect()
+          // Following the tail, appended rows (e.g. the Interrupted divider) may legitimately push the top row out of view.
+          const pinned = !!viewport && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 2
           const visible = (partID: string) => {
             const part = viewport?.querySelector<HTMLElement>(`[data-timeline-part-id="${CSS.escape(partID)}"]`)
             const rect = part?.getBoundingClientRect()
             return (
-              !!rect && !!view && rect.width > 0 && rect.height > 0 && rect.bottom > view.top && rect.top < view.bottom
+              !!rect &&
+              !!view &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              (rect.bottom > view.top || pinned) &&
+              rect.top < view.bottom
             )
           }
           if (!virtual || state.visibleParts.length === 0 || state.visibleParts.some((partID) => !visible(partID)))

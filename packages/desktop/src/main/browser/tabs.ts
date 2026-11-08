@@ -113,7 +113,15 @@ import { generateBrowserPassword } from "./password-generation-command"
 import { agentHistory } from "./agent-history"
 import { createTabHandler, type NativeTabAction } from "./agent-tabs"
 import { setBrowserTabHandler, setBrowserPanelHandler } from "./registry"
-import { failure, success, hasFrameTarget, parsePanelRequest, type TabRequest, type PanelRequest, type PanelResult } from "@cookiemonster/cm-browser/protocol"
+import {
+  failure,
+  success,
+  hasFrameTarget,
+  parsePanelRequest,
+  type TabRequest,
+  type PanelRequest,
+  type PanelResult,
+} from "@cookiemonster/cm-browser/protocol"
 import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
 import { transferVaultBackup } from "./vault-backup"
 import { createLeaveConfirmation } from "./leave-confirmation"
@@ -247,12 +255,24 @@ setBrowserPanelHandler(async (sessionID, request, signal, deadline) => {
   const target = request.view === "browser" ? group?.tabs.find((tab) => tab.id === request.tabID) : undefined
   if (request.view === "browser" && (!target?.agentAccess || browserTabReserved(target)))
     return failure("access_denied", nativeT("desktop.browser.operationUnavailable"))
-  if (owner.panelRequest || owner.suspended || [...(group?.tabs ?? [])].some((tab) => browserOperationBusy.has(tab.id) || tab.leavePending))
+  if (
+    owner.panelRequest ||
+    owner.suspended ||
+    [...(group?.tabs ?? [])].some((tab) => browserOperationBusy.has(tab.id) || tab.leavePending)
+  )
     return failure("unavailable", nativeT("desktop.browser.tabs.busy"))
   try {
-    if (signal.aborted || Date.now() >= deadline || owner.shutting || owner.win.isDestroyed() ||
-      owner.win.webContents.isDestroyed() || !owner.win.isVisible() || owner.win.isMinimized() ||
-      (owner.viewport && owner.viewport.sessionID !== sessionID)) throw new Error()
+    if (
+      signal.aborted ||
+      Date.now() >= deadline ||
+      owner.shutting ||
+      owner.win.isDestroyed() ||
+      owner.win.webContents.isDestroyed() ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
+      (owner.viewport && owner.viewport.sessionID !== sessionID)
+    )
+      throw new Error()
     if (target && group) {
       group.activeID = target.id
       persistGroup(owner, group)
@@ -365,7 +385,13 @@ export function browserLinkContext(owner: Owner, sessionID: string | null, lease
   owner.captureChecks?.forEach((check) => check())
 }
 
-function requestDesktopPanel(owner: Owner, sessionID: string, request: PanelRequest, signal: AbortSignal, deadline: number) {
+function requestDesktopPanel(
+  owner: Owner,
+  sessionID: string,
+  request: PanelRequest,
+  signal: AbortSignal,
+  deadline: number,
+) {
   if (owner.panelRequest) return Promise.reject(new Error("Panel request busy"))
   const link = owner.linkContext
   const lifecycle = owner.screenshotEpoch
@@ -383,17 +409,34 @@ function requestDesktopPanel(owner: Owner, sessionID: string, request: PanelRequ
   const check = () => {
     signal.throwIfAborted()
     if (
-      Date.now() >= deadline || owner.shutting || owner.win.isDestroyed() || owner.win.webContents.isDestroyed() ||
-      owners.get(owner.win.webContents.id) !== owner || !owner.win.isVisible() || owner.win.isMinimized() ||
+      Date.now() >= deadline ||
+      owner.shutting ||
+      owner.win.isDestroyed() ||
+      owner.win.webContents.isDestroyed() ||
+      owners.get(owner.win.webContents.id) !== owner ||
+      !owner.win.isVisible() ||
+      owner.win.isMinimized() ||
       [...owners.values()].filter((entry) => entry.linkContext?.sessionID === sessionID).length !== 1 ||
-      owner.suspended || owner.linkContext !== link || link?.sessionID !== sessionID ||
-      owner.screenshotEpoch !== lifecycle || !browserAgentEnabled() || browserAgentEpoch() !== globalEpoch ||
-      browserTaskPaused(sessionID) || browserTaskEpoch(sessionID) !== taskEpoch ||
+      owner.suspended ||
+      owner.linkContext !== link ||
+      link?.sessionID !== sessionID ||
+      owner.screenshotEpoch !== lifecycle ||
+      !browserAgentEnabled() ||
+      browserAgentEpoch() !== globalEpoch ||
+      browserTaskPaused(sessionID) ||
+      browserTaskEpoch(sessionID) !== taskEpoch ||
       (owner.viewport && owner.viewport.sessionID !== sessionID) ||
-      (target && (owner.groups.get(sessionID) !== group || !group?.tabs.includes(target) ||
-        group.activeID !== target.id || target.contents !== contents || target.contents.isDestroyed() ||
-        target.revision !== revision || target.accessRevision !== accessRevision || target.agentAccess !== granted))
-    ) throw new Error("Panel authority changed")
+      (target &&
+        (owner.groups.get(sessionID) !== group ||
+          !group?.tabs.includes(target) ||
+          group.activeID !== target.id ||
+          target.contents !== contents ||
+          target.contents.isDestroyed() ||
+          target.revision !== revision ||
+          target.accessRevision !== accessRevision ||
+          target.agentAccess !== granted))
+    )
+      throw new Error("Panel authority changed")
   }
   return new Promise<PanelResult>((resolve, reject) => {
     const finish = (result?: PanelResult) => {
@@ -411,31 +454,51 @@ function requestDesktopPanel(owner: Owner, sessionID: string, request: PanelRequ
       else reject(new Error("Panel operation unavailable"))
     }
     const cancel = () => finish()
-    const validate = () => { try { check() } catch { cancel() } }
+    const validate = () => {
+      try {
+        check()
+      } catch {
+        cancel()
+      }
+    }
     const checks = (owner.captureChecks ??= new Set())
     const listeners: [EventEmitter, string][] = [
       ...["close", "closed", "hide", "minimize"].map((name): [EventEmitter, string] => [owner.win, name]),
-      ...["destroyed", "render-process-gone", "did-start-navigation"].map(
-        (name): [EventEmitter, string] => [owner.win.webContents, name],
-      ),
+      ...["destroyed", "render-process-gone", "did-start-navigation"].map((name): [EventEmitter, string] => [
+        owner.win.webContents,
+        name,
+      ]),
     ]
     const pending: NonNullable<Owner["panelRequest"]> = {
-      request: event, check, cancel,
+      request: event,
+      check,
+      cancel,
       acknowledge(value) {
         if (!record(value) || value.id !== event.id || value.sessionID !== sessionID) return false
         const { id, sessionID: acknowledgedSession, ...state } = value
         if ("op" in state) return false
         const observed = parsePanelRequest({ ...state, op: "set_panel" })
-        if (!observed || observed.view !== request.view ||
-          (request.view === "browser" && (observed.view !== "browser" || observed.tabID !== request.tabID))) return false
+        if (
+          !observed ||
+          observed.view !== request.view ||
+          (request.view === "browser" && (observed.view !== "browser" || observed.tabID !== request.tabID))
+        )
+          return false
         check()
         if (request.view === "browser") {
           if (!target) return false
           const native = target.view.getBounds()
           // Private blank tabs display the renderer's landing page without a native page.
           const landing = !target.agentCreated && target.contents.getURL() === "about:blank"
-          if (!landing && (owner.attached !== target || !owner.viewport || !native.width || !native.height ||
-            !owner.win.contentView.children.includes(target.view))) return false
+          if (
+            !landing &&
+            (owner.attached !== target ||
+              !owner.viewport ||
+              !native.width ||
+              !native.height ||
+              !owner.win.contentView.children.includes(target.view))
+          )
+            return false
           finish({ view: "browser", tabID: target.id, browserReady: true })
           return true
         }
@@ -454,7 +517,9 @@ function requestDesktopPanel(owner: Owner, sessionID: string, request: PanelRequ
     try {
       check()
       owner.win.webContents.send("desktop-panel-request", event)
-    } catch { cancel() }
+    } catch {
+      cancel()
+    }
   }).then((result) => {
     check()
     return result
@@ -464,7 +529,13 @@ function requestDesktopPanel(owner: Owner, sessionID: string, request: PanelRequ
 export function browserPanelRequestCurrent(owner: Owner, id: unknown, sessionID: unknown) {
   const pending = owner.panelRequest
   if (!pending || id !== pending.request.id || sessionID !== pending.request.sessionID) return false
-  try { pending.check(); return true } catch { pending.cancel(); return false }
+  try {
+    pending.check()
+    return true
+  } catch {
+    pending.cancel()
+    return false
+  }
 }
 
 export function browserPanelAcknowledgement(owner: Owner, input: unknown) {
@@ -1729,7 +1800,8 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
   if (command.op === "state") return state(group)
   if (command.op === "agent-pause") {
     if (typeof command.paused !== "boolean") throw new Error(nativeT("desktop.browser.operationUnavailable"))
-    if (!command.paused && group.tabs.some((tab) => tab.loginBusy)) throw new Error(nativeT("desktop.browser.tabs.busy"))
+    if (!command.paused && group.tabs.some((tab) => tab.loginBusy))
+      throw new Error(nativeT("desktop.browser.tabs.busy"))
     setBrowserTaskPaused(sessionID, command.paused)
     owners.forEach((entry) => {
       const current = entry.groups.get(sessionID)
@@ -2910,7 +2982,13 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
           throw error
         }
         publish(owner, destination)
-        await requestDesktopPanel(owner, sessionID, { op: "set_panel", view: "browser", tabID: created.id }, signal, deadline)
+        await requestDesktopPanel(
+          owner,
+          sessionID,
+          { op: "set_panel", view: "browser", tabID: created.id },
+          signal,
+          deadline,
+        )
         return created.id
       }
       if (!target || !group) throw new Error("Missing tab")
@@ -2919,7 +2997,13 @@ function resolveNativeTabAction(sessionID: string, request: TabRequest): NativeT
         persistGroup(owner, group)
         layout(owner)
         publish(owner, group)
-        await requestDesktopPanel(owner, sessionID, { op: "set_panel", view: "browser", tabID: target.id }, signal, deadline)
+        await requestDesktopPanel(
+          owner,
+          sessionID,
+          { op: "set_panel", view: "browser", tabID: target.id },
+          signal,
+          deadline,
+        )
         return target.id
       }
       const contents = target.view.webContents

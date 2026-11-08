@@ -43,7 +43,9 @@ describe("collectImageInputs", () => {
     PNG_1X1.copy(large)
 
     expect(() =>
-      collectImageInputs([{ role: "user", content: [image(large), image(large), image(large), image(large), image(large)] }]),
+      collectImageInputs([
+        { role: "user", content: [image(large), image(large), image(large), image(large), image(large)] },
+      ]),
     ).toThrow("decoded bytes per request")
   })
 
@@ -54,9 +56,9 @@ describe("collectImageInputs", () => {
   })
 
   test("rejects data whose declared MIME type disagrees with its signature", () => {
-    expect(() =>
-      collectImageInputs([{ role: "user", content: [image(PNG_1X1, "image/jpeg")] }]),
-    ).toThrow("content is image/png")
+    expect(() => collectImageInputs([{ role: "user", content: [image(PNG_1X1, "image/jpeg")] }])).toThrow(
+      "content is image/png",
+    )
   })
 
   test("rejects non-canonical base64", () => {
@@ -66,14 +68,16 @@ describe("collectImageInputs", () => {
   })
 
   test("rejects excessive width, height, and total pixels", () => {
+    expect(() => collectImageInputs([{ role: "user", content: [image(pngHeader(MAX_IMAGE_WIDTH + 1, 1))] }])).toThrow(
+      "resolution is too large",
+    )
+    expect(() => collectImageInputs([{ role: "user", content: [image(pngHeader(1, MAX_IMAGE_HEIGHT + 1))] }])).toThrow(
+      "resolution is too large",
+    )
     expect(() =>
-      collectImageInputs([{ role: "user", content: [image(pngHeader(MAX_IMAGE_WIDTH + 1, 1))] }]),
-    ).toThrow("resolution is too large")
-    expect(() =>
-      collectImageInputs([{ role: "user", content: [image(pngHeader(1, MAX_IMAGE_HEIGHT + 1))] }]),
-    ).toThrow("resolution is too large")
-    expect(() =>
-      collectImageInputs([{ role: "user", content: [image(pngHeader(8000, Math.floor(MAX_IMAGE_PIXELS / 8000) + 1))] }]),
+      collectImageInputs([
+        { role: "user", content: [image(pngHeader(8000, Math.floor(MAX_IMAGE_PIXELS / 8000) + 1))] },
+      ]),
     ).toThrow("resolution is too large")
   })
 })

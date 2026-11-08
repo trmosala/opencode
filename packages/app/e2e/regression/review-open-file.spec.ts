@@ -63,7 +63,7 @@ test("opens and searches project files inline", async ({ page }) => {
   })
   await page.addInitScript(
     ({ directory, server, sessionID }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({
@@ -108,7 +108,8 @@ test("opens and searches project files inline", async ({ page }) => {
   const filter = panel.getByRole("combobox", { name: "Filter files" })
   await expect(filter).toBeFocused()
   await expect(tabs.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
-  await expect(panel.getByText("open-file-project", { exact: true })).toBeVisible()
+  // The CM3 header (which also shows the project name) lives inside #review-panel; scope to the tab content.
+  await expect(panel.getByRole("tabpanel").getByText("open-file-project", { exact: true })).toBeVisible()
 
   await panel.getByRole("button", { name: "README.md" }).click()
   await expect(tabs.getByRole("tab", { name: "README.md" })).toHaveAttribute("data-selected", "")
@@ -135,7 +136,9 @@ test("opens and searches project files inline", async ({ page }) => {
   await expect(tabs.getByRole("tab", { name: "nested.ts" })).toHaveCount(1)
   await expect(tabs.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
   await expect(sidebarToggle).toBeDisabled()
-  await tabs.locator("#session-side-panel-review-tab").click()
+  // CM3 no longer keeps a permanent Review tab; the header toggle opens it.
+  await page.getByRole("button", { name: "Toggle review", exact: true }).click()
+  await expect(tabs.locator("#session-side-panel-review-tab")).toHaveAttribute("data-selected", "")
   await expect(sidebarToggle).toBeEnabled()
   await tabs.getByRole("tab", { name: "Open file" }).click()
   await page.keyboard.press("Control+w")

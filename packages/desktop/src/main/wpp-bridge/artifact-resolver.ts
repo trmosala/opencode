@@ -56,9 +56,7 @@ export async function persistArtifacts(
 
   await mkdir(targetDir)
 
-  const persisted = await Promise.all(
-    artifacts.map((artifact) => persistOne(artifact, targetDir, doFetch, writeFile)),
-  )
+  const persisted = await Promise.all(artifacts.map((artifact) => persistOne(artifact, targetDir, doFetch, writeFile)))
   return persisted.filter((item): item is PersistedArtifact => item !== null)
 }
 

@@ -186,11 +186,15 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
         const request = parsePanelRequest({ ...args, op: "set_panel" })
         if (!request || "op" in args) throw new Error("Invalid desktop panel request.")
         await ask(context, { permission: "desktop_set_panel", patterns: ["*"], always: ["*"], metadata: request })
-        const response = tabState.extend({ panelResult: tool.schema.unknown() })
+        const response = tabState
+          .extend({ panelResult: tool.schema.unknown() })
           .safeParse(await run(port, context, request))
         const completed = response.success ? parsePanelResult(response.data.panelResult) : undefined
-        if (!completed || completed.view !== request.view ||
-          (request.view === "browser" && (completed.view !== "browser" || completed.tabID !== request.tabID)))
+        if (
+          !completed ||
+          completed.view !== request.view ||
+          (request.view === "browser" && (completed.view !== "browser" || completed.tabID !== request.tabID))
+        )
           throw new Error("Invalid desktop panel result.")
         return JSON.stringify(completed)
       },

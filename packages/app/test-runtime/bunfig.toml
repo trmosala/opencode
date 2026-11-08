@@ -1,0 +1,4 @@
+# Real-runtime tests need native fetch/WebSocket (no happy-dom globals or CORS).
+[test]
+root = "."
+preload = ["../ui/test/solid-jsx.ts"]

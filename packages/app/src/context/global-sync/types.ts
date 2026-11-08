@@ -13,9 +13,13 @@ import type {
   Todo,
   VcsInfo,
 } from "@opencode-ai/sdk/v2/client"
-import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { FileDiffInfo } from "@opencode/client/promise"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
-import type { CommandInfo, McpResource, McpServer, SessionMessageInfo } from "@opencode-ai/client/promise"
+import type { CommandInfo, McpResource, McpServer, SessionMessageInfo } from "@opencode/client/promise"
+import type { ManagedSkill } from "@/utils/cm-extensions"
+
+// 2.2.5 lists skills apart from commands; managed skills keep their V1 slash-command entry.
+export type SlashCommandInfo = CommandInfo & { skill?: ManagedSkill }
 import type { Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
 
@@ -33,7 +37,7 @@ export type ProjectMeta = {
 export type State = {
   status: "loading" | "partial" | "complete"
   agent: Agent[]
-  command: CommandInfo[]
+  command: SlashCommandInfo[]
   reference: ReferenceInfo[]
   project: string
   projectMeta: ProjectMeta | undefined

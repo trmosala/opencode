@@ -3,7 +3,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { fixture, pageMessages } from "./session-timeline.fixture"
 import { trackPageErrors, expectNoSmokeErrors } from "../utils/errors"
 import { mockOpenCodeServer } from "../utils/mock-server"
-import { APP_READY_TIMEOUT, expectAppVisible, expectSessionTitle } from "../utils/waits"
+import { APP_READY_TIMEOUT, expectAppVisible, expectSessionTitle, openSidebarProjects } from "../utils/waits"
 
 const forbiddenText = ["Load details", "Show earlier steps"]
 
@@ -712,6 +712,8 @@ function expectCompleteScroll(
 
 async function selectHomeProject(page: Page, projectName: string) {
   await page.goto("/")
+  await page.getByRole("button", { name: "Home", exact: true }).click()
+  await openSidebarProjects(page)
   const row = page
     .locator('[data-component="home-project-row"]')
     .filter({ hasText: new RegExp(projectName, "i") })

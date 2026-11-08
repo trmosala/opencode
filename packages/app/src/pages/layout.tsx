@@ -870,17 +870,12 @@ export default function LegacyLayout(props: ParentProps) {
   }
 
   async function archiveSession(session: Session) {
-    if ((await serverSDK().protocol) !== "v1") return
     const [store, setStore] = serverSync().child(session.directory)
     const sessions = store.session ?? []
     const index = sessions.findIndex((s) => s.id === session.id)
     const nextSession = sessions[index + 1] ?? sessions[index - 1]
 
-    await serverSDK().client.session.update({
-      sessionID: session.id,
-      directory: session.directory,
-      time: { archived: Date.now() },
-    })
+    await serverSDK().api.session.archive({ sessionID: session.id, directory: session.directory })
     setStore(
       produce((draft) => {
         const match = Binary.search(draft.session, session.id, (s) => s.id)
@@ -1289,12 +1284,13 @@ export default function LegacyLayout(props: ParentProps) {
 
     if (project.id && project.id !== "global") {
       const sdk = serverSDK()
-      if ((await sdk.protocol) !== "v1") return
-      const result = await sdk.client.project
-        .update({ projectID: project.id, directory: project.worktree, name })
-        .then((response) => response.data)
+      const result =
+        (await sdk.protocol) === "v1"
+          ? await sdk.client.project
+              .update({ projectID: project.id, directory: project.worktree, name })
+              .then((response) => response.data)
+          : await sdk.api.project.update({ projectID: project.id, name })
       if (!result) return
-      // const result = await serverSDK().api.project.update({ projectID: project.id, name })
       serverSync().set("project", (items) =>
         items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
       )
@@ -1390,16 +1386,20 @@ export default function LegacyLayout(props: ParentProps) {
 
     setBusy(directory, true)
 
-    const result = await serverSDK()
-      .client.worktree.remove({ directory: root, worktreeRemoveInput: { directory } })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.delete.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return false
+    const sdk = serverSDK()
+    const result = await (async () => {
+      if ((await sdk.protocol) === "v1")
+        return sdk.client.worktree.remove({ directory: root, worktreeRemoveInput: { directory } }).then((x) => x.data)
+      const project = await sdk.api.project.current({ location: { directory: root } })
+      await sdk.api.worktree.remove({ projectID: project.id, directory, force: false })
+      return true
+    })().catch((err) => {
+      showToast({
+        title: language.t("workspace.delete.failed.title"),
+        description: errorMessage(err, language.t("common.requestFailed")),
       })
+      return false
+    })
 
     setBusy(directory, false)
 
@@ -1456,20 +1456,22 @@ export default function LegacyLayout(props: ParentProps) {
       platform,
       serverSDK().scope,
     )
-    await serverSDK()
-      .client.instance.dispose({ directory })
-      .catch(() => undefined)
+    const sdk = serverSDK()
+    const v1 = (await sdk.protocol) === "v1"
+    if (v1) await sdk.client.instance.dispose({ directory }).catch(() => undefined)
 
-    const result = await serverSDK()
-      .client.worktree.reset({ directory: root, worktreeResetInput: { directory } })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.reset.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return false
+    // 2.2.5 has no native reset; the CookieMonster sidecar provides /worktree/reset with the V1 semantics.
+    const result = await (
+      v1
+        ? sdk.client.worktree.reset({ directory: root, worktreeResetInput: { directory } }).then((x) => x.data)
+        : sdk.extensions.worktree.reset(root, directory)
+    ).catch((err) => {
+      showToast({
+        title: language.t("workspace.reset.failed.title"),
+        description: errorMessage(err, language.t("common.requestFailed")),
       })
+      return false
+    })
 
     if (!result) {
       setBusy(directory, false)
@@ -1477,20 +1479,15 @@ export default function LegacyLayout(props: ParentProps) {
       return
     }
 
-    if ((await serverSDK().protocol) === "v1")
-      await Promise.all(
-        sessions
-          .filter((session) => session.time.archived === undefined)
-          .map((session) =>
-            serverSDK()
-              .client.session.update({
-                sessionID: session.id,
-                directory: session.directory,
-                time: { archived: Date.now() },
-              })
-              .catch(() => undefined),
-          ),
-      )
+    await Promise.all(
+      sessions
+        .filter((session) => session.time.archived === undefined)
+        .map((session) =>
+          serverSDK()
+            .api.session.archive({ sessionID: session.id, directory: session.directory })
+            .catch(() => undefined),
+        ),
+    )
 
     setBusy(directory, false)
     dismiss()
@@ -1822,16 +1819,24 @@ export default function LegacyLayout(props: ParentProps) {
 
   const createWorkspace = async (project: LocalProject) => {
     clearSidebarHoverState()
-    const created = await serverSDK()
-      .client.worktree.create({ directory: project.worktree })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.create.failed.title"),
-          description: errorMessage(err, language.t("common.requestFailed")),
-        })
-        return undefined
+    const sdk = serverSDK()
+    const v1 = (await sdk.protocol) === "v1"
+    const created = await (
+      v1
+        ? sdk.client.worktree.create({ directory: project.worktree }).then((x) => x.data)
+        : (project.id
+            ? Promise.resolve(project.id)
+            : sdk.api.project.current({ location: { directory: project.worktree } }).then((item) => item.id)
+          )
+            .then((projectID) => sdk.api.worktree.create({ projectID }))
+            .then((x) => ({ directory: x.directory, branch: undefined }))
+    ).catch((err) => {
+      showToast({
+        title: language.t("workspace.create.failed.title"),
+        description: errorMessage(err, language.t("common.requestFailed")),
       })
+      return undefined
+    })
 
     if (!created?.directory) return
 
@@ -1841,8 +1846,11 @@ export default function LegacyLayout(props: ParentProps) {
     const key = pathKey(created.directory)
     const root = pathKey(local)
 
-    setBusy(created.directory, true)
-    WorktreeState.pending(serverSDK().scope, created.directory)
+    // 2.2.5 creates the worktree before responding; V1 reports readiness through worktree.ready events.
+    if (v1) {
+      setBusy(created.directory, true)
+      WorktreeState.pending(serverSDK().scope, created.directory)
+    }
     setStore("workspaceExpanded", key, true)
     if (key !== created.directory) {
       setStore("workspaceExpanded", created.directory, true)

@@ -3,7 +3,7 @@ import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
-import type { ServerSDK } from "@/context/server-sdk"
+import { type ServerSDK, useServerSDK } from "@/context/server-sdk"
 import type { ServerSync } from "./server-sync"
 import { useParams, useSearchParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
@@ -184,6 +184,12 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
   },
 })
 
+export function useSessionPermission() {
+  const permission = usePermission()
+  const sdk = useServerSDK()
+  return createMemo(() => permission.ensureServerState(ServerConnection.key(sdk().server)))
+}
+
 type PermissionState = ReturnType<typeof createServerPermissionState>
 type PermissionEvent = Parameters<Parameters<ServerSDK["event"]["listen"]>[0]>[0]
 
@@ -249,7 +255,7 @@ function createServerPermissionState(input: { sdk: ServerSDK; sync: ServerSync }
       .reply({
         sessionID: request.sessionID,
         requestID: request.permissionID,
-        reply: request.response,
+        decision: request.response,
         location: request.directory ? { directory: request.directory } : undefined,
       })
       .catch(() => {

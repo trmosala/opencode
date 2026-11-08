@@ -1,3 +1,4 @@
+import { useChatSplit } from "./chat-split"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
 import { useLocation } from "@solidjs/router"
@@ -159,15 +160,19 @@ export const currentRoute = (pathname: string, search: string): LayoutRoute => {
 export const { use: useLayout, provider: LayoutProvider } = createSimpleContext({
   name: "Layout",
   gate: false,
-  init: () => {
+  init: (props: { secondary?: boolean }) => {
     const serverSdk = useServerSDK()
     const serverSync = useServerSync()
     const server = useServer()
     const tabs = useTabs()
     const platform = usePlatform()
     const location = useLocation()
+    const split = useChatSplit()
     const route = createMemo(() => {
-      const value = currentRoute(location.pathname, location.search)
+      const href = !props.secondary && split.state.active === "secondary" ? split.path() : ""
+      const value = href
+        ? currentRoute(href.split("?")[0], href.includes("?") ? `?${href.split("?")[1]}` : "")
+        : currentRoute(location.pathname, location.search)
       if (value.type === "home") return value
       if (value.server) return value
       if (value.type === "draft") {
@@ -267,7 +272,11 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
     }
 
-    const target = Persist.serverGlobal(serverSdk().scope, "layout", ["layout.v6"])
+    const target = Persist.serverGlobal(
+      serverSdk().scope,
+      props.secondary ? "layout.split" : "layout",
+      props.secondary ? [] : ["layout.v6"],
+    )
     const [store, setStore, _, ready] = persisted(
       { ...target, migrate },
       createStore({
@@ -367,7 +376,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       )
 
       scroll.drop(drop)
-      dropSessionState(drop)
+      // The primary layout owns cleanup of shared prompt and terminal persistence.
+      if (!props.secondary) dropSessionState(drop)
       setEphemeral(
         "sessionTabPreview",
         produce((draft) => {
@@ -494,6 +504,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     }
 
     createEffect(() => {
+      if (props.secondary) return
       const projects = server.projects.list()
       const seen = new Set(projects.map((project) => project.worktree))
 
@@ -527,6 +538,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     })
 
     createEffect(() => {
+      if (props.secondary) return
       const projects = enriched()
       if (projects.length === 0) return
       if (!serverSync().ready) return
@@ -539,6 +551,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     })
 
     createEffect(() => {
+      if (props.secondary) return
       const projects = enriched()
       if (projects.length === 0) return
 
@@ -575,16 +588,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const projectID = project.id
         void (async () => {
           const sdk = serverSdk()
-          if ((await sdk.protocol) !== "v1") return
-          return sdk.client.project
-            .update({ projectID, directory: worktree, icon: { color } })
-            .then((response) => response.data)
-            .then((result) => {
-              if (!result) return
-              serverSync().set("project", (items) =>
-                items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
-              )
-            })
+          const update =
+            (await sdk.protocol) === "v1"
+              ? sdk.client.project
+                  .update({ projectID, directory: worktree, icon: { color } })
+                  .then((response) => response.data)
+              : sdk.api.project.update({ projectID, icon: { color } })
+          return update.then((result) => {
+            if (!result) return
+            serverSync().set("project", (items) =>
+              items.map((item) => (item.id === result.id ? normalizeProjectInfo(result) : item)),
+            )
+          })
         })().catch(() => {
           if (colorRequested.get(worktree) === color) colorRequested.delete(worktree)
         })
@@ -595,6 +610,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     let sessionTimer: number | undefined
 
     onMount(() => {
+      if (props.secondary) return
       sessionFrame = requestAnimationFrame(() => {
         sessionFrame = undefined
         sessionTimer = window.setTimeout(() => {

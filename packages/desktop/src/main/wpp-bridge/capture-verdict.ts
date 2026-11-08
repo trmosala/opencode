@@ -65,9 +65,10 @@ export function decideCaptureVerdict(input: CaptureInput): CaptureVerdict {
     accept: false,
     verdict: "submit_or_ui_failure",
     kind: "submit_or_ui_failure",
-    message: (input.pageRecorderRequestSeen
-      ? "Page recorder observed a request, but CDP did not corroborate it during this worker run."
-      : "No WPP model request was observed after prompt submission.") + diag,
+    message:
+      (input.pageRecorderRequestSeen
+        ? "Page recorder observed a request, but CDP did not corroborate it during this worker run."
+        : "No WPP model request was observed after prompt submission.") + diag,
   }
 }
 

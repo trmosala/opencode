@@ -4,16 +4,10 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }

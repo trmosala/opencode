@@ -13,7 +13,7 @@ Rules:
 - One value per <parameter>. For object or array arguments, put JSON inside the parameter, e.g. <parameter name="edits">[{"old":"a","new":"b"}]</parameter>.
 - To run independent tools at once, emit several <invoke> blocks inside one <function_calls>. Otherwise wait for each tool result before the next call.
 - Prior assistant tool calls in this thread already use this same XML format; the harness parses that same format back from you.
-- When finished with no further tools, answer in plain text only (no tool-call XML).`;
+- When finished with no further tools, answer in plain text only (no tool-call XML).`
 
 export const TOOL_CALL_SYSTEM_REMINDER_JSON = `When you need a local harness tool, request it with a tool call as a single JSON object on its own, at the very end of your message (no markdown code fences around it):
 
@@ -23,14 +23,15 @@ Rules:
 - Use exact tool and parameter names from the Tools block below. Put every argument inside "args" with its natural JSON type (strings, numbers, booleans, objects, arrays).
 - To run independent tools at once, emit several such JSON objects back-to-back at the end of the message. Otherwise wait for each tool result before the next call.
 - Prior assistant tool calls in this thread already use this same JSON format; the harness parses that same format back from you.
-- When finished with no further tools, answer in plain text only (no tool-call JSON).`;
+- When finished with no further tools, answer in plain text only (no tool-call JSON).`
 
-export const TOOL_CALL_SYSTEM_REMINDER_PHASED = TOOL_CALL_SYSTEM_REMINDER
-  .replace("in this XML format:", "in this XML format, with no Markdown fence:")
-  .replace(
-    "Prior assistant tool calls in this thread already use this same XML format; the harness parses that same format back from you.",
-    "Prior assistant tool calls are represented structurally in messages[].toolCalls; do not copy them as new calls.",
-  )
+export const TOOL_CALL_SYSTEM_REMINDER_PHASED = TOOL_CALL_SYSTEM_REMINDER.replace(
+  "in this XML format:",
+  "in this XML format, with no Markdown fence:",
+).replace(
+  "Prior assistant tool calls in this thread already use this same XML format; the harness parses that same format back from you.",
+  "Prior assistant tool calls are represented structurally in messages[].toolCalls; do not copy them as new calls.",
+)
 
 export const TASK_COMPLETION_SYSTEM_REMINDER = `Task completion contract:
 - Keep working until the latest user request is fully resolved. A plan, progress update, initial inspection, or partial result is not complete.
@@ -40,11 +41,12 @@ export const TASK_COMPLETION_SYSTEM_REMINDER = `Task completion contract:
 - Do not claim local tool execution is unavailable unless an attempted tool call returned an error.`
 
 export function toolCallInstructions(toolFormat, { commentaryPhase = false } = {}) {
-  const toolReminder = toolFormat === "json"
-    ? TOOL_CALL_SYSTEM_REMINDER_JSON
-    : commentaryPhase
-      ? TOOL_CALL_SYSTEM_REMINDER_PHASED
-      : TOOL_CALL_SYSTEM_REMINDER
+  const toolReminder =
+    toolFormat === "json"
+      ? TOOL_CALL_SYSTEM_REMINDER_JSON
+      : commentaryPhase
+        ? TOOL_CALL_SYSTEM_REMINDER_PHASED
+        : TOOL_CALL_SYSTEM_REMINDER
   return `${toolReminder}\n\n${TASK_COMPLETION_SYSTEM_REMINDER}`
 }
 

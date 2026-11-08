@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { mockOpenCodeServer } from "../utils/mock-server"
-import { expectAppVisible } from "../utils/waits"
+import { expectAppVisible, openSidebarProjects } from "../utils/waits"
 
 const directory = "C:/OpenCode/NewProject"
 
@@ -69,6 +69,8 @@ test("creates a session in a new project, connects OpenCode Go, and selects its 
   })
 
   await page.goto("/")
+  await page.getByRole("button", { name: "Home", exact: true }).click()
+  await openSidebarProjects(page)
   const addProject = page.locator('[data-action="home-add-project-row"]')
   await expectAppVisible(addProject)
   await addProject.click()

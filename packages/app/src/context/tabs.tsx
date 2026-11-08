@@ -1,3 +1,4 @@
+import { useChatSplit } from "./chat-split"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createStore, produce } from "solid-js/store"
@@ -55,6 +56,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
   name: "Tabs",
   gate: false,
   init: () => {
+    const split = useChatSplit()
     const server = useServer()
     const platform = usePlatform()
     const fallback = server.key
@@ -77,6 +79,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
     const closing = new Set<string>()
     let recentWrite = 0
     let recentValue: string | undefined
+    let primaryKey: string | undefined
 
     const recentKey = () => (recentWrite ? recentValue : recent.key)
 
@@ -147,7 +150,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       if (next.length !== closed.length) setClosed(() => next)
     })
 
-    const navigateTab = (tab: Tab) => {
+    const navigateTab = (tab: Tab, pane = split.state.active) => {
       const href = tabHref(tab)
       if (tab.type === "draft")
         setStore(
@@ -157,6 +160,15 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           }),
         )
       setRecentKey(tabKey(tab))
+      if (pane === "secondary" && split.store.href) {
+        if (href === `${location.pathname}${location.search}`) {
+          split.focus("primary")
+          return
+        }
+        split.navigate(href)
+        return
+      }
+      primaryKey = tabKey(tab)
       navigate(href)
     }
 
@@ -165,7 +177,13 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       if (!tab) return
       const key = tabKey(tab)
       const draftID = tab.type === "draft" ? tab.draftID : undefined
-      const nextTab = nextTabAfterClose(store, index, recentKey() === key && location.pathname !== "/")
+      const secondary = tabHref(tab) === split.path()
+      if (secondary) split.close()
+      const nextTab = nextTabAfterClose(
+        store,
+        index,
+        !secondary && (primaryKey ?? recentKey()) === key && location.pathname !== "/",
+      )
       closing.add(key)
       void startTransition(() => {
         setStore(
@@ -177,7 +195,10 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           setRecentKey(undefined)
           navigate("/")
         }
-        if (nextTab) navigateTab(nextTab)
+        if (nextTab) {
+          split.focus("primary")
+          navigateTab(nextTab)
+        }
       }).finally(() => closing.delete(key))
       memory.remove(key)
       removeInfo(key)
@@ -215,6 +236,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         return tab
       },
       async newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
+        const pane = split.state.active
         const draftID = uuid()
         const tab = { type: "draft" as const, draftID, ...draft, updated: Date.now() }
         memory.ensure(tabKey(tab), "prompt", () => createDraftPromptSession(draftID, { prompt, model }))
@@ -224,7 +246,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
               tabs.push(tab)
             }),
           )
-          navigateTab(tab)
+          navigateTab(tab, pane)
         })
         return tab
       },
@@ -240,6 +262,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         // Keep the replacement and navigation atomic so /new-session never renders
         // after its backing draft tab has been removed from the store.
         const active = location.pathname === "/new-session" && location.query.draftId === draftID
+        const secondary = split.path() === draftHref(draftID)
         const next = { type: "session" as const, ...session }
         void startTransition(() => {
           setStore(
@@ -249,7 +272,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
             }),
           )
           if (recent.key === `draft:${draftID}`) setRecentKey(tabKey(next))
-          if (active) navigateTab(next)
+          if (secondary) split.navigate(tabHref(next))
+          if (active) navigate(tabHref(next))
         })
         memory.remove(`draft:${draftID}`)
         removeDraftPersisted(draftID)
@@ -296,6 +320,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         updateClosed((stack) => stack.filter((entry) => entry.tab.server !== key))
         const drafts = store.flatMap((tab) => (tab.type === "draft" && tab.server === key ? [tab.draftID] : []))
         const removed = store.filter((tab) => tab.server === key).map(tabKey)
+        if (store.some((tab) => tab.server === key && tabHref(tab) === split.path())) split.close()
         setStore((tabs) => tabs.filter((tab) => tab.server !== key))
         for (const key of removed) memory.remove(key)
         for (const key of removed) removeInfo(key)
@@ -305,6 +330,16 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       },
       removeSessions: (input: SessionTabsRemovedDetail) => {
         const targetServer = input.server ?? server.key
+        if (
+          store.some(
+            (tab) =>
+              tab.type === "session" &&
+              tab.server === targetServer &&
+              input.sessionIDs.includes(tab.sessionId) &&
+              tabHref(tab) === split.path(),
+          )
+        )
+          split.close()
         updateClosed((stack) => removeClosedTabs(stack, targetServer, input.sessionIDs))
         const removed = store
           .filter(
@@ -346,8 +381,10 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
               const nextTab =
                 tabs.slice(currentIndex).find((tab) => tab.type === "session") ??
                 tabs.slice(0, currentIndex).findLast((tab) => tab.type === "session")
-              if (nextTab) navigateTab(nextTab)
-              else navigate("/")
+              if (nextTab) {
+                split.focus("primary")
+                navigateTab(nextTab)
+              } else navigate("/")
             }),
           )
           if (recent.key && removed.includes(recent.key)) setRecentKey(undefined)
@@ -365,6 +402,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       select: navigateTab,
       remember(tab: Tab) {
         const key = tabKey(tab)
+        if (split.state.active === "primary") primaryKey = key
         if (recentKey() !== key) setRecentKey(key)
       },
       toggleHome(input: { home: boolean; current?: Tab }) {
@@ -373,11 +411,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           if (tab) navigateTab(tab)
           return
         }
-        if (input.current) {
-          setRecentKey(tabKey(input.current))
-          navigate("/")
-          return
-        }
+        if (input.current) setRecentKey(tabKey(input.current))
+        if (split.state.active === "secondary") return split.navigate("/")
         navigate("/")
       },
       state<T>(tab: Tab, name: string, init: () => T) {

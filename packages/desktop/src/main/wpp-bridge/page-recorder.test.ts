@@ -107,7 +107,9 @@ describe("WPP page recorder", () => {
     })
     parse(record, {
       message_id: "assistant-tool",
-      choices: [{ index: 0, delta: { content: '<parameter name="command">git status</parameter></invoke></function_calls>' } }],
+      choices: [
+        { index: 0, delta: { content: '<parameter name="command">git status</parameter></invoke></function_calls>' } },
+      ],
     })
 
     expect(record.finalText).toBe("I'll inspect the worktree.")
@@ -131,9 +133,7 @@ describe("WPP page recorder", () => {
         {
           index: 0,
           delta: {
-            tool_calls: [
-              { index: 0, id: "call-1", function: { name: "bash", arguments: '{"command":"git status"}' } },
-            ],
+            tool_calls: [{ index: 0, id: "call-1", function: { name: "bash", arguments: '{"command":"git status"}' } }],
           },
           finish_reason: "tool_calls",
         },

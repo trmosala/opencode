@@ -25,7 +25,7 @@ for (const quietCompanion of [false, true]) {
     const rows = quietCompanion
       ? page
           .getByRole("complementary", { name: "Projects and sessions", exact: true })
-          .locator('[data-action="project-session"]')
+          .locator('[data-action="sidebar-session"]')
       : page.locator('[data-component="home-session-row"]')
     await expect(rows.filter({ hasText: fixture.expected.sourceTitle })).toBeVisible()
 

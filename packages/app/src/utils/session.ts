@@ -1,4 +1,4 @@
-import type { SessionApi, SessionInfo, SessionListInput } from "@opencode-ai/client/promise"
+import type { SessionApi, SessionInfo, SessionListInput } from "@opencode/client/promise"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { withTimestampedFallback } from "./session-title"
 
@@ -8,7 +8,6 @@ export function normalizeSessionInfo(input: SessionInfo | Session): Session {
     id: input.id,
     slug: input.id,
     projectID: input.projectID,
-    workspaceID: input.location.workspaceID,
     directory: input.location.directory,
     path: input.subpath,
     parentID: input.parentID,

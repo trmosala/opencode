@@ -27,6 +27,22 @@ describe("file watcher invalidation", () => {
     expect(refresh).toEqual(["src"])
   })
 
+  test("accepts the 2.2.5 filesystem.changed event", () => {
+    const loads: string[] = []
+    invalidateFromWatcher(
+      { type: "filesystem.changed", properties: { file: "src/a.ts", event: "change" } },
+      {
+        normalize: (input) => input,
+        hasFile: (path) => path === "src/a.ts",
+        loadFile: (path) => loads.push(path),
+        node: () => undefined,
+        isDirLoaded: () => false,
+        refreshDir: () => undefined,
+      },
+    )
+    expect(loads).toEqual(["src/a.ts"])
+  })
+
   test("reloads files that are open in tabs", () => {
     const loads: string[] = []
 

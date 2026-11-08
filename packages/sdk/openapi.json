@@ -6,6 +6,157 @@
     "description": "opencode api"
   },
   "paths": {
+    "/schedule": {
+      "get": {
+        "tags": ["schedule"],
+        "operationId": "schedule.list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "enum": [1]
+                    },
+                    "schedules": {
+                      "type": "array"
+                    },
+                    "occurrences": {
+                      "type": "array"
+                    },
+                    "totalOccurrences": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["NaN"]
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity"]
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["-Infinity"]
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity", "-Infinity", "NaN"]
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["version", "schedules", "occurrences", "totalOccurrences"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.schedule.list({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "tags": ["schedule"],
+        "operationId": "schedule.manage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": ["create", "update", "pause", "resume", "delete", "acknowledge"]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "definition": {}
+                },
+                "required": ["action"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.schedule.manage({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/auth/{providerID}": {
       "put": {
         "tags": ["control"],
@@ -2846,6 +2997,566 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.app.skills({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/catalog": {
+      "get": {
+        "tags": ["instance"],
+        "operationId": "instance.skillCatalog",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "revision": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "source", "revision"],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.instance.skillCatalog({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/validate": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "instance.skillValidate",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name", "source", "revision"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "source", "revision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.instance.skillValidate({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/manage": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "instance.skillManage",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "document": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "editable": {
+                      "type": "boolean"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": ["workspace", "global", "external"]
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "backup": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["name", "source", "revision", "content", "document", "location", "editable", "scope"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": ["read", "review", "apply"]
+                  },
+                  "selected": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "revision": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "source", "revision"],
+                    "additionalProperties": false
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": ["edit", "delete"]
+                  },
+                  "draft": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "instructions": {
+                        "type": "string"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["workspace", "global"]
+                      }
+                    },
+                    "required": ["name", "description", "instructions", "scope"],
+                    "additionalProperties": false
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": ["action", "selected"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.instance.skillManage({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/review": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "instance.skillReview",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "directory": {
+                      "type": "string"
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": ["workspace", "global"]
+                    }
+                  },
+                  "required": ["token", "digest", "directory", "destination", "scope"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "enum": ["workspace", "global"]
+                  }
+                },
+                "required": ["name", "description", "instructions", "scope"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.instance.skillReview({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/create": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "instance.skillCreate",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "directory": {
+                      "type": "string"
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": ["workspace", "global"]
+                    },
+                    "digest": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name", "source", "revision", "directory", "destination", "scope", "digest"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "enum": ["workspace", "global"]
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "description", "instructions", "scope", "token"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.instance.skillCreate({\n  ...\n})"
           }
         ]
       }
@@ -10330,6 +11041,74 @@
         ]
       }
     },
+    "/api/session/{sessionID}/archive": {
+      "post": {
+        "tags": ["sessions"],
+        "operationId": "v2.session.archive",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Archive a session while preserving its messages and durable history.",
+        "summary": "Archive session",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.v2.session.archive({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/api/session/{sessionID}/agent": {
       "post": {
         "tags": ["sessions"],
@@ -15303,6 +16082,9 @@
             "$ref": "#/components/schemas/EventSessionNextMoved"
           },
           {
+            "$ref": "#/components/schemas/EventSessionNextArchived"
+          },
+          {
             "$ref": "#/components/schemas/EventSessionNextPrompted"
           },
           {
@@ -15565,6 +16347,43 @@
         "required": ["sessionID", "requestID"],
         "additionalProperties": false
       },
+      "ServiceUnavailableError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["ServiceUnavailableError"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "message"],
+        "additionalProperties": false
+      },
+      "InvalidRequestError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["InvalidRequestError"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "message"],
+        "additionalProperties": false
+      },
       "OAuth": {
         "type": "object",
         "properties": {
@@ -15651,26 +16470,6 @@
           }
         },
         "required": ["_tag"],
-        "additionalProperties": false
-      },
-      "InvalidRequestError": {
-        "type": "object",
-        "properties": {
-          "_tag": {
-            "type": "string",
-            "enum": ["InvalidRequestError"]
-          },
-          "message": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "field": {
-            "type": "string"
-          }
-        },
-        "required": ["_tag", "message"],
         "additionalProperties": false
       },
       "MoveSessionError": {
@@ -17809,6 +18608,35 @@
                       }
                     },
                     "required": ["timestamp", "sessionID", "location"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["id", "type", "properties"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^evt_"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["session.next.archived"]
+                  },
+                  "properties": {
+                    "type": "object",
+                    "properties": {
+                      "timestamp": {
+                        "type": "number"
+                      },
+                      "sessionID": {
+                        "type": "string",
+                        "pattern": "^ses"
+                      }
+                    },
+                    "required": ["timestamp", "sessionID"],
                     "additionalProperties": false
                   }
                 },
@@ -20450,6 +21278,9 @@
                 "$ref": "#/components/schemas/SyncEventSessionNextMoved"
               },
               {
+                "$ref": "#/components/schemas/SyncEventSessionNextArchived"
+              },
+              {
                 "$ref": "#/components/schemas/SyncEventSessionNextPrompted"
               },
               {
@@ -20821,6 +21652,59 @@
                 "reasoning": {
                   "type": "boolean"
                 },
+                "reasoning_options": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["effort"]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["type", "values"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["toggle"]
+                          }
+                        },
+                        "required": ["type"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["budget_tokens"]
+                          },
+                          "min": {
+                            "type": "number"
+                          },
+                          "max": {
+                            "type": "number"
+                          }
+                        },
+                        "required": ["type"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "description": "Reasoning controls the model accepts, used to build its variants"
+                },
                 "temperature": {
                   "type": "boolean"
                 },
@@ -21019,6 +21903,9 @@
       "McpOAuthConfig": {
         "type": "object",
         "properties": {
+          "clientName": {
+            "type": "string"
+          },
           "clientId": {
             "type": "string"
           },
@@ -21263,7 +22150,7 @@
                 "enum": ["notify"]
               }
             ],
-            "description": "Automatically update to the latest version. Set to true to auto-update, false to disable, or 'notify' to show update notifications"
+            "description": "Check for new versions and show an update notice. Updates are never installed automatically; run /update or `opencode upgrade`. Set to false to disable update checks. true and 'notify' behave the same"
           },
           "disabled_providers": {
             "type": "array",
@@ -22577,6 +23464,27 @@
         "required": ["name", "mode", "permission", "options"],
         "additionalProperties": false
       },
+      "SkillError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
       "LSPStatus": {
         "type": "object",
         "properties": {
@@ -23609,23 +24517,6 @@
         "required": ["_tag", "message"],
         "additionalProperties": false
       },
-      "ServiceUnavailableError": {
-        "type": "object",
-        "properties": {
-          "_tag": {
-            "type": "string",
-            "enum": ["ServiceUnavailableError"]
-          },
-          "message": {
-            "type": "string"
-          },
-          "service": {
-            "type": "string"
-          }
-        },
-        "required": ["_tag", "message"],
-        "additionalProperties": false
-      },
       "MessageNotFoundError": {
         "type": "object",
         "properties": {
@@ -23673,6 +24564,9 @@
           },
           {
             "$ref": "#/components/schemas/SessionNextMoved"
+          },
+          {
+            "$ref": "#/components/schemas/SessionNextArchived"
           },
           {
             "$ref": "#/components/schemas/SessionNextPrompted"
@@ -24053,6 +24947,9 @@
           },
           {
             "$ref": "#/components/schemas/SessionNextMoved"
+          },
+          {
+            "$ref": "#/components/schemas/SessionNextArchived"
           },
           {
             "$ref": "#/components/schemas/SessionNextPrompted"
@@ -25438,6 +26335,56 @@
                   }
                 },
                 "required": ["timestamp", "sessionID", "location"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "id", "seq", "aggregateID", "data"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["type", "id", "syncEvent"],
+        "additionalProperties": false
+      },
+      "SyncEventSessionNextArchived": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["sync"]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "syncEvent": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["session.next.archived.1"]
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^evt_"
+              },
+              "seq": {
+                "type": "number"
+              },
+              "aggregateID": {
+                "type": "string"
+              },
+              "data": {
+                "type": "object",
+                "properties": {
+                  "timestamp": {
+                    "type": "number"
+                  },
+                  "sessionID": {
+                    "type": "string",
+                    "pattern": "^ses"
+                  }
+                },
+                "required": ["timestamp", "sessionID"],
                 "additionalProperties": false
               }
             },
@@ -28151,6 +29098,57 @@
               }
             },
             "required": ["timestamp", "sessionID", "location"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "data"],
+        "additionalProperties": false
+      },
+      "SessionNextArchived": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["session.next.archived"]
+          },
+          "durable": {
+            "type": "object",
+            "properties": {
+              "aggregateID": {
+                "type": "string"
+              },
+              "seq": {
+                "type": "integer"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": ["aggregateID", "seq", "version"],
+            "additionalProperties": false
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationRef"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "number"
+              },
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              }
+            },
+            "required": ["timestamp", "sessionID"],
             "additionalProperties": false
           }
         },
@@ -34235,6 +35233,35 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
+      "EventSessionNextArchived": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["session.next.archived"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "timestamp": {
+                "type": "number"
+              },
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              }
+            },
+            "required": ["timestamp", "sessionID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventSessionNextPrompted": {
         "type": "object",
         "properties": {
@@ -36803,6 +37830,9 @@
   },
   "security": [],
   "tags": [
+    {
+      "name": "schedule"
+    },
     {
       "name": "control",
       "description": "Control plane routes."

@@ -4,7 +4,7 @@ import type {
   SessionMessageInfo,
   SessionMessageShell,
   SessionMessageUser,
-} from "@opencode-ai/client/promise"
+} from "@opencode/client/promise"
 import type { AssistantMessage, FilePart, Message, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { Option, Schema } from "effect"
 
@@ -277,7 +277,7 @@ function assistantParts(sessionID: string, message: SessionMessageAssistant): Pa
         messageID: message.id,
         type: "reasoning",
         text: content.text,
-        metadata: content.state,
+        metadata: content.native,
         time: {
           start: content.time?.created ?? message.time.created,
           end: content.time?.completed,
@@ -336,7 +336,7 @@ function toolPart(sessionID: string, messageID: string, tool: SessionMessageAssi
               messageID,
               type: "file",
               mime: item.mime,
-              filename: item.name,
+              filename: item.name ?? undefined,
               url: item.uri,
             },
           ]
@@ -361,6 +361,6 @@ function toolPart(sessionID: string, messageID: string, tool: SessionMessageAssi
     callID: tool.id,
     tool: tool.name,
     state,
-    metadata: { providerState: tool.providerState, providerResultState: tool.providerResultState },
+    metadata: { native: tool.native },
   }
 }

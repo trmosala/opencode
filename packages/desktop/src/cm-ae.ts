@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process"
 import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { createRequire } from "node:module"
 
 export const CM_AE_FILES = [
   "plugin.mjs",
@@ -10,6 +11,15 @@ export const CM_AE_FILES = [
   "ZOD-LICENSE.txt",
   "MARKED-LICENSE.txt",
 ] as const
+
+export const CM_AE_STAGE_FILES = [...CM_AE_FILES, "server.js", "package.json"] as const
+const manifest = Buffer.from(
+  JSON.stringify({ name: "@cookiemonster/cm-ae", type: "module", exports: { "./server": "./server.js" } }),
+)
+
+function adapter() {
+  return readFileSync(createRequire(import.meta.url).resolve("@cookiemonster/cm-v2/ae-plugin"))
+}
 
 const readTools = [
   "ae_connections",
@@ -39,22 +49,39 @@ const approvalTools = [
 export type CmAePlugin = [string, { releaseMetadata: { cookieMonsterVersion: string } }]
 
 // Read bytes once: syntax checks and staging use these same bytes, never import the artifact.
-export function readCmAeBundle(directory: string, executable = process.versions.bun ? "node" : process.execPath) {
+export function readCmAeBundle(
+  directory: string,
+  executable = process.versions.bun ? "node" : process.execPath,
+  staged = false,
+) {
   const root = lstatSync(directory, { throwIfNoEntry: false })
-  if (!root) return
+  if (!root) return undefined
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("cm-ae must be a regular directory")
   const names = readdirSync(directory)
-  if (names.length !== CM_AE_FILES.length || CM_AE_FILES.some((name) => !names.includes(name))) {
-    throw new Error(`cm-ae requires exactly: ${CM_AE_FILES.join(", ")}`)
+  const expected = staged ? CM_AE_STAGE_FILES : CM_AE_FILES
+  if (names.length !== expected.length || expected.some((name) => !names.includes(name))) {
+    throw new Error(`cm-ae requires exactly: ${expected.join(", ")}`)
   }
-  const files = CM_AE_FILES.map((name) => {
+  const files = expected.map((name) => {
     const file = path.join(directory, name)
     const stat = lstatSync(file)
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size === 0 || stat.size > 16 * 1024 * 1024) {
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      stat.nlink !== 1 ||
+      stat.size === 0 ||
+      stat.size > 16 * 1024 * 1024
+    ) {
       throw new Error(`cm-ae invalid regular file: ${name}`)
     }
     return { name, data: readFileSync(file) }
   })
+  if (
+    staged &&
+    (!files.find((file) => file.name === "server.js")!.data.equals(adapter()) ||
+      !files.find((file) => file.name === "package.json")!.data.equals(manifest))
+  )
+    throw new Error("cm-ae V2 wrapper must match the app-owned adapter")
   const permissions: unknown = JSON.parse(files.find((file) => file.name === "permissions.json")!.data.toString("utf8"))
   if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) {
     throw new Error("cm-ae permissions must be an object")
@@ -65,7 +92,9 @@ export function readCmAeBundle(directory: string, executable = process.versions.
     [...readTools, ...approvalTools].some((name) => !Object.hasOwn(permissions, name)) ||
     entries.some(
       ([name, action]) =>
-        !(readTools.includes(name) || name === "ae_execute" ? ["allow", "ask", "deny"] : ["ask", "deny"]).includes(action),
+        !(readTools.includes(name) || name === "ae_execute" ? ["allow", "ask", "deny"] : ["ask", "deny"]).includes(
+          action,
+        ),
     )
   ) {
     throw new Error("cm-ae permissions must contain known AE tools with safe actions")
@@ -127,6 +156,8 @@ export function stageCmAeBundle(
     }
     mkdirSync(stage, { recursive: true })
     for (const file of files) writeFileSync(path.join(stage, file.name), file.data, { flag: "wx" })
+    writeFileSync(path.join(stage, "server.js"), adapter(), { flag: "wx" })
+    writeFileSync(path.join(stage, "package.json"), manifest, { flag: "wx" })
     diagnostic(`[cm-ae] validated and staged ${artifactDir === undefined ? "vendored" : "override"} AE bundle`)
     return stage
   } catch (error) {
@@ -146,12 +177,12 @@ export function resolveCmAePlugin(options: {
     ? path.join(options.resourcesPath, "cm-ae")
     : path.join(options.appPath, "resources", "cm-ae")
   try {
-    if (!readCmAeBundle(directory)) {
+    if (!readCmAeBundle(directory, undefined, true)) {
       options.warn("[cm-ae] installed bundle absent; AE integration omitted")
-      return
+      return undefined
     }
     return [
-      pathToFileURL(path.join(directory, "plugin.mjs")).href,
+      pathToFileURL(directory).href,
       {
         releaseMetadata: { cookieMonsterVersion: options.version },
       },
@@ -160,5 +191,6 @@ export function resolveCmAePlugin(options: {
     options.warn(
       `[cm-ae] installed bundle invalid; AE integration omitted: ${error instanceof Error ? error.message : String(error)}`,
     )
+    return undefined
   }
 }

@@ -9,7 +9,7 @@ import { useServerSync, type ServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal, type ModelSelection } from "@/context/local"
-import { usePermission } from "@/context/permission"
+import { useSessionPermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, type usePrompt } from "@/context/prompt"
 import { useSDK, type DirectorySDK } from "@/context/sdk"
 import { useSync, type DirectorySync } from "@/context/sync"
@@ -43,6 +43,7 @@ export type FollowupDraft = {
 
 type FollowupSendInput = {
   api: DirectorySDK["api"]["session"]
+  skills: DirectorySDK["skills"]
   serverSync: ServerSync
   sync: DirectorySync
   draft: FollowupDraft
@@ -76,7 +77,8 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 
   const [head, ...tail] = text.split(" ")
   const cmd = head?.startsWith("/") ? head.slice(1) : undefined
-  if (cmd && input.sync.data.command.find((item) => item.name === cmd)) {
+  const match = cmd ? input.sync.data.command.find((item) => item.name === cmd) : undefined
+  if (cmd && match && !match.skill) {
     setBusy()
     try {
       if (!(await wait())) {
@@ -165,6 +167,9 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       return false
     }
 
+    // Managed skills are admitted by exact source and revision before the prompt that uses them.
+    if (match?.skill) await input.skills.select(input.draft.sessionDirectory, input.draft.sessionID, [match.skill])
+
     await input.api.prompt({
       sessionID: input.draft.sessionID,
       id: messageID,
@@ -237,7 +242,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const sync = useSync()
   const serverSync = useServerSync()
   const local = useLocal()
-  const permission = usePermission()
+  const permission = useSessionPermission()
   const prompt = input.prompt
   const layout = useLayout()
   const language = useLanguage()
@@ -351,7 +356,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.resetHistoryNavigation()
 
     const projectDirectory = sdk().directory
-    const permissionState = permission.currentServerState()
+    const permissionState = permission()
     const isNewSession = !params.id
     const shouldAutoAccept = isNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
@@ -361,16 +366,20 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     if (isNewSession) {
       if (worktreeSelection === "create") {
-        const createdWorktree = await client.worktree
-          .create({ directory: projectDirectory })
-          .then((x) => x.data)
-          .catch((err) => {
-            showToast({
-              title: language.t("prompt.toast.worktreeCreateFailed.title"),
-              description: errorMessage(err),
-            })
-            return undefined
+        const v1 = (await sdk().protocol) === "v1"
+        const createdWorktree = await (
+          v1
+            ? client.worktree.create({ directory: projectDirectory }).then((x) => x.data)
+            : sdk()
+                .api.project.current({ location: { directory: projectDirectory } })
+                .then((project) => sdk().api.worktree.create({ projectID: project.id }))
+        ).catch((err) => {
+          showToast({
+            title: language.t("prompt.toast.worktreeCreateFailed.title"),
+            description: errorMessage(err),
           })
+          return undefined
+        })
 
         if (!createdWorktree?.directory) {
           showToast({
@@ -379,7 +388,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           })
           return
         }
-        WorktreeState.pending(sdk().scope, createdWorktree.directory)
+        // 2.2.5 responds once the worktree exists; V1 reports readiness through worktree.ready events.
+        if (v1) WorktreeState.pending(sdk().scope, createdWorktree.directory)
         sessionDirectory = createdWorktree.directory
       }
 
@@ -513,7 +523,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync().data.command.find((c) => c.name === commandName)
-      if (customCommand) {
+      if (customCommand && !customCommand.skill) {
         clearInput()
         const messageID = Identifier.ascending("message")
         serverSync().session.set("session_status", session.id, { type: "busy" })
@@ -618,6 +628,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     void sendFollowupDraft({
       api: sdk().api.session,
+      skills: sdk().skills,
       sync: sync(),
       serverSync: serverSync(),
       draft,

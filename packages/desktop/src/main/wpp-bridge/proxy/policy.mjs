@@ -1,5 +1,6 @@
-const SECRET_KEY_PATTERN = /authorization|cookie|token|secret|password|passwd|api[-_]?key|private[-_]?key|session/i;
-const SECRET_VALUE_PATTERN = /(bearer\s+)[A-Za-z0-9._~+/=-]+|([A-Za-z0-9_]*api[_-]?key[A-Za-z0-9_]*\s*[:=]\s*)["']?[^"'\s]+/gi;
+const SECRET_KEY_PATTERN = /authorization|cookie|token|secret|password|passwd|api[-_]?key|private[-_]?key|session/i
+const SECRET_VALUE_PATTERN =
+  /(bearer\s+)[A-Za-z0-9._~+/=-]+|([A-Za-z0-9_]*api[_-]?key[A-Za-z0-9_]*\s*[:=]\s*)["']?[^"'\s]+/gi
 
 export const AGENT_CONTRACT = `You are a coding assistant running inside a local harness on the developer's machine.
 
@@ -35,7 +36,7 @@ RULES:
 - Never guess shell output — use bash first
 - Use your native web search before asking the harness to fetch external URLs
 - Never request secrets, .env files, private keys, cookies, or credentials
-- Never request: git push, package publish, rm -rf, or arbitrary network transfers`;
+- Never request: git push, package publish, rm -rf, or arbitrary network transfers`
 
 export const HARNESS_CONTRACT = `You are the reasoning backend for OpenCode, a local coding harness running on the developer's machine.
 
@@ -56,41 +57,40 @@ You own: reasoning, planning, and generating code or explanations based on tool 
 
 Security — never request:
 - Secrets, .env files, private keys, cookies, browser profiles
-- Destructive shell commands, git push, package publishing, or arbitrary network transfers`;
+- Destructive shell commands, git push, package publishing, or arbitrary network transfers`
 
 export function redact(value) {
   if (value == null) {
-    return value;
+    return value
   }
 
   if (typeof value === "string") {
     if (/^data:image\/[^;,]+;base64,/i.test(value)) {
-      return "[redacted image data URL]";
+      return "[redacted image data URL]"
     }
 
     return value.replace(SECRET_VALUE_PATTERN, (_, bearerPrefix, keyPrefix) => {
       if (bearerPrefix) {
-        return `${bearerPrefix}[redacted]`;
+        return `${bearerPrefix}[redacted]`
       }
 
       if (keyPrefix) {
-        return `${keyPrefix}[redacted]`;
+        return `${keyPrefix}[redacted]`
       }
 
-      return "[redacted]";
-    });
+      return "[redacted]"
+    })
   }
 
   if (Array.isArray(value)) {
-    return value.map(redact);
+    return value.map(redact)
   }
 
   if (typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
-      key,
-      SECRET_KEY_PATTERN.test(key) ? "[redacted]" : redact(entry)
-    ]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, SECRET_KEY_PATTERN.test(key) ? "[redacted]" : redact(entry)]),
+    )
   }
 
-  return value;
+  return value
 }

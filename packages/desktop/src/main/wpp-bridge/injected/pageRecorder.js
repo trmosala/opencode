@@ -1,821 +1,848 @@
-(() => {
-const VERSION = "2026-05-25-native-streaming";
-const INSTALL_KEY = `__o1CodeBridgePageRecorder_${VERSION}`;
-const CONTENT_SOURCE = "o1-code-bridge-content";
-const PAGE_SOURCE = "o1-code-bridge-page";
-const POST_THROTTLE_MS = 150;
-const MAX_EVENTS = 200;
+;(() => {
+  const VERSION = "2026-05-25-native-streaming"
+  const INSTALL_KEY = `__o1CodeBridgePageRecorder_${VERSION}`
+  const CONTENT_SOURCE = "o1-code-bridge-content"
+  const PAGE_SOURCE = "o1-code-bridge-page"
+  const POST_THROTTLE_MS = 150
+  const MAX_EVENTS = 200
 
-if (window[INSTALL_KEY]) {
-  return;
-}
-
-window[INSTALL_KEY] = true;
-
-let activeRunId = null;
-let verboseRecorder = false;
-let sequence = 0;
-let generation = 0;
-let expectedPrompt = null;
-let expectedEndpoint = null;
-const pendingRequests = new Set();
-const activity = { version: 0, changedAt: Date.now(), failure: null };
-window.__o1CodeRecorderState = () => ({ ...activity, pending: pendingRequests.size, runId: activeRunId });
-
-function currentRequest(request) {
-  return Boolean(request.runId) && request.runId === activeRunId && request.generation === generation;
-}
-
-function startRequest(request) {
-  pendingRequests.add(request);
-  activity.version += 1;
-  activity.changedAt = Date.now();
-  if (currentRequest(request)) postStatus("request", { runId: request.runId, url: request.url, method: request.method });
-}
-
-function finishRequest(request, error = null) {
-  if (!pendingRequests.delete(request)) return;
-  activity.version += 1;
-  activity.changedAt = Date.now();
-  if (error) activity.failure = String(error.message || error);
-}
-
-window.__o1CodeRecorderControl = (data) => {
-  if (data.requireIdle && (pendingRequests.size || activity.failure)) {
-    throw new Error("o1_code_greeting_not_settled");
-  }
-  generation += 1;
-  activeRunId = data.runId || null;
-  expectedPrompt = typeof data.expectedPrompt === "string" ? data.expectedPrompt : null;
-  expectedEndpoint = typeof data.expectedEndpoint === "string" ? data.expectedEndpoint : null;
-  verboseRecorder = data.verboseRecorder === true;
-  postStatus("reset", { runId: activeRunId });
-  return window.__o1CodeRecorderState();
-};
-
-postStatus("ready");
-
-window.addEventListener("message", (event) => {
-  if (event.source !== window || event.data?.source !== CONTENT_SOURCE) {
-    return;
+  if (window[INSTALL_KEY]) {
+    return
   }
 
-  if (event.data.type === "O1_CODE_BRIDGE_RECORDER_RESET") {
-    window.__o1CodeRecorderControl(event.data);
+  window[INSTALL_KEY] = true
+
+  let activeRunId = null
+  let verboseRecorder = false
+  let sequence = 0
+  let generation = 0
+  let expectedPrompt = null
+  let expectedEndpoint = null
+  const pendingRequests = new Set()
+  const activity = { version: 0, changedAt: Date.now(), failure: null }
+  window.__o1CodeRecorderState = () => ({ ...activity, pending: pendingRequests.size, runId: activeRunId })
+
+  function currentRequest(request) {
+    return Boolean(request.runId) && request.runId === activeRunId && request.generation === generation
   }
-});
 
-const originalFetch = window.fetch?.bind(window);
+  function startRequest(request) {
+    pendingRequests.add(request)
+    activity.version += 1
+    activity.changedAt = Date.now()
+    if (currentRequest(request))
+      postStatus("request", { runId: request.runId, url: request.url, method: request.method })
+  }
 
-if (originalFetch) {
-  window.fetch = async (...args) => {
-    const requestInfo = describeFetchRequest(args);
-    if (activeRunId && expectedPrompt !== null && requestInfo.method === "POST") {
-      const [input, init = {}] = args;
-      const admittedPrompt = expectedPrompt;
-      let body = init.body;
-      if (body === undefined && typeof input?.clone === "function") {
-        try { body = await input.clone().text(); } catch { body = null; }
-      }
-      requestInfo.promptMatched = bodyMatchesPrompt(body, admittedPrompt);
+  function finishRequest(request, error = null) {
+    if (!pendingRequests.delete(request)) return
+    activity.version += 1
+    activity.changedAt = Date.now()
+    if (error) activity.failure = String(error.message || error)
+  }
+
+  window.__o1CodeRecorderControl = (data) => {
+    if (data.requireIdle && (pendingRequests.size || activity.failure)) {
+      throw new Error("o1_code_greeting_not_settled")
     }
-    const tracked = shouldRecordRequest(requestInfo);
-    if (tracked) startRequest(requestInfo);
-    try {
-      const response = await originalFetch(...args);
-      if (currentRequest(requestInfo) && verboseRecorder) emitObservedRequest(requestInfo, response.status);
-      if (tracked) {
-        recordResponse(response, requestInfo)
-          .then(() => finishRequest(requestInfo, response.ok ? null : new Error(`HTTP ${response.status}`)))
-          .catch((error) => {
-            finishRequest(requestInfo, error);
-            postRecord({ ...requestInfo, done: true, error: error.message });
-          });
-      }
-      return response;
-    } catch (error) {
-      if (tracked) {
-        finishRequest(requestInfo, error);
-        postRecord({ ...requestInfo, done: true, error: error.message });
-      }
-      throw error;
+    generation += 1
+    activeRunId = data.runId || null
+    expectedPrompt = typeof data.expectedPrompt === "string" ? data.expectedPrompt : null
+    expectedEndpoint = typeof data.expectedEndpoint === "string" ? data.expectedEndpoint : null
+    verboseRecorder = data.verboseRecorder === true
+    postStatus("reset", { runId: activeRunId })
+    return window.__o1CodeRecorderState()
+  }
+
+  postStatus("ready")
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || event.data?.source !== CONTENT_SOURCE) {
+      return
     }
-  };
-}
 
-const OriginalXMLHttpRequest = window.XMLHttpRequest;
+    if (event.data.type === "O1_CODE_BRIDGE_RECORDER_RESET") {
+      window.__o1CodeRecorderControl(event.data)
+    }
+  })
 
-if (OriginalXMLHttpRequest?.prototype) {
-  const originalOpen = OriginalXMLHttpRequest.prototype.open;
-  const originalSend = OriginalXMLHttpRequest.prototype.send;
+  const originalFetch = window.fetch?.bind(window)
 
-  OriginalXMLHttpRequest.prototype.open = function open(method, url, ...rest) {
-    this.__o1CodeBridgeRequest = {
-      id: `xhr_${Date.now()}_${++sequence}`,
-      runId: activeRunId,
-      url: String(url || location.href),
-      method: String(method || "GET").toUpperCase(),
-      startedAt: new Date().toISOString()
-    };
+  if (originalFetch) {
+    window.fetch = async (...args) => {
+      const requestInfo = describeFetchRequest(args)
+      if (activeRunId && expectedPrompt !== null && requestInfo.method === "POST") {
+        const [input, init = {}] = args
+        const admittedPrompt = expectedPrompt
+        let body = init.body
+        if (body === undefined && typeof input?.clone === "function") {
+          try {
+            body = await input.clone().text()
+          } catch {
+            body = null
+          }
+        }
+        requestInfo.promptMatched = bodyMatchesPrompt(body, admittedPrompt)
+      }
+      const tracked = shouldRecordRequest(requestInfo)
+      if (tracked) startRequest(requestInfo)
+      try {
+        const response = await originalFetch(...args)
+        if (currentRequest(requestInfo) && verboseRecorder) emitObservedRequest(requestInfo, response.status)
+        if (tracked) {
+          recordResponse(response, requestInfo)
+            .then(() => finishRequest(requestInfo, response.ok ? null : new Error(`HTTP ${response.status}`)))
+            .catch((error) => {
+              finishRequest(requestInfo, error)
+              postRecord({ ...requestInfo, done: true, error: error.message })
+            })
+        }
+        return response
+      } catch (error) {
+        if (tracked) {
+          finishRequest(requestInfo, error)
+          postRecord({ ...requestInfo, done: true, error: error.message })
+        }
+        throw error
+      }
+    }
+  }
 
-    return originalOpen.call(this, method, url, ...rest);
-  };
+  const OriginalXMLHttpRequest = window.XMLHttpRequest
 
-  OriginalXMLHttpRequest.prototype.send = function send(...args) {
-    const requestInfo = {
-      ...(this.__o1CodeBridgeRequest || {
+  if (OriginalXMLHttpRequest?.prototype) {
+    const originalOpen = OriginalXMLHttpRequest.prototype.open
+    const originalSend = OriginalXMLHttpRequest.prototype.send
+
+    OriginalXMLHttpRequest.prototype.open = function open(method, url, ...rest) {
+      this.__o1CodeBridgeRequest = {
         id: `xhr_${Date.now()}_${++sequence}`,
-        url: location.href,
-        method: "GET",
-        startedAt: new Date().toISOString()
-      }),
+        runId: activeRunId,
+        url: String(url || location.href),
+        method: String(method || "GET").toUpperCase(),
+        startedAt: new Date().toISOString(),
+      }
+
+      return originalOpen.call(this, method, url, ...rest)
+    }
+
+    OriginalXMLHttpRequest.prototype.send = function send(...args) {
+      const requestInfo = {
+        ...(this.__o1CodeBridgeRequest || {
+          id: `xhr_${Date.now()}_${++sequence}`,
+          url: location.href,
+          method: "GET",
+          startedAt: new Date().toISOString(),
+        }),
+        runId: activeRunId,
+        generation,
+        promptMatched: expectedPrompt !== null ? bodyMatchesPrompt(args[0], expectedPrompt) : undefined,
+      }
+
+      if (activeRunId && verboseRecorder) observeXhr(this, requestInfo)
+      const tracked = shouldRecordRequest(requestInfo)
+      const cleanup = tracked ? recordXhr(this, requestInfo) : () => {}
+      if (tracked) startRequest(requestInfo)
+      try {
+        return originalSend.apply(this, args)
+      } catch (error) {
+        cleanup()
+        if (tracked) finishRequest(requestInfo, error)
+        throw error
+      }
+    }
+  }
+
+  function describeFetchRequest(args) {
+    const [input, init = {}] = args
+    const method = String(init.method || input?.method || "GET").toUpperCase()
+    const url = String(typeof input === "string" ? input : input?.url || location.href)
+
+    return {
+      id: `network_${Date.now()}_${++sequence}`,
       runId: activeRunId,
       generation,
-      promptMatched: expectedPrompt !== null ? bodyMatchesPrompt(args[0], expectedPrompt) : undefined
-    };
+      url,
+      method,
+      startedAt: new Date().toISOString(),
+    }
+  }
 
-    if (activeRunId && verboseRecorder) observeXhr(this, requestInfo);
-    const tracked = shouldRecordRequest(requestInfo);
-    const cleanup = tracked ? recordXhr(this, requestInfo) : () => {};
-    if (tracked) startRequest(requestInfo);
+  function shouldRecordRequest(request) {
+    if (request.method !== "POST") return false
+    const endpoint = safeUrl(request.url)
+    if (activeRunId && expectedPrompt !== null) {
+      if (!request.promptMatched) return false
+      const expected = expectedEndpoint && safeUrl(expectedEndpoint)
+      if (expected && (endpoint?.origin !== expected.origin || endpoint?.pathname !== expected.pathname)) return false
+    } else if (!isModelEndpoint(endpoint)) {
+      return false
+    }
+    if (typeof window.__o1CodeShouldRecordRequest === "function") {
+      try {
+        return window.__o1CodeShouldRecordRequest(request)
+      } catch {}
+    }
+
+    if (request.method !== "POST") {
+      return false
+    }
+
+    const requestUrl = String(request.url || "")
+    const url = safeUrl(request.url)
+    const host = url?.hostname || ""
+
+    return !(
+      host.includes("datadoghq") ||
+      host.startsWith("dataplane.rum.") ||
+      host === "google-analytics.com" ||
+      host.endsWith(".google-analytics.com") ||
+      host === "events.launchdarkly.com" ||
+      url?.pathname.startsWith("/api/az/") ||
+      requestUrl.includes("datadoghq") ||
+      requestUrl.includes("dataplane.rum.") ||
+      requestUrl.includes("/v1/project/") ||
+      requestUrl.includes("/v1/tools/") ||
+      requestUrl.includes("/v1/oauth/")
+    )
+  }
+
+  function isModelEndpoint(url) {
+    return Boolean(
+      url &&
+        (/^\/(?:v1|api)\/chat(?:\/completions)?\/?$/.test(url.pathname) ||
+          (url.hostname.endsWith(".lambda-url.eu-west-1.on.aws") && url.pathname === "/")),
+    )
+  }
+
+  // Compare transient request fields with the admitted prompt; never retain the request body.
+  function bodyMatchesPrompt(body, prompt) {
+    const normalize = (value) => value.replace(/\r\n/g, "\n")
+    const expected = normalize(prompt)
+    const values = []
+    if (typeof body === "string") {
+      if (body.length > 2 * 1024 * 1024) return false
+      try {
+        values.push(JSON.parse(body))
+      } catch {
+        return normalize(body) === expected
+      }
+    } else if (body && typeof body.entries === "function") {
+      for (const [, value] of body.entries()) if (typeof value === "string") values.push(value)
+    } else return false
+    let visited = 0
+    while (values.length && visited++ < 10000) {
+      const value = values.pop()
+      if (typeof value === "string" && normalize(value) === expected) return true
+      if (value && typeof value === "object") values.push(...Object.values(value))
+    }
+    return false
+  }
+
+  function safeUrl(value) {
     try {
-      return originalSend.apply(this, args);
-    } catch (error) {
-      cleanup();
-      if (tracked) finishRequest(requestInfo, error);
-      throw error;
-    }
-  };
-}
-
-function describeFetchRequest(args) {
-  const [input, init = {}] = args;
-  const method = String(init.method || input?.method || "GET").toUpperCase();
-  const url = String(typeof input === "string" ? input : input?.url || location.href);
-
-  return {
-    id: `network_${Date.now()}_${++sequence}`,
-    runId: activeRunId,
-    generation,
-    url,
-    method,
-    startedAt: new Date().toISOString()
-  };
-}
-
-function shouldRecordRequest(request) {
-  if (request.method !== "POST") return false;
-  const endpoint = safeUrl(request.url);
-  if (activeRunId && expectedPrompt !== null) {
-    if (!request.promptMatched) return false;
-    const expected = expectedEndpoint && safeUrl(expectedEndpoint);
-    if (expected && (endpoint?.origin !== expected.origin || endpoint?.pathname !== expected.pathname)) return false;
-  } else if (!isModelEndpoint(endpoint)) {
-    return false;
-  }
-  if (typeof window.__o1CodeShouldRecordRequest === "function") {
-    try {
-      return window.__o1CodeShouldRecordRequest(request);
-    } catch {}
-  }
-
-  if (request.method !== "POST") {
-    return false;
-  }
-
-  const requestUrl = String(request.url || "");
-  const url = safeUrl(request.url);
-  const host = url?.hostname || "";
-
-  return !(
-    host.includes("datadoghq") ||
-    host.startsWith("dataplane.rum.") ||
-    host === "google-analytics.com" ||
-    host.endsWith(".google-analytics.com") ||
-    host === "events.launchdarkly.com" ||
-    url?.pathname.startsWith("/api/az/") ||
-    requestUrl.includes("datadoghq") ||
-    requestUrl.includes("dataplane.rum.") ||
-    requestUrl.includes("/v1/project/") ||
-    requestUrl.includes("/v1/tools/") ||
-    requestUrl.includes("/v1/oauth/")
-  );
-}
-
-function isModelEndpoint(url) {
-  return Boolean(url && (/^\/(?:v1|api)\/chat(?:\/completions)?\/?$/.test(url.pathname)
-    || (url.hostname.endsWith(".lambda-url.eu-west-1.on.aws") && url.pathname === "/")));
-}
-
-// Compare transient request fields with the admitted prompt; never retain the request body.
-function bodyMatchesPrompt(body, prompt) {
-  const normalize = (value) => value.replace(/\r\n/g, "\n");
-  const expected = normalize(prompt);
-  const values = [];
-  if (typeof body === "string") {
-    if (body.length > 2 * 1024 * 1024) return false;
-    try { values.push(JSON.parse(body)); } catch { return normalize(body) === expected; }
-  } else if (body && typeof body.entries === "function") {
-    for (const [, value] of body.entries()) if (typeof value === "string") values.push(value);
-  } else return false;
-  let visited = 0;
-  while (values.length && visited++ < 10000) {
-    const value = values.pop();
-    if (typeof value === "string" && normalize(value) === expected) return true;
-    if (value && typeof value === "object") values.push(...Object.values(value));
-  }
-  return false;
-}
-
-function safeUrl(value) {
-  try {
-    return new URL(String(value || ""), typeof location === "undefined" ? "https://open-web-assistant-cs.wpp.ai/" : location.href);
-  } catch {
-    return null;
-  }
-}
-
-// Diagnostic-only (verbose): emit EVERY request the recorder observes during an active run —
-// including non-POST and otherwise-filtered requests that shouldRecordRequest drops — so a
-// failing image turn reveals whether the model/upload request fires as a non-recordable shape
-// (e.g. a presigned PUT, or a filtered path) or never fires in this frame at all. Metadata only
-// (method/url/status), no body, and gated behind verboseRecorder so normal runs pay nothing.
-// The HTTP status is carried as `httpStatus` to avoid colliding with the message-level `status`
-// field ("observed") that postStatus sets.
-function emitObservedRequest(requestInfo, httpStatus) {
-  if (!currentRequest(requestInfo)) return;
-  postStatus("observed", {
-    runId: requestInfo.runId,
-    url: requestInfo.url,
-    method: requestInfo.method,
-    httpStatus: typeof httpStatus === "number" ? httpStatus : null
-  });
-}
-
-function observeXhr(xhr, requestInfo) {
-  xhr.addEventListener("loadend", () => {
-    emitObservedRequest(requestInfo, xhr.status || null);
-  }, { once: true });
-}
-
-async function recordResponse(response, requestInfo) {
-  const clone = response.clone();
-  if (!currentRequest(requestInfo)) {
-    const reader = clone.body?.getReader();
-    if (reader) {
-      while (!(await reader.read()).done) {}
-    }
-    return;
-  }
-  const record = createRecord(requestInfo, {
-    responseStatus: response.status,
-    responseHeaders: headersObject(response.headers)
-  });
-
-  postRecord(record);
-
-  const contentType = clone.headers.get("content-type") || "";
-
-  if (clone.body && /text\/event-stream|application\/(?:json|x-ndjson)/i.test(contentType)) {
-    await readStream(clone.body, record);
-  } else {
-    const text = await clone.text();
-    appendChunk(record, text);
-    parseChunk(record, text);
-  }
-
-  record.done = true;
-  postRecord(record);
-}
-
-function recordXhr(xhr, requestInfo) {
-  const record = createRecord(requestInfo);
-  let parsedLength = 0;
-  let pending = "";
-  const read = () => {
-    if (!currentRequest(requestInfo)) return;
-    record.responseStatus = xhr.status || record.responseStatus;
-    record.responseHeaders = parseResponseHeaders(xhr.getAllResponseHeaders?.() || "");
-    if (xhr.readyState >= OriginalXMLHttpRequest.LOADING) {
-      const result = readXhrText(xhr, record, parsedLength, pending);
-      parsedLength = result.parsedLength;
-      pending = result.pending;
-    }
-  };
-  const fail = (event) => {
-    record.error = `XMLHttpRequest ${event.type}.`;
-  };
-  const finish = () => {
-    read();
-    if (pending.trim()) parseDataLine(record, pending.trim());
-    if (xhr.status < 200 || xhr.status >= 400) record.error ||= `HTTP ${xhr.status}`;
-    record.done = true;
-    postRecord(record);
-    finishRequest(requestInfo, record.error);
-    cleanup();
-  };
-  const cleanup = () => {
-    xhr.removeEventListener("readystatechange", read);
-    xhr.removeEventListener("loadend", finish);
-    xhr.removeEventListener("error", fail);
-    xhr.removeEventListener("abort", fail);
-    xhr.removeEventListener("timeout", fail);
-  };
-  xhr.addEventListener("readystatechange", read);
-  xhr.addEventListener("loadend", finish);
-  xhr.addEventListener("error", fail);
-  xhr.addEventListener("abort", fail);
-  xhr.addEventListener("timeout", fail);
-  postRecord(record);
-  return cleanup;
-}
-
-function readXhrText(xhr, record, parsedLength, pending) {
-  if (xhr.responseType && xhr.responseType !== "text") {
-    return { parsedLength, pending };
-  }
-
-  let text = "";
-
-  try {
-    text = xhr.responseText || "";
-  } catch {
-    return { parsedLength, pending };
-  }
-
-  if (text.length <= parsedLength) {
-    return { parsedLength, pending };
-  }
-
-  const chunk = text.slice(parsedLength);
-  appendChunk(record, chunk);
-  const nextPending = parseChunk(record, pending + chunk);
-  postRecord(record);
-  return { parsedLength: text.length, pending: nextPending };
-}
-
-function createRecord(requestInfo, extra = {}) {
-  return {
-    ...requestInfo,
-    responseStatus: null,
-    responseHeaders: {},
-    model: null,
-    primaryMessageId: null,
-    finalText: "",
-    alternateAssistantTexts: {},
-    finishReason: null,
-    usage: null,
-    events: [],
-    chunks: [],
-    toolCallParts: {},
-    unparsed: [],
-    eventCount: 0,
-    byteCount: 0,
-    done: false,
-    error: null,
-    ...extra
-  };
-}
-
-async function readStream(body, record) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let pending = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-
-    if (done) {
-      break;
-    }
-
-    const chunk = decoder.decode(value, { stream: true });
-    appendChunk(record, chunk);
-    pending = parseChunk(record, pending + chunk);
-    postRecord(record);
-  }
-
-  const tail = decoder.decode();
-  if (tail) {
-    appendChunk(record, tail);
-    pending = parseChunk(record, pending + tail);
-  }
-
-  if (pending.trim()) {
-    parseDataLine(record, pending.trim());
-  }
-}
-
-function parseChunk(record, chunk) {
-  if (!/^(?:data:|event:|id:|retry:|:)/m.test(chunk)) {
-    const text = chunk.trim();
-    if (!text) return "";
-    try {
-      JSON.parse(text);
+      return new URL(
+        String(value || ""),
+        typeof location === "undefined" ? "https://open-web-assistant-cs.wpp.ai/" : location.href,
+      )
     } catch {
-      const lines = chunk.split(/\r?\n/);
-      if (lines.length === 1) return chunk;
-      const trailing = lines.pop() || "";
-      for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index].trim();
-        if (!line) continue;
-        try {
-          JSON.parse(line);
-        } catch {
-          return [...lines.slice(index), trailing].join("\n");
-        }
-        parseDataLine(record, line);
+      return null
+    }
+  }
+
+  // Diagnostic-only (verbose): emit EVERY request the recorder observes during an active run —
+  // including non-POST and otherwise-filtered requests that shouldRecordRequest drops — so a
+  // failing image turn reveals whether the model/upload request fires as a non-recordable shape
+  // (e.g. a presigned PUT, or a filtered path) or never fires in this frame at all. Metadata only
+  // (method/url/status), no body, and gated behind verboseRecorder so normal runs pay nothing.
+  // The HTTP status is carried as `httpStatus` to avoid colliding with the message-level `status`
+  // field ("observed") that postStatus sets.
+  function emitObservedRequest(requestInfo, httpStatus) {
+    if (!currentRequest(requestInfo)) return
+    postStatus("observed", {
+      runId: requestInfo.runId,
+      url: requestInfo.url,
+      method: requestInfo.method,
+      httpStatus: typeof httpStatus === "number" ? httpStatus : null,
+    })
+  }
+
+  function observeXhr(xhr, requestInfo) {
+    xhr.addEventListener(
+      "loadend",
+      () => {
+        emitObservedRequest(requestInfo, xhr.status || null)
+      },
+      { once: true },
+    )
+  }
+
+  async function recordResponse(response, requestInfo) {
+    const clone = response.clone()
+    if (!currentRequest(requestInfo)) {
+      const reader = clone.body?.getReader()
+      if (reader) {
+        while (!(await reader.read()).done) {}
       }
-      return trailing;
+      return
     }
-    parseDataLine(record, text);
-    return "";
-  }
+    const record = createRecord(requestInfo, {
+      responseStatus: response.status,
+      responseHeaders: headersObject(response.headers),
+    })
 
-  const lines = chunk.split(/\r?\n/);
-  const trailing = chunk.endsWith("\n") || chunk.endsWith("\r")
-    ? ""
-    : lines.pop() || "";
+    postRecord(record)
 
-  for (const line of lines) {
-    if (line.startsWith("data:")) {
-      parseDataLine(record, line.slice(5).trim());
+    const contentType = clone.headers.get("content-type") || ""
+
+    if (clone.body && /text\/event-stream|application\/(?:json|x-ndjson)/i.test(contentType)) {
+      await readStream(clone.body, record)
+    } else {
+      const text = await clone.text()
+      appendChunk(record, text)
+      parseChunk(record, text)
     }
+
+    record.done = true
+    postRecord(record)
   }
 
-  return trailing;
-}
-
-function parseDataLine(record, data) {
-  if (!data || data === "[DONE]") {
-    return;
+  function recordXhr(xhr, requestInfo) {
+    const record = createRecord(requestInfo)
+    let parsedLength = 0
+    let pending = ""
+    const read = () => {
+      if (!currentRequest(requestInfo)) return
+      record.responseStatus = xhr.status || record.responseStatus
+      record.responseHeaders = parseResponseHeaders(xhr.getAllResponseHeaders?.() || "")
+      if (xhr.readyState >= OriginalXMLHttpRequest.LOADING) {
+        const result = readXhrText(xhr, record, parsedLength, pending)
+        parsedLength = result.parsedLength
+        pending = result.pending
+      }
+    }
+    const fail = (event) => {
+      record.error = `XMLHttpRequest ${event.type}.`
+    }
+    const finish = () => {
+      read()
+      if (pending.trim()) parseDataLine(record, pending.trim())
+      if (xhr.status < 200 || xhr.status >= 400) record.error ||= `HTTP ${xhr.status}`
+      record.done = true
+      postRecord(record)
+      finishRequest(requestInfo, record.error)
+      cleanup()
+    }
+    const cleanup = () => {
+      xhr.removeEventListener("readystatechange", read)
+      xhr.removeEventListener("loadend", finish)
+      xhr.removeEventListener("error", fail)
+      xhr.removeEventListener("abort", fail)
+      xhr.removeEventListener("timeout", fail)
+    }
+    xhr.addEventListener("readystatechange", read)
+    xhr.addEventListener("loadend", finish)
+    xhr.addEventListener("error", fail)
+    xhr.addEventListener("abort", fail)
+    xhr.addEventListener("timeout", fail)
+    postRecord(record)
+    return cleanup
   }
 
-  try {
-    const parsed = JSON.parse(data);
-    const event = {
-      id: parsed.id || null,
-      model: parsed.model || null,
-      messageId: parsed.message_id || parsed.messageId || null,
+  function readXhrText(xhr, record, parsedLength, pending) {
+    if (xhr.responseType && xhr.responseType !== "text") {
+      return { parsedLength, pending }
+    }
+
+    let text = ""
+
+    try {
+      text = xhr.responseText || ""
+    } catch {
+      return { parsedLength, pending }
+    }
+
+    if (text.length <= parsedLength) {
+      return { parsedLength, pending }
+    }
+
+    const chunk = text.slice(parsedLength)
+    appendChunk(record, chunk)
+    const nextPending = parseChunk(record, pending + chunk)
+    postRecord(record)
+    return { parsedLength: text.length, pending: nextPending }
+  }
+
+  function createRecord(requestInfo, extra = {}) {
+    return {
+      ...requestInfo,
+      responseStatus: null,
+      responseHeaders: {},
+      model: null,
+      primaryMessageId: null,
+      finalText: "",
+      alternateAssistantTexts: {},
       finishReason: null,
-      content: "",
-      thinking: "",
-      toolCalls: []
-    };
+      usage: null,
+      events: [],
+      chunks: [],
+      toolCallParts: {},
+      unparsed: [],
+      eventCount: 0,
+      byteCount: 0,
+      done: false,
+      error: null,
+      ...extra,
+    }
+  }
 
-    // First non-null model on the stream identifies the responder. For an agent (e.g.
-    // OgilvyOneCoder) this reports the agent's underlying base model, so it is observability
-    // only — the wrong-agent gate keys off the selected picker label, not this field.
-    if (!record.model && event.model) {
-      record.model = event.model;
+  async function readStream(body, record) {
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let pending = ""
+
+    while (true) {
+      const { value, done } = await reader.read()
+
+      if (done) {
+        break
+      }
+
+      const chunk = decoder.decode(value, { stream: true })
+      appendChunk(record, chunk)
+      pending = parseChunk(record, pending + chunk)
+      postRecord(record)
     }
 
-    const choices = primaryChoices(parsed.choices);
-    const usage = networkUsage(parsed.usage);
-    if (usage) {
-      record.usage = usage;
+    const tail = decoder.decode()
+    if (tail) {
+      appendChunk(record, tail)
+      pending = parseChunk(record, pending + tail)
     }
-    event.messageId = event.messageId || choices
-      .map((choice) => choice?.delta?.messageId || choice?.delta?.message_id || choice?.message?.id || null)
-      .find(Boolean) || null;
-    const hasAssistantPayload = choices.some(choiceHasAssistantPayload);
 
-    if (event.messageId && !record.primaryMessageId && hasAssistantPayload) {
-      record.primaryMessageId = event.messageId;
+    if (pending.trim()) {
+      parseDataLine(record, pending.trim())
     }
-    // WPP can multiplex a preamble and its actual tool call under separate assistant message IDs.
-    // Keep later text isolated so refusal/policy prose never contaminates the selected answer, but
-    // retain it for the central normalizer to accept only when it parses as a real tool call.
-    const alternateMessageId = event.messageId && record.primaryMessageId && event.messageId !== record.primaryMessageId
-      ? event.messageId
-      : null;
+  }
 
-    for (const choice of choices) {
-      const delta = choice.delta || {};
-      const message = choice.message || {};
-
-      if (typeof delta.content === "string") {
-        event.content += delta.content;
-        if (alternateMessageId) {
-          record.alternateAssistantTexts[alternateMessageId] =
-            (record.alternateAssistantTexts[alternateMessageId] || "") + delta.content;
-        } else {
-          record.finalText += delta.content;
+  function parseChunk(record, chunk) {
+    if (!/^(?:data:|event:|id:|retry:|:)/m.test(chunk)) {
+      const text = chunk.trim()
+      if (!text) return ""
+      try {
+        JSON.parse(text)
+      } catch {
+        const lines = chunk.split(/\r?\n/)
+        if (lines.length === 1) return chunk
+        const trailing = lines.pop() || ""
+        for (let index = 0; index < lines.length; index += 1) {
+          const line = lines[index].trim()
+          if (!line) continue
+          try {
+            JSON.parse(line)
+          } catch {
+            return [...lines.slice(index), trailing].join("\n")
+          }
+          parseDataLine(record, line)
         }
-      } else if (typeof message.content === "string") {
-        const current = alternateMessageId
-          ? record.alternateAssistantTexts[alternateMessageId] || ""
-          : record.finalText;
-        const next = reconcileMessageContent(current, message.content);
-        event.content += next.slice(current.length);
-        if (alternateMessageId) {
-          record.alternateAssistantTexts[alternateMessageId] = next;
-        } else {
-          record.finalText = next;
-        }
+        return trailing
       }
+      parseDataLine(record, text)
+      return ""
+    }
 
-      if (typeof delta.thinking === "string") {
-        event.thinking += delta.thinking;
-      }
+    const lines = chunk.split(/\r?\n/)
+    const trailing = chunk.endsWith("\n") || chunk.endsWith("\r") ? "" : lines.pop() || ""
 
-      if (Array.isArray(delta.tool_calls)) {
-        event.toolCalls.push(...delta.tool_calls);
-        for (const toolCall of delta.tool_calls) {
-          accumulateToolCall(record, toolCall);
-        }
-      }
-
-      if (Array.isArray(delta.toolCalls)) {
-        event.toolCalls.push(...delta.toolCalls);
-        for (const toolCall of delta.toolCalls) {
-          accumulateToolCall(record, toolCall);
-        }
-      }
-
-      if (Array.isArray(message.tool_calls)) {
-        event.toolCalls.push(...message.tool_calls);
-        for (const toolCall of message.tool_calls) {
-          accumulateToolCall(record, toolCall);
-        }
-      }
-
-      if (choice.finish_reason || choice.finishReason) {
-        event.finishReason = choice.finish_reason || choice.finishReason;
-        if (!alternateMessageId || event.finishReason === "tool_calls") {
-          record.finishReason = event.finishReason;
-        }
+    for (const line of lines) {
+      if (line.startsWith("data:")) {
+        parseDataLine(record, line.slice(5).trim())
       }
     }
 
-    if (event.content || event.thinking || event.toolCalls.length > 0 || event.finishReason) {
-      record.events.push(event);
-      record.eventCount = (record.eventCount || 0) + 1;
+    return trailing
+  }
 
-      if (record.events.length > MAX_EVENTS) {
-        record.events.splice(0, record.events.length - MAX_EVENTS);
+  function parseDataLine(record, data) {
+    if (!data || data === "[DONE]") {
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(data)
+      const event = {
+        id: parsed.id || null,
+        model: parsed.model || null,
+        messageId: parsed.message_id || parsed.messageId || null,
+        finishReason: null,
+        content: "",
+        thinking: "",
+        toolCalls: [],
+      }
+
+      // First non-null model on the stream identifies the responder. For an agent (e.g.
+      // OgilvyOneCoder) this reports the agent's underlying base model, so it is observability
+      // only — the wrong-agent gate keys off the selected picker label, not this field.
+      if (!record.model && event.model) {
+        record.model = event.model
+      }
+
+      const choices = primaryChoices(parsed.choices)
+      const usage = networkUsage(parsed.usage)
+      if (usage) {
+        record.usage = usage
+      }
+      event.messageId =
+        event.messageId ||
+        choices
+          .map((choice) => choice?.delta?.messageId || choice?.delta?.message_id || choice?.message?.id || null)
+          .find(Boolean) ||
+        null
+      const hasAssistantPayload = choices.some(choiceHasAssistantPayload)
+
+      if (event.messageId && !record.primaryMessageId && hasAssistantPayload) {
+        record.primaryMessageId = event.messageId
+      }
+      // WPP can multiplex a preamble and its actual tool call under separate assistant message IDs.
+      // Keep later text isolated so refusal/policy prose never contaminates the selected answer, but
+      // retain it for the central normalizer to accept only when it parses as a real tool call.
+      const alternateMessageId =
+        event.messageId && record.primaryMessageId && event.messageId !== record.primaryMessageId
+          ? event.messageId
+          : null
+
+      for (const choice of choices) {
+        const delta = choice.delta || {}
+        const message = choice.message || {}
+
+        if (typeof delta.content === "string") {
+          event.content += delta.content
+          if (alternateMessageId) {
+            record.alternateAssistantTexts[alternateMessageId] =
+              (record.alternateAssistantTexts[alternateMessageId] || "") + delta.content
+          } else {
+            record.finalText += delta.content
+          }
+        } else if (typeof message.content === "string") {
+          const current = alternateMessageId
+            ? record.alternateAssistantTexts[alternateMessageId] || ""
+            : record.finalText
+          const next = reconcileMessageContent(current, message.content)
+          event.content += next.slice(current.length)
+          if (alternateMessageId) {
+            record.alternateAssistantTexts[alternateMessageId] = next
+          } else {
+            record.finalText = next
+          }
+        }
+
+        if (typeof delta.thinking === "string") {
+          event.thinking += delta.thinking
+        }
+
+        if (Array.isArray(delta.tool_calls)) {
+          event.toolCalls.push(...delta.tool_calls)
+          for (const toolCall of delta.tool_calls) {
+            accumulateToolCall(record, toolCall)
+          }
+        }
+
+        if (Array.isArray(delta.toolCalls)) {
+          event.toolCalls.push(...delta.toolCalls)
+          for (const toolCall of delta.toolCalls) {
+            accumulateToolCall(record, toolCall)
+          }
+        }
+
+        if (Array.isArray(message.tool_calls)) {
+          event.toolCalls.push(...message.tool_calls)
+          for (const toolCall of message.tool_calls) {
+            accumulateToolCall(record, toolCall)
+          }
+        }
+
+        if (choice.finish_reason || choice.finishReason) {
+          event.finishReason = choice.finish_reason || choice.finishReason
+          if (!alternateMessageId || event.finishReason === "tool_calls") {
+            record.finishReason = event.finishReason
+          }
+        }
+      }
+
+      if (event.content || event.thinking || event.toolCalls.length > 0 || event.finishReason) {
+        record.events.push(event)
+        record.eventCount = (record.eventCount || 0) + 1
+
+        if (record.events.length > MAX_EVENTS) {
+          record.events.splice(0, record.events.length - MAX_EVENTS)
+        }
+      }
+    } catch {
+      record.unparsed.push(data)
+      if (record.unparsed.length > 50) {
+        record.unparsed.splice(0, record.unparsed.length - 50)
       }
     }
-  } catch {
-    record.unparsed.push(data);
-    if (record.unparsed.length > 50) {
-      record.unparsed.splice(0, record.unparsed.length - 50);
+  }
+
+  function networkUsage(value) {
+    if (!value || typeof value !== "object") {
+      return null
+    }
+
+    const promptTokens = finiteToken(value.prompt_tokens)
+    const completionTokens = finiteToken(value.completion_tokens)
+    if (promptTokens === null || completionTokens === null) {
+      return null
+    }
+
+    const cachedTokens = finiteToken(value.prompt_tokens_details?.cached_tokens)
+    const reasoningTokens = finiteToken(value.completion_tokens_details?.reasoning_tokens)
+    return {
+      scope: "request",
+      source: "network",
+      fidelity: "exact",
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      ...(cachedTokens === null ? {} : { cachedTokens: Math.min(cachedTokens, promptTokens) }),
+      ...(reasoningTokens === null ? {} : { reasoningTokens: Math.min(reasoningTokens, completionTokens) }),
     }
   }
-}
 
-function networkUsage(value) {
-  if (!value || typeof value !== "object") {
-    return null;
+  function finiteToken(value) {
+    return Number.isFinite(value) && value >= 0 ? Math.ceil(value) : null
   }
 
-  const promptTokens = finiteToken(value.prompt_tokens);
-  const completionTokens = finiteToken(value.completion_tokens);
-  if (promptTokens === null || completionTokens === null) {
-    return null;
+  // OpenAI-compatible responses define choice index 0 as the selected completion. WPP can include
+  // extra choices carrying unrelated fallback/policy text; consuming every choice corrupts the
+  // assistant response by concatenating them.
+  function primaryChoices(value) {
+    const choices = Array.isArray(value) ? value : []
+    if (choices.length === 0) {
+      return []
+    }
+
+    const indexed = choices.filter((choice) => Number(choice?.index) === 0)
+    return indexed.length > 0 ? indexed : [choices[0]]
   }
 
-  const cachedTokens = finiteToken(value.prompt_tokens_details?.cached_tokens);
-  const reasoningTokens = finiteToken(value.completion_tokens_details?.reasoning_tokens);
-  return {
-    scope: "request",
-    source: "network",
-    fidelity: "exact",
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens,
-    ...(cachedTokens === null ? {} : { cachedTokens: Math.min(cachedTokens, promptTokens) }),
-    ...(reasoningTokens === null ? {} : { reasoningTokens: Math.min(reasoningTokens, completionTokens) })
-  };
-}
-
-function finiteToken(value) {
-  return Number.isFinite(value) && value >= 0 ? Math.ceil(value) : null;
-}
-
-// OpenAI-compatible responses define choice index 0 as the selected completion. WPP can include
-// extra choices carrying unrelated fallback/policy text; consuming every choice corrupts the
-// assistant response by concatenating them.
-function primaryChoices(value) {
-  const choices = Array.isArray(value) ? value : [];
-  if (choices.length === 0) {
-    return [];
+  function choiceHasAssistantPayload(choice) {
+    const delta = choice?.delta || {}
+    const message = choice?.message || {}
+    return (
+      typeof delta.content === "string" ||
+      typeof message.content === "string" ||
+      Array.isArray(delta.tool_calls) ||
+      Array.isArray(delta.toolCalls) ||
+      Array.isArray(message.tool_calls)
+    )
   }
 
-  const indexed = choices.filter((choice) => Number(choice?.index) === 0);
-  return indexed.length > 0 ? indexed : [choices[0]];
-}
+  // Streaming frames carry incremental delta.content, while JSON/final frames can repeat the whole
+  // answer in message.content. Treat the latter as a cumulative snapshot when it overlaps the text
+  // already captured, otherwise retain compatibility with genuinely incremental message frames.
+  function reconcileMessageContent(currentText, messageText) {
+    const current = typeof currentText === "string" ? currentText : ""
+    const message = typeof messageText === "string" ? messageText : ""
 
-function choiceHasAssistantPayload(choice) {
-  const delta = choice?.delta || {};
-  const message = choice?.message || {};
-  return (
-    typeof delta.content === "string" ||
-    typeof message.content === "string" ||
-    Array.isArray(delta.tool_calls) ||
-    Array.isArray(delta.toolCalls) ||
-    Array.isArray(message.tool_calls)
-  );
-}
-
-// Streaming frames carry incremental delta.content, while JSON/final frames can repeat the whole
-// answer in message.content. Treat the latter as a cumulative snapshot when it overlaps the text
-// already captured, otherwise retain compatibility with genuinely incremental message frames.
-function reconcileMessageContent(currentText, messageText) {
-  const current = typeof currentText === "string" ? currentText : "";
-  const message = typeof messageText === "string" ? messageText : "";
-
-  if (!current || message.startsWith(current)) {
-    return message;
-  }
-  if (!message || current.endsWith(message)) {
-    return current;
-  }
-  return current + message;
-}
-
-function accumulateToolCall(record, toolCall) {
-  const key = String(toolCall.index ?? toolCall.id ?? 0);
-  const existing = record.toolCallParts[key] || {
-    id: toolCall.id || null,
-    type: toolCall.type || "function",
-    name: "",
-    arguments: ""
-  };
-  const fn = toolCall.function || {};
-
-  existing.id = toolCall.id || existing.id;
-  existing.type = toolCall.type || existing.type;
-  existing.name = fn.name || toolCall.name || existing.name || "";
-
-  if (typeof fn.arguments === "string") {
-    existing.arguments += fn.arguments;
-  } else if (typeof toolCall.arguments === "string") {
-    existing.arguments += toolCall.arguments;
+    if (!current || message.startsWith(current)) {
+      return message
+    }
+    if (!message || current.endsWith(message)) {
+      return current
+    }
+    return current + message
   }
 
-  record.toolCallParts[key] = existing;
-}
+  function accumulateToolCall(record, toolCall) {
+    const key = String(toolCall.index ?? toolCall.id ?? 0)
+    const existing = record.toolCallParts[key] || {
+      id: toolCall.id || null,
+      type: toolCall.type || "function",
+      name: "",
+      arguments: "",
+    }
+    const fn = toolCall.function || {}
 
-function headersObject(headers) {
-  const result = {};
+    existing.id = toolCall.id || existing.id
+    existing.type = toolCall.type || existing.type
+    existing.name = fn.name || toolCall.name || existing.name || ""
 
-  for (const [key, value] of headers.entries()) {
-    result[key] = value;
+    if (typeof fn.arguments === "string") {
+      existing.arguments += fn.arguments
+    } else if (typeof toolCall.arguments === "string") {
+      existing.arguments += toolCall.arguments
+    }
+
+    record.toolCallParts[key] = existing
   }
 
-  return result;
-}
+  function headersObject(headers) {
+    const result = {}
 
-function parseResponseHeaders(value) {
-  return String(value || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .reduce((headers, line) => {
-      const index = line.indexOf(":");
-      if (index > 0) {
-        headers[line.slice(0, index).trim().toLowerCase()] = line.slice(index + 1).trim();
-      }
-      return headers;
-    }, {});
-}
+    for (const [key, value] of headers.entries()) {
+      result[key] = value
+    }
 
-function appendChunk(record, chunk) {
-  record.byteCount = (record.byteCount || 0) + String(chunk || "").length;
-  record.chunks.push(chunk);
-
-  if (record.chunks.length > 20) {
-    record.chunks.splice(0, record.chunks.length - 20);
-  }
-}
-
-const postThrottleState = new WeakMap();
-
-// Throttle interim record posts. Each post structured-clones the record across the
-// page<->content boundary, so posting on every SSE chunk is O(n^2) over a long stream.
-// Non-terminal posts are coalesced to one per POST_THROTTLE_MS (the latest record state
-// wins); terminal posts (done/error) flush immediately so the final answer is never
-// delayed. Interim posts still carry the live finalText so the content script can salvage
-// a partial answer if the stream stalls without a finish reason.
-function postRecord(record) {
-  if (!currentRequest(record)) return;
-  if (record.done || record.error) {
-    flushRecordPost(record);
-    return;
+    return result
   }
 
-  let state = postThrottleState.get(record);
-
-  if (!state) {
-    state = { lastPostAt: 0, timer: null };
-    postThrottleState.set(record, state);
+  function parseResponseHeaders(value) {
+    return String(value || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .reduce((headers, line) => {
+        const index = line.indexOf(":")
+        if (index > 0) {
+          headers[line.slice(0, index).trim().toLowerCase()] = line.slice(index + 1).trim()
+        }
+        return headers
+      }, {})
   }
 
-  if (state.timer) {
-    return;
+  function appendChunk(record, chunk) {
+    record.byteCount = (record.byteCount || 0) + String(chunk || "").length
+    record.chunks.push(chunk)
+
+    if (record.chunks.length > 20) {
+      record.chunks.splice(0, record.chunks.length - 20)
+    }
   }
 
-  const elapsed = Date.now() - state.lastPostAt;
+  const postThrottleState = new WeakMap()
 
-  if (elapsed >= POST_THROTTLE_MS) {
-    state.lastPostAt = Date.now();
-    postRecordNow(record);
-    return;
+  // Throttle interim record posts. Each post structured-clones the record across the
+  // page<->content boundary, so posting on every SSE chunk is O(n^2) over a long stream.
+  // Non-terminal posts are coalesced to one per POST_THROTTLE_MS (the latest record state
+  // wins); terminal posts (done/error) flush immediately so the final answer is never
+  // delayed. Interim posts still carry the live finalText so the content script can salvage
+  // a partial answer if the stream stalls without a finish reason.
+  function postRecord(record) {
+    if (!currentRequest(record)) return
+    if (record.done || record.error) {
+      flushRecordPost(record)
+      return
+    }
+
+    let state = postThrottleState.get(record)
+
+    if (!state) {
+      state = { lastPostAt: 0, timer: null }
+      postThrottleState.set(record, state)
+    }
+
+    if (state.timer) {
+      return
+    }
+
+    const elapsed = Date.now() - state.lastPostAt
+
+    if (elapsed >= POST_THROTTLE_MS) {
+      state.lastPostAt = Date.now()
+      postRecordNow(record)
+      return
+    }
+
+    state.timer = setTimeout(() => {
+      state.timer = null
+      state.lastPostAt = Date.now()
+      postRecordNow(record)
+    }, POST_THROTTLE_MS - elapsed)
   }
 
-  state.timer = setTimeout(() => {
-    state.timer = null;
-    state.lastPostAt = Date.now();
-    postRecordNow(record);
-  }, POST_THROTTLE_MS - elapsed);
-}
+  function flushRecordPost(record) {
+    const state = postThrottleState.get(record)
 
-function flushRecordPost(record) {
-  const state = postThrottleState.get(record);
+    if (state?.timer) {
+      clearTimeout(state.timer)
+      state.timer = null
+    }
 
-  if (state?.timer) {
-    clearTimeout(state.timer);
-    state.timer = null;
+    postThrottleState.delete(record)
+    postRecordNow(record)
   }
 
-  postThrottleState.delete(record);
-  postRecordNow(record);
-}
-
-function postRecordNow(record) {
-  if (!currentRequest(record)) return;
-  record.updatedAt = new Date().toISOString();
-  window.postMessage({
-    source: PAGE_SOURCE,
-    type: "O1_CODE_BRIDGE_NETWORK_RECORD",
-    record: serializeRecord(record, verboseRecorder)
-  }, "*");
-}
-
-function serializeRecord(record, verbose = false) {
-  const counts = {
-    chunks: Array.isArray(record.chunks) ? record.chunks.length : 0,
-    events: Array.isArray(record.events) ? record.events.length : 0,
-    unparsed: Array.isArray(record.unparsed) ? record.unparsed.length : 0,
-    eventCount: Number(record.eventCount) || 0,
-    byteCount: Number(record.byteCount) || 0
-  };
-  const compact = {
-    id: record.id,
-    runId: record.runId,
-    url: record.url,
-    method: record.method,
-    startedAt: record.startedAt,
-    updatedAt: record.updatedAt,
-    responseStatus: record.responseStatus,
-    responseHeaders: record.responseHeaders || {},
-    model: record.model || null,
-    finalText: record.finalText || "",
-    alternateAssistantTexts: record.alternateAssistantTexts || {},
-    finishReason: record.finishReason || null,
-    usage: record.usage || null,
-    toolCallParts: record.toolCallParts || {},
-    eventCount: counts.eventCount,
-    byteCount: counts.byteCount,
-    chunkCount: counts.chunks,
-    unparsedCount: counts.unparsed,
-    counts,
-    done: Boolean(record.done),
-    error: record.error || null
-  };
-
-  if (verbose) {
-    compact.chunks = record.chunks || [];
-    compact.events = record.events || [];
-    compact.unparsed = record.unparsed || [];
+  function postRecordNow(record) {
+    if (!currentRequest(record)) return
+    record.updatedAt = new Date().toISOString()
+    window.postMessage(
+      {
+        source: PAGE_SOURCE,
+        type: "O1_CODE_BRIDGE_NETWORK_RECORD",
+        record: serializeRecord(record, verboseRecorder),
+      },
+      "*",
+    )
   }
 
-  return compact;
-}
+  function serializeRecord(record, verbose = false) {
+    const counts = {
+      chunks: Array.isArray(record.chunks) ? record.chunks.length : 0,
+      events: Array.isArray(record.events) ? record.events.length : 0,
+      unparsed: Array.isArray(record.unparsed) ? record.unparsed.length : 0,
+      eventCount: Number(record.eventCount) || 0,
+      byteCount: Number(record.byteCount) || 0,
+    }
+    const compact = {
+      id: record.id,
+      runId: record.runId,
+      url: record.url,
+      method: record.method,
+      startedAt: record.startedAt,
+      updatedAt: record.updatedAt,
+      responseStatus: record.responseStatus,
+      responseHeaders: record.responseHeaders || {},
+      model: record.model || null,
+      finalText: record.finalText || "",
+      alternateAssistantTexts: record.alternateAssistantTexts || {},
+      finishReason: record.finishReason || null,
+      usage: record.usage || null,
+      toolCallParts: record.toolCallParts || {},
+      eventCount: counts.eventCount,
+      byteCount: counts.byteCount,
+      chunkCount: counts.chunks,
+      unparsedCount: counts.unparsed,
+      counts,
+      done: Boolean(record.done),
+      error: record.error || null,
+    }
 
-function postStatus(status, extra = {}) {
-  window.postMessage({
-    source: PAGE_SOURCE,
-    type: "O1_CODE_BRIDGE_RECORDER_STATUS",
-    status,
-    ...extra
-  }, "*");
-}
+    if (verbose) {
+      compact.chunks = record.chunks || []
+      compact.events = record.events || []
+      compact.unparsed = record.unparsed || []
+    }
 
-if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.node) {
-  globalThis.__o1CodeBridgePageRecorderTest = {
-    createRecord,
-    shouldRecordRequest,
-    emitObservedRequest,
-    parseChunk,
-    parseDataLine,
-    networkUsage,
-    accumulateToolCall,
-    postRecord,
-    appendChunk,
-    serializeRecord,
-    windowForTest: window
-  };
-}
-})();
+    return compact
+  }
+
+  function postStatus(status, extra = {}) {
+    window.postMessage(
+      {
+        source: PAGE_SOURCE,
+        type: "O1_CODE_BRIDGE_RECORDER_STATUS",
+        status,
+        ...extra,
+      },
+      "*",
+    )
+  }
+
+  if (globalThis.__O1_CODE_BRIDGE_TEST_HOOKS__ && globalThis.process?.versions?.node) {
+    globalThis.__o1CodeBridgePageRecorderTest = {
+      createRecord,
+      shouldRecordRequest,
+      emitObservedRequest,
+      parseChunk,
+      parseDataLine,
+      networkUsage,
+      accumulateToolCall,
+      postRecord,
+      appendChunk,
+      serializeRecord,
+      windowForTest: window,
+    }
+  }
+})()

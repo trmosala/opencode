@@ -4,10 +4,7 @@ const DEFAULT_TIMEOUT_MS = 12_000
 const DEFAULT_STALL_MS = 2_000
 const DEFAULT_POLL_MS = 250
 
-export function shouldAwaitCdpFinish(
-  result: unknown,
-  witness: CdpNetworkSummary,
-): boolean {
+export function shouldAwaitCdpFinish(result: unknown, witness: CdpNetworkSummary): boolean {
   if (!witness.cdpRequestSeen || witness.cdpFinished || witness.cdpFailed) return false
   if (!result || typeof result !== "object") return true
   return Reflect.get(result, "responseSource") !== "network"

@@ -35,6 +35,7 @@ capture), which is the actual task for Codex.
    appears. Root cause: `.opencode` auto-install fails on `@opencode-ai/plugin@local`.
 
 ## B. Remaining work for Codex
+
 The task is **"Dual network capture"** — the last major section of this file. Everything
 above it is context/done. Start there.
 
@@ -66,7 +67,7 @@ The proxy's `sessionIdFromHeaders` ([openaiCompat.mjs:48](packages/desktop/src/m
 reads the affinity headers but ignores `x-parent-session-id`.
 
 **Goal:** detect sub-agent turns via `x-parent-session-id` and still pin them
-(preserving delta/thread continuity *within* the sub-agent's own multi-turn run),
+(preserving delta/thread continuity _within_ the sub-agent's own multi-turn run),
 but reap their tabs on a much shorter idle TTL than a real interactive session.
 
 ## Approach
@@ -79,6 +80,7 @@ Follow the existing split: pure, Electron-free logic lives in `worker-slot.ts`
 (unit-testable); `worker-pool.ts` is the Electron glue.
 
 ### 1. Detect the sub-agent signal — `proxy/openaiCompat.mjs`
+
 - Add a small helper alongside `sessionIdFromHeaders`, e.g.
   `hasParentSession(headers)` that returns true when `x-parent-session-id` is a
   non-empty string.
@@ -88,17 +90,16 @@ Follow the existing split: pure, Electron-free logic lives in `worker-slot.ts`
 - Pass `subagent` into `bridgeOptions` (~line 191) next to `sessionKey`/`continueThread`.
 
 ### 2. Plumb the flag through the bridge — `proxy/extensionBridge.mjs`
+
 - In `createWorkerJob` (~line 309-321) add `subagent: options.subagent === true`
   to `payload`, next to `sessionKey`.
 
 ### 3. Pure TTL decision — `worker-slot.ts`
+
 - Extend `WorkerView` with `subagent?: boolean`.
 - Add a pure helper:
   ```ts
-  export function ttlForWorker(
-    worker: WorkerView,
-    ttls: { idle: number; pinned: number; subagent: number },
-  ): number {
+  export function ttlForWorker(worker: WorkerView, ttls: { idle: number; pinned: number; subagent: number }): number {
     if (!worker.sessionKey) return ttls.idle
     return worker.subagent ? ttls.subagent : ttls.pinned
   }
@@ -107,11 +108,12 @@ Follow the existing split: pure, Electron-free logic lives in `worker-slot.ts`
   three-way choice testable without the Electron runtime.
 
 ### 4. Apply in the pool — `worker-pool.ts`
+
 - Add `SUBAGENT_WORKER_TTL_MS` (default 5 min; env-overridable via
   `O1_CODE_SUBAGENT_TTL_MS`, mirroring the `O1_CODE_MAX_SPAWNS` pattern).
 - Add `subagent: boolean` to the `Worker` type.
 - Thread `subagent` through `run` (read `job.payload?.subagent`) → `acquire(agent,
-  sessionKey, subagent)` → `claim`/`spawn` (set `worker.subagent`). On `claim`,
+sessionKey, subagent)` → `claim`/`spawn` (set `worker.subagent`). On `claim`,
   always assign `worker.subagent = subagent` (an adopted unpinned worker takes the
   current turn's classification).
 - In `prune()`, replace the TTL ternary with
@@ -124,6 +126,7 @@ No change needed to `selectWorkerSlot` (selection is by unique `sessionKey`) or 
 `shouldReapWorker` (already TTL-parameterized).
 
 ## Critical files
+
 - [packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.mjs](packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.mjs) — detect + pass flag
 - [packages/desktop/src/main/wpp-bridge/proxy/extensionBridge.mjs](packages/desktop/src/main/wpp-bridge/proxy/extensionBridge.mjs) — payload plumbing
 - [packages/desktop/src/main/wpp-bridge/worker-slot.ts](packages/desktop/src/main/wpp-bridge/worker-slot.ts) — `WorkerView` + `ttlForWorker`
@@ -132,6 +135,7 @@ No change needed to `selectWorkerSlot` (selection is by unique `sessionKey`) or 
 ## Verification
 
 **Unit tests** (`worker-pool.test.ts`, which imports `worker-slot.ts`):
+
 - `ttlForWorker`: unpinned → idle; pinned non-subagent → pinned; pinned subagent →
   subagent TTL.
 - A reap scenario asserting a sub-agent worker is reaped once idle past
@@ -143,6 +147,7 @@ No change needed to `selectWorkerSlot` (selection is by unique `sessionKey`) or 
 `x-parent-session-id` is present.
 
 **Live check** (`O1_CODE_SHOW_WORKERS=1 bun run dev:desktop`):
+
 1. Run a turn that spawns a sub-agent (e.g. an Explore/Task) in OpenCode.
 2. Confirm a worker window appears titled with the `(subagent)` marker and a
    distinct child-session key from the parent's window.
@@ -154,6 +159,7 @@ No change needed to `selectWorkerSlot` (selection is by unique `sessionKey`) or 
 Run `bun run lint` (oxlint from repo root) and `bun turbo typecheck` before finishing.
 
 ## Open tunable
+
 `SUBAGENT_WORKER_TTL_MS` default is 5 min (vs 10 min idle / 30 min pinned). Adjust
 if sub-agent runs commonly idle longer than that between turns.
 
@@ -193,10 +199,7 @@ abandoned session, not a normal reaper.
 // Interactive session tabs live for the running app session (Electron destroys them on quit). This
 // long idle TTL is only a leak guard so a forgotten session can't hold an authenticated window
 // forever; normal same-session turns refresh lastUsed and never hit it.
-const PINNED_WORKER_TTL_MS = Math.max(
-  30 * 60 * 1000,
-  Number(process.env.O1_CODE_PINNED_TTL_MS) || 4 * 60 * 60 * 1000,
-)
+const PINNED_WORKER_TTL_MS = Math.max(30 * 60 * 1000, Number(process.env.O1_CODE_PINNED_TTL_MS) || 4 * 60 * 60 * 1000)
 ```
 
 No other code changes: `ttlForWorker` already routes pinned non-subagent workers to
@@ -204,6 +207,7 @@ this constant, sub-agents keep `SUBAGENT_WORKER_TTL_MS` (5 min), unpinned scratc
 keep `IDLE_WORKER_TTL_MS` (10 min). The three-tier split built above is unchanged.
 
 ## Verification
+
 - Existing `ttlForWorker` tests already assert pinned → `pinned` TTL and that the
   three tiers are distinct; they use literal TTLs, so the constant bump doesn't
   break them. Re-run `cd packages/desktop && bun test src/main/wpp-bridge/`.
@@ -212,6 +216,7 @@ keep `IDLE_WORKER_TTL_MS` (10 min). The three-tier split built above is unchange
   past 30 min idle; quitting the app closes all worker windows.
 
 ## Note / tradeoff
+
 Every interactive session ever touched keeps one hidden authenticated
 `BrowserWindow` for up to the backstop (or until app quit). With many sessions in
 one app run this accumulates windows/memory — acceptable per the chosen
@@ -230,15 +235,15 @@ one app run this accumulates windows/memory — acceptable per the chosen
 Today the only network capture is the page monkey-patch (`injected/pageRecorder.js`),
 injected main-world at document-start via `recorder-injection.ts`, patching
 `fetch`/`XMLHttpRequest` and relaying chunks by `postMessage`. It's the sole
-transport witness *and* the parser, and it depends on WPP page JS + timing. When it
+transport witness _and_ the parser, and it depends on WPP page JS + timing. When it
 misses, the run loop in `content.js` silently falls back to **DOM scraping**, whose
 whitespace-lossy output then gets executed by the harness — the failure mode behind
 the "environment is lying to me" sessions.
 
 Electron lets us add an **independent transport witness** that page JS cannot bypass:
 attach `webContents.debugger`, enable the `Network` domain, and observe the model
-request directly in the main process. The page recorder stays as the *semantic SSE
-parser*; CDP becomes the *truth* about whether a model request happened, streamed
+request directly in the main process. The page recorder stays as the _semantic SSE
+parser_; CDP becomes the _truth_ about whether a model request happened, streamed
 bytes, and finished or failed; DOM is demoted to UI evidence only.
 
 Key simplifier: **one job per worker**, so within a worker's run window there is
@@ -257,27 +262,29 @@ origin during the run window," no per-request id needed.
   typed `o1_code_capture_failure` from the pool triggers: reset continuity → retry once
   (the retry naturally takes the fresh-chat path because the watermark was reset).
 - `content.js` is largely unchanged: still parses + returns its own `responseSource`
-  and `recorder:{ready,reset,requestCount}`; main now *arbitrates* that result instead
+  and `recorder:{ready,reset,requestCount}`; main now _arbitrates_ that result instead
   of trusting it.
 
 ## Work items
 
 ### 1. Main-process CDP Network recorder — new `cdp-network-recorder.ts`
+
 - `installNetworkWitness(contents)`: via existing `installInRootAndChildTargets`
   (reused from [cdp-targets.ts](packages/desktop/src/main/wpp-bridge/cdp-targets.ts)),
   `Network.enable` on root + the cross-origin assistant iframe target; subscribe to
   `dbg.on("message")` for `Network.requestWillBeSent`, `responseReceived`,
   `dataReceived`, `loadingFinished`, `loadingFailed`, `eventSourceMessageReceived`.
 - Keep a small rolling ring buffer of `{ts, requestId, url, method, status, bytes,
-  state}`. Filter to model requests with the **same predicate as the page recorder's
+state}`. Filter to model requests with the **same predicate as the page recorder's
   `shouldRecordRequest`** (POST to assistant origin, excluding datadog/`/v1/project`/
   `/v1/tools`/`/v1/oauth`) — factor that predicate into a shared module so both stay in
   sync.
 - Return a handle: `summarizeWindow(sinceTs)` → `{ requestSeen, status, bytes,
-  finished, failed, failureText, eventSourceMessages }`.
+finished, failed, failureText, eventSourceMessages }`.
 - Witness is **metadata-only** (no `Network.getResponseBody`) per "witness, not parser."
 
 ### 2. Spawn wiring — `worker-pool.ts`
+
 - In `spawn()`, after `installRecorder`/`installController`, call `installNetworkWitness`
   and store the handle on the `Worker` (`worker.netWitness`).
 - In `run()`: capture `t0 = Date.now()` before `controller.runJob`; after it resolves,
@@ -294,12 +301,14 @@ origin during the run window," no per-request id needed.
     gets a clean tab.
 
 ### 3. Retry-with-reset — `proxy/openaiCompat.mjs`
+
 - Wrap the `bridge.run` call: on `o1_code_capture_failure`, `resetThread(sessionKey)`,
   then retry **once** (fresh replay). If the retry also fails capture, surface the typed
   error (don't fall back to DOM). Distinguish the three kinds in the error message so the
   user sees "WPP request failed" vs "recorder/parser miss" vs "submit/UI failure."
 
 ### 4. DOM = display only
+
 - With the arbiter in place, the DOM-fallback record ([content.js](packages/desktop/src/main/wpp-bridge/injected/content.js)
   `domRecordFromSnapshot`, already `lowFidelity:true`) is **never accepted as payload** by
   the pool when a model request was witnessed/seen-failed. DOM only survives as evidence
@@ -307,6 +316,7 @@ origin during the run window," no per-request id needed.
   page produced visible text — configurable; default: reject).
 
 ### 5. Capture-health record (per turn)
+
 Extend the run log (the `responseSource`/`lowFidelity` fields just added in
 [openaiCompat.mjs](packages/desktop/src/main/wpp-bridge/proxy/openaiCompat.mjs)) with a
 `capture` block, surfaced in `/bridge/health` too:
@@ -315,6 +325,7 @@ cdpFailed, pageRecorderRequestSeen, parseComplete, responseSourceAccepted, retry
 verdict }`. This is what makes failures non-spooky.
 
 ## Critical files
+
 - **new** `packages/desktop/src/main/wpp-bridge/cdp-network-recorder.ts` — witness
 - **new/shared** request-predicate module (extract `shouldRecordRequest` logic) shared by
   the witness and [pageRecorder.js](packages/desktop/src/main/wpp-bridge/injected/pageRecorder.js)
@@ -324,25 +335,27 @@ verdict }`. This is what makes failures non-spooky.
 - reuse [cdp-targets.ts](packages/desktop/src/main/wpp-bridge/cdp-targets.ts) `installInRootAndChildTargets`
 
 ## Verification
+
 - **Unit (Electron-free):** the verdict function is pure — feed `{controllerResult,
-  witnessSummary}` permutations (network-ok, dom+failed, dom+finished-parser-miss,
+witnessSummary}` permutations (network-ok, dom+failed, dom+finished-parser-miss,
   dom+no-request) and assert accept / typed-failure-kind. Put it next to `worker-slot.ts`
   style pure logic so it tests without Electron. Run `bun test src/main/wpp-bridge/`.
 - **CDP event parsing:** unit-test the ring-buffer reducer over recorded `Network.*`
   event fixtures.
 - **Live (`O1_CODE_SHOW_WORKERS=1`):** run a turn; confirm `capture.cdpRequestSeen=true`
-  + `responseSourceAccepted=network`. Then force a parser miss (e.g. temporarily break
-  the page recorder predicate) and confirm: DOM is **not** executed, a typed
-  `recorder_parser_miss` is logged, one retry fires after reset, and the health block
-  records it. Kill network mid-turn → `wpp_request_failed` surfaced.
+  - `responseSourceAccepted=network`. Then force a parser miss (e.g. temporarily break
+    the page recorder predicate) and confirm: DOM is **not** executed, a typed
+    `recorder_parser_miss` is logged, one retry fires after reset, and the health block
+    records it. Kill network mid-turn → `wpp_request_failed` surfaced.
 - `bun run lint` + `bun run typecheck`.
 
 ## Risks / notes
+
 - Two `setAutoAttach` passes already exist (recorder + controller injection); a third is
   idempotent but adds CDP chatter — acceptable, or fold `Network.enable` into the
   recorder-injection target pass.
 - SSE over CDP surfaces as `dataReceived` (and sometimes `eventSourceMessageReceived`);
-  treat *either* as "bytes arrived." `loadingFinished` may lag the visible completion —
+  treat _either_ as "bytes arrived." `loadingFinished` may lag the visible completion —
   the witness is queried after `controller.runJob` resolves, so timing is fine.
 - Keep CDP witness metadata-only; capturing bodies (`getResponseBody`/
   `streamResourceContent`) is a possible future "CDP-as-second-parser" upgrade, out of

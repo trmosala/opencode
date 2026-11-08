@@ -53,23 +53,34 @@ function fakeContext(sessionID = "ses_1") {
 
 describe("browser tools", () => {
   test("desktop panel validates before approval and returns only the matching native result", async () => {
-    for (const args of [
-      { view: "browser", tabID: "one" }, { view: "review" }, { view: "hidden" },
-    ] as const) {
+    for (const args of [{ view: "browser", tabID: "one" }, { view: "review" }, { view: "hidden" }] as const) {
       const panelResult = { ...args, browserReady: args.view === "browser" }
-      const browser = fakePort(success({
-        tabID: "", url: "", title: "", visibleText: "", elements: [], panelResult,
-      } as BrowserState))
+      const browser = fakePort(
+        success({
+          tabID: "",
+          url: "",
+          title: "",
+          visibleText: "",
+          elements: [],
+          panelResult,
+        } as BrowserState),
+      )
       const call = fakeContext()
-      expect(await browserTools(browser.port).desktop_set_panel.execute(args, call.context))
-        .toBe(JSON.stringify(panelResult))
+      expect(await browserTools(browser.port).desktop_set_panel.execute(args, call.context)).toBe(
+        JSON.stringify(panelResult),
+      )
       expect(browser.sent).toEqual([{ sessionID: "ses_1", request: { op: "set_panel", ...args } }])
       expect(call.asked).toEqual([{ permission: "desktop_set_panel", patterns: ["*"] }])
     }
     for (const args of [
-      {}, { view: "browser" }, { view: "browser", tabID: "../one" }, { view: "files" },
-      { view: "review", tabID: "one" }, { view: "hidden", tabID: undefined },
-      { view: "hidden", op: "set_panel" }, { view: "review", unknown: true },
+      {},
+      { view: "browser" },
+      { view: "browser", tabID: "../one" },
+      { view: "files" },
+      { view: "review", tabID: "one" },
+      { view: "hidden", tabID: undefined },
+      { view: "hidden", op: "set_panel" },
+      { view: "review", unknown: true },
     ]) {
       const browser = fakePort()
       const call = fakeContext()
@@ -78,18 +89,26 @@ describe("browser tools", () => {
       expect(call.asked).toEqual([])
     }
     for (const result of [
-      {}, { panelResult: { view: "review", browserReady: false } },
+      {},
+      { panelResult: { view: "review", browserReady: false } },
       { panelResult: { view: "browser", tabID: "other", browserReady: true } },
       { panelResult: { view: "browser", tabID: "one", browserReady: false } },
       { panelResult: { view: "browser", tabID: "one", browserReady: true, private: "data" } },
       { panelResult: { view: "browser", tabID: "one", browserReady: true }, title: "private" },
     ]) {
-      const browser = fakePort(success({
-        tabID: "", url: "", title: "", visibleText: "", elements: [], ...result,
-      } as BrowserState))
-      await expect(browserTools(browser.port).desktop_set_panel.execute(
-        { view: "browser", tabID: "one" }, fakeContext().context,
-      )).rejects.toThrow("Invalid desktop panel result.")
+      const browser = fakePort(
+        success({
+          tabID: "",
+          url: "",
+          title: "",
+          visibleText: "",
+          elements: [],
+          ...result,
+        } as BrowserState),
+      )
+      await expect(
+        browserTools(browser.port).desktop_set_panel.execute({ view: "browser", tabID: "one" }, fakeContext().context),
+      ).rejects.toThrow("Invalid desktop panel result.")
       expect(browser.sent).toHaveLength(1)
     }
   })
@@ -113,7 +132,11 @@ describe("browser tools", () => {
           expect(signal).toBe(controller.signal)
           if (stage === "dispatch") controller.abort()
           return success({
-            tabID: "", url: "", title: "", visibleText: "", elements: [],
+            tabID: "",
+            url: "",
+            title: "",
+            visibleText: "",
+            elements: [],
             panelResult: { view: "hidden", browserReady: false },
           })
         },

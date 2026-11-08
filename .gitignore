@@ -35,3 +35,4 @@ logs/
 tsconfig.tsbuildinfo
 /packages/desktop/resources/cm-ae/
 /packages/desktop/resources/cli/opencode*
+/artifacts/

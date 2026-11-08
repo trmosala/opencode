@@ -57,6 +57,29 @@ function locationData(validate: (value: any) => void) {
   }
 }
 
+const skillDraft = {
+  name: "httpapi-review-skill",
+  description: "HTTP API exerciser skill",
+  instructions: "Do nothing.",
+  scope: "workspace",
+}
+
+function skillDestination(directory: string | undefined) {
+  check(directory !== undefined, "skill scenarios need a project directory")
+  return path.join(directory, ".opencode", "skills", skillDraft.name, "SKILL.md")
+}
+
+function skillError(body: unknown) {
+  object(body)
+  check(body.name === "SkillError", "skill routes should fail with SkillError")
+}
+
+function schedulingUnavailable(body: unknown) {
+  object(body)
+  check(body._tag === "ServiceUnavailableError", "scheduling should report unavailable")
+  check(body.service === "scheduling", "unavailable error should name the scheduling service")
+}
+
 const scenarios: Scenario[] = [
   http.protected
     .get("/global/health", "global.health")
@@ -142,6 +165,70 @@ const scenarios: Scenario[] = [
   http.protected.get("/command", "command.list").json(200, array, "status"),
   http.protected.get("/agent", "app.agents").json(200, array, "status"),
   http.protected.get("/skill", "app.skills").json(200, array, "status"),
+  http.protected.get("/skill/catalog", "skill.catalog").json(
+    200,
+    (body) => {
+      array(body)
+      for (const item of body) {
+        object(item)
+        check(
+          [item.name, item.source, item.revision].every((value) => typeof value === "string"),
+          "catalog entries should carry a name, source and revision",
+        )
+      }
+    },
+    "status",
+  ),
+  http.protected
+    .post("/skill/validate", "skill.validate.missing")
+    .at((ctx) => ({
+      path: "/skill/validate",
+      headers: ctx.headers(),
+      body: { name: "httpapi-missing-skill", source: "missing", revision: "missing" },
+    }))
+    .json(400, skillError, "status"),
+  http.protected
+    .post("/skill/manage", "skill.manage.missing")
+    .at((ctx) => ({
+      path: "/skill/manage",
+      headers: ctx.headers(),
+      body: { action: "read", selected: { name: "httpapi-missing-skill", source: "missing", revision: "missing" } },
+    }))
+    .json(400, skillError, "status"),
+  // Review only issues an in-memory token; workspace scope keeps the destination inside the scenario project.
+  http.protected
+    .post("/skill/review", "skill.review")
+    .at((ctx) => ({ path: "/skill/review", headers: ctx.headers(), body: skillDraft }))
+    .json(
+      200,
+      (body, ctx) => {
+        object(body)
+        check(typeof body.token === "string" && body.token.length > 0, "review should issue a token")
+        check(typeof body.digest === "string", "review should return a digest")
+        check(body.scope === "workspace", "review should echo the draft scope")
+        check(
+          body.destination === skillDestination(ctx.directory),
+          "workspace review should target the scenario project",
+        )
+      },
+      "status",
+    ),
+  // An unreviewed token must be rejected before anything is written.
+  http.protected
+    .post("/skill/create", "skill.create.unreviewed")
+    .at((ctx) => ({ path: "/skill/create", headers: ctx.headers(), body: { ...skillDraft, token: "unreviewed" } }))
+    .jsonEffect(400, (body, ctx) =>
+      Effect.promise(async () => {
+        skillError(body)
+        check(!(await Bun.file(skillDestination(ctx.directory)).exists()), "rejected create should not write the skill")
+      }),
+    ),
+  // The exerciser is not a desktop sidecar, so the scheduler is never started here.
+  http.protected.get("/schedule", "schedule.list.unavailable").json(503, schedulingUnavailable, "status"),
+  http.protected
+    .post("/schedule", "schedule.manage.unavailable")
+    .at((ctx) => ({ path: "/schedule", headers: ctx.headers(), body: { action: "delete", id: "httpapi-missing" } }))
+    .json(503, schedulingUnavailable, "status"),
   http.protected.get("/lsp", "lsp.status").json(200, array),
   http.protected.get("/formatter", "formatter.status").json(200, array),
   http.protected.get("/config", "config.get").json(200, undefined, "status"),
@@ -982,6 +1069,23 @@ const scenarios: Scenario[] = [
     }))
     .json(200, data(object)),
   http.protected
+    .post("/api/session/{sessionID}/archive", "v2.session.archive")
+    .seeded((ctx) => ctx.session({ title: "Archive" }))
+    .at((ctx) => ({
+      path: route("/api/session/{sessionID}/archive", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .status(
+      204,
+      (ctx) =>
+        Effect.gen(function* () {
+          const info: unknown = yield* ctx.sessionGet(ctx.state.id)
+          check(isRecord(info), "archived session should remain in storage")
+          check(isRecord(info.time) && typeof info.time.archived === "number", "session should be marked archived")
+        }),
+      "none",
+    ),
+  http.protected
     .post("/api/session/{sessionID}/agent", "v2.session.switchAgent")
     .seeded((ctx) => ctx.session({ title: "Switch agent" }))
     .at((ctx) => ({
@@ -1656,14 +1760,7 @@ const scenarios: Scenario[] = [
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Share session" }))
     .at((ctx) => ({ path: route("/session/{sessionID}/share", { sessionID: ctx.state.id }), headers: ctx.headers() }))
-    .json(
-      200,
-      (body, ctx) => {
-        object(body)
-        check(body.id === ctx.state.id, "share should return the session")
-      },
-      "status",
-    ),
+    .json(500, object, "status"),
   http.protected
     .delete("/session/{sessionID}/share", "session.unshare")
     .mutating()

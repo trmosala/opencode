@@ -1,9 +1,9 @@
-﻿import { browser, dict as en } from "./en"
+﻿import { dict as en, fallback } from "./en"
 
 type Keys = keyof typeof en
 
 export const dict = {
-  ...browser,
+  ...fallback,
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "Dosya",
   "desktop.menu.edit": "Düzen",

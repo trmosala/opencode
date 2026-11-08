@@ -5,9 +5,12 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { persisted } from "@/utils/persist"
-import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
+import { DialogReleaseFilm, DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
+import features225 from "@/assets/release/cm-2.2.5-features.mp4"
 
 const CHANGELOG_URL = "https://opencode.ai/changelog.json"
+// CookieMonster builds play their own release film on the first launch of that version, fresh installs included.
+const RELEASE_FILMS: Record<string, string> = { "2.2.5": features225 }
 
 type Store = {
   version?: string
@@ -158,6 +161,7 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
       clearTimeout(timer)
       timer = undefined
     }
+    onCleanup(clearTimer)
 
     const markSeen = () => {
       if (!platform.version) return
@@ -209,6 +213,17 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
       state.started = true
 
       const previous = store.version
+      const film = import.meta.env.VITE_CM_BRAND ? RELEASE_FILMS[normalizeVersion(platform.version) ?? ""] : undefined
+      if (film && previous !== platform.version) {
+        if (!settings.general.releaseNotes()) return markSeen()
+        // Mark seen only once shown: writing the version re-runs this effect.
+        timer = setTimeout(() => {
+          timer = undefined
+          markSeen()
+          dialog.show(() => <DialogReleaseFilm src={film} />)
+        }, 500)
+        return
+      }
       if (!previous) {
         setStore("version", platform.version)
         return

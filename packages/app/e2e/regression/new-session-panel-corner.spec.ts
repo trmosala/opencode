@@ -79,5 +79,12 @@ test("matches the rounded panel corners to the dark new-session background", asy
     },
   )
 
-  expect(corners.every(([red, green, blue, alpha]) => red <= 8 && green <= 8 && blue <= 8 && alpha === 255)).toBe(true)
+  // CM3 paints the dark new-session canvas with its own palette (--cm3-landing-bg), so compare against the panel's fill.
+  const fill = (await panel.evaluate((element) => getComputedStyle(element).backgroundColor)).match(/\d+/g)!.map(Number)
+  expect(fill.slice(0, 3).every((channel) => channel <= 32)).toBe(true)
+  expect(
+    corners.every(
+      (pixel) => pixel[3] === 255 && pixel.slice(0, 3).every((channel, index) => Math.abs(channel - fill[index]) <= 2),
+    ),
+  ).toBe(true)
 })

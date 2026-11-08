@@ -477,7 +477,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
       },
       viewport: async (input) => {
         if (!input.bounds) return
-        expect(document.querySelector("[data-component=dropdown-menu-content]")).toBeNull()
+        expect(document.querySelectorAll("[data-component=dropdown-menu-content]").length).toBe(0)
         requested.resolve()
         await viewport.promise
       },
@@ -510,6 +510,12 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
     await Promise.resolve()
     expect(calls[0]).toMatchObject({ op: "device", size: { width: 360, height: 844 } })
 
+    // Separate the panel's initial viewport sync from the capture's acknowledged attachment.
+    await requested.promise
+    viewport.resolve()
+    viewport = Promise.withResolvers<void>()
+    requested = Promise.withResolvers<void>()
+
     const menu = host.querySelector<HTMLButtonElement>('button[aria-label="Browser menu"]')!
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
     await Promise.resolve()
@@ -520,7 +526,7 @@ test("mounted preview validates sizes and waits for menu disposal and viewport a
     item.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
     expect(captures).toBe(0)
     await requested.promise
-    expect(document.querySelector("[data-component=dropdown-menu-content]")).toBeNull()
+    expect(document.querySelectorAll("[data-component=dropdown-menu-content]").length).toBe(0)
     expect(captures).toBe(0)
     viewport.resolve()
     await captured.promise

@@ -371,6 +371,26 @@ export const browser = {
 }
 
 export const dict = {
+  "session.workflow.inbox": "Inbox",
+  "session.workflow.moveToInbox": "Move to Inbox",
+  "session.workflow.label": "Chat workflow",
+  "session.workflow.working": "Working",
+  "session.workflow.snoozed": "Snoozed",
+  "session.workflow.settled": "Settled",
+  "session.workflow.settle": "Settle",
+  "session.workflow.settling": "Settles after run",
+  "session.workflow.cancelSettle": "Cancel settle after run",
+  "session.workflow.reopen": "Move to Working",
+  "session.workflow.snoozeHour": "Snooze for 1 hour",
+  "session.workflow.snoozeTomorrow": "Snooze until tomorrow at 9 AM",
+  "session.workflow.wake": "Wake now",
+  "chat.split.open": "Open in split view",
+  "chat.split.close": "Close split",
+  "chat.split.first": "First chat",
+  "chat.split.second": "Second chat",
+  "chat.split.resize": "Resize chats",
+  "chat.split.drop": "Drop chat here to split",
+
   "schedules.title": "Scheduled",
   "schedules.panelTitle": "Scheduling",
   "schedules.closePanel": "Close Scheduling",
@@ -1103,6 +1123,7 @@ export const dict = {
   "notification.session.responseReady.title": "Response ready",
   "notification.session.error.title": "Session error",
   "notification.session.error.fallbackDescription": "An error occurred",
+  "notification.schedule.attention": "{{name}}: {{detail}}. Use the schedule tool to view run history.",
 
   "home.recentProjects": "Recent projects",
   "home.empty.title": "No recent projects",
@@ -1741,3 +1762,6 @@ export const dict = {
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
 }
+
+// New CookieMonster copy uses English until reviewed translations are available.
+export const fallback = dict

@@ -10,6 +10,7 @@ import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
 import { legacySessionHref, sessionHref } from "@/utils/session-route"
+import { loadProviders } from "@/context/global-sync/bootstrap"
 import {
   createSchedulingClient,
   localDateTime,
@@ -388,17 +389,15 @@ function ScheduleEditor(props: {
   const [providers] = createResource(
     () => form.directory.trim(),
     async (directory) => {
-      const result = await sdk().client.provider.list({ directory })
-      return result.data
+      const current = sdk()
+      return loadProviders(directory, current.api, current.client, current.protocol)
     },
   )
   const models = createMemo(() => {
     const catalog = providers.error ? undefined : providers()
-    return (
-      catalog?.all
-        .filter((provider) => catalog.connected.includes(provider.id))
-        .flatMap((provider) => Object.values(provider.models).map((model) => ({ ...model, provider }))) ?? []
-    )
+    return [...(catalog?.all.values() ?? [])]
+      .filter((provider) => catalog?.connected.includes(provider.id))
+      .flatMap((provider) => Object.values(provider.models).map((model) => ({ ...model, provider })))
   })
   const save = async (event: SubmitEvent) => {
     event.preventDefault()

@@ -33,7 +33,7 @@ export function browserDelegation(port: BrowserPort): NonNullable<Hooks["task.ex
   }
 }
 
-function requireDelegation(response: Response<BrowserState>, executionID: string, active: boolean) {
+export function requireDelegation(response: Response<BrowserState>, executionID: string, active: boolean) {
   if (!response.ok) throw new Error(`Browser delegation failed: ${response.error}`)
   const delegation: unknown = response.result.delegation
   if (

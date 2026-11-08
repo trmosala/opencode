@@ -47,7 +47,7 @@ import { ModelSelectorPopover, ModelSelectorPopoverV2 } from "@/components/dialo
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import { useCommand } from "@/context/command"
-import { usePermission } from "@/context/permission"
+import { useSessionPermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -124,7 +124,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const comments = useComments()
   const dialog = useDialog()
   const command = useCommand()
-  const permission = usePermission()
+  const permission = useSessionPermission()
   const language = useLanguage()
   const platform = usePlatform()
   const tabs = () => props.controls.session.tabs
@@ -709,7 +709,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: cmd.name,
       description: cmd.description,
       type: "custom" as const,
-      // source: cmd.source,
+      source: cmd.skill ? ("skill" as const) : undefined,
     }))
 
     return [...custom, ...builtin]
@@ -1194,8 +1194,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const showVariantControl = createMemo(() => props.controls.model.selection.variant.list().length > 0)
   const accepting = createMemo(() => {
     const id = props.controls.session.id
-    if (!id) return permission.isAutoAcceptingDirectory(sdk().directory)
-    return permission.isAutoAccepting(id, sdk().directory)
+    if (!id) return permission().isAutoAcceptingDirectory(sdk().directory)
+    return permission().isAutoAccepting(id, sdk().directory)
   })
 
   const { abort, handleSubmit } =

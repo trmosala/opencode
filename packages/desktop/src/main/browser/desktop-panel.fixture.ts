@@ -31,7 +31,9 @@ export function desktopPanelFixture(owner: ReturnType<typeof registerBrowserOwne
         bounds: request.view === "browser" ? { x: 0, y: 0, width: 500, height: 350 } : null,
       })
       return browserPanelAcknowledgement(owner, {
-        id: request.id, sessionID: request.sessionID, view: request.view,
+        id: request.id,
+        sessionID: request.sessionID,
+        view: request.view,
         ...(request.view === "browser" ? { tabID: request.tabID } : {}),
       })
     },
@@ -59,11 +61,10 @@ export async function desktopPanelSmoke() {
   const fixture = desktopPanelFixture(owner)
   const sessionID = "desktop-panel"
   const route = (request: PanelRequest, signal?: AbortSignal, deadline?: number) =>
-    routeBrowserRequest(
-      { type: "browser_request", id: crypto.randomUUID(), sessionID, request },
-      undefined,
-      { signal, deadline },
-    )
+    routeBrowserRequest({ type: "browser_request", id: crypto.randomUUID(), sessionID, request }, undefined, {
+      signal,
+      deadline,
+    })
   const pending = async (request: PanelRequest, signal?: AbortSignal, deadline?: number) => {
     const count = fixture.requests.length
     const response = route(request, signal, deadline)
@@ -110,14 +111,21 @@ export async function desktopPanelSmoke() {
 
     for (const change of ["abort", "link", "viewport", "takeover", "disable", "hide", "revision", "revoke"] as const) {
       const controller = new AbortController()
-      const waiting = await pending(change === "revision" || change === "revoke" ? browser : { op: "set_panel", view: "hidden" }, controller.signal)
+      const waiting = await pending(
+        change === "revision" || change === "revoke" ? browser : { op: "set_panel", view: "hidden" },
+        controller.signal,
+      )
       if (change === "abort") controller.abort()
       if (change === "link") {
         browserLinkContext(owner, "other-task", "other")
         browserLinkContext(owner, sessionID, "panel")
       }
       if (change === "viewport") {
-        browserViewport(owner, { sessionID: "other-task", lease: "other", bounds: { x: 0, y: 0, width: 500, height: 350 } })
+        browserViewport(owner, {
+          sessionID: "other-task",
+          lease: "other",
+          bounds: { x: 0, y: 0, width: 500, height: 350 },
+        })
         browserViewport(owner, { sessionID: "other-task", lease: "other", bounds: null })
       }
       if (change === "takeover") {
@@ -158,7 +166,9 @@ export async function desktopPanelSmoke() {
     browserOperationBusy.delete(tab.id)
     tab.agentAccess = false
     assert(!(await route(browser)).ok, "Panel selection grants no access")
-    console.log("PASS desktop panel: readiness, mount/clear, identity, cancel, deadline, task/global/link fences, private/reserved/busy targets")
+    console.log(
+      "PASS desktop panel: readiness, mount/clear, identity, cancel, deadline, task/global/link fences, private/reserved/busy targets",
+    )
   } finally {
     browserOperationBusy.clear()
     setBrowserAgentEnabled(true)

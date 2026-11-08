@@ -3,7 +3,7 @@ import { mkdir, unlink } from "fs/promises"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -382,7 +382,7 @@ it.instance(
           npm: "@ai-sdk/openai-compatible",
           env: [],
           models: {
-            "CM_GPT6_Astra_Max": { name: "Astra Max" },
+            CM_GPT6_Astra_Max: { name: "Astra Max" },
             "CM_GPT-5.6 Sol - Medium": { name: "Sol Medium" },
             "CM_GPT-5.6-Sol_High": { name: "Sol High" },
           },
@@ -605,6 +605,33 @@ it.instance(
     config: {
       provider: {
         openai: { models: { "custom-gpt-chat": { id: "gpt-5-chat-latest", name: "Custom GPT Chat" } } },
+      },
+    },
+  },
+)
+
+it.instance(
+  "model config reasoning options replace catalog variants under configured variants",
+  Effect.gen(function* () {
+    yield* set("ANTHROPIC_API_KEY", "test-api-key")
+    const providers = yield* list
+    const models = providers[ProviderV2.ID.anthropic].models
+    expect(Object.keys(models["claude-sonnet-4-6"].variants ?? {})).toEqual(["low", "high"])
+    expect(models["claude-sonnet-4-6"].variants?.high).toMatchObject({ effort: "high", extra: true })
+    expect(models["claude-fixed"].variants).toEqual({})
+  }),
+  {
+    config: {
+      provider: {
+        anthropic: {
+          models: {
+            "claude-sonnet-4-6": {
+              reasoning_options: [{ type: "effort", values: ["low", "high"] }],
+              variants: { high: { extra: true } },
+            },
+            "claude-fixed": { id: "claude-sonnet-4-6", reasoning: true, reasoning_options: [] },
+          },
+        },
       },
     },
   },

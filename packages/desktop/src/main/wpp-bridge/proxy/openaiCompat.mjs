@@ -1,9 +1,21 @@
-import { serializeChatCompletionRequest, serializeIncompleteTaskContinuationRequest, serializeToolRecoveryRequest, serializableMessagesForRequest } from "./messageSerializer.mjs";
-import { CM_TASK_COMPLETE_PROTOCOL } from "./protocol.mjs";
-import { acquireThreadTurn, decideThreadMode, commitThread, resetThread, threadContinuityEnabled, threadContextUsage } from "./sessionThreads.mjs";
-import { extensionBridge } from "./extensionBridge.mjs";
-import { chooseAssistantResponse } from "./toolCallNormalizer.mjs";
-import { StreamGate } from "./streamGate.mjs";
+import {
+  serializeChatCompletionRequest,
+  serializeIncompleteTaskContinuationRequest,
+  serializeToolRecoveryRequest,
+  serializableMessagesForRequest,
+} from "./messageSerializer.mjs"
+import { CM_TASK_COMPLETE_PROTOCOL } from "./protocol.mjs"
+import {
+  acquireThreadTurn,
+  decideThreadMode,
+  commitThread,
+  resetThread,
+  threadContinuityEnabled,
+  threadContextUsage,
+} from "./sessionThreads.mjs"
+import { extensionBridge } from "./extensionBridge.mjs"
+import { chooseAssistantResponse } from "./toolCallNormalizer.mjs"
+import { StreamGate } from "./streamGate.mjs"
 import {
   createChatCompletionResponse,
   openChatCompletionStream,
@@ -14,33 +26,35 @@ import {
   writeContentDelta,
   writeContentBody,
   writeToolCallChunks,
-  finishChatCompletion
-} from "./streamAdapter.mjs";
-import { writeRunLog } from "./logging.mjs";
-import { redact } from "./policy.mjs";
-import { collectImageInputs } from "./imageInputs.mjs";
-import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs";
-import { estimateTokens } from "./tokenEstimate.mjs";
-import { resolveUsage } from "./usage.mjs";
-import { DEFAULT_MODEL_ID, MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs";
-const DEFAULT_MAX_PROMPT_CHARS = 600000;
-const STREAM_KEEP_ALIVE_MS = 10000;
+  finishChatCompletion,
+} from "./streamAdapter.mjs"
+import { writeRunLog } from "./logging.mjs"
+import { redact } from "./policy.mjs"
+import { collectImageInputs } from "./imageInputs.mjs"
+import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs"
+import { estimateTokens } from "./tokenEstimate.mjs"
+import { resolveUsage } from "./usage.mjs"
+import { DEFAULT_MODEL_ID, MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs"
+const DEFAULT_MAX_PROMPT_CHARS = 600000
+const STREAM_KEEP_ALIVE_MS = 10000
 
 // Stable anchors from OpenCode's compaction prompt (packages/core/src/session/compaction.ts),
 // confirmed against a captured /compact run log. Both live in the LAST user message.
 const COMPACTION_PROMPT_ANCHORS = [
   "Output exactly the Markdown structure shown inside",
-  "Do not mention the summary process"
-];
+  "Do not mention the summary process",
+]
 
 function maxPromptChars() {
-  const configured = Number(process.env.O1_CODE_MAX_PROMPT_CHARS);
-  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_PROMPT_CHARS;
+  const configured = Number(process.env.O1_CODE_MAX_PROMPT_CHARS)
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_PROMPT_CHARS
 }
 
 function promptTooLargeMessage(prompt) {
-  return `Serialized prompt is ${prompt.length} chars, over the ${maxPromptChars()} char cap `
-    + "(O1_CODE_MAX_PROMPT_CHARS). Reduce the conversation/context or raise the cap.";
+  return (
+    `Serialized prompt is ${prompt.length} chars, over the ${maxPromptChars()} char cap ` +
+    "(O1_CODE_MAX_PROMPT_CHARS). Reduce the conversation/context or raise the cap."
+  )
 }
 
 // OpenCode tags every model call with its session id (packages/opencode/src/session/llm/request.ts):
@@ -48,31 +62,31 @@ function promptTooLargeMessage(prompt) {
 // Node lowercases header names. First present wins; "" when none (no pinning, agent affinity only).
 function sessionIdFromHeaders(headers = {}) {
   for (const name of ["x-session-affinity", "x-opencode-session", "x-session-id"]) {
-    const value = headers[name];
-    if (typeof value === "string" && value.trim()) return value.trim();
+    const value = headers[name]
+    if (typeof value === "string" && value.trim()) return value.trim()
   }
-  return "";
+  return ""
 }
 
 // A sub-agent (child) session carries x-parent-session-id (OpenCode sets it from session.parentID,
 // see request.ts); a top-level interactive session never does. Sub-agents are throw-away, so the
 // pool reaps their pinned tabs on a shorter TTL.
 function hasParentSession(headers = {}) {
-  const value = headers["x-parent-session-id"];
-  return typeof value === "string" && value.trim().length > 0;
+  const value = headers["x-parent-session-id"]
+  return typeof value === "string" && value.trim().length > 0
 }
 
 // Image attachments come only from the latest user turn (see handleChatCompletions).
 function latestUserMessages(body) {
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const messages = Array.isArray(body?.messages) ? body.messages : []
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === "user") {
-      return [messages[index]];
+      return [messages[index]]
     }
   }
 
-  return [];
+  return []
 }
 
 export function listModels() {
@@ -82,32 +96,32 @@ export function listModels() {
       id,
       object: "model",
       created: 0,
-      owned_by: "cookiemonster"
-    }))
-  };
+      owned_by: "cookiemonster",
+    })),
+  }
 }
 
 export async function handleChatCompletions(request, response, body, { bridge = extensionBridge, signal } = {}) {
-  const id = `chatcmpl_${crypto.randomUUID().replace(/-/g, "")}`;
-  const created = Math.floor(Date.now() / 1000);
-  const model = body.model || DEFAULT_MODEL_ID;
-  const profile = resolveRequestModelProfile(body);
-  const startedAt = new Date().toISOString();
-  const target = body.o1_code_target || "coding-agent";
+  const id = `chatcmpl_${crypto.randomUUID().replace(/-/g, "")}`
+  const created = Math.floor(Date.now() / 1000)
+  const model = body.model || DEFAULT_MODEL_ID
+  const profile = resolveRequestModelProfile(body)
+  const startedAt = new Date().toISOString()
+  const target = body.o1_code_target || "coding-agent"
 
-  response.setHeader("x-o1-code-proxy-run-id", id);
+  response.setHeader("x-o1-code-proxy-run-id", id)
 
   if (isTitleGenerationRequest(body)) {
-    const prompt = serializeChatCompletionRequest(body, { purpose: "title" });
+    const prompt = serializeChatCompletionRequest(body, { purpose: "title" })
     const message = {
       content: generateLocalTitle(body),
       tool_calls: undefined,
-      finish_reason: "stop"
-    };
+      finish_reason: "stop",
+    }
     const usage = resolveUsage({
       promptTokens: estimateTokens(prompt),
-      completionText: message.content
-    }).usage;
+      completionText: message.content,
+    }).usage
 
     if (body.stream) {
       await writeChatCompletionStream(response, {
@@ -118,451 +132,458 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         tool_calls: undefined,
         finishReason: "stop",
         usage,
-        includeUsage: shouldIncludeStreamUsage(body)
-      });
-      return;
+        includeUsage: shouldIncludeStreamUsage(body),
+      })
+      return
     }
 
-    writeJson(response, 200, createChatCompletionResponse({
-      id,
-      model,
-      created,
-      message,
-      finishReason: "stop",
-      usage
-    }));
-    return;
+    writeJson(
+      response,
+      200,
+      createChatCompletionResponse({
+        id,
+        model,
+        created,
+        message,
+        finishReason: "stop",
+        usage,
+      }),
+    )
+    return
   }
 
-  const isCompaction = isCompactionRequest(body);
-  const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
-  const serializableMessages = serializableMessagesForRequest(body);
+  const isCompaction = isCompactionRequest(body)
+  const hasTools = Array.isArray(body.tools) && body.tools.length > 0
+  const serializableMessages = serializableMessagesForRequest(body)
 
   // Route the model and effort to their validated WPP agent. An explicit o1_code_model still
   // overrides the mapping for diagnostics and custom deployments.
-  const agentName = profile.agentName;
-  const commentaryPhase = profile.commentaryPhase === true;
+  const agentName = profile.agentName
+  const commentaryPhase = profile.commentaryPhase === true
   // Pin client+runtime+session+agent to one WPP worker so its thread holds context across turns.
   // A separate backend or a mid-session model switch starts its own WPP conversation.
   // Compaction is a one-shot summarization: route it to an unpinned worker (sessionKey "") so it
   // never New-Chats and wipes the live thread, and always serialize it fresh.
-  const sessionId = sessionIdFromHeaders(request.headers);
-  const client = request.headers["x-opencode-client"];
-  const runtimeId = request.headers["x-opencode-runtime-id"];
+  const sessionId = sessionIdFromHeaders(request.headers)
+  const client = request.headers["x-opencode-client"]
+  const runtimeId = request.headers["x-opencode-runtime-id"]
   // Never adopt another backend's WPP conversation when a saved session is resumed.
   // Older clients without an ownership identity replay fresh on an unpinned worker.
-  const identified = typeof client === "string" && client.trim()
-    && typeof runtimeId === "string" && runtimeId.trim();
-  const sessionKey = isCompaction || !sessionId || !identified
-    ? ""
-    : JSON.stringify([client.trim(), runtimeId.trim(), sessionId, agentName]);
-  const releaseThreadTurn = await acquireThreadTurn(sessionKey);
+  const identified = typeof client === "string" && client.trim() && typeof runtimeId === "string" && runtimeId.trim()
+  const sessionKey =
+    isCompaction || !sessionId || !identified
+      ? ""
+      : JSON.stringify([client.trim(), runtimeId.trim(), sessionId, agentName])
+  const releaseThreadTurn = await acquireThreadTurn(sessionKey)
   try {
-  // Sub-agent turns are still pinned (so the sub-agent keeps thread continuity across its own run)
-  // but the pool reaps their tabs sooner — they never resume once the sub-agent returns.
-  const subagent = Boolean(sessionKey) && hasParentSession(request.headers);
-  const continuity = Boolean(sessionKey) && threadContinuityEnabled();
-  // "continue" forwards only the new turn into the live thread; "fresh" replays the whole transcript
-  // into a New Chat (first turn, prefix mismatch from a retry/edit/compaction, or a dead tab).
-  const thread = continuity
-    ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
-    : { mode: "fresh", sinceIndex: 0 };
-  const continueThread = thread.mode === "continue";
-  let retainedContext = continueThread ? threadContextUsage(sessionKey) : undefined;
-  const purpose = isCompaction ? "compaction" : "chat";
-  let prompt = serializeChatCompletionRequest(body, { purpose, sinceIndex: thread.sinceIndex });
-  // The full conversation is replayed, but images are only attached for the
-  // latest user turn — earlier images remain text placeholders in the serialized history.
-  const images = collectImageInputs(latestUserMessages(body));
-  let context = buildContextMetrics(body, { prompt, serializableMessages, images });
+    // Sub-agent turns are still pinned (so the sub-agent keeps thread continuity across its own run)
+    // but the pool reaps their tabs sooner — they never resume once the sub-agent returns.
+    const subagent = Boolean(sessionKey) && hasParentSession(request.headers)
+    const continuity = Boolean(sessionKey) && threadContinuityEnabled()
+    // "continue" forwards only the new turn into the live thread; "fresh" replays the whole transcript
+    // into a New Chat (first turn, prefix mismatch from a retry/edit/compaction, or a dead tab).
+    const thread = continuity
+      ? decideThreadMode(sessionKey, body, bridge.hasSession(sessionKey))
+      : { mode: "fresh", sinceIndex: 0 }
+    const continueThread = thread.mode === "continue"
+    let retainedContext = continueThread ? threadContextUsage(sessionKey) : undefined
+    const purpose = isCompaction ? "compaction" : "chat"
+    let prompt = serializeChatCompletionRequest(body, { purpose, sinceIndex: thread.sinceIndex })
+    // The full conversation is replayed, but images are only attached for the
+    // latest user turn — earlier images remain text placeholders in the serialized history.
+    const images = collectImageInputs(latestUserMessages(body))
+    let context = buildContextMetrics(body, { prompt, serializableMessages, images })
 
-  if (prompt.length > maxPromptChars()) {
-    const logPath = await writeRunLog({
+    if (prompt.length > maxPromptChars()) {
+      const logPath = await writeRunLog({
+        id,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        request: redact(body),
+        prompt: `${prompt.slice(0, 2000)}…[truncated for log]`,
+        context,
+        images: imageLogSummary(images),
+        error: {
+          message: promptTooLargeMessage(prompt),
+          type: "o1_code_prompt_too_large",
+          statusCode: 413,
+        },
+      })
+
+      if (logPath) {
+        response.setHeader("x-o1-code-proxy-log", logPath)
+      }
+
+      writeJson(response, 413, {
+        error: {
+          message: promptTooLargeMessage(prompt),
+          type: "o1_code_prompt_too_large",
+          promptChars: prompt.length,
+          maxPromptChars: maxPromptChars(),
+          estimatedTokens: context.input.estimatedTokens,
+          log: logPath || undefined,
+          run_id: id,
+        },
+      })
+      return
+    }
+
+    const streamBase = streamChunkBase({ id, model, created })
+    // Live streaming is gated off for compaction: its summary must be sanitized as a whole
+    // (sanitizeCompactionSummary) before any text is emitted, so we never stream it incrementally.
+    // Tool-bearing turns stream through a one-sentence quarantine. Completed safe sentences flow
+    // live, while the current sentence remains reversible until the final response is checked for a
+    // required tool call. Raw tool-call XML/JSON remains suppressed by StreamGate.
+    let streamSession = body.stream && !isCompaction ? createStreamSession({ sentenceQuarantine: hasTools }) : null
+    // Phase-capable GPT tool turns stay buffered until their final shape proves that a progress
+    // preamble and tool call belong to the same assistant response. Preserve the established live
+    // progress path for profiles that do not opt into commentary-phase recovery.
+    let streamProgressEnabled = Boolean(streamSession) && (!hasTools || !commentaryPhase)
+    let finalTurnContinued = continueThread
+
+    const bridgeOptionsFor = (runContinueThread, attempt) => ({
+      runId: id,
+      timeoutMs: body.o1_code_timeout_ms,
+      target,
+      url: body.o1_code_url,
+      model: agentName,
+      sessionKey,
+      subagent,
+      continueThread: runContinueThread,
+      images,
+      signal,
+      // React to live progress frames by streaming prose deltas as they land. The bridge owns the
+      // subscription lifecycle (subscribe on enqueue, unsubscribe when the job settles), so a late
+      // frame can't interleave a stray delta after the turn is done.
+      onProgress:
+        streamSession && streamProgressEnabled
+          ? (frame) => {
+              const { delta } = streamSession.update(frame.finalText)
+              if (delta) {
+                attempt.streamed = true
+                writeContentDelta(response, streamBase, delta)
+              }
+            }
+          : undefined,
+    })
+    const resolveRunUsage = (run, completionText = run.response?.finalText || "") =>
+      resolveUsage({
+        measurement: run.response?.usage
+          ? {
+              ...run.response.usage,
+              ...(run.response.usageObservation ? { observation: run.response.usageObservation } : {}),
+            }
+          : undefined,
+        promptTokens: context.input.estimatedTokens,
+        completionText,
+        retainedContextTokens: retainedContext?.totalTokens,
+        continued: finalTurnContinued,
+      })
+    const runBridgeTurn = async (runPrompt, runContinueThread) => {
+      // A fresh replay replaces the physical thread, including any intermediate recovery context.
+      if (!runContinueThread) retainedContext = undefined
+      const attempt = { streamed: false }
+      try {
+        const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread, attempt))
+        const result = await (body.stream ? waitForBridgeWithKeepAlive(run, response) : run)
+        finalTurnContinued = runContinueThread
+        return result
+      } catch (error) {
+        if (error && typeof error === "object" && error.attemptStreamed === undefined) {
+          error.attemptStreamed = attempt.streamed
+        }
+        throw error
+      }
+    }
+    const freshRetryPrompt = (toolRecovery = false) => {
+      const value = toolRecovery
+        ? serializeToolRecoveryRequest(body, { purpose })
+        : serializeChatCompletionRequest(body, { purpose, sinceIndex: 0 })
+      if (value.length <= maxPromptChars()) return value
+      const error = new Error(promptTooLargeMessage(value))
+      error.statusCode = 413
+      error.type = "o1_code_prompt_too_large"
+      throw error
+    }
+    let retryCount = 0
+    let toolRecoveryCount = 0
+    let completionRecoveryCount = 0
+    let o1CodeRun
+    const recoverMissingRequiredToolCall = async (run) => {
+      if (!shouldRecoverMissingRequiredToolCall(body, run, { isCompaction })) return run
+      if (toolRecoveryCount > 0) throw requiredToolNotCalledError()
+      if (continuity) resetThread(sessionKey)
+      toolRecoveryCount = 1
+      // Preserve any already-emitted safe sentence, but never feed the compact recovery response
+      // through a StreamGate whose cumulative cursor belongs to the discarded WPP answer.
+      streamProgressEnabled = false
+      prompt = freshRetryPrompt(true)
+      context = buildContextMetrics(body, { prompt, serializableMessages, images })
+      const recovered = await runBridgeTurn(prompt, false)
+      if (!shouldRecoverMissingRequiredToolCall(body, recovered, { isCompaction })) return recovered
+      throw requiredToolNotCalledError()
+    }
+    const recoverIncompleteTask = async (run) => {
+      if (!shouldRecoverIncompleteTask(body, run, { isCompaction })) return run
+      if (completionRecoveryCount > 0) throw taskIncompleteError()
+      completionRecoveryCount = 1
+      streamProgressEnabled = false
+      // The continuation retains this response, but the session mirror is still uncommitted.
+      if (continuity) retainedContext = resolveRunUsage(run).context
+      prompt = continuity ? serializeIncompleteTaskContinuationRequest(body, { purpose }) : freshRetryPrompt()
+      context = buildContextMetrics(body, { prompt, serializableMessages, images })
+      const recovered = await runBridgeTurn(prompt, continuity)
+      if (!shouldRecoverIncompleteTask(body, recovered, { isCompaction })) return recovered
+      throw taskIncompleteError()
+    }
+    const validateBridgeRun = async (run) => recoverIncompleteTask(await recoverMissingRequiredToolCall(run))
+
+    if (body.stream) {
+      openChatCompletionStream(response, { id, model, created })
+
+      try {
+        o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread))
+      } catch (error) {
+        let failure = error
+        if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
+          if (continuity) resetThread(sessionKey)
+          retryCount = 1
+          prompt = freshRetryPrompt(toolRecoveryCount > 0)
+          context = buildContextMetrics(body, { prompt, serializableMessages, images })
+          streamSession = createStreamSession({ sentenceQuarantine: hasTools })
+          streamProgressEnabled = !hasTools || !commentaryPhase
+          try {
+            o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false))
+            failure = null
+          } catch (retryError) {
+            failure = retryError
+          }
+        }
+        if (failure) {
+          // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
+          // watermark so the next turn replays fresh rather than extending a delta we can't trust.
+          if (continuity) resetThread(sessionKey)
+          if (failure?.type === "o1_code_client_aborted") return
+          // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
+          // instead of a bare capture/recorder error.
+          failure = await loginRequiredFailure(bridge, failure)
+          await writeRunLog({
+            id,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            request: redact(body),
+            prompt,
+            context,
+            images: imageLogSummary(images),
+            error: {
+              message: failure.message,
+              type: failure.type || "o1_code_proxy_error",
+              statusCode: failure.statusCode || 500,
+              kind: failure.kind || undefined,
+              capture: failure.capture || failure.diagnostics?.capture || undefined,
+              diagnostics: agentChatTimeoutDiagnostics(failure),
+              retryCount,
+            },
+            worker: failure.worker,
+            bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined,
+          }).catch(() => null)
+
+          // A bridge failure is not a successful assistant turn. Preserve the stream protocol but
+          // emit its error envelope so OpenCode surfaces a provider failure instead of persisting the
+          // diagnostic as text and terminating on finish_reason=stop.
+          writeChatCompletionError(response, failure)
+          return
+        }
+      }
+    } else {
+      try {
+        o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread))
+      } catch (error) {
+        let failure = error
+        if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
+          if (continuity) resetThread(sessionKey)
+          retryCount = 1
+          prompt = freshRetryPrompt(toolRecoveryCount > 0)
+          context = buildContextMetrics(body, { prompt, serializableMessages, images })
+          try {
+            o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false))
+            failure = null
+          } catch (retryError) {
+            failure = retryError
+          }
+        }
+        if (failure) {
+          if (continuity) resetThread(sessionKey)
+          if (failure?.type === "o1_code_client_aborted") return
+          // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
+          // instead of a bare capture/recorder error.
+          failure = await loginRequiredFailure(bridge, failure)
+          const logPath = await writeRunLog({
+            id,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            request: redact(body),
+            prompt,
+            context,
+            images: imageLogSummary(images),
+            error: {
+              message: failure.message,
+              type: failure.type || "o1_code_proxy_error",
+              statusCode: failure.statusCode || 500,
+              kind: failure.kind || undefined,
+              capture: failure.capture || failure.diagnostics?.capture || undefined,
+              diagnostics: agentChatTimeoutDiagnostics(failure),
+              retryCount,
+            },
+            worker: failure.worker,
+            bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined,
+          })
+
+          if (logPath) {
+            response.setHeader("x-o1-code-proxy-log", logPath)
+          }
+
+          writeJson(response, failure.statusCode || 500, {
+            error: {
+              message: failure.message,
+              type: failure.type || "o1_code_proxy_error",
+              kind: failure.kind || undefined,
+              capture: failure.capture || failure.diagnostics?.capture || undefined,
+              retryCount,
+              log: logPath || undefined,
+              run_id: id,
+            },
+          })
+          return
+        }
+      }
+    }
+    const finalText = o1CodeRun.response.finalText
+    const toolCallParts = o1CodeRun.response.toolCallParts
+    // Compaction summaries must be returned as clean content (no tool_calls) so OpenCode
+    // renders them as an invisible summary instead of a visible assistant/tool-calling turn.
+    const normalized = isCompaction
+      ? {
+          content: sanitizeCompactionSummary(finalText, toolCallParts),
+          tool_calls: undefined,
+          finish_reason: "stop",
+        }
+      : stripTaskCompleteMarker(
+          chooseAssistantResponse(finalText, toolCallParts, o1CodeRun.response.alternateAssistantTexts),
+        )
+    if (!isCompaction) {
+      normalizeToolCallArguments(normalized.tool_calls, body.tools)
+    }
+    const finishReason = normalized.finish_reason || o1CodeRun.request?.finishReason || "stop"
+    const responseMetrics = buildResponseMetrics({
+      finalText,
+      normalizedContent: normalized.content || "",
+      toolCalls: normalized.tool_calls || [],
+    })
+    const resolvedUsage = resolveRunUsage(o1CodeRun, assistantOutputForUsage(normalized))
+    const usage = resolvedUsage.usage
+
+    // Commit transcript and usage only after the provider turn and every recovery path succeeded.
+    // Failed attempts reset the mirror and can never add to the next turn's retained context.
+    // A tab retired (pruned, discarded, pool destroyed) while this turn ran must not get its mirror back.
+    if (continuity && bridge.hasSession(sessionKey)) commitThread(sessionKey, body, normalized, resolvedUsage.context)
+    else if (continuity) resetThread(sessionKey)
+
+    // Per-turn capture path: "network" = byte-exact recorder, "dom" = innerText DOM fallback, which is
+    // whitespace-lossy and thus unreliable for byte-sensitive tool-call output. Promoted to a top-level
+    // log field (instead of being buried in o1Code) so a failing turn can be attributed at a glance.
+    const responseSource = o1CodeRun.response?.source || null
+    const capture = o1CodeRun.response?.capture || o1CodeRun.extension?.capture || null
+    const lowFidelity = responseSource === "dom" || capture?.lowFidelity === true
+
+    const logRecord = {
       id,
       startedAt,
       finishedAt: new Date().toISOString(),
+      worker: o1CodeRun.worker || null,
       request: redact(body),
-      prompt: `${prompt.slice(0, 2000)}…[truncated for log]`,
+      prompt,
       context,
+      responseSource,
+      lowFidelity,
+      capture: capture ? { ...capture, retryCount, toolRecoveryCount, completionRecoveryCount } : null,
+      toolRecoveryCount,
+      responseMetrics,
       images: imageLogSummary(images),
-      error: {
-        message: promptTooLargeMessage(prompt),
-        type: "o1_code_prompt_too_large",
-        statusCode: 413
-      }
-    });
-
-    if (logPath) {
-      response.setHeader("x-o1-code-proxy-log", logPath);
-    }
-
-    writeJson(response, 413, {
-      error: {
-        message: promptTooLargeMessage(prompt),
-        type: "o1_code_prompt_too_large",
-        promptChars: prompt.length,
-        maxPromptChars: maxPromptChars(),
-        estimatedTokens: context.input.estimatedTokens,
-        log: logPath || undefined,
-        run_id: id
-      }
-    });
-    return;
-  }
-
-  const streamBase = streamChunkBase({ id, model, created });
-  // Live streaming is gated off for compaction: its summary must be sanitized as a whole
-  // (sanitizeCompactionSummary) before any text is emitted, so we never stream it incrementally.
-  // Tool-bearing turns stream through a one-sentence quarantine. Completed safe sentences flow
-  // live, while the current sentence remains reversible until the final response is checked for a
-  // required tool call. Raw tool-call XML/JSON remains suppressed by StreamGate.
-  let streamSession = body.stream && !isCompaction
-    ? createStreamSession({ sentenceQuarantine: hasTools })
-    : null;
-  // Phase-capable GPT tool turns stay buffered until their final shape proves that a progress
-  // preamble and tool call belong to the same assistant response. Preserve the established live
-  // progress path for profiles that do not opt into commentary-phase recovery.
-  let streamProgressEnabled = Boolean(streamSession) && (!hasTools || !commentaryPhase);
-  let finalTurnContinued = continueThread;
-
-  const bridgeOptionsFor = (runContinueThread, attempt) => ({
-    runId: id,
-    timeoutMs: body.o1_code_timeout_ms,
-    target,
-    url: body.o1_code_url,
-    model: agentName,
-    sessionKey,
-    subagent,
-    continueThread: runContinueThread,
-    images,
-    signal,
-    // React to live progress frames by streaming prose deltas as they land. The bridge owns the
-    // subscription lifecycle (subscribe on enqueue, unsubscribe when the job settles), so a late
-    // frame can't interleave a stray delta after the turn is done.
-    onProgress: streamSession && streamProgressEnabled
-      ? (frame) => {
-          const { delta } = streamSession.update(frame.finalText);
-          if (delta) {
-            attempt.streamed = true;
-            writeContentDelta(response, streamBase, delta);
-          }
-      }
-      : undefined
-  });
-  const resolveRunUsage = (run, completionText = run.response?.finalText || "") => resolveUsage({
-    measurement: run.response?.usage ? {
-      ...run.response.usage,
-      ...(run.response.usageObservation ? { observation: run.response.usageObservation } : {})
-    } : undefined,
-    promptTokens: context.input.estimatedTokens,
-    completionText,
-    retainedContextTokens: retainedContext?.totalTokens,
-    continued: finalTurnContinued
-  });
-  const runBridgeTurn = async (runPrompt, runContinueThread) => {
-    // A fresh replay replaces the physical thread, including any intermediate recovery context.
-    if (!runContinueThread) retainedContext = undefined;
-    const attempt = { streamed: false };
-    try {
-      const run = bridge.run(runPrompt, bridgeOptionsFor(runContinueThread, attempt));
-      const result = await (body.stream ? waitForBridgeWithKeepAlive(run, response) : run);
-      finalTurnContinued = runContinueThread;
-      return result;
-    } catch (error) {
-      if (error && typeof error === "object" && error.attemptStreamed === undefined) {
-        error.attemptStreamed = attempt.streamed;
-      }
-      throw error;
-    }
-  };
-  const freshRetryPrompt = (toolRecovery = false) => {
-    const value = toolRecovery
-      ? serializeToolRecoveryRequest(body, { purpose })
-      : serializeChatCompletionRequest(body, { purpose, sinceIndex: 0 });
-    if (value.length <= maxPromptChars()) return value;
-    const error = new Error(promptTooLargeMessage(value));
-    error.statusCode = 413;
-    error.type = "o1_code_prompt_too_large";
-    throw error;
-  };
-  let retryCount = 0;
-  let toolRecoveryCount = 0;
-  let completionRecoveryCount = 0;
-  let o1CodeRun;
-  const recoverMissingRequiredToolCall = async (run) => {
-    if (!shouldRecoverMissingRequiredToolCall(body, run, { isCompaction })) return run;
-    if (toolRecoveryCount > 0) throw requiredToolNotCalledError();
-    if (continuity) resetThread(sessionKey);
-    toolRecoveryCount = 1;
-    // Preserve any already-emitted safe sentence, but never feed the compact recovery response
-    // through a StreamGate whose cumulative cursor belongs to the discarded WPP answer.
-    streamProgressEnabled = false;
-    prompt = freshRetryPrompt(true);
-    context = buildContextMetrics(body, { prompt, serializableMessages, images });
-    const recovered = await runBridgeTurn(prompt, false);
-    if (!shouldRecoverMissingRequiredToolCall(body, recovered, { isCompaction })) return recovered;
-    throw requiredToolNotCalledError();
-  };
-  const recoverIncompleteTask = async (run) => {
-    if (!shouldRecoverIncompleteTask(body, run, { isCompaction })) return run;
-    if (completionRecoveryCount > 0) throw taskIncompleteError();
-    completionRecoveryCount = 1;
-    streamProgressEnabled = false;
-    // The continuation retains this response, but the session mirror is still uncommitted.
-    if (continuity) retainedContext = resolveRunUsage(run).context;
-    prompt = continuity
-      ? serializeIncompleteTaskContinuationRequest(body, { purpose })
-      : freshRetryPrompt();
-    context = buildContextMetrics(body, { prompt, serializableMessages, images });
-    const recovered = await runBridgeTurn(prompt, continuity);
-    if (!shouldRecoverIncompleteTask(body, recovered, { isCompaction })) return recovered;
-    throw taskIncompleteError();
-  };
-  const validateBridgeRun = async (run) =>
-    recoverIncompleteTask(await recoverMissingRequiredToolCall(run));
-
-  if (body.stream) {
-    openChatCompletionStream(response, { id, model, created });
-
-    try {
-      o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread));
-    } catch (error) {
-      let failure = error;
-      if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
-        if (continuity) resetThread(sessionKey);
-        retryCount = 1;
-        prompt = freshRetryPrompt(toolRecoveryCount > 0);
-        context = buildContextMetrics(body, { prompt, serializableMessages, images });
-        streamSession = createStreamSession({ sentenceQuarantine: hasTools });
-        streamProgressEnabled = !hasTools || !commentaryPhase;
-        try {
-          o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false));
-          failure = null;
-        } catch (retryError) {
-          failure = retryError;
-        }
-      }
-      if (failure) {
-        // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
-        // watermark so the next turn replays fresh rather than extending a delta we can't trust.
-        if (continuity) resetThread(sessionKey);
-        if (failure?.type === "o1_code_client_aborted") return;
-        // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
-        // instead of a bare capture/recorder error.
-        failure = await loginRequiredFailure(bridge, failure);
-        await writeRunLog({
-          id,
-          startedAt,
-          finishedAt: new Date().toISOString(),
-          request: redact(body),
-          prompt,
-          context,
-          images: imageLogSummary(images),
-          error: {
-            message: failure.message,
-            type: failure.type || "o1_code_proxy_error",
-            statusCode: failure.statusCode || 500,
-            kind: failure.kind || undefined,
-            capture: failure.capture || failure.diagnostics?.capture || undefined,
-            diagnostics: agentChatTimeoutDiagnostics(failure),
-            retryCount
-          },
-          worker: failure.worker,
-          bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined
-        }).catch(() => null);
-
-        // A bridge failure is not a successful assistant turn. Preserve the stream protocol but
-        // emit its error envelope so OpenCode surfaces a provider failure instead of persisting the
-        // diagnostic as text and terminating on finish_reason=stop.
-        writeChatCompletionError(response, failure);
-        return;
-      }
-    }
-  } else {
-    try {
-      o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread));
-    } catch (error) {
-      let failure = error;
-      if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
-        if (continuity) resetThread(sessionKey);
-        retryCount = 1;
-        prompt = freshRetryPrompt(toolRecoveryCount > 0);
-        context = buildContextMetrics(body, { prompt, serializableMessages, images });
-        try {
-          o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false));
-          failure = null;
-        } catch (retryError) {
-          failure = retryError;
-        }
-      }
-      if (failure) {
-        if (continuity) resetThread(sessionKey);
-        if (failure?.type === "o1_code_client_aborted") return;
-        // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
-        // instead of a bare capture/recorder error.
-        failure = await loginRequiredFailure(bridge, failure);
-        const logPath = await writeRunLog({
-          id,
-          startedAt,
-          finishedAt: new Date().toISOString(),
-          request: redact(body),
-          prompt,
-          context,
-          images: imageLogSummary(images),
-          error: {
-            message: failure.message,
-            type: failure.type || "o1_code_proxy_error",
-            statusCode: failure.statusCode || 500,
-            kind: failure.kind || undefined,
-            capture: failure.capture || failure.diagnostics?.capture || undefined,
-            diagnostics: agentChatTimeoutDiagnostics(failure),
-            retryCount
-          },
-          worker: failure.worker,
-          bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined
-        });
-
-        if (logPath) {
-          response.setHeader("x-o1-code-proxy-log", logPath);
-        }
-
-        writeJson(response, failure.statusCode || 500, {
-          error: {
-            message: failure.message,
-            type: failure.type || "o1_code_proxy_error",
-            kind: failure.kind || undefined,
-            capture: failure.capture || failure.diagnostics?.capture || undefined,
-            retryCount,
-            log: logPath || undefined,
-            run_id: id
-          }
-        });
-        return;
-      }
-    }
-  }
-  const finalText = o1CodeRun.response.finalText;
-  const toolCallParts = o1CodeRun.response.toolCallParts;
-  // Compaction summaries must be returned as clean content (no tool_calls) so OpenCode
-  // renders them as an invisible summary instead of a visible assistant/tool-calling turn.
-  const normalized = isCompaction
-    ? {
-        content: sanitizeCompactionSummary(finalText, toolCallParts),
-        tool_calls: undefined,
-        finish_reason: "stop"
-      }
-    : stripTaskCompleteMarker(chooseAssistantResponse(finalText, toolCallParts, o1CodeRun.response.alternateAssistantTexts));
-  if (!isCompaction) {
-    normalizeToolCallArguments(normalized.tool_calls, body.tools);
-  }
-  const finishReason = normalized.finish_reason || o1CodeRun.request?.finishReason || "stop";
-  const responseMetrics = buildResponseMetrics({
-    finalText,
-    normalizedContent: normalized.content || "",
-    toolCalls: normalized.tool_calls || []
-  });
-  const resolvedUsage = resolveRunUsage(o1CodeRun, assistantOutputForUsage(normalized));
-  const usage = resolvedUsage.usage;
-
-  // Commit transcript and usage only after the provider turn and every recovery path succeeded.
-  // Failed attempts reset the mirror and can never add to the next turn's retained context.
-  // A tab retired (pruned, discarded, pool destroyed) while this turn ran must not get its mirror back.
-  if (continuity && bridge.hasSession(sessionKey)) commitThread(sessionKey, body, normalized, resolvedUsage.context);
-  else if (continuity) resetThread(sessionKey);
-
-  // Per-turn capture path: "network" = byte-exact recorder, "dom" = innerText DOM fallback, which is
-  // whitespace-lossy and thus unreliable for byte-sensitive tool-call output. Promoted to a top-level
-  // log field (instead of being buried in o1Code) so a failing turn can be attributed at a glance.
-  const responseSource = o1CodeRun.response?.source || null;
-  const capture = o1CodeRun.response?.capture || o1CodeRun.extension?.capture || null;
-  const lowFidelity = responseSource === "dom" || capture?.lowFidelity === true;
-
-  const logRecord = {
-    id,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    worker: o1CodeRun.worker || null,
-    request: redact(body),
-    prompt,
-    context,
-    responseSource,
-    lowFidelity,
-    capture: capture ? { ...capture, retryCount, toolRecoveryCount, completionRecoveryCount } : null,
-    toolRecoveryCount,
-    responseMetrics,
-    images: imageLogSummary(images),
-    o1Code: o1CodeRun,
-    completionRecoveryCount,
-    response: {
-      content: normalized.content,
-      tool_calls: normalized.tool_calls,
-      finishReason,
-      usage,
-      usageEvidence: resolvedUsage.evidence
-    }
-  };
-  const logPath = body.stream
-    ? await writeRunLog(logRecord).catch(() => null)
-    : await writeRunLog(logRecord);
-
-  // Streaming already flushed its head, so headers can only be attached on the non-stream path; the
-  // run log still records responseSource for streaming turns either way.
-  if (!body.stream) {
-    if (responseSource) response.setHeader("x-o1-code-response-source", responseSource);
-    if (logPath) response.setHeader("x-o1-code-proxy-log", logPath);
-  }
-
-  if (body.stream) {
-    if (streamSession) {
-      finalizeStreamedCompletion(response, streamBase, {
-        streamSession,
-        normalized,
+      o1Code: o1CodeRun,
+      completionRecoveryCount,
+      response: {
+        content: normalized.content,
+        tool_calls: normalized.tool_calls,
         finishReason,
         usage,
-        recoveryReplay: toolRecoveryCount > 0 || completionRecoveryCount > 0,
-        includeUsage: shouldIncludeStreamUsage(body)
-      });
-      return;
+        usageEvidence: resolvedUsage.evidence,
+      },
+    }
+    const logPath = body.stream ? await writeRunLog(logRecord).catch(() => null) : await writeRunLog(logRecord)
+
+    // Streaming already flushed its head, so headers can only be attached on the non-stream path; the
+    // run log still records responseSource for streaming turns either way.
+    if (!body.stream) {
+      if (responseSource) response.setHeader("x-o1-code-response-source", responseSource)
+      if (logPath) response.setHeader("x-o1-code-proxy-log", logPath)
     }
 
-    // No live session (compaction): emit the sanitized content as a whole body.
-    writeChatCompletionBody(response, {
-      id,
-      model,
-      created,
-      content: normalized.content || "",
-      tool_calls: normalized.tool_calls,
-      finishReason,
-      usage,
-      includeUsage: shouldIncludeStreamUsage(body)
-    });
-    return;
-  }
+    if (body.stream) {
+      if (streamSession) {
+        finalizeStreamedCompletion(response, streamBase, {
+          streamSession,
+          normalized,
+          finishReason,
+          usage,
+          recoveryReplay: toolRecoveryCount > 0 || completionRecoveryCount > 0,
+          includeUsage: shouldIncludeStreamUsage(body),
+        })
+        return
+      }
 
-  writeJson(response, 200, createChatCompletionResponse({
-    id,
-    model,
-    created,
-    message: normalized,
-    finishReason,
-    usage
-  }));
+      // No live session (compaction): emit the sanitized content as a whole body.
+      writeChatCompletionBody(response, {
+        id,
+        model,
+        created,
+        content: normalized.content || "",
+        tool_calls: normalized.tool_calls,
+        finishReason,
+        usage,
+        includeUsage: shouldIncludeStreamUsage(body),
+      })
+      return
+    }
+
+    writeJson(
+      response,
+      200,
+      createChatCompletionResponse({
+        id,
+        model,
+        created,
+        message: normalized,
+        finishReason,
+        usage,
+      }),
+    )
   } finally {
-    releaseThreadTurn();
+    releaseThreadTurn()
   }
 }
 
 export async function waitForBridgeWithKeepAlive(bridgePromise, response, intervalMs = STREAM_KEEP_ALIVE_MS) {
   const timer = setInterval(() => {
-    response.write(": keep-alive\n\n");
-  }, intervalMs);
+    response.write(": keep-alive\n\n")
+  }, intervalMs)
 
-  timer.unref?.();
+  timer.unref?.()
 
   try {
-    return await bridgePromise;
+    return await bridgePromise
   } finally {
-    clearInterval(timer);
+    clearInterval(timer)
   }
 }
 
@@ -578,154 +599,159 @@ const FRESH_REPLAY_RETRY_TYPES = new Set([
   "o1_code_thread_desync",
   "o1_code_image_attachment_desync",
   "o1_code_protocol_incompatible",
-]);
+])
 
 export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
-  if (!FRESH_REPLAY_RETRY_TYPES.has(error?.type) || isCompaction) return false;
-  if (error?.attemptStreamed === false) return true;
-  if (error?.attemptStreamed === true) return false;
-  return !(streamSession && streamSession.hasStreamed());
+  if (!FRESH_REPLAY_RETRY_TYPES.has(error?.type) || isCompaction) return false
+  if (error?.attemptStreamed === false) return true
+  if (error?.attemptStreamed === true) return false
+  return !(streamSession && streamSession.hasStreamed())
 }
 
 const EXPLICIT_TOOL_USE_PATTERNS = [
   /\b(?:use|using|with|via)\b[\s\S]{0,80}\b(?:available\s+)?(?:(?:local|repository|workspace|provided)\s+)?tools?\b/i,
   /\b(?:keep\s+working|continue|work)\b[\s\S]{0,80}\bacross\b[\s\S]{0,40}\btool calls?\b/i,
-];
+]
 
 function messageText(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
   return content
     .map((part) => {
-      if (typeof part === "string") return part;
-      if (part?.type === "text") return part.text || "";
-      return "";
+      if (typeof part === "string") return part
+      if (part?.type === "text") return part.text || ""
+      return ""
     })
-    .join("\n");
+    .join("\n")
 }
 
 function latestUserMessageIndex(body) {
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  return messages.findLastIndex((message) => message?.role === "user");
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  return messages.findLastIndex((message) => message?.role === "user")
 }
 
 function activeTurnHasToolProgress(body) {
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  const latestUserIndex = latestUserMessageIndex(body);
-  if (latestUserIndex < 0) return false;
-  return messages.slice(latestUserIndex + 1).some((message) =>
-    message?.role === "tool" || (message?.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0)
-  );
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  const latestUserIndex = latestUserMessageIndex(body)
+  if (latestUserIndex < 0) return false
+  return messages
+    .slice(latestUserIndex + 1)
+    .some(
+      (message) =>
+        message?.role === "tool" ||
+        (message?.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0),
+    )
 }
 
 function explicitlyRequiresToolUse(body) {
-  if (body?.tool_choice === "required" || body?.tool_choice?.type === "function") return true;
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  const latestUserIndex = latestUserMessageIndex(body);
-  if (latestUserIndex < 0) return false;
-  const text = messageText(messages[latestUserIndex]?.content);
-  return EXPLICIT_TOOL_USE_PATTERNS.some((pattern) => pattern.test(text));
+  if (body?.tool_choice === "required" || body?.tool_choice?.type === "function") return true
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  const latestUserIndex = latestUserMessageIndex(body)
+  if (latestUserIndex < 0) return false
+  const text = messageText(messages[latestUserIndex]?.content)
+  return EXPLICIT_TOOL_USE_PATTERNS.some((pattern) => pattern.test(text))
 }
 
 function alternateAssistantTexts(run) {
-  const value = run?.response?.alternateAssistantTexts || run?.alternateAssistantTexts || [];
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") return Object.values(value);
-  return [];
+  const value = run?.response?.alternateAssistantTexts || run?.alternateAssistantTexts || []
+  if (Array.isArray(value)) return value
+  if (value && typeof value === "object") return Object.values(value)
+  return []
 }
 
 // A required first tool-routing step is a protocol invariant, not a prose-classification problem.
 // Recover any terminal no-tool answer once regardless of its wording. Once this active user turn
 // already contains tool progress, a prose-only response is allowed to be the final findings answer.
 export function shouldRecoverMissingRequiredToolCall(body, run, { isCompaction = false } = {}) {
-  if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
-  if (!explicitlyRequiresToolUse(body)) return false;
+  if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false
+  if (!explicitlyRequiresToolUse(body)) return false
 
-  const finalText = run?.response?.finalText || run?.finalText || "";
-  const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
-  const normalized = chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts(run));
-  if (normalized?.tool_calls?.length) return false;
-  if (!activeTurnHasToolProgress(body)) return true;
-  if (!commentaryPhaseEnabled(body)) return false;
-  return hasExplicitIncompleteTaskClaim(normalized?.content, { forwardLooking: true });
+  const finalText = run?.response?.finalText || run?.finalText || ""
+  const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {}
+  const normalized = chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts(run))
+  if (normalized?.tool_calls?.length) return false
+  if (!activeTurnHasToolProgress(body)) return true
+  if (!commentaryPhaseEnabled(body)) return false
+  return hasExplicitIncompleteTaskClaim(normalized?.content, { forwardLooking: true })
 }
 
 function requiredToolNotCalledError() {
-  const error = new Error("The WPP agent returned two terminal responses without the tool call required by this turn.");
+  const error = new Error("The WPP agent returned two terminal responses without the tool call required by this turn.")
 
-  error.statusCode = 502;
-  error.type = "o1_code_required_tool_not_called";
-  return error;
+  error.statusCode = 502
+  error.type = "o1_code_required_tool_not_called"
+  return error
 }
 
 export function shouldRecoverIncompleteTask(body, run, { isCompaction = false } = {}) {
-  if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false;
-  const finalText = run?.response?.finalText || run?.finalText || "";
-  const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {};
-  const normalized = chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts(run));
-  if (normalized?.tool_calls?.length) return false;
-  const content = normalized?.content || "";
-  return !hasTaskCompleteMarker(content)
-    || hasExplicitIncompleteTaskClaim(content, { forwardLooking: commentaryPhaseEnabled(body) });
+  if (isCompaction || !Array.isArray(body?.tools) || body.tools.length === 0) return false
+  const finalText = run?.response?.finalText || run?.finalText || ""
+  const toolCallParts = run?.response?.toolCallParts || run?.toolCallParts || {}
+  const normalized = chooseAssistantResponse(finalText, toolCallParts, alternateAssistantTexts(run))
+  if (normalized?.tool_calls?.length) return false
+  const content = normalized?.content || ""
+  return (
+    !hasTaskCompleteMarker(content) ||
+    hasExplicitIncompleteTaskClaim(content, { forwardLooking: commentaryPhaseEnabled(body) })
+  )
 }
 
 // Treat the completion marker as a claim, not proof. Sol can occasionally append it to a response
 // that explicitly says the requested work did not finish. Keep this deliberately narrow so a valid
 // review finding such as "the implementation is incomplete" does not reopen the agent turn.
 function hasExplicitIncompleteTaskClaim(content, { forwardLooking = false } = {}) {
-  const text = String(content || "");
+  const text = String(content || "")
   const patterns = [
     /\bI(?:'m| am| was)?\s+(?:sorry,?\s+but\s+)?(?:unable|not able)\s+to\s+(?:complete|finish|fully inspect|fully review|continue)\b/i,
     /\bI\s+(?:could not|couldn't|cannot|can't|wasn't able to|was not able to)\s+(?:complete|finish|fully inspect|fully review|continue)\b/i,
     /\b(?:the\s+)?(?:requested\s+)?(?:review|analysis|inspection|investigation|request|task)\s+(?:is|remains)\s+(?:incomplete|unfinished)\b/i,
     /\b(?:a\s+)?complete\s+(?:review|analysis|inspection|investigation)\s+(?:still\s+)?requires?\s+(?:further|more|additional)\b/i,
     /\b(?:before I could|prevented me from)\s+(?:inspect|analy[sz]e|review|run|complete|finish|continue)\b/i,
-  ];
+  ]
   if (forwardLooking) {
     patterns.unshift(
       /\b(?:I(?:['’]ll| will)|let me|I(?:['’]m| am) going to)\s+(?:(?:first|now|next|then)\s+)?(?:inspect|read|run|test|edit|apply|fix|continue|create|build|write|check|verify|review|analy[sz]e|investigate|implement|update|change|open|search|look|examine)\b/i,
-    );
+    )
   }
-  return patterns.some((pattern) => pattern.test(text));
+  return patterns.some((pattern) => pattern.test(text))
 }
 
 function commentaryPhaseEnabled(body) {
-  return resolveRequestModelProfile(body).commentaryPhase === true;
+  return resolveRequestModelProfile(body).commentaryPhase === true
 }
 
 function hasTaskCompleteMarker(content) {
-  return new RegExp(`(?:^|\\r?\\n)${CM_TASK_COMPLETE_PROTOCOL}\\s*$`).test(String(content || ""));
+  return new RegExp(`(?:^|\\r?\\n)${CM_TASK_COMPLETE_PROTOCOL}\\s*$`).test(String(content || ""))
 }
 
 function stripTaskCompleteMarker(message) {
-  if (!message || typeof message.content !== "string") return message;
+  if (!message || typeof message.content !== "string") return message
   return {
     ...message,
-    content: message.content
-      .replace(new RegExp(`(?:\\r?\\n)?${CM_TASK_COMPLETE_PROTOCOL}\\s*$`), "")
-      .trimEnd(),
-  };
+    content: message.content.replace(new RegExp(`(?:\\r?\\n)?${CM_TASK_COMPLETE_PROTOCOL}\\s*$`), "").trimEnd(),
+  }
 }
 
 function taskIncompleteError() {
-  const error = new Error(`The WPP agent returned two terminal responses without ${CM_TASK_COMPLETE_PROTOCOL}.`);
-  error.statusCode = 502;
-  error.type = "o1_code_task_incomplete";
-  return error;
+  const error = new Error(`The WPP agent returned two terminal responses without ${CM_TASK_COMPLETE_PROTOCOL}.`)
+  error.statusCode = 502
+  error.type = "o1_code_task_incomplete"
+  return error
 }
 
 function agentChatTimeoutDiagnostics(failure) {
-  if (failure?.type !== "o1_code_agent_chat_timeout") return undefined;
-  const diagnostics = failure.diagnostics;
+  if (failure?.type !== "o1_code_agent_chat_timeout") return undefined
+  const diagnostics = failure.diagnostics
   // Diagnostic objects can contain page payloads. Persist only bounded startup evidence.
   return {
-    phase: ["waiting-roster", "roster-loading", "roster-ui", "chat-navigation", "verifying-agent"].includes(diagnostics?.phase)
+    phase: ["waiting-roster", "roster-loading", "roster-ui", "chat-navigation", "verifying-agent"].includes(
+      diagnostics?.phase,
+    )
       ? diagnostics.phase
       : undefined,
-    chatClicks: Number.isSafeInteger(diagnostics?.chatClicks) && diagnostics.chatClicks >= 0
-      ? diagnostics.chatClicks
-      : undefined,
-  };
+    chatClicks:
+      Number.isSafeInteger(diagnostics?.chatClicks) && diagnostics.chatClicks >= 0 ? diagnostics.chatClicks : undefined,
+  }
 }
 
 // After a turn (and its one fresh replay) has failed, probe whether the real cause is a logged-out
@@ -734,23 +760,20 @@ function agentChatTimeoutDiagnostics(failure) {
 // bare capture/recorder failure. Returns the original failure unchanged when already auth-typed, the
 // session looks logged in, or the bridge can't probe (e.g. test doubles without checkAuthState).
 async function loginRequiredFailure(bridge, failure) {
-  if ([
-    "wpp_auth_required",
-    "o1_code_task_incomplete",
-    "o1_code_required_tool_not_called",
-  ].includes(failure?.type)) return failure;
+  if (["wpp_auth_required", "o1_code_task_incomplete", "o1_code_required_tool_not_called"].includes(failure?.type))
+    return failure
 
-  const probe = bridge.checkAuthState?.();
-  const reason = probe ? await probe.catch(() => null) : null;
-  if (!reason) return failure;
+  const probe = bridge.checkAuthState?.()
+  const reason = probe ? await probe.catch(() => null) : null
+  if (!reason) return failure
 
-  bridge.markAuthRequired?.(reason);
-  const error = new Error(`WPP login required: ${reason}. Original failure: ${failure.message}`);
-  error.statusCode = 401;
-  error.type = "wpp_auth_required";
-  error.diagnostics = failure.diagnostics || undefined;
-  error.worker = failure.worker;
-  return error;
+  bridge.markAuthRequired?.(reason)
+  const error = new Error(`WPP login required: ${reason}. Original failure: ${failure.message}`)
+  error.statusCode = 401
+  error.type = "wpp_auth_required"
+  error.diagnostics = failure.diagnostics || undefined
+  error.worker = failure.worker
+  return error
 }
 
 // Wrap a StreamGate with the small amount of session state the SSE handler needs: a `streamed`
@@ -758,32 +781,32 @@ async function loginRequiredFailure(bridge, failure) {
 // content past what we've already sent). The gate itself owns the prose-vs-tool-call decision, the
 // incremental slicing, and the emitted-char cursor.
 function createStreamSession({ sentenceQuarantine = false } = {}) {
-  const gate = new StreamGate({ sentenceQuarantine });
-  let streamed = false;
+  const gate = new StreamGate({ sentenceQuarantine })
+  let streamed = false
 
   return {
     // Feed the latest cumulative text-so-far; returns the incremental prose delta to emit (empty
     // while undecided/suppressed). Records that we've streamed once any delta is produced.
     update(cumulativeText) {
-      const result = gate.update(cumulativeText);
+      const result = gate.update(cumulativeText)
       if (result.delta) {
-        streamed = true;
+        streamed = true
       }
-      return result;
+      return result
     },
     // True once at least one live prose delta has been written to the client.
     hasStreamed() {
-      return streamed;
+      return streamed
     },
     // Given the authoritative normalized content, return the part not yet emitted live — the
     // trailing diff to flush at finalize. The emitted-char cursor stays inside the gate.
     trailingDiff(finalContent) {
-      return gate.trailingDiff(finalContent);
+      return gate.trailingDiff(finalContent)
     },
     get state() {
-      return gate.state;
-    }
-  };
+      return gate.state
+    },
+  }
 }
 
 // Close out a streamed completion using the authoritative normalized result. Three shapes:
@@ -794,34 +817,31 @@ function createStreamSession({ sentenceQuarantine = false } = {}) {
 //     was content after all) → emit the whole content body.
 // Always terminates the stream via finishChatCompletion. The caller must unsubscribe from progress
 // BEFORE calling this so a late frame can't interleave a delta after finish_reason.
-function finalizeStreamedCompletion(response, streamBase, {
-  streamSession,
-  normalized,
-  finishReason,
-  usage,
-  recoveryReplay = false,
-  includeUsage
-}) {
-  const tool_calls = normalized.tool_calls;
-  const content = normalized.content || "";
+function finalizeStreamedCompletion(
+  response,
+  streamBase,
+  { streamSession, normalized, finishReason, usage, recoveryReplay = false, includeUsage },
+) {
+  const tool_calls = normalized.tool_calls
+  const content = normalized.content || ""
 
   if (Array.isArray(tool_calls) && tool_calls.length > 0) {
     if (content) {
-      writeContentBody(response, streamBase, content);
+      writeContentBody(response, streamBase, content)
     }
-    writeToolCallChunks(response, streamBase, tool_calls);
+    writeToolCallChunks(response, streamBase, tool_calls)
   } else if (recoveryReplay) {
     // The recovery response is a new cumulative text origin. Append it in full after any benign
     // commentary already emitted from the discarded answer instead of diffing unrelated strings.
-    writeContentBody(response, streamBase, content);
+    writeContentBody(response, streamBase, content)
   } else if (streamSession.hasStreamed()) {
     // Emit the authoritative content past what we've already streamed live.
-    const trailing = streamSession.trailingDiff(content);
+    const trailing = streamSession.trailingDiff(content)
     if (trailing) {
-      writeContentDelta(response, streamBase, trailing);
+      writeContentDelta(response, streamBase, trailing)
     }
   } else {
-    writeContentBody(response, streamBase, content);
+    writeContentBody(response, streamBase, content)
   }
 
   finishChatCompletion(response, streamBase, {
@@ -829,26 +849,26 @@ function finalizeStreamedCompletion(response, streamBase, {
     usage,
     includeUsage,
     content,
-    tool_calls
-  });
+    tool_calls,
+  })
 }
 
 function assistantOutputForUsage(message = {}) {
-  const parts = [];
+  const parts = []
 
   if (message.content) {
-    parts.push(message.content);
+    parts.push(message.content)
   }
 
   if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-    parts.push(JSON.stringify(message.tool_calls));
+    parts.push(JSON.stringify(message.tool_calls))
   }
 
-  return parts.join("\n");
+  return parts.join("\n")
 }
 
 function shouldIncludeStreamUsage(body) {
-  return body?.stream_options?.include_usage === true;
+  return body?.stream_options?.include_usage === true
 }
 
 function imageLogSummary(images) {
@@ -856,197 +876,202 @@ function imageLogSummary(images) {
     id: image.id,
     name: image.name,
     mimeType: image.mimeType,
-    sizeBytes: image.sizeBytes
-  }));
+    sizeBytes: image.sizeBytes,
+  }))
 }
 
 export function normalizeToolCallArguments(toolCalls, tools = []) {
   if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return;
+    return
   }
 
-  const toolSchema = new Map(tools.map((tool) => {
-    const fn = tool?.function || tool;
-    return [fn?.name, fn?.parameters?.properties || {}];
-  }));
+  const toolSchema = new Map(
+    tools.map((tool) => {
+      const fn = tool?.function || tool
+      return [fn?.name, fn?.parameters?.properties || {}]
+    }),
+  )
 
   for (const call of toolCalls) {
-    const name = call?.function?.name;
-    const properties = toolSchema.get(name) || {};
-    let args;
+    const name = call?.function?.name
+    const properties = toolSchema.get(name) || {}
+    let args
 
     try {
-      args = JSON.parse(call.function.arguments || "{}");
+      args = JSON.parse(call.function.arguments || "{}")
     } catch {
-      continue;
+      continue
     }
 
     if (properties.filePath && args.path && !args.filePath) {
-      args.filePath = args.path;
-      delete args.path;
+      args.filePath = args.path
+      delete args.path
     }
 
     if (properties.oldString && args.old && !args.oldString) {
-      args.oldString = args.old;
-      delete args.old;
+      args.oldString = args.old
+      delete args.old
     }
 
     if (properties.newString && args.new && !args.newString) {
-      args.newString = args.new;
-      delete args.new;
+      args.newString = args.new
+      delete args.new
     }
 
     if (name === "bash" && properties.description && args.command && !args.description) {
-      args.description = describeShellCommand(args.command);
+      args.description = describeShellCommand(args.command)
     }
 
-    call.function.arguments = JSON.stringify(args);
+    call.function.arguments = JSON.stringify(args)
   }
 }
 
 export function isCompactionRequest(body) {
   // Compaction is sent with empty/absent tools (noTools corroboration).
   if (Array.isArray(body?.tools) && body.tools.length > 0) {
-    return false;
+    return false
   }
 
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  let lastUserContent = null;
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  let lastUserContent = null
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === "user") {
-      lastUserContent = stringContent(messages[index].content);
-      break;
+      lastUserContent = stringContent(messages[index].content)
+      break
     }
   }
 
   if (!lastUserContent) {
-    return false;
+    return false
   }
 
   // Both anchors must appear in the LAST user message (confirmed against a captured log).
-  return COMPACTION_PROMPT_ANCHORS.every((anchor) => lastUserContent.includes(anchor));
+  return COMPACTION_PROMPT_ANCHORS.every((anchor) => lastUserContent.includes(anchor))
 }
 
 // Compaction summaries must come back as clean Markdown so OpenCode renders them as an
 // invisible summary. CookieMonster coding agents may emit tool-call XML/JSON and
 // chatter; strip that so the summary isn't parsed into a tool-calling turn.
 export function sanitizeCompactionSummary(finalText, toolCallParts = {}) {
-  let text = typeof finalText === "string" ? finalText : "";
+  let text = typeof finalText === "string" ? finalText : ""
 
   // Drop fenced blocks that wrap tool-call XML (so no empty code fence remains).
-  text = text.replace(/\x60{3}[a-zA-Z]*\s*<function_calls>[\s\S]*?<\/function_calls>\s*\x60{3}/gi, "");
+  text = text.replace(/\x60{3}[a-zA-Z]*\s*<function_calls>[\s\S]*?<\/function_calls>\s*\x60{3}/gi, "")
   // Drop complete Anthropic-style tool-call XML blocks.
-  text = text.replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, "");
+  text = text.replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, "")
   // Drop a stray unterminated tool-call XML trailer.
-  text = text.replace(/<function_calls>[\s\S]*$/i, "");
+  text = text.replace(/<function_calls>[\s\S]*$/i, "")
   // Drop trailing tool-call JSON objects (e.g. {"type":"tool_call","tool":"..."}).
-  text = text.replace(/\{[^{}]*"type"\s*:\s*"tool_call"[\s\S]*?\}\s*$/g, "");
+  text = text.replace(/\{[^{}]*"type"\s*:\s*"tool_call"[\s\S]*?\}\s*$/g, "")
 
-  text = text.trim();
+  text = text.trim()
 
-  return text;
+  return text
 }
 
 export function isTitleGenerationRequest(body) {
-  return Array.isArray(body?.messages)
-    && body.messages.some((message) =>
-      message?.role === "system"
-      && /You are a title generator\./i.test(stringContent(message.content))
-    );
+  return (
+    Array.isArray(body?.messages) &&
+    body.messages.some(
+      (message) => message?.role === "system" && /You are a title generator\./i.test(stringContent(message.content)),
+    )
+  )
 }
 
 export function generateLocalTitle(body) {
   const latestUserText = Array.isArray(body?.messages)
     ? body.messages
-      .filter((message) => message?.role === "user")
-      .map((message) => stringContent(message.content).trim())
-      .filter(Boolean)
-      .at(-1)
-    : "";
-  const title = summarizeTitleText(latestUserText || "Conversation");
+        .filter((message) => message?.role === "user")
+        .map((message) => stringContent(message.content).trim())
+        .filter(Boolean)
+        .at(-1)
+    : ""
+  const title = summarizeTitleText(latestUserText || "Conversation")
 
-  return title || "Conversation";
+  return title || "Conversation"
 }
 
 function summarizeTitleText(text) {
   const normalized = String(text || "")
     .replace(/\s+/g, " ")
     .replace(/^generate a title for this conversation:\s*/i, "")
-    .trim();
+    .trim()
 
   if (!normalized) {
-    return "Conversation";
+    return "Conversation"
   }
 
   if (/^(hi|hello|hey|yo|howdy|what'?s up)[.!?]*$/i.test(normalized)) {
-    return "Greeting";
+    return "Greeting"
   }
 
   const words = normalized
     .replace(/[^A-Za-z0-9\s._:/-]/g, "")
     .split(/\s+/)
     .filter(Boolean)
-    .slice(0, 6);
+    .slice(0, 6)
 
   if (words.length === 0) {
-    return "Conversation";
+    return "Conversation"
   }
 
-  const title = words.join(" ");
+  const title = words.join(" ")
 
-  return title.length > 60 ? `${title.slice(0, 57).trim()}...` : title;
+  return title.length > 60 ? `${title.slice(0, 57).trim()}...` : title
 }
 
 function stringContent(content) {
   if (typeof content === "string") {
-    return content;
+    return content
   }
 
   if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === "string") {
-        return part;
-      }
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part
+        }
 
-      if (part?.type === "text") {
-        return part.text || "";
-      }
+        if (part?.type === "text") {
+          return part.text || ""
+        }
 
-      return "";
-    }).join("\n");
+        return ""
+      })
+      .join("\n")
   }
 
   if (content == null) {
-    return "";
+    return ""
   }
 
-  return String(content);
+  return String(content)
 }
 
 function describeShellCommand(command) {
-  const text = String(command).trim();
+  const text = String(command).trim()
 
   if (text === "pwd") {
-    return "Print the current working directory";
+    return "Print the current working directory"
   }
 
   if (text.startsWith("ls")) {
-    return "List files";
+    return "List files"
   }
 
   if (text.startsWith("rg ")) {
-    return "Search repository contents";
+    return "Search repository contents"
   }
 
   if (text.startsWith("cat ")) {
-    return "Print file contents";
+    return "Print file contents"
   }
 
-  return text.length > 80 ? `Run shell command: ${text.slice(0, 77)}...` : `Run shell command: ${text}`;
+  return text.length > 80 ? `Run shell command: ${text.slice(0, 77)}...` : `Run shell command: ${text}`
 }
 
 export function writeJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
-  response.end(`${JSON.stringify(payload, null, 2)}\n`);
+  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" })
+  response.end(`${JSON.stringify(payload, null, 2)}\n`)
 }

@@ -3,14 +3,14 @@ name: test
 on:
   push:
     branches:
-      - dev
+      - v1
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  # Keep every run on dev so cancelled checks do not pollute the default branch
+  # Keep every run on v1 so cancelled checks do not pollute the release branch
   # commit history. PRs and other branches still share a group and cancel stale runs.
-  group: ${{ case(github.ref == 'refs/heads/dev', format('{0}-{1}', github.workflow, github.run_id), format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref)) }}
+  group: ${{ case(github.ref == 'refs/heads/v1', format('{0}-{1}', github.workflow, github.run_id), format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref)) }}
   cancel-in-progress: true
 
 permissions:
@@ -28,10 +28,12 @@ jobs:
       matrix:
         settings:
           - name: linux
-            host: blacksmith-4vcpu-ubuntu-2404
+            host: ubuntu-24.04
           - name: windows
-            host: blacksmith-4vcpu-windows-2025
+            host: windows-2025
     runs-on: ${{ matrix.settings.host }}
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     defaults:
       run:
         shell: bash
@@ -63,6 +65,44 @@ jobs:
             turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
             turbo-${{ runner.os }}-
 
+      # Path tests strip the drive letter, so temp must share the checkout's drive (D:), not default C:.
+      - name: Keep temp on the checkout drive
+        if: runner.os == 'Windows'
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      # Core's ripgrep tests use a system rg; without one they download it from GitHub releases at test
+      # time (an outage fails them), and on Windows the Expand-Archive fallback also times out.
+      - name: Install ripgrep
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then choco install ripgrep -y --no-progress
+          else sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; fi
+
+      # App browser tests (test-browser/) launch a real Chromium.
+      - name: Read Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -e 'console.log(require("./package.json").workspaces.catalog["@playwright/test"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.playwright-browsers
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright-version.outputs.version }}-chromium
+
+      - name: Install Playwright system dependencies
+        if: runner.os == 'Linux'
+        working-directory: packages/app
+        run: bunx playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: packages/app
+        run: bunx playwright install chromium
+
       - name: Run unit tests
         timeout-minutes: 20
         run: GITHUB_ACTIONS=false bun turbo test
@@ -86,9 +126,9 @@ jobs:
       matrix:
         settings:
           - name: linux
-            host: blacksmith-4vcpu-ubuntu-2404
+            host: ubuntu-24.04
           - name: windows
-            host: blacksmith-4vcpu-windows-2025
+            host: windows-2025
     runs-on: ${{ matrix.settings.host }}
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers

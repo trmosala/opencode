@@ -125,11 +125,7 @@ function parseDataImageUrl(url) {
   const mimeType = match[1].toLowerCase()
   const base64 = match[2].replace(/\s+/g, "")
 
-  if (
-    !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) ||
-    base64.length === 0 ||
-    base64.length % 4 !== 0
-  ) {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length === 0 || base64.length % 4 !== 0) {
     throw badImageInput("Image data URL must contain valid base64 data.")
   }
 

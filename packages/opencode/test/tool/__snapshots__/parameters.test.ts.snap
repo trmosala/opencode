@@ -305,6 +305,17 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "description": "Run the agent in the background. You will be notified when it completes. DO NOT sleep, poll, or proactively check on its progress",
       "type": "boolean",
     },
+    "browser_tab_ids": {
+      "description": "Explicit browser tab IDs to delegate to a NEW foreground child task. Cannot be used with task_id or background=true.",
+      "items": {
+        "pattern": "^[A-Za-z0-9_-]{1,128}$",
+        "type": "string",
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true,
+    },
     "command": {
       "description": "The command that triggered this task",
       "type": "string",

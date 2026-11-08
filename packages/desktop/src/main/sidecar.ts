@@ -54,14 +54,14 @@ async function start(command: StartCommand) {
     ensureLoopbackNoProxy()
     useSystemCertificates()
     useEnvProxy()
-    const { Server } = await import("virtual:opencode-server")
+    const { Server, prepareDatabase } = await import("@cookiemonster/cm-v2/server")
 
     listener = await Server.listen({
       port: command.port,
       hostname: command.hostname,
-      username: "opencode",
       password: command.password,
-      cors: ["oc://renderer"],
+      database: await prepareDatabase(import.meta.env.OPENCODE_CHANNEL),
+      config: { content: process.env.OPENCODE_CONFIG_CONTENT },
     })
     parentPort.postMessage({ type: "ready" })
   } catch (error) {

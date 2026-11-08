@@ -46,7 +46,8 @@ export function NewSessionView(props: {
         data-component="session-new-design"
         class="relative flex-1 min-h-0 overflow-hidden rounded-[10px] bg-v2-background-bg-deep"
       >
-        <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
+        {/* Stop above the bottom-pinned provider tip so tall CM3 content scrolls instead of sliding under it. */}
+        <div class="absolute inset-x-0 top-[25.375%] bottom-12 flex justify-center overflow-y-auto px-6">
           <div class={NEW_SESSION_CONTENT_WIDTH}>
             <Show
               when={settings.general.quietCompanion() || import.meta.env.VITE_CM_BRAND}

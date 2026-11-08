@@ -123,15 +123,17 @@ const SettingsProvidersContent: Component<{ onBack?: () => void }> = (props) => 
   const disconnect = async (providerID: string, name: string) => {
     if (isConfigCustom(providerID)) {
       await serverSDK()
-        .client.auth.remove({ providerID })
+        .api.integration.disconnect({ integrationID: providerID })
         .catch(() => undefined)
       await disableProvider(providerID, name)
       return
     }
     await serverSDK()
-      .client.auth.remove({ providerID })
+      .api.integration.disconnect({ integrationID: providerID })
       .then(async () => {
-        await serverSDK().client.global.dispose()
+        await serverSync()
+          .refreshProviders()
+          .catch(() => undefined)
         showToast({
           variant: "success",
           icon: "circle-check",

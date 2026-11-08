@@ -12,23 +12,22 @@ import type {
 import type {
   AgentListInput,
   AgentListOutput,
-  CatalogApi,
-  CommandInfo,
   CommandListInput,
   CommandListOutput,
-  ProjectCurrentInput,
-  ProjectCurrentOutput,
+  ConfigGetOutput,
+  LocationGetInput,
+  LocationGetOutput,
   ProjectListOutput,
   ReferenceListInput,
   ReferenceListOutput,
-  SessionApi,
-} from "@opencode-ai/client/promise"
+} from "@opencode/client/promise"
 import { showToast } from "@/utils/toast"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { retry } from "@opencode-ai/core/util/retry"
 import { batch } from "solid-js"
 import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
-import type { State, VcsCache } from "./types"
+import type { SlashCommandInfo, State, VcsCache } from "./types"
+import type { ManagedSkill } from "@/utils/cm-extensions"
 import type { ServerSession } from "../server-session"
 import {
   cmp,
@@ -45,6 +44,10 @@ import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 import { normalizeSessionInfo } from "@/utils/session"
 import type { ServerProtocol } from "@/utils/server-protocol"
 import type { ServerApi } from "@/utils/server"
+import type { CompatibleApi } from "@/utils/server-compat"
+
+type CatalogApi = Pick<ServerApi, "provider" | "model">
+type LocationApi = { readonly get: (input?: LocationGetInput) => Promise<LocationGetOutput> }
 
 type GlobalStore = {
   ready: boolean
@@ -105,23 +108,34 @@ function showErrors(input: {
   })
 }
 
-export const loadGlobalConfigQuery = (scope: ServerScope, sdk: OpencodeClient, protocol?: Promise<ServerProtocol>) =>
+export const loadGlobalConfigQuery = (
+  scope: ServerScope,
+  sdk: OpencodeClient,
+  protocol?: Promise<ServerProtocol>,
+  api?: { readonly get: () => Promise<ConfigGetOutput> },
+) =>
   queryOptions({
     queryKey: [scope, "config"],
-    queryFn: async () => {
-      if ((await protocol) !== "v1") return {}
-      return retry(() => sdk.global.config.get().then((x) => x.data!))
+    queryFn: async (): Promise<Config> => {
+      if ((await protocol) === "v1") return retry(() => sdk.global.config.get().then((x) => x.data!))
+      if (!api) return {}
+      // 2.2.5 config documents use a different schema; only the shell maps onto the V1 Config the app edits.
+      const entries = await retry(() => api.get())
+      const shell = entries
+        .flatMap((entry) => (entry.type === "document" && entry.info.shell ? [entry.info.shell] : []))
+        .at(-1)
+      return shell ? { shell } : {}
     },
   })
 
 type ProjectApi = {
   readonly list: () => Promise<ProjectListOutput>
-  readonly current: (input?: ProjectCurrentInput) => Promise<ProjectCurrentOutput>
+  readonly current: CompatibleApi["project"]["current"]
 }
 
 type McpApi = ServerApi["mcp"]
 type PermissionApi = ServerApi["permission"]
-type QuestionApi = ServerApi["question"]
+type QuestionApi = CompatibleApi["question"]
 type VcsApi = ServerApi["vcs"]
 
 export const loadProjectsQuery = (scope: ServerScope, api: ProjectApi) =>
@@ -132,8 +146,8 @@ export const loadProjectsQuery = (scope: ServerScope, api: ProjectApi) =>
         api.list().then((projects) => {
           return projects
             .filter((p) => !!p?.id)
-            .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .map(normalizeProjectInfo)
+            .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .slice()
             .sort((a, b) => cmp(a.id, b.id))
         }),
@@ -142,7 +156,11 @@ export const loadProjectsQuery = (scope: ServerScope, api: ProjectApi) =>
 
 export async function bootstrapGlobal(input: {
   serverSDK: OpencodeClient
-  serverAPI: CatalogApi & { readonly project: ProjectApi }
+  serverAPI: CatalogApi & {
+    readonly project: ProjectApi
+    readonly config?: { readonly get: () => Promise<ConfigGetOutput> }
+    readonly location?: LocationApi
+  }
   protocol?: Promise<ServerProtocol>
   scope: ServerScope
   requestFailedTitle: string
@@ -152,12 +170,18 @@ export async function bootstrapGlobal(input: {
   queryClient: QueryClient
 }) {
   const slow = [
-    () => input.queryClient.fetchQuery(loadGlobalConfigQuery(input.scope, input.serverSDK, input.protocol)),
+    () =>
+      input.queryClient.fetchQuery(
+        loadGlobalConfigQuery(input.scope, input.serverSDK, input.protocol, input.serverAPI.config),
+      ),
     () =>
       input.queryClient.fetchQuery(
         loadProvidersQuery(input.scope, null, input.serverAPI, input.serverSDK, input.protocol),
       ),
-    () => input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverSDK, input.protocol)),
+    () =>
+      input.queryClient.fetchQuery(
+        loadPathQuery(input.scope, null, input.serverSDK, input.protocol, input.serverAPI.location),
+      ),
     () =>
       input.queryClient
         .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
@@ -204,7 +228,7 @@ function warmSessions(input: {
   ids: string[]
   store: Store<State>
   setStore: SetStoreFunction<State>
-  api: SessionApi
+  api: CompatibleApi["session"]
 }) {
   const known = new Set(input.store.session.map((item) => item.id))
   const ids = [...new Set(input.ids)].filter((id) => !!id && !known.has(id))
@@ -227,21 +251,27 @@ export const loadProvidersQuery = (
 ) =>
   queryOptions({
     queryKey: [scope, directory, "providers"],
-    queryFn: () =>
-      retry(async () => {
-        if ((await protocol) === "v1" && legacy) {
-          const result = await legacy.provider.list()
-          return normalizeProviderList(result.data!)
-        }
-        const location = directory ? { location: { directory } } : undefined
-        const [providers, models, defaultModel] = await Promise.all([
-          sdk.provider.list(location),
-          sdk.model.list(location),
-          sdk.model.default(location),
-        ])
-        return normalizeProviderList(providers.data, models.data, defaultModel.data)
-      }),
+    queryFn: () => retry(() => loadProviders(directory, sdk, legacy, protocol)),
   })
+
+export async function loadProviders(
+  directory: string | null,
+  sdk: CatalogApi,
+  legacy?: OpencodeClient,
+  protocol?: Promise<ServerProtocol>,
+) {
+  if ((await protocol) === "v1" && legacy) {
+    const result = await legacy.provider.list(directory ? { directory } : undefined)
+    return normalizeProviderList(result.data!)
+  }
+  const location = directory ? { location: { directory } } : undefined
+  const [providers, models, defaultModel] = await Promise.all([
+    sdk.provider.list(location),
+    sdk.model.list(location),
+    sdk.model.default(location),
+  ])
+  return normalizeProviderList(providers.data, models.data, defaultModel.data)
+}
 
 type AgentListApi = {
   readonly list: (input?: AgentListInput) => Promise<AgentListOutput>
@@ -276,7 +306,8 @@ export const loadCommands = (
   api: CommandListApi,
   legacy?: OpencodeClient,
   protocol?: Promise<ServerProtocol>,
-): Promise<CommandInfo[]> =>
+  skills?: (directory: string) => Promise<ManagedSkill[]>,
+): Promise<SlashCommandInfo[]> =>
   retry(async () => {
     if ((await protocol) === "v1" && legacy) {
       return ((await legacy.command.list()).data ?? []).map((command) => {
@@ -292,20 +323,49 @@ export const loadCommands = (
         }
       })
     }
-    return api.list({ location: { directory } }).then((result) => result.data)
+    const [commands, catalog] = await Promise.all([
+      api.list({ location: { directory } }).then((result) => result.data),
+      skills?.(directory) ?? [],
+    ])
+    const names = new Set(commands.map((command) => command.name))
+    return [
+      ...commands,
+      ...catalog
+        .filter((skill) => !names.has(skill.name))
+        .map((skill) => ({ name: skill.name, description: skill.description, skill })),
+    ]
   })
+
+// 2.2.5 has no path endpoint; like the upstream 2.2.5 app, infer home from the Location.
+export function inferHomeDirectory(path: string) {
+  const match = /^(\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)(?=\/|$)/.exec(
+    path.replaceAll("\\", "/"),
+  )
+  if (!match) return ""
+  return path.includes("\\") ? match[1]!.replaceAll("/", "\\") : match[1]!
+}
 
 export const loadPathQuery = (
   scope: ServerScope,
   directory: string | null,
   sdk: OpencodeClient,
   protocol?: Promise<ServerProtocol>,
+  location?: LocationApi,
 ) =>
   queryOptions<Path>({
     queryKey: [scope, directory, "path"],
     queryFn: async () => {
-      if ((await protocol) !== "v1")
-        return { state: "", config: "", worktree: "", directory: directory ?? "", home: "" }
+      if ((await protocol) !== "v1") {
+        const current = await location?.get(directory ? { location: { directory } } : undefined).catch(() => undefined)
+        if (!current) return { state: "", config: "", worktree: "", directory: directory ?? "", home: "" }
+        return {
+          state: "",
+          config: "",
+          worktree: current.project.directory,
+          directory: current.directory,
+          home: inferHomeDirectory(current.directory) || inferHomeDirectory(current.project.directory),
+        }
+      }
       return retry(() => sdk.path.get({ directory: directory ?? undefined }).then((result) => result.data!))
     },
   })
@@ -332,6 +392,7 @@ export async function bootstrapDirectory(input: {
   scope: ServerScope
   mcp: boolean
   sdk: OpencodeClient
+  skills?: (directory: string) => Promise<ManagedSkill[]>
   api: CatalogApi & {
     readonly agent: AgentListApi
     readonly command: CommandListApi
@@ -340,8 +401,9 @@ export async function bootstrapDirectory(input: {
     readonly project: ProjectApi
     readonly question: QuestionApi
     readonly reference: ReferenceListApi
-    readonly session: SessionApi
+    readonly session: CompatibleApi["session"]
     readonly vcs: VcsApi
+    readonly location?: LocationApi
   }
   store: Store<State>
   setStore: SetStoreFunction<State>
@@ -418,23 +480,25 @@ export async function bootstrapDirectory(input: {
       !seededPath &&
         (() =>
           input.queryClient
-            .ensureQueryData(loadPathQuery(input.scope, input.directory, input.sdk, input.protocol))
+            .ensureQueryData(loadPathQuery(input.scope, input.directory, input.sdk, input.protocol, input.api.location))
             .then((data) => {
               const next = projectID(data.directory ?? input.directory, input.global.project)
               if (next) input.setStore("project", next)
             })),
       () =>
         retry(async () => {
-          if ((await input.protocol) !== "v1") return
-          return input.sdk.vcs.get().then((result) => {
-            const next = { branch: result.data?.branch, default_branch: result.data?.default_branch }
-            input.setStore("vcs", next)
-            if (next) input.vcsCache.setStore("value", next)
-          })
+          const v1 = (await input.protocol) === "v1"
+          const legacy = v1 ? (await input.sdk.vcs.get()).data : undefined
+          const current = v1 ? undefined : (await input.api.vcs.get({ location: { directory: input.directory } })).data
+          const next = current
+            ? { branch: current.branch.current, default_branch: current.branch.default }
+            : { branch: legacy?.branch, default_branch: legacy?.default_branch }
+          input.setStore("vcs", next)
+          input.vcsCache.setStore("value", next)
         }),
       input.mcp &&
         (() =>
-          loadCommands(input.directory, input.api.command, input.sdk, input.protocol).then((commands) =>
+          loadCommands(input.directory, input.api.command, input.sdk, input.protocol, input.skills).then((commands) =>
             input.setStore("command", commands),
           )),
       () =>

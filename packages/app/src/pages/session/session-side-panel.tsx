@@ -26,7 +26,7 @@ import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
-import type { FileDiffInfo } from "@opencode-ai/client/promise"
+import type { FileDiffInfo } from "@opencode/client/promise"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 
 import FileTree from "@/components/file-tree"

@@ -42,12 +42,13 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import { createRefCountMap } from "@/utils/refcount"
 import { useGlobal } from "./global"
+import type { ServerProtocol } from "@/utils/server-protocol"
 import { ServerConnection, useServer } from "./server"
 import { retry } from "@opencode-ai/core/util/retry"
 import type { ServerScope } from "@/utils/server-scope"
 import { createHomeSessionIndexCache } from "./global-sync/home-session-index"
 import { persisted } from "@/utils/persist"
-import type { ServerApi } from "@/utils/server"
+import type { CompatibleApi } from "@/utils/server-compat"
 import type {
   McpListInput,
   McpListOutput,
@@ -56,7 +57,7 @@ import type {
   McpResourceCatalogOutput,
   McpServer,
   SessionActiveOutput,
-} from "@opencode-ai/client/promise"
+} from "@opencode/client/promise"
 import { toggleMcp } from "./global-sync/mcp"
 import { createServerSession, type ServerSession } from "./server-session"
 import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
@@ -106,7 +107,20 @@ export const loadMcpQuery = (
   >({
     queryKey: [scope, directory, "mcp"] as const,
     queryFn: async () => {
-      if ((await protocol) === "v1" && legacy) return (await legacy.mcp.status()).data ?? {}
+      if ((await protocol) === "v1" && legacy)
+        // 2.2.5 statuses have no client-registration state and require an auth error message.
+        return Object.fromEntries(
+          Object.entries((await legacy.mcp.status()).data ?? {}).map(
+            ([name, status]): [string, McpServer["status"]] => [
+              name,
+              status.status === "needs_client_registration"
+                ? { status: "failed", error: status.error }
+                : status.status === "needs_auth"
+                  ? { status: "needs_auth", error: "" }
+                  : status,
+            ],
+          ),
+        )
       return api
         .list({ location: { directory } })
         .then((result) => Object.fromEntries(result.data.map((server) => [server.name, server.status])))
@@ -145,10 +159,16 @@ export const loadMcpResourcesQuery = (
     placeholderData: {},
   })
 
-export const loadLspQuery = (scope: ServerScope, directory: string, sdk: OpencodeClient) =>
+export const loadLspQuery = (
+  scope: ServerScope,
+  directory: string,
+  sdk: OpencodeClient,
+  protocol?: Promise<ServerProtocol>,
+) =>
   queryOptions({
     queryKey: [scope, directory, "lsp"] as const,
-    queryFn: () => sdk.lsp.status().then((r) => r.data ?? []),
+    // 2.2.5 exposes no LSP status endpoint.
+    queryFn: async () => ((await protocol) === "v1" ? sdk.lsp.status().then((r) => r.data ?? []) : []),
   })
 
 export const loadActiveSessionsQuery = (
@@ -180,24 +200,24 @@ export function seedActiveSessionStatuses(
 function makeQueryOptionsApi(
   scope: ServerScope,
   serverSDK: () => OpencodeClient,
-  serverAPI: ServerApi,
+  serverAPI: CompatibleApi,
   sdkFor: (dir: PathKey) => OpencodeClient,
   protocol: Promise<"v1" | "v2">,
 ) {
   return {
-    globalConfig: () => loadGlobalConfigQuery(scope, serverSDK(), protocol),
+    globalConfig: () => loadGlobalConfigQuery(scope, serverSDK(), protocol, serverAPI.config),
     projects: () => loadProjectsQuery(scope, serverAPI.project),
     providers: (directory: PathKey | null) =>
       loadProvidersQuery(scope, directory, serverAPI, directory ? sdkFor(directory) : serverSDK(), protocol),
     path: (directory: PathKey | null) =>
-      loadPathQuery(scope, directory, directory ? sdkFor(directory) : serverSDK(), protocol),
+      loadPathQuery(scope, directory, directory ? sdkFor(directory) : serverSDK(), protocol, serverAPI.location),
     agents: (directory: PathKey) => loadAgentsQuery(scope, directory, serverAPI.agent, sdkFor(directory), protocol),
     references: (directory: PathKey) =>
       loadReferencesQuery(scope, directory, serverAPI.reference, sdkFor(directory), protocol),
     mcp: (directory: PathKey) => loadMcpQuery(scope, directory, serverAPI.mcp, sdkFor(directory), protocol),
     mcpResources: (directory: PathKey) =>
       loadMcpResourcesQuery(scope, directory, serverAPI.mcp, sdkFor(directory), protocol),
-    lsp: (directory: PathKey) => loadLspQuery(scope, directory, sdkFor(directory)),
+    lsp: (directory: PathKey) => loadLspQuery(scope, directory, sdkFor(directory), protocol),
     sessions: (directory: PathKey) => ({ queryKey: [scope, directory, "loadSessions"] as const }),
   }
 }
@@ -228,6 +248,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const session = createServerSession(serverSDK.client, serverSDK.api.session, serverSDK.api.message, {
     protocol: serverSDK.protocol,
   })
+  serverSDK.resolveSessionDirectory((sessionID) => session.get(sessionID)?.directory)
   const queryOptionsApi = makeQueryOptionsApi(
     serverSDK.scope,
     () => serverSDK.client,
@@ -364,7 +385,13 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       void bootstrapInstance(directory)
     },
     onMcp: (directory, setStore) => {
-      void loadCommands(directory, serverSDK.api.command, sdkFor(directory), serverSDK.protocol)
+      void loadCommands(
+        directory,
+        serverSDK.api.command,
+        sdkFor(directory),
+        serverSDK.protocol,
+        serverSDK.skills.catalog,
+      )
         .then((commands) => setStore("command", commands))
         .catch((err) => {
           showToast({
@@ -492,6 +519,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
           provider: globalStore.provider,
         },
         sdk,
+        skills: serverSDK.skills.catalog,
         api: serverSDK.api,
         store: child[0],
         setStore: child[1],
@@ -556,8 +584,14 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       homeSessions.apply(event)
     }
+    // 2.2.5 renames without a session.updated; refresh the home index entry from the reduced record.
+    if (event.current?.type === "session.renamed") {
+      const info = session.get(event.current.data.sessionID)
+      if (info) homeSessions.apply({ type: "session.updated", properties: { sessionID: info.id, info } })
+    }
     homeSessions.refresh(event.type)
-    if (eventType === "integration.connection.updated") void refreshProviders()
+    // 2.2.5 publishes provider.updated (per Location, only on change) after integration or credential edits.
+    if (eventType === "integration.connection.updated" || eventType === "provider.updated") void refreshProviders()
 
     if (directory === "global") {
       if (eventType === "server.connected" && activeSessionsQuery.data === undefined && !activeSessionsQuery.isFetching)
@@ -575,7 +609,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         eventType === "config.updated" ||
         eventType === "catalog.updated" ||
         eventType === "agent.updated" ||
-        eventType === "project.directories.updated"
+        eventType === "project.directories.updated" ||
+        // 2.2.5 equivalent of project.directories.updated
+        eventType === "worktree.updated"
       )
         bootstrap.refetch()
       if (eventType === "server.connected" || eventType === "global.disposed") {
@@ -674,7 +710,13 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   }
 
   const updateConfigMutation = useMutation(() => ({
-    mutationFn: (config: Config) => serverSDK.client.global.config.update({ config }),
+    mutationFn: async (config: Config) => {
+      if ((await serverSDK.protocol) === "v1") return serverSDK.client.global.config.update({ config })
+      // 2.2.5 only writes the shell setting; other config edits stay V1-only and are hidden on V2.
+      const keys = Object.keys(config)
+      if (keys.length !== 1 || keys[0] !== "shell") throw new Error(`Config update unsupported: ${keys.join(", ")}`)
+      return serverSDK.api.config.update({ shell: config.shell || null })
+    },
     onSuccess: () => {
       bootstrap.refetch()
       // Invalidate all provider queries so newly configured custom providers
@@ -704,6 +746,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     updateConfig: updateConfigMutation.mutateAsync,
     project: projectApi,
     session,
+    activeSessionsReady: () => activeSessionsQuery.isSuccess,
     homeSessions,
     mcp: {
       toggle: async (directory: string, name: string) => {

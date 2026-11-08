@@ -4,6 +4,9 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 3000)
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`
 const serverHost = process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"
 const serverPort = process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"
+// Test workers seed server URLs from the same defaults as the app server.
+process.env.PLAYWRIGHT_SERVER_HOST ??= serverHost
+process.env.PLAYWRIGHT_SERVER_PORT ??= serverPort
 const command = `bun run dev -- --host 0.0.0.0 --port ${port}`
 const reuse = !process.env.CI
 const workers = Number(process.env.PLAYWRIGHT_WORKERS ?? (process.env.CI ? 5 : 0)) || undefined

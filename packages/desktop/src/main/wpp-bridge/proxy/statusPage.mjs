@@ -1,4 +1,4 @@
-import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs";
+import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./wppProject.mjs"
 
 export function renderStatusPage() {
   return `<!DOCTYPE html>
@@ -156,5 +156,5 @@ refresh();
 setInterval(refresh, 3000);
 </script>
 </body>
-</html>`;
+</html>`
 }

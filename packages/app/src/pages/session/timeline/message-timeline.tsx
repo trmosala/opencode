@@ -299,7 +299,8 @@ export function MessageTimeline(props: {
   const titleValue = createMemo(() => info()?.title)
   const titleLabel = createMemo(() => sessionTitle(titleValue()))
   const shareUrl = createMemo(() => info()?.share?.url)
-  const shareEnabled = createMemo(() => sync().data.config.share !== "disabled")
+  // Session sharing was discontinued; keep the share menu and popover hidden.
+  const shareEnabled = () => false
   const parentID = createMemo(() => info()?.parentID)
   const parent = createMemo(() => {
     const id = parentID()
@@ -796,6 +797,8 @@ export function MessageTimeline(props: {
       const data = await fetchSessionExport({
         sessionID,
         client: sdk().client,
+        protocol: sdk().protocol,
+        api: sdk().api.experimental.session,
       })
       const filename = sessionExportFilename(data.info)
       downloadSessionExport(filename, data)

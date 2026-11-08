@@ -16,93 +16,357 @@
         --cookie: #edc38a;
         --duration: 4.4s;
       }
-      * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100svh; }
-      main { width: min(880px, 100%); margin-inline: auto; padding: 36px 24px; }
-      header, footer, .controls, .details { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-      header { padding-block-end: 24px; border-block-end: 1px solid var(--line); }
-      .brand { font-size: 14px; font-weight: 650; letter-spacing: -.02em; }
-      .eyebrow, footer, .details { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
-      .eyebrow { letter-spacing: .08em; text-transform: uppercase; }
-      h1 { margin: 40px 0 8px; font-size: clamp(28px, 5vw, 40px); font-weight: 500; letter-spacing: -.05em; }
-      .intro { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
-      .stage { display: grid; place-items: center; min-height: 330px; overflow: hidden; }
-      .loading { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-      .loader { display: block; width: 240px; height: 160px; overflow: hidden; color: var(--cookie); }
-      .loading-label { font-size: 13px; color: var(--muted); }
-      .details { padding-block: 16px; border-block: 1px solid var(--line); flex-wrap: wrap; }
-      .controls { padding-block: 24px; flex-wrap: wrap; }
-      .buttons, label { display: flex; align-items: center; gap: 10px; }
-      button, select {
-        font: inherit; font-size: 12px; color: inherit; background: transparent;
-        border: 1px solid var(--line); border-radius: 7px; padding: 10px 14px; cursor: pointer;
+      * {
+        box-sizing: border-box;
       }
-      button:hover, select:hover { border-color: var(--muted); }
-      button:focus-visible, select:focus-visible { outline: 2px solid var(--cookie); outline-offset: 4px; }
-      label { font-size: 12px; color: var(--muted); }
-      #toggle { background: #f4eee5; color: #17191b; border-color: #f4eee5; min-width: 88px; }
-      footer { padding-block-start: 24px; line-height: 1.7; align-items: flex-start; }
-      .inline-example { display: flex; align-items: center; gap: 8px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; }
-      .inline-example .loader { width: 42px; height: 28px; }
-      .cookie { transform-origin: 128px 128px; animation: munch var(--duration) linear infinite; }
-      .bite { opacity: 0; animation: bite var(--duration) steps(1, end) infinite; }
-      .bite-1 { animation-name: bite-one; }
-      .bite-2 { animation-name: bite-two; }
-      .bite-3 { animation-name: bite-three; }
-      .bite-4 { animation-name: bite-four; }
-      .crumbs { opacity: 0; animation: crumbs-one var(--duration) linear infinite; }
-      .crumbs-2 { animation-name: crumbs-two; }
-      .crumbs-3 { animation-name: crumbs-three; }
-      .crumbs-4 { animation-name: crumbs-four; }
+      body {
+        margin: 0;
+        min-height: 100svh;
+      }
+      main {
+        width: min(880px, 100%);
+        margin-inline: auto;
+        padding: 36px 24px;
+      }
+      header,
+      footer,
+      .controls,
+      .details {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      header {
+        padding-block-end: 24px;
+        border-block-end: 1px solid var(--line);
+      }
+      .brand {
+        font-size: 14px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      .eyebrow,
+      footer,
+      .details {
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .eyebrow {
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 40px 0 8px;
+        font-size: clamp(28px, 5vw, 40px);
+        font-weight: 500;
+        letter-spacing: -0.05em;
+      }
+      .intro {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .stage {
+        display: grid;
+        place-items: center;
+        min-height: 330px;
+        overflow: hidden;
+      }
+      .loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .loader {
+        display: block;
+        width: 240px;
+        height: 160px;
+        overflow: hidden;
+        color: var(--cookie);
+      }
+      .loading-label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .details {
+        padding-block: 16px;
+        border-block: 1px solid var(--line);
+        flex-wrap: wrap;
+      }
+      .controls {
+        padding-block: 24px;
+        flex-wrap: wrap;
+      }
+      .buttons,
+      label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      button,
+      select {
+        font: inherit;
+        font-size: 12px;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button:hover,
+      select:hover {
+        border-color: var(--muted);
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--cookie);
+        outline-offset: 4px;
+      }
+      label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #toggle {
+        background: #f4eee5;
+        color: #17191b;
+        border-color: #f4eee5;
+        min-width: 88px;
+      }
+      footer {
+        padding-block-start: 24px;
+        line-height: 1.7;
+        align-items: flex-start;
+      }
+      .inline-example {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        font-size: 12px;
+      }
+      .inline-example .loader {
+        width: 42px;
+        height: 28px;
+      }
+      .cookie {
+        transform-origin: 128px 128px;
+        animation: munch var(--duration) linear infinite;
+      }
+      .bite {
+        opacity: 0;
+        animation: bite var(--duration) steps(1, end) infinite;
+      }
+      .bite-1 {
+        animation-name: bite-one;
+      }
+      .bite-2 {
+        animation-name: bite-two;
+      }
+      .bite-3 {
+        animation-name: bite-three;
+      }
+      .bite-4 {
+        animation-name: bite-four;
+      }
+      .crumbs {
+        opacity: 0;
+        animation: crumbs-one var(--duration) linear infinite;
+      }
+      .crumbs-2 {
+        animation-name: crumbs-two;
+      }
+      .crumbs-3 {
+        animation-name: crumbs-three;
+      }
+      .crumbs-4 {
+        animation-name: crumbs-four;
+      }
       @keyframes munch {
-        0% { transform: translateX(290px) rotate(28deg); opacity: 0; }
-        2% { opacity: 1; }
-        12% { transform: translateX(-7px) rotate(-4deg); }
-        17%, 23.9% { transform: translateX(0) rotate(0); opacity: 1; }
-        24% { transform: translate(-5px, 3px) rotate(-6deg) scale(.94, 1.04); }
-        29%, 39.9% { transform: translate(0) rotate(0); }
-        40% { transform: translate(4px, 4px) rotate(5deg) scale(.95, 1.03); }
-        45%, 55.9% { transform: translate(0) rotate(0); }
-        56% { transform: translate(4px, -3px) rotate(7deg) scale(.94, 1.04); }
-        61%, 71.9% { transform: translate(0) rotate(0); opacity: 1; }
-        72%, 100% { transform: translate(0) rotate(0); opacity: 0; }
+        0% {
+          transform: translateX(290px) rotate(28deg);
+          opacity: 0;
+        }
+        2% {
+          opacity: 1;
+        }
+        12% {
+          transform: translateX(-7px) rotate(-4deg);
+        }
+        17%,
+        23.9% {
+          transform: translateX(0) rotate(0);
+          opacity: 1;
+        }
+        24% {
+          transform: translate(-5px, 3px) rotate(-6deg) scale(0.94, 1.04);
+        }
+        29%,
+        39.9% {
+          transform: translate(0) rotate(0);
+        }
+        40% {
+          transform: translate(4px, 4px) rotate(5deg) scale(0.95, 1.03);
+        }
+        45%,
+        55.9% {
+          transform: translate(0) rotate(0);
+        }
+        56% {
+          transform: translate(4px, -3px) rotate(7deg) scale(0.94, 1.04);
+        }
+        61%,
+        71.9% {
+          transform: translate(0) rotate(0);
+          opacity: 1;
+        }
+        72%,
+        100% {
+          transform: translate(0) rotate(0);
+          opacity: 0;
+        }
       }
-      @keyframes bite-one { 0% { opacity: 0; } 24%, 100% { opacity: 1; } }
-      @keyframes bite-two { 0% { opacity: 0; } 40%, 100% { opacity: 1; } }
-      @keyframes bite-three { 0% { opacity: 0; } 56%, 100% { opacity: 1; } }
-      @keyframes bite-four { 0% { opacity: 0; } 72%, 100% { opacity: 1; } }
+      @keyframes bite-one {
+        0% {
+          opacity: 0;
+        }
+        24%,
+        100% {
+          opacity: 1;
+        }
+      }
+      @keyframes bite-two {
+        0% {
+          opacity: 0;
+        }
+        40%,
+        100% {
+          opacity: 1;
+        }
+      }
+      @keyframes bite-three {
+        0% {
+          opacity: 0;
+        }
+        56%,
+        100% {
+          opacity: 1;
+        }
+      }
+      @keyframes bite-four {
+        0% {
+          opacity: 0;
+        }
+        72%,
+        100% {
+          opacity: 1;
+        }
+      }
       @keyframes crumbs-one {
-        0%, 23.99% { opacity: 0; transform: translate(0, 0); }
-        24% { opacity: 1; transform: translate(0, 0); }
-        29% { opacity: .9; transform: translate(13px, -8px); }
-        38%, 100% { opacity: 0; transform: translate(27px, 42px); }
+        0%,
+        23.99% {
+          opacity: 0;
+          transform: translate(0, 0);
+        }
+        24% {
+          opacity: 1;
+          transform: translate(0, 0);
+        }
+        29% {
+          opacity: 0.9;
+          transform: translate(13px, -8px);
+        }
+        38%,
+        100% {
+          opacity: 0;
+          transform: translate(27px, 42px);
+        }
       }
       @keyframes crumbs-two {
-        0%, 39.99% { opacity: 0; transform: translate(0, 0); }
-        40% { opacity: 1; transform: translate(0, 0); }
-        45% { opacity: .9; transform: translate(-12px, -14px); }
-        54%, 100% { opacity: 0; transform: translate(-25px, 32px); }
+        0%,
+        39.99% {
+          opacity: 0;
+          transform: translate(0, 0);
+        }
+        40% {
+          opacity: 1;
+          transform: translate(0, 0);
+        }
+        45% {
+          opacity: 0.9;
+          transform: translate(-12px, -14px);
+        }
+        54%,
+        100% {
+          opacity: 0;
+          transform: translate(-25px, 32px);
+        }
       }
       @keyframes crumbs-three {
-        0%, 55.99% { opacity: 0; transform: translate(0, 0); }
-        56% { opacity: 1; transform: translate(0, 0); }
-        61% { opacity: .9; transform: translate(-16px, -5px); }
-        70%, 100% { opacity: 0; transform: translate(-28px, 43px); }
+        0%,
+        55.99% {
+          opacity: 0;
+          transform: translate(0, 0);
+        }
+        56% {
+          opacity: 1;
+          transform: translate(0, 0);
+        }
+        61% {
+          opacity: 0.9;
+          transform: translate(-16px, -5px);
+        }
+        70%,
+        100% {
+          opacity: 0;
+          transform: translate(-28px, 43px);
+        }
       }
       @keyframes crumbs-four {
-        0%, 71.99% { opacity: 0; transform: translate(0, 0); }
-        72% { opacity: 1; transform: translate(0, 0); }
-        77% { opacity: .9; transform: translate(8px, -12px); }
-        88%, 100% { opacity: 0; transform: translate(18px, 44px); }
+        0%,
+        71.99% {
+          opacity: 0;
+          transform: translate(0, 0);
+        }
+        72% {
+          opacity: 1;
+          transform: translate(0, 0);
+        }
+        77% {
+          opacity: 0.9;
+          transform: translate(8px, -12px);
+        }
+        88%,
+        100% {
+          opacity: 0;
+          transform: translate(18px, 44px);
+        }
       }
       @media (max-width: 480px) {
-        main { padding: 24px 20px; }
-        .stage { min-height: 290px; }
-        footer { flex-direction: column; }
+        main {
+          padding: 24px 20px;
+        }
+        .stage {
+          min-height: 290px;
+        }
+        footer {
+          flex-direction: column;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
-        .cookie, .bite, .crumbs { animation: none; }
-        .cookie { transform: none; opacity: 1; }
+        .cookie,
+        .bite,
+        .crumbs {
+          animation: none;
+        }
+        .cookie {
+          transform: none;
+          opacity: 1;
+        }
       }
     </style>
   </head>
@@ -118,7 +382,15 @@
         <div class="loading" role="status" aria-label="Loading">
           <svg class="loader" viewBox="-100 -24 456 304" aria-hidden="true">
             <defs>
-              <mask id="cookie-bites" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256" style="mask-type: luminance">
+              <mask
+                id="cookie-bites"
+                maskUnits="userSpaceOnUse"
+                x="0"
+                y="0"
+                width="256"
+                height="256"
+                style="mask-type: luminance"
+              >
                 <rect width="256" height="256" fill="white" />
                 <g fill="black">
                   <g class="bite bite-1">
@@ -143,13 +415,33 @@
             </defs>
             <g class="cookie" fill="currentColor">
               <!-- Unmodified Phosphor bold cookie path from src/components/cm3-icons/paths. -->
-              <path mask="url(#cookie-bites)" d="M167.31,160.69a16,16,0,1,1-22.62,0A16,16,0,0,1,167.31,160.69Zm-86.62-8a16,16,0,1,0,22.62,0A16,16,0,0,0,80.69,152.69Zm14.62-33.38a16,16,0,1,0-22.62,0A16,16,0,0,0,95.31,119.31Zm48-6.62a16,16,0,1,0,0,22.62A16,16,0,0,0,143.31,112.69ZM236,128A108,108,0,1,1,128,20a12,12,0,0,1,12,12,36,36,0,0,0,36,36,12,12,0,0,1,12,12,36,36,0,0,0,36,36A12,12,0,0,1,236,128Zm-24.67,10.65A60.17,60.17,0,0,1,165,91a60.17,60.17,0,0,1-47.66-46.32,84,84,0,1,0,94,94Z" />
+              <path
+                mask="url(#cookie-bites)"
+                d="M167.31,160.69a16,16,0,1,1-22.62,0A16,16,0,0,1,167.31,160.69Zm-86.62-8a16,16,0,1,0,22.62,0A16,16,0,0,0,80.69,152.69Zm14.62-33.38a16,16,0,1,0-22.62,0A16,16,0,0,0,95.31,119.31Zm48-6.62a16,16,0,1,0,0,22.62A16,16,0,0,0,143.31,112.69ZM236,128A108,108,0,1,1,128,20a12,12,0,0,1,12,12,36,36,0,0,0,36,36,12,12,0,0,1,12,12,36,36,0,0,0,36,36A12,12,0,0,1,236,128Zm-24.67,10.65A60.17,60.17,0,0,1,165,91a60.17,60.17,0,0,1-47.66-46.32,84,84,0,1,0,94,94Z"
+              />
             </g>
             <g fill="currentColor">
-              <g class="crumbs crumbs-1"><path d="m195 125 8-3 4 7-8 5z" /><circle cx="223" cy="158" r="4" /><circle cx="194" cy="163" r="3" /></g>
-              <g class="crumbs crumbs-2"><path d="m103 63 7-4 5 7-7 4z" /><circle cx="137" cy="93" r="4" /><circle cx="88" cy="89" r="3" /></g>
-              <g class="crumbs crumbs-3"><path d="m59 156 8-3 3 8-7 3z" /><circle cx="83" cy="189" r="4" /><circle cx="47" cy="192" r="3" /></g>
-              <g class="crumbs crumbs-4"><path d="m132 190 8-4 5 7-8 5z" /><circle cx="167" cy="202" r="5" /><circle cx="116" cy="216" r="3" /><circle cx="179" cy="176" r="3" /></g>
+              <g class="crumbs crumbs-1">
+                <path d="m195 125 8-3 4 7-8 5z" />
+                <circle cx="223" cy="158" r="4" />
+                <circle cx="194" cy="163" r="3" />
+              </g>
+              <g class="crumbs crumbs-2">
+                <path d="m103 63 7-4 5 7-7 4z" />
+                <circle cx="137" cy="93" r="4" />
+                <circle cx="88" cy="89" r="3" />
+              </g>
+              <g class="crumbs crumbs-3">
+                <path d="m59 156 8-3 3 8-7 3z" />
+                <circle cx="83" cy="189" r="4" />
+                <circle cx="47" cy="192" r="3" />
+              </g>
+              <g class="crumbs crumbs-4">
+                <path d="m132 190 8-4 5 7-8 5z" />
+                <circle cx="167" cy="202" r="5" />
+                <circle cx="116" cy="216" r="3" />
+                <circle cx="179" cy="176" r="3" />
+              </g>
             </g>
           </svg>
           <span class="loading-label">Loading...</span>
@@ -164,13 +456,24 @@
           <button id="toggle" type="button" aria-pressed="false">Pause</button>
           <button id="restart" type="button">Replay</button>
         </div>
-        <label for="speed">Speed
-          <select id="speed"><option value="0.65">Slow</option><option value="1" selected>Normal</option><option value="1.5">Fast</option></select>
+        <label for="speed"
+          >Speed
+          <select id="speed">
+            <option value="0.65">Slow</option>
+            <option value="1" selected>Normal</option>
+            <option value="1.5">Fast</option>
+          </select>
         </label>
       </div>
       <footer>
-        <span>Standalone prototype. App loaders are unchanged.<br /><span id="motion-note">SVG masks + CSS animation. No dependencies.</span></span>
-        <div class="inline-example" role="status" aria-label="Working"><span id="small-preview"></span><span>Working...</span></div>
+        <span
+          >Standalone prototype. App loaders are unchanged.<br /><span id="motion-note"
+            >SVG masks + CSS animation. No dependencies.</span
+          ></span
+        >
+        <div class="inline-example" role="status" aria-label="Working">
+          <span id="small-preview"></span><span>Working...</span>
+        </div>
       </footer>
     </main>
     <script>
@@ -196,15 +499,22 @@
         toggle.disabled = motion.matches
         restart.disabled = motion.matches
         speed.disabled = motion.matches
-        document.querySelector("#timing").textContent = motion.matches ? "Static preview" : `${(4.4 / Number(speed.value)).toFixed(1)}s loop`
+        document.querySelector("#timing").textContent = motion.matches
+          ? "Static preview"
+          : `${(4.4 / Number(speed.value)).toFixed(1)}s loop`
         document.querySelector("#motion-note").textContent = motion.matches
           ? "Reduced motion is on. Showing a static cookie."
           : "SVG masks + CSS animation. No dependencies."
       }
 
-      toggle.addEventListener("click", () => { paused = !paused; sync() })
+      toggle.addEventListener("click", () => {
+        paused = !paused
+        sync()
+      })
       restart.addEventListener("click", () => {
-        document.getAnimations().forEach((animation) => { animation.currentTime = 0 })
+        document.getAnimations().forEach((animation) => {
+          animation.currentTime = 0
+        })
         paused = false
         sync()
       })

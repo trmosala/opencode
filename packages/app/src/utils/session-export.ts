@@ -1,4 +1,6 @@
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
+import type { SessionTransferData } from "@opencode/client/promise"
+import type { ServerProtocol } from "./server-protocol"
 
 // Matches the exact `{ info, messages: [{ info, parts }] }` structure produced by `opencode export` CLI
 export type SessionExportData = {
@@ -19,7 +21,11 @@ export type SessionExportClient = {
 export async function fetchSessionExport(input: {
   sessionID: string
   client: SessionExportClient
-}): Promise<SessionExportData> {
+  protocol?: Promise<ServerProtocol>
+  // 2.2.5 exports its own transfer format (importable with session import) under the same { info, messages } shape.
+  api?: { export: (input: { sessionID: string }) => Promise<SessionTransferData> }
+}): Promise<SessionExportData | SessionTransferData> {
+  if (input.api && (await input.protocol) !== "v1") return input.api.export({ sessionID: input.sessionID })
   const [sessionRes, messagesRes] = await Promise.all([
     input.client.session.get({ sessionID: input.sessionID }),
     input.client.session.messages({ sessionID: input.sessionID }),

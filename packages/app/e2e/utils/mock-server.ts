@@ -76,6 +76,35 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
     if (path === "/api/health" && config.protocol === "v2")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
+    // Published 2.2.5 servers identify themselves at /api/info.
+    if (path === "/api/info" && config.protocol === "v2")
+      return json(route, { version: "2.2.5", pid: 1, urls: [], paths: { tmp: "/tmp" } })
+    if (path === "/api/location" && config.protocol === "v2")
+      return json(route, { ...location(config), project: { ...location(config).project, canonical: config.directory } })
+    if (path === "/api/config" && config.protocol === "v2") return json(route, [])
+    if (path === "/api/fs/list" && config.protocol === "v2" && config.fileList) {
+      const nodes = (await config.fileList(url.searchParams.get("path") ?? "")) as { path: string; type: string }[]
+      return json(route, {
+        location: location(config),
+        data: nodes.map((node) => ({ path: node.type === "directory" ? `${node.path}/` : node.path, type: node.type })),
+      })
+    }
+    if (path === "/api/fs/find" && config.protocol === "v2") {
+      const type = url.searchParams.get("type") === "directory" ? "directory" : "file"
+      const found = (await config.findFiles?.({
+        query: url.searchParams.get("query") ?? "",
+        dirs: type === "directory" ? "true" : "false",
+        limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined,
+      })) as string[] | undefined
+      return json(route, { location: location(config), data: (found ?? []).map((path) => ({ path, type })) })
+    }
+    const fsRead = path.match(/^\/api\/fs\/read\/(.+)$/)?.[1]
+    if (fsRead && config.protocol === "v2" && config.fileContent) {
+      const file = (await config.fileContent(decodeURIComponent(fsRead))) as { content?: string; encoding?: string }
+      const body =
+        file.encoding === "base64" ? Buffer.from(file.content ?? "", "base64") : Buffer.from(file.content ?? "")
+      return route.fulfill({ status: 200, contentType: "application/octet-stream", body })
+    }
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
     if (path === "/provider")
       return json(route, typeof config.provider === "function" ? config.provider() : config.provider)
@@ -168,13 +197,17 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
           currentPermission,
         ),
       })
-    if (path === "/api/question/request")
-      return json(route, {
-        location: location(config),
-        data: typeof config.questions === "function" ? config.questions() : (config.questions ?? []),
-      })
+    if (path === "/api/form" || /^\/api\/session\/[^/]+\/form(?:\/[^/]+)?$/.test(path)) {
+      const forms = (typeof config.questions === "function" ? config.questions() : (config.questions ?? [])).map(
+        currentQuestion,
+      )
+      const id = path.split("/")[5]
+      if (route.request().method() === "DELETE") return route.fulfill({ status: 204 })
+      return json(route, { location: location(config), data: id ? forms.find((form) => form.id === id) : forms })
+    }
+    if (/^\/api\/session\/[^/]+\/form\/[^/]+\/reply$/.test(path)) return route.fulfill({ status: 204 })
     if (path === "/api/vcs")
-      return json(route, { location: location(config), data: { branch: "main", defaultBranch: "main" } })
+      return json(route, { location: location(config), data: { branch: { current: "main", default: "main" } } })
     if (path === "/api/vcs/status") return json(route, { location: location(config), data: [] })
     if (path === "/api/vcs/diff") return json(route, { location: location(config), data: config.vcsDiff ?? [] })
     if (path === "/api/pty/shells") return json(route, { location: location(config), data: [] })
@@ -318,6 +351,27 @@ function location(config: MockServerConfig) {
   return {
     directory: config.directory,
     project: { id: (config.project as { id?: string }).id, directory: config.directory },
+  }
+}
+
+function currentQuestion(value: unknown) {
+  const question = value as {
+    id: string
+    sessionID: string
+    questions: { header: string; question: string; multiple?: boolean; custom?: boolean; options: unknown[] }[]
+  }
+  return {
+    id: question.id,
+    sessionID: question.sessionID,
+    metadata: { kind: "question" },
+    fields: question.questions.map((item, index) => ({
+      key: `q${index}`,
+      type: item.multiple ? "multiselect" : "string",
+      title: item.header,
+      description: item.question,
+      options: item.options,
+      custom: item.custom,
+    })),
   }
 }
 

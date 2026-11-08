@@ -35,6 +35,14 @@ test("keeps the v2 review pane mounted when switching session tabs in a workspac
   const review = page.locator('#review-panel [data-component="session-review-v2"]')
   await expectAppVisible(review)
   await expectAppVisible(page.getByRole("button", { name: "generated-0000.ts" }))
+  // CM3 side-panel tabs are per session and Review is never auto-opened, so open it in B too.
+  await switchTab(page, titleB)
+  await expectSessionTitle(page, titleB)
+  await page.getByRole("button", { name: "Toggle review" }).click()
+  await expectAppVisible(review)
+  await switchTab(page, titleA)
+  await expectSessionTitle(page, titleA)
+  await expectAppVisible(review)
   await writeProbe(page)
 
   await switchTab(page, titleB)
@@ -103,7 +111,7 @@ async function setup(page: Page) {
 
   await page.addInitScript(
     ({ directory, server, sessions }) => {
-      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true, quietCompanion: true } }))
       localStorage.setItem(
         "opencode.global.dat:server",
         JSON.stringify({
