@@ -72,10 +72,12 @@ jobs:
           echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
-      # Core's ripgrep tests use a system rg; without one, the Windows download/Expand-Archive fallback times out.
+      # Core's ripgrep tests use a system rg; without one they download it from GitHub releases at test
+      # time (an outage fails them), and on Windows the Expand-Archive fallback also times out.
       - name: Install ripgrep
-        if: runner.os == 'Windows'
-        run: choco install ripgrep -y --no-progress
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then choco install ripgrep -y --no-progress
+          else sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; fi
 
       # App browser tests (test-browser/) launch a real Chromium.
       - name: Read Playwright version
