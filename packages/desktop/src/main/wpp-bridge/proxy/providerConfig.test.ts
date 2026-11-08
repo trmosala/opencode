@@ -226,26 +226,23 @@ test("preserves customized providers that reuse legacy keys", async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-test("disables only Zen and Go in injected and fresh configs", async () => {
-  expect(JSON.parse(o1CodeConfigContent()).disabled_providers).toEqual(["opencode", "opencode-go"])
+test("leaves Zen, Go and other providers selectable in injected and fresh configs", async () => {
+  expect(JSON.parse(o1CodeConfigContent()).disabled_providers).toBeUndefined()
   const { dir, file } = await tmpFile()
   try {
     await ensureO1CodeProvider(file)
-    expect(JSON.parse(await readFile(file, "utf8")).disabled_providers).toEqual(["opencode", "opencode-go"])
+    expect(JSON.parse(await readFile(file, "utf8")).disabled_providers).toBeUndefined()
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test("preserves existing disabled providers without duplicating Zen or Go", async () => {
+test("preserves the user's disabled providers without adding Zen or Go", async () => {
   const { dir, file } = await tmpFile()
   try {
-    await writeFile(file, JSON.stringify({ disabled_providers: ["openai", "opencode"] }))
+    await writeFile(file, JSON.stringify({ disabled_providers: ["openai"] }))
     await ensureO1CodeProvider(file)
-    const first = await readFile(file, "utf8")
-    expect(JSON.parse(first).disabled_providers).toEqual(["openai", "opencode", "opencode-go"])
-    await ensureO1CodeProvider(file)
-    expect(await readFile(file, "utf8")).toBe(first)
+    expect(JSON.parse(await readFile(file, "utf8")).disabled_providers).toEqual(["openai"])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

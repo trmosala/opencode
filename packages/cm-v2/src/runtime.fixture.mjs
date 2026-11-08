@@ -14,7 +14,14 @@ assert.ok(root)
 process.chdir(root)
 const database = join(root, "legacy.db")
 const config = { project: false, claude: false, content: "{}" }
-const input = { hostname: "127.0.0.1", port: 0, password: "fixture-secret", database, config }
+const input = {
+  hostname: "127.0.0.1",
+  port: 0,
+  password: "fixture-secret",
+  database,
+  config,
+  cli: process.env.CM_V2_CLI,
+}
 const initial = await Server.listen(input)
 await initial.stop()
 const legacy = new DatabaseSync(database)
@@ -233,6 +240,8 @@ assert.ok(
   primary[1].body.messages.some((message) => message.role === "tool" && message.content.includes("native tool works")),
 )
 assert.equal(primary[0].headers["x-opencode-client"], "desktop")
+// Model requests come from the official CLI, so providers see its genuine identity.
+assert.match(primary[0].headers["user-agent"], /^opencode\/latest\/2\.2\.5\/desktop$/)
 assert.equal(primary[0].headers["x-opencode-session-id"], task.id)
 assert.match(primary[0].headers["x-opencode-runtime-id"], /^[a-f0-9-]{36}$/)
 assert.equal(primary[0].headers["x-opencode-runtime-id"], primary[1].headers["x-opencode-runtime-id"])

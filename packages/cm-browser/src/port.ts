@@ -35,7 +35,9 @@ const actionRequest = (request: Request) =>
     "visual_action",
   ].includes(request.op)
 
-export function ipcPort(parent = (process as NodeJS.Process & { parentPort?: ParentPort }).parentPort): BrowserPort {
+export function ipcPort(
+  parent = (process as NodeJS.Process & { parentPort?: ParentPort }).parentPort ?? processIpcPort(),
+): BrowserPort {
   const pending = new Map<string, { finish: (response: Response<BrowserState>) => void; action: boolean }>()
   const receive = (event: { data: unknown }) => {
     const result = parseBrowserIpcResult(event.data)
@@ -135,6 +137,26 @@ export function ipcPort(parent = (process as NodeJS.Process & { parentPort?: Par
           )
         }
       })
+    },
+  }
+}
+
+// Inside the official OpenCode CLI the plugin runs in a child process whose host relays over Node IPC.
+function processIpcPort(): ParentPort | undefined {
+  if (!process.send) return undefined
+  const listeners = new Map<(event: { data: unknown }) => void, (data: unknown) => void>()
+  return {
+    postMessage: (message) => process.send?.(message),
+    on: (_event, listener) => {
+      const wrapped = (data: unknown) => listener({ data })
+      listeners.set(listener, wrapped)
+      process.on("message", wrapped)
+    },
+    off: (_event, listener) => {
+      const wrapped = listeners.get(listener)
+      if (!wrapped) return
+      listeners.delete(listener)
+      process.off("message", wrapped)
     },
   }
 }

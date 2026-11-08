@@ -3,7 +3,7 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-const CLI_VERSION = "2.2.5"
+export const CLI_VERSION = "2.2.5"
 
 export type Channel = "dev" | "beta" | "prod"
 

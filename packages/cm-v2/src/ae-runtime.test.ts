@@ -17,6 +17,7 @@ test("official V2 AE directory plugin runs the real artifact, model/tool continu
       env: {
         ...process.env,
         FIXTURE_ROOT: root,
+        CM_V2_CLI: new URL("../../desktop/resources/opencode-cli", import.meta.url).pathname,
         CM_V2_AE_PATH: pathToFileURL(directory).href,
         XDG_DATA_HOME: join(root, "data"),
         XDG_CONFIG_HOME: join(root, "config"),
