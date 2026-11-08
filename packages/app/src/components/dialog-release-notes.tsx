@@ -142,3 +142,41 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
     </Dialog>
   )
 }
+
+// A single full-width release film; the paged layout above would crop its captions.
+export function DialogReleaseFilm(props: { src: string }) {
+  const dialog = useDialog()
+  const language = useLanguage()
+  const settings = useSettings()
+
+  return (
+    <Dialog size="large" fit class="w-[min(calc(100vw-40px),960px)] min-h-0 overflow-hidden">
+      <div class="flex flex-col min-w-0">
+        <video
+          src={props.src}
+          aria-label={language.t("dialog.releaseNotes.media.alt")}
+          autoplay
+          muted
+          playsinline
+          controls
+          class="block w-full aspect-video bg-black"
+        />
+        <div class="flex items-center justify-between gap-3 p-4">
+          <Button
+            variant="ghost"
+            size="small"
+            onClick={() => {
+              settings.general.setReleaseNotes(false)
+              dialog.close()
+            }}
+          >
+            {language.t("dialog.releaseNotes.action.hideFuture")}
+          </Button>
+          <Button variant="primary" size="large" autofocus onClick={() => dialog.close()}>
+            {language.t("dialog.releaseNotes.action.getStarted")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
