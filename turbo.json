@@ -22,7 +22,8 @@
     },
     "@opencode-ai/app#test": {
       "dependsOn": ["^build"],
-      "outputs": []
+      "outputs": [],
+      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
     },
     "@opencode-ai/ui#test": {
       "dependsOn": ["^build"],
