@@ -210,13 +210,12 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           },
           { signal: options?.signal },
         )
-        .then(
-          (x) => x.data.map((entry) => path.normalize(entry.path)),
-          (error) => {
-            if (options?.signal?.aborted) throw error
-            return []
-          },
-        )
+        // catch (not a then rejection handler) so a malformed response can't crash the command palette.
+        .then((x) => x.data.map((entry) => path.normalize(entry.path)))
+        .catch((error) => {
+          if (options?.signal?.aborted) throw error
+          return [] as string[]
+        })
 
     const stop = sdk().event.listen((e) => {
       invalidateFromWatcher(e.details, {
