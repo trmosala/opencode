@@ -13,7 +13,7 @@ import { useSettings } from "@/context/settings"
 import { ExternalLink } from "../external-link"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
-import { LayoutRetirementNotice, LayoutTransitionToggle } from "./interface-transition"
+import { LayoutTransitionToggle } from "./interface-transition"
 import {
   createAppearanceSettingsController,
   createPermissionScopeController,
@@ -316,37 +316,10 @@ export const SettingsGeneralV2: Component<{
     />
   )
 
-  const InterfaceNoticeSection = () => (
-    <LayoutRetirementNotice
-      title={language.t("settings.general.row.newInterfaceNotice.title")}
-      description={language.t("settings.general.row.newInterfaceNotice.description")}
-      dismiss={language.t("settings.general.row.newInterfaceNotice.dismiss")}
-      onDismiss={() => settings.general.dismissNewInterfaceNotice()}
-    />
-  )
-
   const GeneralSection = () => (
     <div class="settings-v2-section">
       <SettingsListV2>
         <SettingsWppChat modern />
-        <SettingsRowV2
-          title={language.t("settings.general.row.quietCompanion.title")}
-          description={language.t("settings.general.row.quietCompanion.description")}
-        >
-          <div data-action="settings-quiet-companion">
-            <Switch
-              hideLabel
-              disabled={!settings.ready()}
-              checked={settings.general.quietCompanion()}
-              onChange={(checked) => {
-                dialog.close()
-                settings.general.setQuietCompanion(checked)
-              }}
-            >
-              {language.t("settings.general.row.quietCompanion.title")}
-            </Switch>
-          </div>
-        </SettingsRowV2>
         <LanguageSetting />
 
         <PermissionScopeSetting controller={permissionScope} />
@@ -564,10 +537,6 @@ export const SettingsGeneralV2: Component<{
       <div class="settings-v2-tab-body">
         <Show when={settings.general.layoutTransitionAvailable()}>
           <InterfaceSection />
-        </Show>
-
-        <Show when={settings.general.newInterfaceNoticeVisible()}>
-          <InterfaceNoticeSection />
         </Show>
 
         <GeneralSection />
