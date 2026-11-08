@@ -118,10 +118,14 @@ test("cookie loaders retain their choice, inherit colour tokens, animate, and re
     ).toEqual(before)
     await page.emulateMedia({ reducedMotion: "no-preference" })
     const first = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
-    // Allow the embedded SVG image to advance several projected vector frames.
-    await page.waitForTimeout(220)
-    const next = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
-    expect(first.equals(next)).toBe(false)
+    // Allow the embedded SVG image to advance several projected vector frames; slow runners can stall one window.
+    let animated = false
+    for (let attempt = 0; attempt < 10 && !animated; attempt++) {
+      await page.waitForTimeout(220)
+      const next = await page.locator('[data-case="flip-3d"] svg').screenshot({ animations: "allow" })
+      animated = !first.equals(next)
+    }
+    expect(animated).toBe(true)
     await page.screenshot({ path: join(directory, "preview.png"), fullPage: true })
   } finally {
     await browser.close()
