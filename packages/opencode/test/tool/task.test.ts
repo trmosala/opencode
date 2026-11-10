@@ -55,12 +55,29 @@ const parentProviderConfig = {
         cost: { input: 0, output: 0 },
         options: {},
       },
+      "subagent-model": {
+        id: "subagent-model",
+        name: "Subagent Model",
+        attachment: false,
+        reasoning: false,
+        temperature: false,
+        tool_call: true,
+        release_date: "2025-01-01",
+        limit: { context: 100000, output: 10000 },
+        cost: { input: 0, output: 0 },
+        options: {},
+      },
     },
     options: {
       apiKey: "test-key",
       baseURL: "http://localhost:1/v1",
     },
   },
+}
+
+const subagentModelRef = {
+  providerID: ProviderV2.ID.make("test"),
+  modelID: ModelV2.ID.make("subagent-model"),
 }
 
 const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
@@ -695,7 +712,8 @@ describe("tool.task", () => {
             action: "deny",
           },
         ])
-        expect(seen?.model).toEqual(ref)
+        expect(seen?.model).toEqual(subagentModelRef)
+        expect(result.metadata.model).toEqual(subagentModelRef)
         expect(seen?.tools).toBeUndefined()
       }),
     {
@@ -714,6 +732,37 @@ describe("tool.task", () => {
         },
       },
     },
+  )
+
+  it.instance("execute inherits the parent model when the subagent has no model override", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      let seen: SessionPrompt.PromptInput | undefined
+      const promptOps = stubOps({ onPrompt: (input) => (seen = input) })
+
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(seen?.model).toEqual(ref)
+      expect(result.metadata.model).toEqual(ref)
+    }),
   )
 
   it.instance("rejects background execution when the experiment is disabled", () =>

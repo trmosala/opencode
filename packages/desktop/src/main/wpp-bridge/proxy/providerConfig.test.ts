@@ -6,8 +6,13 @@ import { MODEL_IDS, MODEL_PROFILES, RENAMED_MODEL_IDS, resolveRequestModelProfil
 import {
   COOKIE_MONSTER_PROVIDER,
   ensureO1CodeProvider,
+  mergeSeedTaskAgents,
   O1_CODE_MCP,
   o1CodeConfigContent,
+  SEED_AGENTS,
+  SEED_SMALL_MODEL,
+  SEED_TASK_AGENTS,
+  SEED_UTILITY_AGENTS,
   WPP_PROVIDER,
 } from "./providerConfig.mjs"
 
@@ -47,7 +52,52 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp).toEqual(O1_CODE_MCP)
   expect(config.lsp).toBe(true)
+  expect(config.small_model).toBe(SEED_SMALL_MODEL)
+  expect(config.agent).toEqual(SEED_AGENTS)
   await rm(dir, { recursive: true, force: true })
+})
+
+test("injected config content seeds task-routed explore/general CM models", () => {
+  const config = JSON.parse(o1CodeConfigContent())
+  expect(config.small_model).toBe(SEED_SMALL_MODEL)
+  expect(config.agent).toEqual(SEED_AGENTS)
+  expect(config.agent.explore.model).toBe("cookiemonster/CM_Gemini-3.7-Flash_Medium")
+  expect(config.agent.general.model).toBe("cookiemonster/CM_Opus5.5-Medium")
+  expect(config.agent.title.model).toBe(SEED_SMALL_MODEL)
+  expect(config.agent.summary.model).toBe(SEED_SMALL_MODEL)
+  expect(config.agent.compaction.model).toBe(SEED_SMALL_MODEL)
+})
+
+test("mergeSeedTaskAgents fills missing model/description without clobbering user values", () => {
+  const empty = mergeSeedTaskAgents({})
+  expect(empty.changed).toBe(true)
+  expect(empty.agent).toEqual(SEED_AGENTS)
+
+  const custom = mergeSeedTaskAgents({
+    explore: { model: "cookiemonster/CM_GPT-5.6-Sol_High", description: "mine" },
+    review: { permission: { ae_execute: "deny" } },
+  })
+  expect(custom.changed).toBe(true)
+  expect(custom.agent.explore).toEqual({
+    model: "cookiemonster/CM_GPT-5.6-Sol_High",
+    description: "mine",
+    mode: "subagent",
+  })
+  expect(custom.agent.general).toEqual(SEED_TASK_AGENTS.general)
+  expect(custom.agent.title).toEqual(SEED_UTILITY_AGENTS.title)
+  expect(custom.agent.review).toEqual({ permission: { ae_execute: "deny" } })
+
+  const already = mergeSeedTaskAgents({ ...SEED_AGENTS })
+  expect(already.changed).toBe(false)
+
+  const keepUtility = mergeSeedTaskAgents({
+    ...SEED_TASK_AGENTS,
+    title: { model: "cookiemonster/CM_GPT-5.6-Sol_High" },
+  })
+  expect(keepUtility.changed).toBe(true)
+  expect(keepUtility.agent.title).toEqual({ model: "cookiemonster/CM_GPT-5.6-Sol_High" })
+  expect(keepUtility.agent.summary).toEqual(SEED_UTILITY_AGENTS.summary)
+  expect(keepUtility.agent.compaction).toEqual(SEED_UTILITY_AGENTS.compaction)
 })
 
 test("advertises only the Sol 6.1 family with explicit native variants and a medium default", () => {
@@ -520,7 +570,8 @@ for (const browser of [false, true]) {
         mode: { review: { permission: { "ae_*": "deny" } } },
       }
       expect({ ...policy.permission, ...config.permission }.ae_execute).toBe("deny")
-      expect(config.agent).toBeUndefined()
+      expect(config.agent).toEqual(SEED_AGENTS)
+      expect(config.small_model).toBe(SEED_SMALL_MODEL)
       expect(config.mode).toBeUndefined()
       expect(config.tools).toBeUndefined()
     })
@@ -538,7 +589,12 @@ test("global seed preserves user plugins and all permission settings, and never 
     }
     await writeFile(file, JSON.stringify(user))
     await ensureO1CodeProvider(file)
-    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject(user)
+    const merged = JSON.parse(await readFile(file, "utf8"))
+    expect(merged).toMatchObject(user)
+    expect(merged.small_model).toBe(SEED_SMALL_MODEL)
+    expect(merged.agent.explore).toEqual(SEED_TASK_AGENTS.explore)
+    expect(merged.agent.general).toEqual(SEED_TASK_AGENTS.general)
+    expect(merged.agent.title).toEqual(SEED_UTILITY_AGENTS.title)
     await rm(file)
     await ensureO1CodeProvider(file)
     const fresh = JSON.parse(await readFile(file, "utf8"))
@@ -563,6 +619,8 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   })
   expect(config.lsp).toBe(true)
   expect(config.plugin).toEqual([plugin])
+  expect(config.small_model).toBe(SEED_SMALL_MODEL)
+  expect(config.agent).toEqual(SEED_AGENTS)
   expect(config.permission).toEqual({
     browser_read_state: "allow",
     browser_search_history: "allow",

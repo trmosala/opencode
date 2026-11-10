@@ -91,6 +91,30 @@ export const COOKIE_MONSTER_PROVIDER = {
 // Everything a fresh user should get without manual setup: the project roster, MCP servers, and LSP support.
 const SEED_PROVIDERS = { cookiemonster: COOKIE_MONSTER_PROVIDER }
 const SEED_MCP = O1_CODE_MCP
+// Cheap Flash for title/summary/compaction and getSmallModel fallbacks (parent primary stays user-picked).
+export const SEED_SMALL_MODEL = "cookiemonster/CM_Gemini-3.7-Flash_Low"
+// Task-tool subagents: parent LLM routes by description; each runs on its own CM_* backend.
+export const SEED_TASK_AGENTS = {
+  explore: {
+    mode: "subagent",
+    model: "cookiemonster/CM_Gemini-3.7-Flash_Medium",
+    description:
+      "Fast codebase search and orientation. Prefer for finding files, grepping keywords, tracing how a feature works, or answering read-only codebase questions. Not for multi-step edits or long implementation plans.",
+  },
+  general: {
+    mode: "subagent",
+    model: "cookiemonster/CM_Opus5.5-Medium",
+    description:
+      "Multi-step research and execution. Prefer for implementing changes, coordinating several units of work, or tasks that need deeper reasoning beyond a quick search.",
+  },
+}
+// Hidden utility agents: model only — never clobber native prompts/mode.
+export const SEED_UTILITY_AGENTS = {
+  title: { model: SEED_SMALL_MODEL },
+  summary: { model: SEED_SMALL_MODEL },
+  compaction: { model: SEED_SMALL_MODEL },
+}
+export const SEED_AGENTS = { ...SEED_TASK_AGENTS, ...SEED_UTILITY_AGENTS }
 const LEGACY_O1_CODE_MODELS = new Set(["o1-code", "o1-code-builder"])
 const RETIRED_COOKIE_MONSTER_MODELS = new Set([
   "CM_GPT-5.5 - Low",
@@ -103,6 +127,36 @@ const RETIRED_COOKIE_MONSTER_MODELS = new Set([
   "CM_Opus 4.8 - Extra High",
   ...RENAMED_MODEL_IDS.keys(),
 ])
+
+// Fill missing model/description on seed agents; never overwrite a user's explicit values.
+export function mergeSeedTaskAgents(agent = {}) {
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) return { agent: { ...SEED_AGENTS }, changed: true }
+  let changed = false
+  const next = { ...agent }
+  for (const [name, seed] of Object.entries(SEED_AGENTS)) {
+    const existing = next[name]
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+      next[name] = { ...seed }
+      changed = true
+      continue
+    }
+    const merged = { ...existing }
+    if (seed.mode && !merged.mode) {
+      merged.mode = seed.mode
+      changed = true
+    }
+    if (seed.model && !merged.model) {
+      merged.model = seed.model
+      changed = true
+    }
+    if (seed.description && !merged.description) {
+      merged.description = seed.description
+      changed = true
+    }
+    next[name] = merged
+  }
+  return { agent: next, changed }
+}
 
 function isLegacyO1CodeProvider(provider) {
   if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
@@ -140,6 +194,8 @@ export function o1CodeConfigContent(browserPlugin, aePlugin, chromeDevTools = pr
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
+    small_model: SEED_SMALL_MODEL,
+    agent: { ...SEED_AGENTS },
     // Chrome's persistent setting is user-controlled, rather than overridden by
     // this high-precedence blob. Fresh installs are off.
     mcp: {
@@ -184,6 +240,8 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
     const created = {
       $schema: "https://opencode.ai/config.json",
       provider: { ...SEED_PROVIDERS },
+      small_model: SEED_SMALL_MODEL,
+      agent: { ...SEED_AGENTS },
       mcp: { ...SEED_MCP },
       lsp: true,
     }
@@ -272,6 +330,15 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
   }
   if (config.lsp === undefined) {
     config.lsp = true
+    changed = true
+  }
+  if (!config.small_model) {
+    config.small_model = SEED_SMALL_MODEL
+    changed = true
+  }
+  const seededAgents = mergeSeedTaskAgents(config.agent)
+  if (seededAgents.changed) {
+    config.agent = seededAgents.agent
     changed = true
   }
   if (!changed) return
