@@ -25,8 +25,8 @@ export type WppBridgeOptions = {
 }
 
 // Boot the proxy exactly once. Safe to call repeatedly — concurrent/late callers await the same
-// in-flight promise. server.mjs already self-handles EADDRINUSE (an existing proxy on the port is
-// the desired end state), so a second app instance won't crash here.
+// in-flight promise. server.mjs treats EADDRINUSE as success only when the occupant advertises the
+// CookieMonster worker-pool bridge health marker; a foreign proxy (e.g. wpp-chat-cli) fails loud.
 export function startWppBridge(options: WppBridgeOptions = {}): Promise<void> {
   if (starting) return starting
 

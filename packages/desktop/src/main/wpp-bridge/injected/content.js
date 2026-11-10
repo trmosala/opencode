@@ -222,6 +222,7 @@
 
     disarmNetworkCapture()
     const jobTimeoutMs = Number(job.timeoutMs || SETUP_TIMEOUT_MS)
+    emitProgressPhase(jobId, "settling")
     const initialTextarea = await waitForTextarea(SETUP_TIMEOUT_MS)
     if (continueThread || isDedicatedChatFrame()) requireAgentSelected(expectedAgent)
     // Fresh turns wipe the thread in startFreshChat (which settles after New Chat). Settling here
@@ -254,6 +255,7 @@
     let beforeAssistantMessage
     let beforeTokenPill
     let beforeSubmitDiagnostics
+    emitProgressPhase(jobId, "submitting")
     const submitted = await submitPrompt(
       textarea,
       prompt,
@@ -291,6 +293,7 @@
       submitted,
       ignoredAssistantErrorText,
     })
+    emitProgressPhase(jobId, "waiting-network")
     let networkResponse = await waitForNetworkResponse({
       runId: capture.runId,
       timeoutMs: jobTimeoutMs,
@@ -454,6 +457,11 @@
     }
   }
 
+  function emitProgressPhase(jobId, phase) {
+    if (!jobId || !phase) return
+    emitToController({ type: "O1_CODE_BRIDGE_JOB_PROGRESS", jobId, frame: { phase } })
+  }
+
   function forwardProgressRecord(record) {
     const state = progressDispatchers.get(record?.runId)
     if (!state) {
@@ -479,7 +487,7 @@
       return null
     }
 
-    return { seq, finalText }
+    return { seq, finalText, phase: "streaming" }
   }
   function updateRecorderStatus(data) {
     if (data.status === "ready") {

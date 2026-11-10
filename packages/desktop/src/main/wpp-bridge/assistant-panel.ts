@@ -34,12 +34,11 @@ function projectPageState(requireAssistantControl: boolean) {
   const busy = Array.from(
     document.querySelectorAll("[aria-busy='true'], [role='progressbar'], .ant-spin-spinning"),
   ).some(visible)
+  // Control-ready is enough for assistant mode: incomplete lazy images and leftover spinners used to
+  // hold ready=false for minutes even though the popover button was already clickable.
+  const ready = document.readyState === "complete" && (requireAssistantControl ? controlReady : !busy)
   return {
-    ready:
-      document.readyState === "complete" &&
-      (!requireAssistantControl || controlReady) &&
-      Array.from(document.images).every((image) => image.complete) &&
-      !busy,
+    ready,
     // Viewers may have no agent-card controls. Observe lazy roster changes without requiring edit access.
     signature: JSON.stringify(
       Array.from(document.querySelectorAll(".agent-card-title__name")).map((name) => name.textContent?.trim() ?? ""),
@@ -53,26 +52,31 @@ export function assistantPanelStateExpression() {
 
 function assistantPanelState() {
   if (document.readyState !== "complete") return { open: false, click: false }
-  const iframe = document.querySelector<HTMLIFrameElement>("#assistant-iframe")
-  if (iframe && URL.parse(iframe.src)?.origin === "https://open-web-assistant-cs.wpp.ai") return { open: true }
+  const assistantOrigin = "https://open-web-assistant-cs.wpp.ai"
+  const iframe = Array.from(document.querySelectorAll("iframe")).find((frame) => {
+    const src = URL.parse(frame.src)
+    return src?.origin === assistantOrigin
+  })
+  if (iframe) {
+    const rect = iframe.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) return { open: true }
+  }
   const control = document.querySelector("[data-testid='assistant-popover-button-new']")
   if (!control) return { open: false, click: false }
   const rect = control.getBoundingClientRect()
   const x = Math.round(rect.left + rect.width / 2)
   const y = Math.round(rect.top + rect.height / 2)
+  const enabled =
+    control.getAttribute("aria-expanded") !== "true" &&
+    !control.matches(":disabled") &&
+    !control.closest("[disabled], [aria-disabled='true']") &&
+    rect.width > 0 &&
+    rect.height > 0
+  if (!enabled) return { open: false, click: false }
   const hit = document.elementFromPoint(x, y)
-  return {
-    open: false,
-    click:
-      control.getAttribute("aria-expanded") !== "true" &&
-      !control.matches(":disabled") &&
-      !control.closest("[disabled], [aria-disabled='true']") &&
-      Boolean(hit && (hit === control || control.contains(hit))) &&
-      rect.width > 0 &&
-      rect.height > 0,
-    x,
-    y,
-  }
+  if (hit && (hit === control || control.contains(hit))) return { open: false, click: true, x, y }
+  // Overlay / hit-test miss: still ask the host to JS-click the control.
+  return { open: false, click: false, jsClick: true }
 }
 
 export async function openAssistantPanel(
@@ -89,7 +93,7 @@ export async function openAssistantPanel(
   {
     now = Date.now,
     sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-    timeoutMs = 240000,
+    timeoutMs = 60000,
     signal,
   }: {
     now?: () => number
@@ -122,6 +126,19 @@ export async function openAssistantPanel(
         contents.sendInputEvent({ type: "mouseMove", x, y })
         contents.sendInputEvent({ type: "mouseDown", button: "left", x, y, clickCount: 1 })
         contents.sendInputEvent({ type: "mouseUp", button: "left", x, y, clickCount: 1 })
+        nextClickAt = now() + 3000
+      } else if (Reflect.get(state, "jsClick") === true && now() >= nextClickAt) {
+        if (signal?.aborted) throw assistantError("o1_code_client_aborted")
+        await navigationWait(
+          () =>
+            contents.executeJavaScript(
+              `(() => { const c = document.querySelector("[data-testid='assistant-popover-button-new']"); if (c && "click" in c) c.click(); return Boolean(c) })()`,
+              true,
+            ),
+          deadline - now(),
+          signal,
+          expire,
+        )
         nextClickAt = now() + 3000
       }
     }

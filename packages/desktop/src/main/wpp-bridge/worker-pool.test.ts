@@ -774,6 +774,64 @@ describe("worker startup helpers", () => {
     expect(contents.debugger.listenerCount("message")).toBe(0)
   }, 10000)
 
+  test("ignores background Fetch traffic after the project UI is ready", async () => {
+    const navigation = Promise.withResolvers<void>()
+    const contents = Object.assign(new EventEmitter(), {
+      loadURL: () => navigation.promise,
+      debugger: new EventEmitter(),
+      getURL: () => "https://example.test/project",
+      executeJavaScript: async () => ({ ready: true, signature: "host" }),
+      mainFrame: {
+        framesInSubtree: [
+          {
+            url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
+            executeJavaScript: async () => ({ ready: false, signature: "busy-child" }),
+          },
+        ],
+      },
+    })
+    const loading = loadWorkerProject(contents, "https://example.test/project", 8000)
+    navigation.resolve()
+    await Bun.sleep(25)
+    const chatter = setInterval(() => {
+      contents.debugger.emit("message", {}, "Network.requestWillBeSent", {
+        requestId: `xhr-${Date.now()}`,
+        type: "Fetch",
+      })
+    }, 100)
+    const started = Date.now()
+    try {
+      await loading
+    } finally {
+      clearInterval(chatter)
+    }
+    expect(Date.now() - started).toBeLessThan(7000)
+    expect(contents.debugger.listenerCount("message")).toBe(0)
+  }, 10000)
+
+  test("assistant mode settles on the host control even when child frames stay busy", async () => {
+    const navigation = Promise.withResolvers<void>()
+    const contents = Object.assign(new EventEmitter(), {
+      loadURL: () => navigation.promise,
+      debugger: new EventEmitter(),
+      getURL: () => "https://example.test/project",
+      executeJavaScript: async () => ({ ready: true, signature: "host-control" }),
+      mainFrame: {
+        framesInSubtree: [
+          {
+            url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
+            executeJavaScript: async () => ({ ready: false, signature: "spinner" }),
+          },
+        ],
+      },
+    })
+    const loading = loadWorkerProject(contents, "https://example.test/project", 8000, undefined, "assistant")
+    navigation.resolve()
+    const started = Date.now()
+    await loading
+    expect(Date.now() - started).toBeLessThan(7000)
+  }, 10000)
+
   test.each(["timeout", "roster", "abort", "failure"])("cleans up project load on %s", async (mode) => {
     const navigation = Promise.withResolvers<void>()
     const contents = Object.assign(new EventEmitter(), {

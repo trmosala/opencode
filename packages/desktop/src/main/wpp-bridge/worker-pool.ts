@@ -147,12 +147,14 @@ export class WorkerPool {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const queuedAt = Date.now()
+    onProgress?.({ phase: "opening-chat" })
     const worker = await this.acquire(
       (job.payload?.model || DEFAULT_MODEL_ID).trim(),
       (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
       signal,
       job,
+      onProgress,
     )
     this.jobs.set(worker.id, { runId: job.runId, jobId: job.id })
     this.record(worker.id, "job-started", {
@@ -170,6 +172,7 @@ export class WorkerPool {
       throwIfClientAborted(signal)
       const startedAt = Date.now()
       this.record(worker.id, "protocol-ready", {})
+      onProgress?.({ phase: "settling" })
       // Do not pin protocolEndpoint onto the job: the probe often learns /v1/chat while the live
       // turn hits *.lambda-url…/, and pageRecorder's expectedEndpoint gate would drop the Fetch.
       const result = await withClientAbort(worker.controller.runJob(job, onProgress, remainingJobTimeout(job)), signal)
@@ -272,6 +275,7 @@ export class WorkerPool {
     subagent = false,
     signal?: AbortSignal,
     job?: { id?: string; runId?: string },
+    onProgress?: (frame: ProgressFrame) => void,
   ): Promise<Worker> {
     // Wait out a busy same-session tab before adopting/growing, so concurrent turns of one session
     // never fork its WPP thread. The loop re-selects each poll (the tab may free, be reaped, or the
@@ -311,7 +315,7 @@ export class WorkerPool {
         return worker
       }
 
-      const worker = await this.spawn(agent, sessionKey, subagent, signal, job)
+      const worker = await this.spawn(agent, sessionKey, subagent, signal, job, onProgress)
       if (signal?.aborted) {
         this.discard(worker.id, "o1_code_client_aborted")
         throw clientAbortedError()
@@ -425,6 +429,7 @@ export class WorkerPool {
     subagent: boolean,
     signal?: AbortSignal,
     job?: { id?: string; runId?: string },
+    onProgress?: (frame: ProgressFrame) => void,
   ): Promise<Worker> {
     throwIfClientAborted(signal)
     const window = createWorkerWindow()
@@ -432,7 +437,10 @@ export class WorkerPool {
     this.startingWorkers.set(id, { window, agent, sessionKey, subagent })
     this.jobs.set(id, { runId: job?.runId, jobId: job?.id })
     const startedAt = Date.now()
-    const stage = (phase: string) => this.record(id, "startup-stage", { phase, elapsedMs: Date.now() - startedAt })
+    const stage = (phase: string) => {
+      this.record(id, "startup-stage", { phase, elapsedMs: Date.now() - startedAt })
+      onProgress?.({ phase })
+    }
     observeWorkerWindow(window.webContents, (event, details, level) => this.record(id, event, details, level))
     stage("created")
     if (workersVisible) {

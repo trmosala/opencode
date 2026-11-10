@@ -58,6 +58,7 @@ export function renderStatusPage() {
   <div class="row"><div class="label">Active job</div><div class="val" id="jobVal">—</div></div>
   <div class="row"><div class="label">Last legacy poll</div><div class="val" id="clientVal">—</div></div>
   <div class="row"><div class="label">Bridge counters</div><div class="val" id="bridgeCountersVal">—</div></div>
+  <div class="row"><div class="label">Job phase</div><div class="val" id="jobPhaseVal">—</div></div>
   <div class="row"><div class="label">Executor phase</div><div class="val" id="executorPhaseVal">—</div></div>
   <div class="row"><div class="label">Executor counters</div><div class="val" id="executorCountersVal">—</div></div>
   <div class="row"><div class="label">Recent job</div><div class="val" id="recentJobVal">—</div></div>
@@ -97,7 +98,9 @@ async function refresh() {
       : (auth.required ? 'WPP login required' : (bridgeRes.recentJobs?.length ? 'ready' : 'no worker jobs yet')));
     setText('pendingVal', String(bridgeRes.pendingJobs ?? 0));
     setText('inflightVal', String(bridgeRes.inFlightJobs ?? 0));
-    setText('jobVal', formatJob(bridgeRes.jobs && bridgeRes.jobs[0]));
+    const activeJob = bridgeRes.jobs && bridgeRes.jobs[0];
+    setText('jobVal', formatJob(activeJob));
+    setText('jobPhaseVal', (activeJob && activeJob.progressPhase) || (bridgeRes.recentJobs && bridgeRes.recentJobs[0] && bridgeRes.recentJobs[0].progressPhase) || '—');
     const client = bridgeRes.clients && bridgeRes.clients[0] ? bridgeRes.clients[0] : null;
     setText('clientVal', lastSeen ? lastSeen.toLocaleTimeString() : '—');
     setText('bridgeCountersVal', formatBridgeCounters(bridgeRes.counters));
@@ -150,7 +153,8 @@ function formatExecutorCounters(counters = {}) {
 }
 function formatJob(job) {
   if (!job) return '—';
-  return job.state + ' · age ' + Math.round((job.ageMs || 0) / 1000) + 's · timeout in ' + Math.round((job.expiresInMs || 0) / 1000) + 's';
+  const phase = job.progressPhase ? (' · ' + job.progressPhase) : '';
+  return job.state + phase + ' · age ' + Math.round((job.ageMs || 0) / 1000) + 's · timeout in ' + Math.round((job.expiresInMs || 0) / 1000) + 's';
 }
 refresh();
 setInterval(refresh, 3000);

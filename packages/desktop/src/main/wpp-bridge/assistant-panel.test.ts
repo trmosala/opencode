@@ -79,7 +79,7 @@ test("a settled Viewer page needs Assistant access, not agent-card menu buttons"
       get readyState() {
         return loaded ? "complete" : "interactive"
       },
-      images: [],
+      images: [{ complete: false }],
       querySelector: () => control,
       querySelectorAll: (selector: string) => (selector.includes("aria-busy") && busy ? [control] : []),
     },
@@ -87,9 +87,10 @@ test("a settled Viewer page needs Assistant access, not agent-card menu buttons"
   })
   expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(false)
   loaded = true
+  // Incomplete images and leftover spinners must not block once the assistant control is ready.
   expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(true)
   busy = true
-  expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(false)
+  expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(true)
 })
 
 test("opens the panel once and waits for its iframe without clicking agent cards", async () => {
@@ -111,6 +112,35 @@ test("opens the panel once and waits for its iframe without clicking agent cards
   )
   expect(events).toEqual(["mouseMove", "mouseDown", "mouseUp"])
   expect(time).toBe(1000)
+})
+
+test("JS-clicks the popover control when hit-testing misses an overlay", async () => {
+  let time = 0
+  let opened = false
+  const scripts: string[] = []
+  await openAssistantPanel(
+    {
+      executeJavaScript: async (code) => {
+        scripts.push(code)
+        if (code.includes("assistant-popover-button-new") && code.includes(".click()")) {
+          opened = true
+          return true
+        }
+        return opened ? { open: true } : { open: false, click: false, jsClick: true }
+      },
+      sendInputEvent: () => {
+        throw new Error("must not native-click")
+      },
+    },
+    {
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms
+      },
+    },
+  )
+  expect(scripts.some((code) => code.includes(".click()"))).toBe(true)
+  expect(time).toBe(250)
 })
 
 test("bounds a stuck panel observation and aborts before an input event", async () => {
