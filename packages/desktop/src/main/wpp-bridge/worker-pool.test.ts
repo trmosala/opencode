@@ -811,6 +811,7 @@ describe("worker startup helpers", () => {
 
   test("assistant mode settles on the host control even when child frames stay busy", async () => {
     const navigation = Promise.withResolvers<void>()
+    let childPolls = 0
     const contents = Object.assign(new EventEmitter(), {
       loadURL: () => navigation.promise,
       debugger: new EventEmitter(),
@@ -820,7 +821,10 @@ describe("worker startup helpers", () => {
         framesInSubtree: [
           {
             url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
-            executeJavaScript: async () => ({ ready: false, signature: "spinner" }),
+            executeJavaScript: async () => {
+              childPolls += 1
+              return { ready: false, signature: "spinner" }
+            },
           },
         ],
       },
@@ -830,6 +834,39 @@ describe("worker startup helpers", () => {
     const started = Date.now()
     await loading
     expect(Date.now() - started).toBeLessThan(7000)
+    expect(childPolls).toBe(0)
+  }, 10000)
+
+  test("assistant quiet gate ignores child signature churn", async () => {
+    const navigation = Promise.withResolvers<void>()
+    let childPolls = 0
+    let childSig = 0
+    const contents = Object.assign(new EventEmitter(), {
+      loadURL: () => navigation.promise,
+      debugger: new EventEmitter(),
+      getURL: () => "https://example.test/project",
+      executeJavaScript: async () => ({ ready: true, signature: "host-control" }),
+      mainFrame: {
+        framesInSubtree: [
+          {
+            url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
+            executeJavaScript: async () => {
+              childPolls += 1
+              childSig += 1
+              return { ready: false, signature: `churn-${childSig}` }
+            },
+          },
+        ],
+      },
+    })
+    const loading = loadWorkerProject(contents, "https://example.test/project", 8000, undefined, "assistant")
+    navigation.resolve()
+    const started = Date.now()
+    await loading
+    // Host stayed ready; without top-only signature this would never settle while childSig churned.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(5000)
+    expect(Date.now() - started).toBeLessThan(7000)
+    expect(childPolls).toBe(0)
   }, 10000)
 
   test.each(["timeout", "roster", "abort", "failure"])("cleans up project load on %s", async (mode) => {

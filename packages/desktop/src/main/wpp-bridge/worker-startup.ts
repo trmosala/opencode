@@ -90,35 +90,41 @@ export async function loadWorkerProject(
               contents.executeJavaScript!(projectPageStateExpression(chatMode === "assistant")),
             )
           : undefined
-      const childPages = await observe(() =>
-        Promise.all(
-          frames.map((frame) =>
-            frame.executeJavaScript(
-              projectPageStateExpression(chatMode === "assistant" && frame.url === contents.getURL()),
+      // Assistant + top eval: ignore child frames entirely. Their roster signatures churn for minutes
+      // and used to keep resetting the 5s quiet gate even after the host control was ready.
+      const useTopOnly = chatMode === "assistant" && top !== undefined
+      const pages: unknown[] = []
+      if (useTopOnly) {
+        pages.push(top)
+      } else {
+        const childPages = await observe(() =>
+          Promise.all(
+            frames.map((frame) =>
+              frame.executeJavaScript(
+                projectPageStateExpression(chatMode === "assistant" && frame.url === contents.getURL()),
+              ),
             ),
           ),
-        ),
-      )
-      const pages = top === undefined ? childPages : [top, ...childPages]
-      const builders = frames.filter(
-        (frame) => URL.parse(frame.url)?.origin === "https://open-web-agent-builder-cs.wpp.ai",
-      )
-      if (chatMode === "agent")
-        pages.push(
-          builders.length === 1
-            ? await observe(() => builders[0].executeJavaScript(agentRosterStateExpression()))
-            : undefined,
         )
+        if (top !== undefined) pages.push(top)
+        pages.push(...childPages)
+        const builders = frames.filter(
+          (frame) => URL.parse(frame.url)?.origin === "https://open-web-agent-builder-cs.wpp.ai",
+        )
+        if (chatMode === "agent")
+          pages.push(
+            builders.length === 1
+              ? await observe(() => builders[0].executeJavaScript(agentRosterStateExpression()))
+              : undefined,
+          )
+      }
       const signature = JSON.stringify(
         pages.map((page) => (page && typeof page === "object" ? Reflect.get(page, "signature") : null)),
       )
-      // Assistant mode: host control-ready is enough; child agent-builder iframes often stay "busy"
-      // with analytics spinners and must not gate the popover click path.
-      const ready =
-        chatMode === "assistant" && top && typeof top === "object"
-          ? Reflect.get(top, "ready") === true
-          : pages.length > 0 &&
-            pages.every((page) => page && typeof page === "object" && Reflect.get(page, "ready") === true)
+      const ready = useTopOnly
+        ? Boolean(top && typeof top === "object" && Reflect.get(top, "ready") === true)
+        : pages.length > 0 &&
+          pages.every((page) => page && typeof page === "object" && Reflect.get(page, "ready") === true)
       if (!ready || ready !== pageReady || typeof signature !== "string" || signature !== pageSignature) {
         pageSignature = typeof signature === "string" ? signature : ""
         pageReady = ready
