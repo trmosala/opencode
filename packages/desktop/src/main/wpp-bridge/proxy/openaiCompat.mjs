@@ -604,6 +604,9 @@ const FRESH_REPLAY_RETRY_TYPES = new Set([
 
 export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
   if (!FRESH_REPLAY_RETRY_TYPES.has(error?.type) || isCompaction) return false
+  // A missing Assistant button is page or permission state that a fresh worker meets again, so a
+  // replay would only double the wait before the user sees the error.
+  if (error?.type === "o1_code_assistant_popover_timeout" && error?.diagnostics?.buttonFound === false) return false
   if (error?.attemptStreamed === false) return true
   if (error?.attemptStreamed === true) return false
   return !(streamSession && streamSession.hasStreamed())

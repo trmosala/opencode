@@ -545,6 +545,12 @@ describe("shouldRetryFreshReplay", () => {
     }
   })
 
+  test("does not retry a popover timeout when the Assistant button was never found", () => {
+    const type = "o1_code_assistant_popover_timeout"
+    expect(shouldRetryFreshReplay({ type, diagnostics: { buttonFound: false } }, opts)).toBe(false)
+    expect(shouldRetryFreshReplay({ type, diagnostics: { buttonFound: true } }, opts)).toBe(true)
+  })
+
   test("does not retry an unrelated failure type", () => {
     expect(shouldRetryFreshReplay({ type: "o1_code_wrong_agent" }, opts)).toBe(false)
     expect(shouldRetryFreshReplay({ type: undefined }, opts)).toBe(false)

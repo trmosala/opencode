@@ -82,8 +82,10 @@ test("a settled Viewer page needs Assistant access, not agent-card menu buttons"
         return loaded ? "complete" : "interactive"
       },
       images: [],
-      querySelector: () => control,
-      querySelectorAll: (selector: string) => (selector.includes("aria-busy") && busy ? [control] : []),
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("aria-busy")) return busy ? [control] : []
+        return selector === "[data-testid='assistant-popover-button-new']" ? [control] : []
+      },
     },
     getComputedStyle: () => ({ display: "block", visibility: "visible" }),
   })
@@ -162,8 +164,6 @@ test("selects the visible unobscured Assistant control when duplicate header ite
     URL,
     document: {
       readyState: "complete",
-      querySelector: (selector: string) =>
-        selector === "[data-testid='assistant-popover-button-new']" ? hiddenFirst : null,
       querySelectorAll: (selector: string) =>
         selector.includes("assistant-popover-button") ? [hiddenFirst, activeSecond] : [],
       elementFromPoint: (x: number, y: number) => (x === 820 && y === 40 ? activeSecond : null),
@@ -185,7 +185,7 @@ test("selects the visible unobscured Assistant control when duplicate header ite
   })
 })
 
-test("falls back to DOM shadow-button click when obscured and avoids 3s re-click toggle while loading", async () => {
+test("falls back to a DOM click on the shadow button when the native target is obscured", async () => {
   let time = 0
   let shadowClicks = 0
   const innerButton = {
@@ -206,17 +206,19 @@ test("falls back to DOM shadow-button click when obscured and avoids 3s re-click
     closest: () => null,
     contains: () => false,
   }
+  const frame = {
+    src: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant",
+    getBoundingClientRect: () => ({ width: 400, height: 600 }),
+  }
   const context = vm.createContext({
     URL,
     document: {
       readyState: "complete",
-      querySelector: (selector: string) =>
-        selector === "[data-testid='assistant-popover-button-new']" ? hostControl : null,
       querySelectorAll: (selector: string) =>
         selector.includes("assistant-popover-button")
           ? [hostControl]
           : selector.includes("open-web-assistant-cs.wpp.ai") && time >= 11000
-            ? [{ src: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant" }]
+            ? [frame]
             : [],
       elementFromPoint: () => ({}),
     },
@@ -238,6 +240,127 @@ test("falls back to DOM shadow-button click when obscured and avoids 3s re-click
   expect(events).toEqual([])
   expect(shadowClicks).toBe(1)
   expect(time).toBe(11000)
-  expect(vm.runInContext(clickAssistantControlExpression(), context)).toBe(true)
-  expect(shadowClicks).toBe(2)
+})
+
+test("prefers the WPP button over an earlier aria-labelled control and clicks that same button", () => {
+  const clicks: string[] = []
+  const control = (name: string, left: number) => ({
+    click: () => clicks.push(name),
+    getBoundingClientRect: () => ({ left, top: 10, width: 40, height: 40 }),
+    getAttribute: () => null,
+    matches: () => false,
+    closest: () => null,
+    contains: () => false,
+  })
+  const labelled = control("labelled", 100)
+  const real = control("real", 500)
+  const context = vm.createContext({
+    URL,
+    document: {
+      readyState: "complete",
+      // The labelled control comes first in document order; selector priority must still pick the real button.
+      querySelectorAll: (selector: string) =>
+        selector.includes("aria-label='AI Assistant'")
+          ? [labelled]
+          : selector.includes("assistant-popover-button")
+            ? [real]
+            : [],
+      elementFromPoint: (x: number) => (x === 120 ? labelled : x === 520 ? real : null),
+    },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+  })
+  expect(vm.runInContext(assistantPanelStateExpression(), context)).toMatchObject({ click: true, x: 520, y: 30 })
+  expect(vm.runInContext(clickAssistantControlExpression(), context)).toMatchObject({ clicked: true })
+  expect(clicks).toEqual(["real"])
+})
+
+test("does not click again while a slow popover is expanded but its frame has not mounted", async () => {
+  let time = 0
+  let clicks = 0
+  const button = {
+    click: () => {
+      clicks += 1
+    },
+    getBoundingClientRect: () => ({ left: 500, top: 10, width: 40, height: 40 }),
+    getAttribute: (name: string) => (name === "aria-expanded" && clicks > 0 ? "true" : null),
+    matches: () => false,
+    closest: () => null,
+    contains: () => false,
+  }
+  const frame = {
+    src: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant",
+    getBoundingClientRect: () => ({ width: 400, height: 600 }),
+  }
+  const context = vm.createContext({
+    URL,
+    document: {
+      readyState: "complete",
+      querySelectorAll: (selector: string) =>
+        selector.includes("open-web-assistant-cs.wpp.ai")
+          ? time >= 60000
+            ? [frame]
+            : []
+          : selector.includes("assistant-popover-button")
+            ? [button]
+            : [],
+      // Obscured, so the DOM click path runs and clicks land on the button itself.
+      elementFromPoint: () => null,
+    },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+  })
+  await openAssistantPanel(
+    {
+      executeJavaScript: async (code: string) => vm.runInContext(code, context),
+      sendInputEvent: () => {
+        throw new Error("must not send native input")
+      },
+    },
+    {
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms
+      },
+    },
+  )
+  expect(clicks).toBe(1)
+  expect(time).toBe(60000)
+})
+
+test("trusts the frame tree only when it can be read and no hidden assistant iframe is mounted", async () => {
+  let time = 0
+  let detached = true
+  const chat = { url: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant" }
+  const mainFrame = {
+    get framesInSubtree() {
+      if (detached) throw new Error("Render frame was disposed before WebFrameMain could be accessed")
+      return [chat]
+    },
+  }
+  await openAssistantPanel(
+    { mainFrame, executeJavaScript: async () => ({ open: false }), sendInputEvent: () => {} },
+    {
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms
+        detached = time < 500
+      },
+    },
+  )
+  expect(time).toBe(500)
+  await expect(
+    openAssistantPanel(
+      {
+        mainFrame: { framesInSubtree: [chat] },
+        executeJavaScript: async () => ({ open: false, iframePresent: true }),
+        sendInputEvent: () => {},
+      },
+      {
+        now: () => time,
+        sleep: async (ms) => {
+          time += ms
+        },
+        timeoutMs: 1000,
+      },
+    ),
+  ).rejects.toMatchObject({ type: "o1_code_assistant_popover_timeout", diagnostics: { iframePresent: true } })
 })
