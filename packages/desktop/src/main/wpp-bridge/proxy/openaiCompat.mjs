@@ -593,6 +593,7 @@ export async function waitForBridgeWithKeepAlive(bridgePromise, response, interv
 // The retry path resets thread continuity and replays the full transcript into a fresh worker.
 const FRESH_REPLAY_RETRY_TYPES = new Set([
   "o1_code_agent_chat_timeout",
+  "o1_code_assistant_popover_timeout",
   "o1_code_greeting_not_settled",
   "o1_code_fresh_chat_failed",
   "o1_code_recorder_not_armed",
@@ -603,6 +604,9 @@ const FRESH_REPLAY_RETRY_TYPES = new Set([
 
 export function shouldRetryFreshReplay(error, { streamSession, isCompaction }) {
   if (!FRESH_REPLAY_RETRY_TYPES.has(error?.type) || isCompaction) return false
+  // A missing Assistant button is page or permission state that a fresh worker meets again, so a
+  // replay would only double the wait before the user sees the error.
+  if (error?.type === "o1_code_assistant_popover_timeout" && error?.diagnostics?.buttonFound === false) return false
   if (error?.attemptStreamed === false) return true
   if (error?.attemptStreamed === true) return false
   return !(streamSession && streamSession.hasStreamed())
@@ -740,6 +744,21 @@ function taskIncompleteError() {
 }
 
 function agentChatTimeoutDiagnostics(failure) {
+  if (failure?.type === "o1_code_assistant_popover_timeout") {
+    const diagnostics = failure.diagnostics
+    return {
+      phase: diagnostics?.phase === "assistant-popover" ? diagnostics.phase : undefined,
+      clickCount:
+        Number.isSafeInteger(diagnostics?.clickCount) && diagnostics.clickCount >= 0
+          ? diagnostics.clickCount
+          : undefined,
+      buttonFound: typeof diagnostics?.buttonFound === "boolean" ? diagnostics.buttonFound : undefined,
+      expanded: typeof diagnostics?.expanded === "boolean" ? diagnostics.expanded : undefined,
+      disabled: typeof diagnostics?.disabled === "boolean" ? diagnostics.disabled : undefined,
+      unobscured: typeof diagnostics?.unobscured === "boolean" ? diagnostics.unobscured : undefined,
+      iframePresent: typeof diagnostics?.iframePresent === "boolean" ? diagnostics.iframePresent : undefined,
+    }
+  }
   if (failure?.type !== "o1_code_agent_chat_timeout") return undefined
   const diagnostics = failure.diagnostics
   // Diagnostic objects can contain page payloads. Persist only bounded startup evidence.

@@ -14,30 +14,51 @@ export function assistantFrame<Frame extends AssistantFrame>(contents: { mainFra
   return frames[0]
 }
 
+// Ordered by preference: earlier selectors win, so the real WPP control beats a looser label match.
+// Label matches are limited to button-like elements so a heading or link named "AI Assistant" is never chosen.
+const ASSISTANT_CONTROL_SELECTORS = [
+  "[data-testid='assistant-popover-button-new']",
+  "[data-testid*='assistant-popover-button']",
+  "button[aria-label='AI Assistant'], [role='button'][aria-label='AI Assistant']",
+  "button[aria-label='Open AI Assistant'], [role='button'][aria-label='Open AI Assistant']",
+]
+
+const ASSISTANT_IFRAME_SELECTOR =
+  "iframe#assistant-iframe, iframe[name='assistant-iframe'], iframe[src*='open-web-assistant-cs.wpp.ai']"
+
 export function projectPageStateExpression(requireAssistantControl = false) {
-  return `(${projectPageState.toString()})(${JSON.stringify(requireAssistantControl)})`
+  return `(${projectPageState.toString()})(${JSON.stringify(requireAssistantControl)}, ${findAssistantControls.toString()}, ${JSON.stringify(ASSISTANT_CONTROL_SELECTORS)})`
 }
 
-function projectPageState(requireAssistantControl: boolean) {
+function projectPageState(
+  requireAssistantControl: boolean,
+  findControls: (selectors: string[]) => Element[],
+  controlSelectors: string[],
+) {
   const visible = (element: Element) => {
     const rect = element.getBoundingClientRect()
     const style = getComputedStyle(element)
     return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden"
   }
-  const control = document.querySelector("[data-testid='assistant-popover-button-new']")
-  const controlReady = Boolean(
-    control &&
-      visible(control) &&
-      !control.matches(":disabled") &&
-      !control.closest("[disabled], [aria-disabled='true']"),
-  )
+  const controlReady =
+    !requireAssistantControl ||
+    findControls(controlSelectors).some((control) => {
+      const inner = control.shadowRoot?.querySelector("button, [role='button']")
+      return (
+        visible(control) &&
+        !control.matches(":disabled") &&
+        !control.closest("[disabled], [aria-disabled='true']") &&
+        !inner?.matches(":disabled") &&
+        inner?.getAttribute("aria-disabled") !== "true"
+      )
+    })
   const busy = Array.from(
     document.querySelectorAll("[aria-busy='true'], [role='progressbar'], .ant-spin-spinning"),
   ).some(visible)
   return {
     ready:
       document.readyState === "complete" &&
-      (!requireAssistantControl || controlReady) &&
+      controlReady &&
       Array.from(document.images).every((image) => image.complete) &&
       !busy,
     // Viewers may have no agent-card controls. Observe lazy roster changes without requiring edit access.
@@ -47,36 +68,111 @@ function projectPageState(requireAssistantControl: boolean) {
   }
 }
 
-export function assistantPanelStateExpression() {
-  return `(${assistantPanelState.toString()})()`
+// Runs in the page. Shadow roots are walked only when the light DOM has no match, so a normal page is
+// not fully traversed on every poll. Results keep selector order, so the preferred control comes first.
+function findAssistantControls(selectors: string[]) {
+  const unique = (elements: Element[]) => elements.filter((element, index) => elements.indexOf(element) === index)
+  const light = unique(selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector))))
+  if (light.length > 0) return light
+  const roots = Array.from(document.querySelectorAll("*")).flatMap((host) => (host.shadowRoot ? [host.shadowRoot] : []))
+  return unique(selectors.flatMap((selector) => roots.flatMap((root) => Array.from(root.querySelectorAll(selector)))))
 }
 
-function assistantPanelState() {
-  if (document.readyState !== "complete") return { open: false, click: false }
-  const iframe = document.querySelector<HTMLIFrameElement>("#assistant-iframe")
-  if (iframe && URL.parse(iframe.src)?.origin === "https://open-web-assistant-cs.wpp.ai") return { open: true }
-  const control = document.querySelector("[data-testid='assistant-popover-button-new']")
-  if (!control) return { open: false, click: false }
-  const rect = control.getBoundingClientRect()
-  const x = Math.round(rect.left + rect.width / 2)
-  const y = Math.round(rect.top + rect.height / 2)
-  const hit = document.elementFromPoint(x, y)
-  return {
+export function assistantPanelStateExpression() {
+  return assistantPanelExpression(false)
+}
+
+export function clickAssistantControlExpression() {
+  return assistantPanelExpression(true)
+}
+
+function assistantPanelExpression(click: boolean) {
+  return `(${assistantPanelState.toString()})(${JSON.stringify(click)}, ${findAssistantControls.toString()}, ${JSON.stringify(ASSISTANT_CONTROL_SELECTORS)}, ${JSON.stringify(ASSISTANT_IFRAME_SELECTOR)})`
+}
+
+// Runs in the page. Observes the popover and, when `click` is set, clicks the same control the
+// observation chose, so the DOM fallback can never target a different element.
+function assistantPanelState(
+  click: boolean,
+  findControls: (selectors: string[]) => Element[],
+  controlSelectors: string[],
+  iframeSelector: string,
+) {
+  const closed = {
     open: false,
-    click:
-      control.getAttribute("aria-expanded") !== "true" &&
-      !control.matches(":disabled") &&
-      !control.closest("[disabled], [aria-disabled='true']") &&
-      Boolean(hit && (hit === control || control.contains(hit))) &&
-      rect.width > 0 &&
-      rect.height > 0,
-    x,
-    y,
+    click: false,
+    domClick: false,
+    clicked: false,
+    buttonFound: false,
+    expanded: false,
+    disabled: false,
+    unobscured: false,
+    iframePresent: false,
+  }
+  if (document.readyState !== "complete") return closed
+  const visible = (element: Element) => {
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+  }
+  const isClickable = (element: Element): element is Element & { click: () => void } =>
+    "click" in element && typeof element.click === "function"
+  const iframes = Array.from(document.querySelectorAll<HTMLIFrameElement>(iframeSelector)).filter(
+    (iframe) => URL.parse(iframe.src)?.origin === "https://open-web-assistant-cs.wpp.ai",
+  )
+  if (iframes.some(visible)) return { ...closed, open: true, iframePresent: true }
+  // A mounted but not yet visible assistant frame means the popover is still opening.
+  const iframePresent = iframes.length > 0
+  const candidates = findControls(controlSelectors).map((control) => {
+    const rect = control.getBoundingClientRect()
+    const inner = control.shadowRoot?.querySelector("button, [role='button']") ?? null
+    const disabled = Boolean(
+      control.matches(":disabled") ||
+        control.closest("[disabled], [aria-disabled='true']") ||
+        inner?.matches(":disabled") ||
+        inner?.getAttribute("aria-disabled") === "true",
+    )
+    const expanded = [control, inner].some(
+      (element) => element?.getAttribute("aria-expanded") === "true" || element?.getAttribute("data-state") === "open",
+    )
+    const x = Math.round(rect.left + rect.width / 2)
+    const y = Math.round(rect.top + rect.height / 2)
+    const hit = document.elementFromPoint(x, y)
+    const unobscured = Boolean(
+      hit && (hit === control || control.contains(hit) || hit.contains?.(control) || control.shadowRoot?.contains(hit)),
+    )
+    return { control, inner, visible: visible(control), disabled, expanded, unobscured, x, y }
+  })
+  if (candidates.length === 0) return { ...closed, iframePresent }
+
+  const best =
+    candidates.find((c) => c.visible && !c.disabled && c.unobscured) ??
+    candidates.find((c) => c.visible && !c.disabled) ??
+    candidates.find((c) => c.visible) ??
+    candidates[0]
+  // Never click while the popover reports itself open or its frame is mounted: a second click closes it.
+  const actionable = best.visible && !best.disabled && !best.expanded && !iframePresent
+  const target = best.inner ?? best.control
+  const clicked = click && actionable && isClickable(target)
+  if (clicked && isClickable(target)) target.click()
+  return {
+    ...closed,
+    click: actionable && best.unobscured,
+    domClick: actionable && !best.unobscured,
+    clicked,
+    buttonFound: true,
+    expanded: best.expanded,
+    disabled: best.disabled,
+    unobscured: best.unobscured,
+    iframePresent,
+    x: best.x,
+    y: best.y,
   }
 }
 
 export async function openAssistantPanel(
   contents: {
+    mainFrame?: { framesInSubtree?: { url: string }[] }
     executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>
     sendInputEvent(event: {
       type: "mouseMove" | "mouseDown" | "mouseUp"
@@ -100,7 +196,22 @@ export async function openAssistantPanel(
 ) {
   const deadline = now() + timeoutMs
   let nextClickAt = 0
-  const expire = () => assistantError("o1_code_assistant_popover_timeout")
+  let clickCount = 0
+  let lastState: unknown
+  const flag = (key: string) => {
+    const value = lastState && typeof lastState === "object" ? Reflect.get(lastState, key) : undefined
+    return typeof value === "boolean" ? value : undefined
+  }
+  const expire = () =>
+    assistantError("o1_code_assistant_popover_timeout", {
+      phase: "assistant-popover",
+      clickCount,
+      buttonFound: flag("buttonFound"),
+      expanded: flag("expanded"),
+      disabled: flag("disabled"),
+      unobscured: flag("unobscured"),
+      iframePresent: flag("iframePresent"),
+    })
   while (now() < deadline) {
     const state = await navigationWait(
       () => contents.executeJavaScript(assistantPanelStateExpression(), true),
@@ -108,26 +219,48 @@ export async function openAssistantPanel(
       signal,
       expire,
     )
+    lastState = state
     if (state && typeof state === "object") {
       if (Reflect.get(state, "open") === true) return
+      // The assistant frame can live in a shadow root the page probe does not search. Trust the frame
+      // tree only when the page has not reported a mounted but hidden assistant iframe.
+      if (Reflect.get(state, "iframePresent") !== true && assistantChatFrameCount(contents) === 1) return
       const x = Reflect.get(state, "x")
       const y = Reflect.get(state, "y")
-      if (
-        Reflect.get(state, "click") === true &&
-        typeof x === "number" &&
-        typeof y === "number" &&
-        now() >= nextClickAt
-      ) {
+      const nativeClick = Reflect.get(state, "click") === true && typeof x === "number" && typeof y === "number"
+      if ((nativeClick || Reflect.get(state, "domClick") === true) && now() >= nextClickAt) {
         if (signal?.aborted) throw assistantError("o1_code_client_aborted")
-        contents.sendInputEvent({ type: "mouseMove", x, y })
-        contents.sendInputEvent({ type: "mouseDown", button: "left", x, y, clickCount: 1 })
-        contents.sendInputEvent({ type: "mouseUp", button: "left", x, y, clickCount: 1 })
-        nextClickAt = now() + 3000
+        // Alternate input paths: a click that changed nothing may have missed the native hit target.
+        const useNative = nativeClick && clickCount % 2 === 0
+        if (useNative) {
+          contents.sendInputEvent({ type: "mouseMove", x, y })
+          contents.sendInputEvent({ type: "mouseDown", button: "left", x, y, clickCount: 1 })
+          contents.sendInputEvent({ type: "mouseUp", button: "left", x, y, clickCount: 1 })
+        }
+        if (!useNative)
+          await navigationWait(
+            () => contents.executeJavaScript(clickAssistantControlExpression(), true),
+            deadline - now(),
+            signal,
+            expire,
+          )
+        clickCount += 1
+        // Leave a slow popover time to mount its frame before another click could toggle it closed.
+        nextClickAt = now() + 12000
       }
     }
     await navigationWait(() => sleep(250), deadline - now(), signal, expire)
   }
   throw expire()
+}
+
+// Frames can be detached mid-navigation and throw on access; treat that as not open yet.
+function assistantChatFrameCount(contents: { mainFrame?: { framesInSubtree?: { url: string }[] } }) {
+  try {
+    return contents.mainFrame?.framesInSubtree?.filter((frame) => isAssistantChatUrl(frame.url)).length ?? 0
+  } catch {
+    return 0
+  }
 }
 
 export async function prepareAssistantChat(
@@ -278,7 +411,7 @@ export function navigationWait<T>(
   })
 }
 
-function assistantError(type: string) {
+function assistantError(type: string, diagnostics?: Record<string, unknown>) {
   const error = new Error(type)
   Reflect.set(error, "type", type)
   Reflect.set(
@@ -290,5 +423,6 @@ function assistantError(type: string) {
         ? 400
         : 502,
   )
+  if (diagnostics) Reflect.set(error, "diagnostics", diagnostics)
   return error
 }
