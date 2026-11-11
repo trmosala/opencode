@@ -2,6 +2,8 @@ import { expect, test } from "bun:test"
 import vm from "node:vm"
 import {
   assistantFrame,
+  assistantPanelStateExpression,
+  clickAssistantControlExpression,
   prepareAssistantChat,
   isAssistantChatUrl,
   openAssistantPanel,
@@ -139,4 +141,103 @@ test("bounds a stuck panel observation and aborts before an input event", async 
       { signal },
     ),
   ).rejects.toMatchObject({ type: "o1_code_client_aborted" })
+})
+
+test("selects the visible unobscured Assistant control when duplicate header items exist", () => {
+  const hiddenFirst = {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+    getAttribute: () => null,
+    matches: () => false,
+    closest: () => null,
+    contains: () => false,
+  }
+  const activeSecond = {
+    getBoundingClientRect: () => ({ left: 800, top: 20, width: 40, height: 40 }),
+    getAttribute: () => null,
+    matches: () => false,
+    closest: () => null,
+    contains: () => false,
+  }
+  const context = vm.createContext({
+    URL,
+    document: {
+      readyState: "complete",
+      querySelector: (selector: string) =>
+        selector === "[data-testid='assistant-popover-button-new']" ? hiddenFirst : null,
+      querySelectorAll: (selector: string) =>
+        selector.includes("assistant-popover-button") ? [hiddenFirst, activeSecond] : [],
+      elementFromPoint: (x: number, y: number) => (x === 820 && y === 40 ? activeSecond : null),
+    },
+    getComputedStyle: (el: unknown) => ({
+      display: el === hiddenFirst ? "none" : "block",
+      visibility: "visible",
+    }),
+  })
+  const state = vm.runInContext(assistantPanelStateExpression(), context)
+  expect(state).toMatchObject({
+    open: false,
+    click: true,
+    domClick: false,
+    buttonFound: true,
+    unobscured: true,
+    x: 820,
+    y: 40,
+  })
+})
+
+test("falls back to DOM shadow-button click when obscured and avoids 3s re-click toggle while loading", async () => {
+  let time = 0
+  let shadowClicks = 0
+  const innerButton = {
+    click: () => {
+      shadowClicks += 1
+    },
+    matches: () => false,
+    getAttribute: () => null,
+  }
+  const hostControl = {
+    shadowRoot: {
+      querySelector: () => innerButton,
+      contains: () => false,
+    },
+    getBoundingClientRect: () => ({ left: 500, top: 10, width: 40, height: 40 }),
+    getAttribute: () => null,
+    matches: () => false,
+    closest: () => null,
+    contains: () => false,
+  }
+  const context = vm.createContext({
+    URL,
+    document: {
+      readyState: "complete",
+      querySelector: (selector: string) =>
+        selector === "[data-testid='assistant-popover-button-new']" ? hostControl : null,
+      querySelectorAll: (selector: string) =>
+        selector.includes("assistant-popover-button")
+          ? [hostControl]
+          : selector.includes("open-web-assistant-cs.wpp.ai") && time >= 11000
+            ? [{ src: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant" }]
+            : [],
+      elementFromPoint: () => ({}),
+    },
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+  })
+  const events: string[] = []
+  await openAssistantPanel(
+    {
+      executeJavaScript: async (code: string) => vm.runInContext(code, context),
+      sendInputEvent: (event) => events.push(event.type),
+    },
+    {
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms
+      },
+    },
+  )
+  expect(events).toEqual([])
+  expect(shadowClicks).toBe(1)
+  expect(time).toBe(11000)
+  expect(vm.runInContext(clickAssistantControlExpression(), context)).toBe(true)
+  expect(shadowClicks).toBe(2)
 })

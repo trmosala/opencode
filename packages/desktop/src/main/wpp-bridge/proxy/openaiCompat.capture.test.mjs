@@ -401,6 +401,7 @@ describe("handleChatCompletions capture retry", () => {
   // and the proxy replays once on a fresh worker exactly like a capture failure.
   for (const type of [
     "o1_code_agent_chat_timeout",
+    "o1_code_assistant_popover_timeout",
     "o1_code_greeting_not_settled",
     "o1_code_fresh_chat_failed",
     "o1_code_recorder_not_armed",
@@ -445,6 +446,28 @@ describe("persisted agent-chat timeout diagnostics", () => {
         type: "o1_code_agent_chat_timeout",
         diagnostics: { phase: "chat-navigation", chatClicks: 1 },
         expected: { phase: "chat-navigation", chatClicks: 1 },
+      },
+      {
+        name: "valid assistant popover startup evidence",
+        type: "o1_code_assistant_popover_timeout",
+        diagnostics: {
+          phase: "assistant-popover",
+          clickCount: 2,
+          buttonFound: true,
+          expanded: false,
+          disabled: false,
+          unobscured: false,
+          iframePresent: false,
+        },
+        expected: {
+          phase: "assistant-popover",
+          clickCount: 2,
+          buttonFound: true,
+          expanded: false,
+          disabled: false,
+          unobscured: false,
+          iframePresent: false,
+        },
       },
       {
         name: "invalid diagnostic values",
@@ -511,6 +534,7 @@ describe("shouldRetryFreshReplay", () => {
   test("retries every fresh-replay-healable failure type", () => {
     for (const type of [
       "o1_code_agent_chat_timeout",
+      "o1_code_assistant_popover_timeout",
       "o1_code_greeting_not_settled",
       "o1_code_fresh_chat_failed",
       "o1_code_recorder_not_armed",
