@@ -9,6 +9,7 @@ import { MODEL_PROFILES } from "./modelProfiles.mjs"
 
 const {
   handleChatCompletions,
+  loginRequiredFailure,
   shouldRetryFreshReplay,
   shouldRecoverIncompleteTask,
   shouldRecoverMissingRequiredToolCall,
@@ -335,6 +336,23 @@ describe("handleChatCompletions capture retry", () => {
       type: "wpp_auth_required",
       retryCount: 0,
     })
+  })
+
+  test("does not reclassify image attachment desync or project load timeout as auth-required", async () => {
+    let authMarked = false
+    const bridge = {
+      checkAuthState: async () => "WPP page is asking for sign-in",
+      markAuthRequired: () => {
+        authMarked = true
+      },
+    }
+    for (const type of ["o1_code_image_attachment_desync", "o1_code_project_load_timeout"]) {
+      authMarked = false
+      const failure = typedError(type)
+      const result = await loginRequiredFailure(bridge, failure)
+      expect(result).toBe(failure)
+      expect(authMarked).toBe(false)
+    }
   })
 
   // A logged-IN probe (null reason) must leave the original failure untouched — no false auth pop.

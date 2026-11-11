@@ -759,9 +759,17 @@ function agentChatTimeoutDiagnostics(failure) {
 // and return a typed wpp_auth_required error so the operator is told to log in instead of seeing a
 // bare capture/recorder failure. Returns the original failure unchanged when already auth-typed, the
 // session looks logged in, or the bridge can't probe (e.g. test doubles without checkAuthState).
-async function loginRequiredFailure(bridge, failure) {
-  if (["wpp_auth_required", "o1_code_task_incomplete", "o1_code_required_tool_not_called"].includes(failure?.type))
-    return failure
+// Pre-submit attach / cold-load failures are not "please log in" — probing auth after them false-popped SSO.
+const AUTH_RECLASSIFY_SKIP_TYPES = new Set([
+  "wpp_auth_required",
+  "o1_code_task_incomplete",
+  "o1_code_required_tool_not_called",
+  "o1_code_image_attachment_desync",
+  "o1_code_project_load_timeout",
+])
+
+export async function loginRequiredFailure(bridge, failure) {
+  if (AUTH_RECLASSIFY_SKIP_TYPES.has(failure?.type)) return failure
 
   const probe = bridge.checkAuthState?.()
   const reason = probe ? await probe.catch(() => null) : null
