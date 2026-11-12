@@ -3,7 +3,7 @@ import { navigationWait } from "./assistant-panel"
 export function isAgentChatUrl(value: string) {
   const url = URL.parse(value)
   return (
-    url?.origin === "https://open-web-agent-builder-cs.wpp.ai" && /^\/chat\/[^/]+\/foundational\/?$/.test(url.pathname)
+    url?.origin === "https://open-web-agent-builder-cs.wpp.ai" && /^\/chat\/[^/]+\/[^/]+\/?$/.test(url.pathname)
   )
 }
 

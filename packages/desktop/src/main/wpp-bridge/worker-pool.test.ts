@@ -770,7 +770,7 @@ describe("worker startup helpers", () => {
     } finally {
       clearInterval(telemetry)
     }
-    expect(Date.now() - completedAt).toBeGreaterThanOrEqual(5000)
+    expect(Date.now() - completedAt).toBeGreaterThanOrEqual(1000)
     expect(contents.debugger.listenerCount("message")).toBe(0)
   }, 10000)
 
@@ -864,8 +864,8 @@ describe("worker startup helpers", () => {
     const started = Date.now()
     await loading
     // Host stayed ready; without top-only signature this would never settle while childSig churned.
-    expect(Date.now() - started).toBeGreaterThanOrEqual(5000)
-    expect(Date.now() - started).toBeLessThan(7000)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1000)
+    expect(Date.now() - started).toBeLessThan(3000)
     expect(childPolls).toBe(0)
   }, 10000)
 

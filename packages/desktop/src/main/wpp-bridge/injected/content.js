@@ -2,13 +2,13 @@
   function isAssistantChatFrame() {
     return (
       location.hostname === "open-web-assistant-cs.wpp.ai" &&
-      /^\/chat\/[^/]+\/(?:ai-assistant|foundational)\/?$/.test(location.pathname)
+      /^\/chat\/[^/]+\/[^/]+\/?$/.test(location.pathname)
     )
   }
   function isDedicatedChatFrame() {
     return (
       location.hostname === "open-web-agent-builder-cs.wpp.ai" &&
-      /^\/chat\/[^/]+\/foundational\/?$/.test(location.pathname)
+      /^\/chat\/[^/]+\/[^/]+\/?$/.test(location.pathname)
     )
   }
   function isChatFrame() {
@@ -223,11 +223,9 @@
     disarmNetworkCapture()
     const jobTimeoutMs = Number(job.timeoutMs || SETUP_TIMEOUT_MS)
     emitProgressPhase(jobId, "settling")
-    const initialTextarea = await waitForTextarea(SETUP_TIMEOUT_MS)
+    await waitForTextarea(SETUP_TIMEOUT_MS)
     if (continueThread || isDedicatedChatFrame()) requireAgentSelected(expectedAgent)
-    // Fresh turns wipe the thread in startFreshChat (which settles after New Chat). Settling here
-    // only helps continue turns that must be idle before paste/submit.
-    if (continueThread) await waitForGreetingSettlement(initialTextarea)
+    // One settle per job. Fresh chats settle inside startFreshChat; continue turns settle at submit.
     const freshChat = continueThread
       ? await continueExistingChat()
       : await startFreshChat(
@@ -245,7 +243,6 @@
       throw error
     }
     requireAgentSelected(expectedAgent)
-    await waitForGreetingSettlement(textarea)
     textarea = await waitForTextarea(SETUP_TIMEOUT_MS)
     const attachments = await attachImages(job?.payload?.images || [], textarea, SETUP_TIMEOUT_MS)
     if (
@@ -625,7 +622,7 @@
       const assistants = Array.from(
         root.querySelectorAll(".chat-message--assistant, [data-message-author-role='assistant']"),
       )
-      const next = JSON.stringify([state.version, root.textContent || "", assistants.length])
+      const next = `${state.version}:${assistants.length}:${root.childElementCount || 0}`
       const busy =
         state.pending > 0 ||
         !textarea ||

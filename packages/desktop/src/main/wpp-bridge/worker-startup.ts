@@ -91,7 +91,7 @@ export async function loadWorkerProject(
             )
           : undefined
       // Assistant + top eval: ignore child frames entirely. Their roster signatures churn for minutes
-      // and used to keep resetting the 5s quiet gate even after the host control was ready.
+      // and used to keep resetting the quiet gate even after the host control was ready.
       const useTopOnly = chatMode === "assistant" && top !== undefined
       const pages: unknown[] = []
       if (useTopOnly) {
@@ -130,8 +130,8 @@ export async function loadWorkerProject(
         pageReady = ready
         lastActivity = Date.now()
       }
-      // shortcut: five quiet seconds approximate lazy-load completion; use a WPP completion signal when exposed.
-      if (ready && pending.size === 0 && Date.now() - lastActivity >= 5000) return
+      // ponytail: one quiet second stands in for lazy-load completion. Upgrade when WPP exposes a load-complete signal.
+      if (ready && pending.size === 0 && Date.now() - lastActivity >= 1000) return
       await observe(() => new Promise<void>((resolve) => setTimeout(resolve, 250)))
     }
   } finally {

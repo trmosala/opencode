@@ -206,9 +206,11 @@ Desktop packaging targets macOS only (from `packages/desktop`): `CM_BRAND=1 bun 
 
 ### CI
 
-GitHub Actions is disabled on `trmosala/opencode` (every workflow is `disabled_manually`) and `dev` has no required status checks. Verify locally before merging with `bun run verify` from the repo root: typecheck, every package's tests, the HttpApi exerciser and the app's Linux e2e suite. Core's ripgrep tests use a system `rg` when present, otherwise they download it from GitHub. Re-enable a workflow with `gh workflow enable <name> -R trmosala/opencode`.
+GitHub Actions is mostly disabled on `trmosala/opencode` (`disabled_manually`) and `dev` has no required status checks. Verify locally before merging with `bun run verify` from the repo root: typecheck, every package's tests, the HttpApi exerciser and the app's Linux e2e suite. Core's ripgrep tests use a system `rg` when present, otherwise they download it from GitHub. Re-enable a workflow with `gh workflow enable <name> -R trmosala/opencode`.
 
 `.github/workflows/cookiemonster-desktop.yml` (currently disabled) is the macOS-only CookieMonster installer pipeline: manual dispatch only (private repo on the Actions Free plan, and macOS minutes bill at 10x), with `CM_BRAND=1`, `CM_UNSIGNED=1`, and `OPENCODE_CHANNEL=prod`. Branded builds retain the private desktop sidecar without a public CLI, run non-root DMG copy/reinstall/removal checks, upload only the validated DMG, and disable upstream publishing. These checks do not cover Electron startup or WPP authentication. The default `publish=false` validates and uploads private workflow artifacts only; explicit `publish=true` publishes a `cookiemonster-v<version>_<revision>` release. Unsigned builds trigger Gatekeeper warnings. Every other workflow is inherited from upstream and unmodified.
+
+`.github/workflows/cookiemonster-windows.yml` is the Windows NSIS release path: manual dispatch only, `windows-2022`, `CM_BRAND=1`, `CM_UNSIGNED=1`, `OPENCODE_CHANNEL=prod`. It checks out an **existing** `cookiemonster-v<version>_<revision>` tag (must already exist as a GitHub release), packages `bun run package:win --x64`, smoke-checks the unpacked app, and uploads `cookiemonster-win-x64.exe`, `.blockmap`, and `latest.yml` onto that release. Enable with `gh workflow enable cookiemonster-windows -R trmosala/opencode`, then `gh workflow run cookiemonster-windows -R trmosala/opencode -f tag=cookiemonster-v2.2.5_04`. Unsigned only (no Windows code-signing secrets in this fork).
 
 ### The WPP bridge (read multiple files to understand)
 

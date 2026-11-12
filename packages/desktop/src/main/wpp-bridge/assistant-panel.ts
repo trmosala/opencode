@@ -2,7 +2,7 @@ export function isAssistantChatUrl(value: string) {
   const url = URL.parse(value)
   return (
     url?.origin === "https://open-web-assistant-cs.wpp.ai" &&
-    /^\/chat\/[^/]+\/(?:ai-assistant|foundational)\/?$/.test(url.pathname)
+    /^\/chat\/[^/]+\/[^/]+\/?$/.test(url.pathname)
   )
 }
 
@@ -236,9 +236,17 @@ async function freshChatInShellPage() {
   if (!frame || !isVisible(frame)) return { ok: false, clicked: false, reason: "assistant-frame-not-found" }
 
   const frameRect = frame.getBoundingClientRect()
+  const actionHost = (node: Element) => {
+    let current: Element | null = node
+    while (current) {
+      if (current.tagName.toLowerCase().startsWith("wpp-action-button")) return current
+      current = current.parentElement
+    }
+    return node.parentElement
+  }
   const candidates = Array.from(document.querySelectorAll("[data-testid='wpp-icon-more']"))
     .map((icon) => {
-      const host = icon.closest("wpp-action-button-v4-3-0") || icon.parentElement
+      const host = actionHost(icon)
       const control = host?.shadowRoot?.querySelector("button") || host || icon
       if (!isClickable(control)) return null
       const rect = control.getBoundingClientRect()

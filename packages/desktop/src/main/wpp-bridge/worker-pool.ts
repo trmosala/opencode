@@ -711,7 +711,7 @@ async function waitForAssistantBridge(
     } else {
       stable = 0
     }
-    await withClientAbort(wait(500), signal)
+    await withClientAbort(wait(100), signal)
   }
   throwIfClientAborted(signal)
   await throwIfAuthRequired(contents)

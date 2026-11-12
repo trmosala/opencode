@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import vm from "node:vm"
 import {
   assistantFrame,
+  freshChatInShellExpression,
   prepareAssistantChat,
   isAssistantChatUrl,
   openAssistantPanel,
@@ -53,11 +54,12 @@ test("routes only the Assistant panel, excluding contributor chats, editors and 
   }
   const builder = { ...frame, url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational" }
   expect(assistantFrame({ mainFrame: { framesInSubtree: [builder, frame] } })).toBe(frame)
+  expect(isAssistantChatUrl("https://open-web-assistant-cs.wpp.ai/chat/project/other")).toBe(true)
   for (const url of [
     builder.url,
     "invalid",
     "https://open-web-assistant-cs.wpp.ai.evil.test/chat/project/ai-assistant",
-    "https://open-web-assistant-cs.wpp.ai/chat/project/other",
+    "https://open-web-assistant-cs.wpp.ai/chat/project",
   ]) {
     expect(isAssistantChatUrl(url)).toBe(false)
   }
@@ -169,4 +171,45 @@ test("bounds a stuck panel observation and aborts before an input event", async 
       { signal },
     ),
   ).rejects.toMatchObject({ type: "o1_code_client_aborted" })
+})
+
+test("New Chat clicks whatever wpp-action-button version hosts the more icon", async () => {
+  let opened = false
+  const item = {
+    textContent: "New Chat",
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ width: 80, height: 24, top: 40, bottom: 64, left: 10, right: 90 }),
+    click() {},
+  }
+  const button = {
+    getBoundingClientRect: () => ({ width: 28, height: 28, top: 4, bottom: 32, left: 12, right: 40 }),
+    click() {
+      opened = true
+    },
+  }
+  const host = {
+    tagName: "WPP-ACTION-BUTTON-V4-9-0",
+    parentElement: null,
+    shadowRoot: { querySelector: (selector: string) => (selector === "button" ? button : null) },
+  }
+  const frame = {
+    getBoundingClientRect: () => ({ width: 320, height: 400, top: 36, bottom: 436, left: 0, right: 320 }),
+  }
+  const result = await vm.runInContext(
+    freshChatInShellExpression(),
+    vm.createContext({
+      document: {
+        querySelector: (selector: string) => (selector.includes("iframe") ? frame : null),
+        querySelectorAll: (selector: string) => {
+          if (selector === "[data-testid='wpp-icon-more']") return [{ tagName: "SPAN", parentElement: host }]
+          if (selector === "[role='menuitem']") return opened ? [item] : []
+          return []
+        },
+      },
+      getComputedStyle: () => ({ visibility: "visible", display: "block" }),
+      setTimeout,
+      clearTimeout,
+    }),
+  )
+  expect(result).toEqual({ ok: true, clicked: true })
 })

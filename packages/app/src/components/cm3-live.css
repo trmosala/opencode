@@ -308,19 +308,16 @@ html[data-color-scheme="dark"] .cm3-sidebar {
   .cm3-sidebar[data-collapsed="true"]:dir(rtl) > .cm3-sidebar-content {
     transform: translateX(6px);
   }
+}
 
-  .cm3-sidebar[data-collapsed="true"]:is(
-      :hover,
-      :has(.cm3-sidebar-collapse:focus-visible),
-      :has(.cm3-sidebar-content :focus-visible)
-    )
-    > .cm3-sidebar-content {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: none;
-    transition-delay: 0s;
-  }
+.cm3-sidebar :is(.cm3-sidebar-action, .cm3-sidebar-task, .cm3-sidebar-session-pin):active,
+.cm3-live .cm3-starters button:active,
+.cm3-live .cm3-thread-actions button:active {
+  background: var(--cm3-selected);
+  transform: scale(0.98);
+  transition:
+    transform 80ms ease-out,
+    background 80ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -328,6 +325,12 @@ html[data-color-scheme="dark"] .cm3-sidebar {
   .cm3-sidebar :is(.cm3-sidebar-brand, .cm3-sidebar-logo, .cm3-sidebar-collapse, .cm3-sidebar-content),
   .cm3-live [data-cm3-legacy-layout] > :has(> main) {
     transition: none !important;
+  }
+
+  .cm3-sidebar :is(.cm3-sidebar-action, .cm3-sidebar-task, .cm3-sidebar-session-pin):active,
+  .cm3-live .cm3-starters button:active,
+  .cm3-live .cm3-thread-actions button:active {
+    transform: none;
   }
 }
 
