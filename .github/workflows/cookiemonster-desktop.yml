@@ -1,15 +1,13 @@
 name: cookiemonster-desktop
 
-# Builds unsigned CookieMonster macOS app-only DMG/zip artifacts; uploads only the validated DMG.
+# Builds signed and notarized CookieMonster macOS DMG/zip artifacts; uploads only the validated DMG.
 #
-# macOS is the sole supported CookieMonster target.
-# There is no Apple Developer certificate for this fork, so CM_UNSIGNED=1 strips signing and notarization from
-# packages/desktop/electron-builder.config.ts. Installing an unsigned build therefore trips
-# Gatekeeper on macOS.
+# macOS is the sole supported CookieMonster target. Signing uses the Developer ID certificate and App
+# Store Connect API key in the APPLE_* secrets (APPLE_API_KEY holds the key ID, APPLE_API_KEY_PATH the
+# .p8 contents). CM_UNSIGNED=1 in packages/desktop/electron-builder.config.ts stays available for
+# local builds without credentials.
 #
-# Runs on manual dispatch only. This repository is private on the GitHub Free plan (~2,000 Actions
-# minutes/month) and macOS minutes bill at 10x, so an automatic per-push trigger would exhaust the
-# monthly allowance quickly. Artifacts expire after 7 days to stay inside the 500 MB cap.
+# Runs on manual dispatch only. Artifacts expire after 7 days to stay inside the 500 MB cap.
 
 on:
   workflow_dispatch:
@@ -45,7 +43,7 @@ jobs:
       # identity, bundled CLI sidecar, and disabled upstream publishing.
       OPENCODE_CHANNEL: prod
       CM_BRAND: "1"
-      CM_UNSIGNED: "1"
+      CM_UNSIGNED: "0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -75,9 +73,56 @@ jobs:
           CM_UNSIGNED: "0"
           OPENCODE_CHANNEL: dev
 
-      - name: Package installer
-        run: npx electron-builder --mac --publish never --config electron-builder.config.ts
+      - name: Import Developer ID certificate
+        uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93 # v2.0.0
+        with:
+          keychain: build
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Setup notarization key
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_PATH }}
+        run: |
+          test -n "$APPLE_API_KEY_CONTENT"
+          umask 077
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/apple-api-key.p8"
+
+      - name: Package, sign and notarize installer
+        # forceCodeSigning fails the build instead of silently emitting an unsigned app.
+        run: npx electron-builder --mac --publish never --config electron-builder.config.ts -c.forceCodeSigning=true
         working-directory: packages/desktop
+        env:
+          CSC_KEYCHAIN: build.keychain
+          APPLE_API_KEY: ${{ runner.temp }}/apple-api-key.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Notarize and staple the DMG
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for dmg in packages/desktop/dist/cookiemonster-mac-*.dmg; do
+            xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/apple-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait --timeout 15m
+            xcrun stapler staple "$dmg"
+          done
+
+      - name: Remove notarization key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/apple-api-key.p8"
+
+      - name: Verify signing and notarization
+        run: |
+          for app in packages/desktop/dist/mac*/CookieMonster.app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            xcrun stapler validate "$app"
+          done
+          for dmg in packages/desktop/dist/cookiemonster-mac-*.dmg; do
+            codesign --verify --strict --verbose=2 "$dmg"
+            xcrun stapler validate "$dmg"
+          done
 
       - name: List packaged output
         run: ls -la packages/desktop/dist
