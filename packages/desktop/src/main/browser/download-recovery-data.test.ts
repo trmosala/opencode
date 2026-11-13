@@ -190,34 +190,38 @@ test("sync and async physical path aliases checkpoint and restore exact bytes", 
   }
 })
 
-test("validated range appends exact bytes and publishes a new sibling without overwriting files or symlinks", async () => {
-  const f = await fixture()
-  try {
-    await writeFile(join(f.directory, "file (1).txt"), "keep")
-    await symlink(f.destination, join(f.directory, "file (2).txt"))
-    const result = await restoreDownload(
-      f.root,
-      f.recovery,
-      async (url, options) => {
-        expect(url).toBe(f.recovery.url)
-        expect(options.redirect).toBe("error")
-        expect(options.credentials).toBe("include")
-        expect(options.headers).toEqual({ Range: "bytes=3-", "If-Range": '"v1"', "Accept-Encoding": "identity" })
-        return response(f.recovery)
-      },
-      new AbortController().signal,
-      () => {},
-      () => {},
-    )
-    expect(result).toBe(join(f.directory, "file (3).txt"))
-    expect(await readFile(result, "utf8")).toBe("abcdef")
-    expect(await readFile(f.destination, "utf8")).toBe("abc")
-    expect(await readFile(join(f.directory, "file (1).txt"), "utf8")).toBe("keep")
-    expect(await readFile(join(f.root, f.recovery.checkpoint), "utf8")).toBe("abc")
-  } finally {
-    await f.clean()
-  }
-})
+// Creating the symlink fixtures needs Developer Mode or admin rights on Windows.
+test.skipIf(process.platform === "win32")(
+  "validated range appends exact bytes and publishes a new sibling without overwriting files or symlinks",
+  async () => {
+    const f = await fixture()
+    try {
+      await writeFile(join(f.directory, "file (1).txt"), "keep")
+      await symlink(f.destination, join(f.directory, "file (2).txt"))
+      const result = await restoreDownload(
+        f.root,
+        f.recovery,
+        async (url, options) => {
+          expect(url).toBe(f.recovery.url)
+          expect(options.redirect).toBe("error")
+          expect(options.credentials).toBe("include")
+          expect(options.headers).toEqual({ Range: "bytes=3-", "If-Range": '"v1"', "Accept-Encoding": "identity" })
+          return response(f.recovery)
+        },
+        new AbortController().signal,
+        () => {},
+        () => {},
+      )
+      expect(result).toBe(join(f.directory, "file (3).txt"))
+      expect(await readFile(result, "utf8")).toBe("abcdef")
+      expect(await readFile(f.destination, "utf8")).toBe("abc")
+      expect(await readFile(join(f.directory, "file (1).txt"), "utf8")).toBe("keep")
+      expect(await readFile(join(f.root, f.recovery.checkpoint), "utf8")).toBe("abc")
+    } finally {
+      await f.clean()
+    }
+  },
+)
 
 test("changed validators, ranges, encodings, lengths and authentication never produce a completed file", async () => {
   const f = await fixture()
@@ -274,40 +278,43 @@ test("changed validators, ranges, encodings, lengths and authentication never pr
   }
 })
 
-test("missing, edited, truncated and symlinked checkpoints fail before network access", async () => {
-  for (const change of ["missing", "edited", "truncated", "symlink", "ancestor"]) {
-    const f = await fixture()
-    try {
-      const path = join(f.root, f.recovery.checkpoint)
-      if (change === "missing" || change === "symlink") await rm(path)
-      if (change === "edited") await writeFile(path, "xyz")
-      if (change === "truncated") await writeFile(path, "a")
-      if (change === "symlink") await symlink(f.destination, path)
-      if (change === "ancestor") {
-        await rename(f.root, `${f.root}-moved`)
-        await symlink(`${f.root}-moved`, f.root)
+test.skipIf(process.platform === "win32")(
+  "missing, edited, truncated and symlinked checkpoints fail before network access",
+  async () => {
+    for (const change of ["missing", "edited", "truncated", "symlink", "ancestor"]) {
+      const f = await fixture()
+      try {
+        const path = join(f.root, f.recovery.checkpoint)
+        if (change === "missing" || change === "symlink") await rm(path)
+        if (change === "edited") await writeFile(path, "xyz")
+        if (change === "truncated") await writeFile(path, "a")
+        if (change === "symlink") await symlink(f.destination, path)
+        if (change === "ancestor") {
+          await rename(f.root, `${f.root}-moved`)
+          await symlink(`${f.root}-moved`, f.root)
+        }
+        let requests = 0
+        await expect(
+          restoreDownload(
+            f.root,
+            f.recovery,
+            async () => {
+              requests++
+              return response(f.recovery)
+            },
+            new AbortController().signal,
+            () => {},
+            () => {},
+          ),
+        ).rejects.toThrow()
+        expect(requests).toBe(0)
+        expect(await readFile(f.destination, "utf8")).toBe("abc")
+      } finally {
+        await f.clean()
       }
-      let requests = 0
-      await expect(
-        restoreDownload(
-          f.root,
-          f.recovery,
-          async () => {
-            requests++
-            return response(f.recovery)
-          },
-          new AbortController().signal,
-          () => {},
-          () => {},
-        ),
-      ).rejects.toThrow()
-      expect(requests).toBe(0)
-      expect(await readFile(f.destination, "utf8")).toBe("abc")
-    } finally {
-      await f.clean()
     }
-  }
-})
+  },
+)
 
 test("copy refuses existing destinations; cancellation and permission changes prevent publication", async () => {
   const f = await fixture()

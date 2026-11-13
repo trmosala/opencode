@@ -8,15 +8,18 @@ import { createVaultAccess } from "./vault-access"
 
 // Bun module mocks persist across files; isolate the OS boundary from the desktop suite.
 if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
-  test("production authentication adapter boundary checks", () => {
-    const result = Bun.spawnSync([process.execPath, "test", import.meta.path], {
+  test("production authentication adapter boundary checks", async () => {
+    // Not Bun.spawnSync: after any earlier node:child_process spawnSync in this runner (cm-ae staging),
+    // Bun's next timed synchronous spawn can be killed at once. Async Bun.spawn is unaffected.
+    const child = Bun.spawn([process.execPath, "test", import.meta.path], {
       cwd: join(import.meta.dir, "../../.."),
       env: { ...process.env, CM_VAULT_AUTH_TEST_CHILD: "1" },
       timeout: 15_000,
       stdout: "pipe",
       stderr: "pipe",
     })
-    expect(result.exitCode, Buffer.concat([result.stdout, result.stderr]).toString()).toBe(0)
+    const output = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
+    expect(await child.exited, output.join("")).toBe(0)
   }, 20_000)
 } else {
   const exists = mock(() => true)

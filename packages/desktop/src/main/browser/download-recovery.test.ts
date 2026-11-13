@@ -27,15 +27,18 @@ import { join } from "node:path"
 
 // Keep the cached browser store and changes to the shared Electron preload in a child process.
 if (process.env.CM_STAGED_DOWNLOAD_TEST !== "1") {
-  test("staged download destination and lifecycle regressions", () => {
-    const result = Bun.spawnSync([process.execPath, "test", import.meta.path], {
+  test("staged download destination and lifecycle regressions", async () => {
+    // Not Bun.spawnSync: after any earlier node:child_process spawnSync in this runner (cm-ae staging),
+    // Bun's next timed synchronous spawn can be killed at once. Async Bun.spawn is unaffected.
+    const child = Bun.spawn([process.execPath, "test", import.meta.path], {
       cwd: join(import.meta.dir, "../../.."),
       env: { ...process.env, CM_STAGED_DOWNLOAD_TEST: "1" },
       stdout: "pipe",
       stderr: "pipe",
       timeout: 20_000,
     })
-    expect(result.exitCode, Buffer.concat([result.stdout, result.stderr]).toString()).toBe(0)
+    const output = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
+    expect(await child.exited, output.join("")).toBe(0)
   }, 25_000)
 } else {
   const { app, BrowserWindow, dialog } = await import("electron")
@@ -219,45 +222,52 @@ if (process.env.CM_STAGED_DOWNLOAD_TEST !== "1") {
     expect(readdirSync(parts)).toEqual([])
   })
 
-  test("publication skips files, directories, symlinks and collisions created after preflight", async () => {
-    const f = fixture()
-    try {
-      writeFileSync(join(f.target, "report.txt"), "keep")
-      mkdirSync(join(f.target, "report (1).txt"))
-      symlinkSync(join(f.target, "report.txt"), join(f.target, "report (2).txt"))
-      f.staged.start()
-      expect(f.dialogs).toHaveLength(0)
-      expect(readdirSync(f.target)).toHaveLength(3)
-      writeFileSync(join(f.target, "report (3).txt"), "late collision")
-      writeFileSync(f.item.path, "abcdef")
-      expect(await f.staged.finish(f.item.path)).toBe(join(f.target, "report (4).txt"))
-      expect(readFileSync(join(f.target, "report.txt"), "utf8")).toBe("keep")
-      expect(statSync(join(f.target, "report (1).txt")).isDirectory()).toBe(true)
-      expect(lstatSync(join(f.target, "report (2).txt")).isSymbolicLink()).toBe(true)
-      expect(readFileSync(join(f.target, "report (3).txt"), "utf8")).toBe("late collision")
-      expect(readFileSync(join(f.target, "report (4).txt"), "utf8")).toBe("abcdef")
-    } finally {
-      await f.clean()
-    }
-  })
+  // Creating the symlink fixtures needs Developer Mode or admin rights on Windows.
+  test.skipIf(process.platform === "win32")(
+    "publication skips files, directories, symlinks and collisions created after preflight",
+    async () => {
+      const f = fixture()
+      try {
+        writeFileSync(join(f.target, "report.txt"), "keep")
+        mkdirSync(join(f.target, "report (1).txt"))
+        symlinkSync(join(f.target, "report.txt"), join(f.target, "report (2).txt"))
+        f.staged.start()
+        expect(f.dialogs).toHaveLength(0)
+        expect(readdirSync(f.target)).toHaveLength(3)
+        writeFileSync(join(f.target, "report (3).txt"), "late collision")
+        writeFileSync(f.item.path, "abcdef")
+        expect(await f.staged.finish(f.item.path)).toBe(join(f.target, "report (4).txt"))
+        expect(readFileSync(join(f.target, "report.txt"), "utf8")).toBe("keep")
+        expect(statSync(join(f.target, "report (1).txt")).isDirectory()).toBe(true)
+        expect(lstatSync(join(f.target, "report (2).txt")).isSymbolicLink()).toBe(true)
+        expect(readFileSync(join(f.target, "report (3).txt"), "utf8")).toBe("late collision")
+        expect(readFileSync(join(f.target, "report (4).txt"), "utf8")).toBe("abcdef")
+      } finally {
+        await f.clean()
+      }
+    },
+  )
 
-  test.each(["replacement", "symlink"])("a destination %s after preflight still fails publication", async (change) => {
-    const f = fixture()
-    const moved = `${f.target}-moved`
-    try {
-      f.staged.start()
-      writeFileSync(f.item.path, "abcdef")
-      renameSync(f.target, moved)
-      if (change === "symlink") symlinkSync(moved, f.target)
-      else mkdirSync(f.target)
-      await expect(f.staged.finish(f.item.path)).rejects.toThrow("Download destination changed")
-      expect(readdirSync(f.target)).toEqual([])
-      expect(readdirSync(moved)).toEqual([])
-    } finally {
-      await f.clean()
-      rmSync(moved, { recursive: true, force: true })
-    }
-  })
+  test.each(process.platform === "win32" ? ["replacement"] : ["replacement", "symlink"])(
+    "a destination %s after preflight still fails publication",
+    async (change) => {
+      const f = fixture()
+      const moved = `${f.target}-moved`
+      try {
+        f.staged.start()
+        writeFileSync(f.item.path, "abcdef")
+        renameSync(f.target, moved)
+        if (change === "symlink") symlinkSync(moved, f.target)
+        else mkdirSync(f.target)
+        await expect(f.staged.finish(f.item.path)).rejects.toThrow("Download destination changed")
+        expect(readdirSync(f.target)).toEqual([])
+        expect(readdirSync(moved)).toEqual([])
+      } finally {
+        await f.clean()
+        rmSync(moved, { recursive: true, force: true })
+      }
+    },
+  )
 
   test.each(["sync", "async"])(
     "staged %s path aliases persist exact native IDs and reopen recoverable bytes",
