@@ -593,6 +593,8 @@ export async function waitForBridgeWithKeepAlive(bridgePromise, response, interv
 // The retry path resets thread continuity and replays the full transcript into a fresh worker.
 const FRESH_REPLAY_RETRY_TYPES = new Set([
   "o1_code_agent_chat_timeout",
+  // Raised while a fresh worker opens the Assistant panel, before any prompt is pasted.
+  "o1_code_assistant_popover_timeout",
   "o1_code_greeting_not_settled",
   "o1_code_fresh_chat_failed",
   "o1_code_recorder_not_armed",

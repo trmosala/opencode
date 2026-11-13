@@ -174,6 +174,54 @@ test("bounds a stuck panel observation and aborts before an input event", async 
   ).rejects.toMatchObject({ type: "o1_code_client_aborted" })
 })
 
+test("fails fast when the popover control never mounts and attaches panelState", async () => {
+  let time = 0
+  const error = await openAssistantPanel(
+    {
+      executeJavaScript: async () => ({ open: false, click: false, control: false, ready: true }),
+      sendInputEvent: () => {
+        throw new Error("must not click")
+      },
+    },
+    {
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms
+      },
+      timeoutMs: 60000,
+      absentControlMs: 1000,
+    },
+  ).catch((caught) => caught)
+  expect(error).toMatchObject({
+    type: "o1_code_assistant_popover_timeout",
+    panelState: { open: false, click: false, control: false, ready: true },
+  })
+  expect(time).toBe(1000)
+})
+
+test("keeps the full deadline when the control is present but the iframe never opens", async () => {
+  let time = 0
+  await expect(
+    openAssistantPanel(
+      {
+        executeJavaScript: async () => ({ open: false, click: false, control: true, ready: true }),
+        sendInputEvent: () => {
+          throw new Error("must not click")
+        },
+      },
+      {
+        now: () => time,
+        sleep: async (ms) => {
+          time += ms
+        },
+        timeoutMs: 2000,
+        absentControlMs: 500,
+      },
+    ),
+  ).rejects.toMatchObject({ type: "o1_code_assistant_popover_timeout" })
+  expect(time).toBe(2000)
+})
+
 test("New Chat clicks whatever wpp-action-button version hosts the more icon", async () => {
   let opened = false
   const item = {

@@ -28,7 +28,28 @@ describe("WPP usage resolution", () => {
     expect(resolved.evidence).toMatchObject({ source: "network", scope: "request", fidelity: "exact" })
   })
 
-  test("uses only a confirmed post-turn context pill", () => {
+  test("emits cached_tokens 0 when network usage omits cache so OpenCode can measure the prompt", () => {
+    const resolved = resolveUsage({
+      measurement: {
+        scope: "request",
+        source: "network",
+        fidelity: "exact",
+        promptTokens: 80,
+        completionTokens: 10,
+      },
+      promptTokens: 2,
+      completionText: "done",
+    })
+
+    expect(resolved.usage).toEqual({
+      prompt_tokens: 80,
+      completion_tokens: 10,
+      total_tokens: 90,
+      prompt_tokens_details: { cached_tokens: 0 },
+    })
+  })
+
+  test("keeps DOM-pill observation but estimates OpenAI usage instead of publishing pill totals", () => {
     const resolved = resolveUsage({
       measurement: {
         scope: "context",
@@ -41,9 +62,14 @@ describe("WPP usage resolution", () => {
       completionText: "done",
     })
 
-    expect(resolved.usage.total_tokens).toBe(500)
-    expect(resolved.usage.prompt_tokens + resolved.usage.completion_tokens).toBe(500)
-    expect(resolved.evidence.observation).toEqual({ before: 450, networkComplete: 450, settled: 500 })
+    expect(resolved.evidence).toMatchObject({
+      source: "estimate",
+      observation: { before: 450, networkComplete: 450, settled: 500 },
+    })
+    expect(resolved.usage.prompt_tokens).toBe(2)
+    expect(resolved.usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
+    expect(resolved.usage.total_tokens).toBe(resolved.usage.prompt_tokens + resolved.usage.completion_tokens)
+    expect(resolved.usage.total_tokens).not.toBe(500)
   })
 
   test("adds retained context only for a continued-thread estimate", () => {
@@ -61,6 +87,7 @@ describe("WPP usage resolution", () => {
     })
 
     expect(continued.usage.prompt_tokens).toBe(410)
+    expect(continued.usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
     expect(continued.evidence).toMatchObject({ source: "estimate", retainedContextTokens: 400 })
     expect(fresh.usage.prompt_tokens).toBe(10)
     expect(fresh.evidence.retainedContextTokens).toBeUndefined()
@@ -81,6 +108,7 @@ describe("WPP usage resolution", () => {
 
     expect(resolved.evidence.source).toBe("estimate")
     expect(resolved.usage.prompt_tokens).toBe(0)
+    expect(resolved.usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
     expect(resolved.usage.completion_tokens).toBeGreaterThanOrEqual(0)
     expect(resolved.usage.prompt_tokens + resolved.usage.completion_tokens).toBe(resolved.usage.total_tokens)
   })

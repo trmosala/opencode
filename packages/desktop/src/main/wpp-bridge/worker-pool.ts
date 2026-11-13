@@ -518,6 +518,9 @@ export class WorkerPool {
           {
             type: error && typeof error === "object" ? (Reflect.get(error, "type") ?? "unknown") : "unknown",
             elapsedMs: Date.now() - startedAt,
+            ...(error && typeof error === "object" && Reflect.get(error, "panelState") !== undefined
+              ? { panelState: Reflect.get(error, "panelState") }
+              : {}),
           },
           "error",
         )

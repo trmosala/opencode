@@ -53,7 +53,7 @@ export function assistantPanelStateExpression() {
 }
 
 function assistantPanelState() {
-  if (document.readyState !== "complete") return { open: false, click: false }
+  if (document.readyState !== "complete") return { open: false, click: false, control: false, ready: false }
   const assistantOrigin = "https://open-web-assistant-cs.wpp.ai"
   const iframe = Array.from(document.querySelectorAll("iframe")).find((frame) => {
     const src = URL.parse(frame.src)
@@ -61,10 +61,10 @@ function assistantPanelState() {
   })
   if (iframe) {
     const rect = iframe.getBoundingClientRect()
-    if (rect.width > 0 && rect.height > 0) return { open: true }
+    if (rect.width > 0 && rect.height > 0) return { open: true, control: true, ready: true }
   }
   const control = document.querySelector("[data-testid='assistant-popover-button-new']")
-  if (!control) return { open: false, click: false }
+  if (!control) return { open: false, click: false, control: false, ready: true }
   const rect = control.getBoundingClientRect()
   const x = Math.round(rect.left + rect.width / 2)
   const y = Math.round(rect.top + rect.height / 2)
@@ -74,12 +74,16 @@ function assistantPanelState() {
     !control.closest("[disabled], [aria-disabled='true']") &&
     rect.width > 0 &&
     rect.height > 0
-  if (!enabled) return { open: false, click: false }
+  if (!enabled) return { open: false, click: false, control: true, ready: true }
   const hit = document.elementFromPoint(x, y)
-  if (hit && (hit === control || control.contains(hit))) return { open: false, click: true, x, y }
+  if (hit && (hit === control || control.contains(hit)))
+    return { open: false, click: true, x, y, control: true, ready: true }
   // Overlay / hit-test miss: still ask the host to JS-click the control.
-  return { open: false, click: false, jsClick: true }
+  return { open: false, click: false, jsClick: true, control: true, ready: true }
 }
+
+// Fail fast when the popover control never mounts — sitting the full timeout just burns minutes of "thinking".
+const ABSENT_CONTROL_MS = 15000
 
 export async function openAssistantPanel(
   contents: {
@@ -96,17 +100,25 @@ export async function openAssistantPanel(
     now = Date.now,
     sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     timeoutMs = 60000,
+    absentControlMs = ABSENT_CONTROL_MS,
     signal,
   }: {
     now?: () => number
     sleep?: (ms: number) => Promise<void>
     timeoutMs?: number
+    absentControlMs?: number
     signal?: AbortSignal
   } = {},
 ) {
   const deadline = now() + timeoutMs
   let nextClickAt = 0
-  const expire = () => assistantError("o1_code_assistant_popover_timeout")
+  let absentSince: number | undefined
+  let lastState: unknown
+  const expire = () => {
+    const error = assistantError("o1_code_assistant_popover_timeout")
+    if (lastState !== undefined) Reflect.set(error, "panelState", lastState)
+    return error
+  }
   while (now() < deadline) {
     const state = await navigationWait(
       () => contents.executeJavaScript(assistantPanelStateExpression(), true),
@@ -114,8 +126,15 @@ export async function openAssistantPanel(
       signal,
       expire,
     )
+    lastState = state
     if (state && typeof state === "object") {
       if (Reflect.get(state, "open") === true) return
+      if (Reflect.get(state, "ready") === true && Reflect.get(state, "control") === false) {
+        if (absentSince === undefined) absentSince = now()
+        if (now() - absentSince >= absentControlMs) throw expire()
+      } else {
+        absentSince = undefined
+      }
       const x = Reflect.get(state, "x")
       const y = Reflect.get(state, "y")
       if (

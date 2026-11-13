@@ -529,6 +529,7 @@ describe("shouldRetryFreshReplay", () => {
   test("retries every fresh-replay-healable failure type", () => {
     for (const type of [
       "o1_code_agent_chat_timeout",
+      "o1_code_assistant_popover_timeout",
       "o1_code_greeting_not_settled",
       "o1_code_fresh_chat_failed",
       "o1_code_recorder_not_armed",
@@ -906,7 +907,7 @@ describe("incomplete task recovery", () => {
 })
 
 describe("handleChatCompletions token usage", () => {
-  test("uses a confirmed changed WPP token pill as the context total", async () => {
+  test("does not publish DOM-pill totals as OpenAI usage", async () => {
     commitThread(KEY, body(user("hello")), assistant("previous"))
     const response = fakeResponse()
     const bridge = {
@@ -933,9 +934,9 @@ describe("handleChatCompletions token usage", () => {
 
     expect(response.statusCode).toBe(200)
     const usage = JSON.parse(response.body).usage
-    expect(usage.total_tokens).toBe(117219)
+    expect(usage.total_tokens).not.toBe(117219)
+    expect(usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
     expect(usage.completion_tokens).toBeGreaterThan(0)
-    expect(usage.completion_tokens).toBeLessThanOrEqual(usage.total_tokens)
     expect(usage.prompt_tokens + usage.completion_tokens).toBe(usage.total_tokens)
   })
 
@@ -1033,10 +1034,11 @@ describe("handleChatCompletions token usage", () => {
           ? bridgeRun("second")
           : bridgeRun("first", {
               usage: {
-                scope: "context",
-                source: "dom-pill",
-                fidelity: "confirmed",
-                totalTokens: 400,
+                scope: "request",
+                source: "network",
+                fidelity: "exact",
+                promptTokens: 400,
+                completionTokens: 0,
               },
             }),
     }
@@ -1123,7 +1125,14 @@ describe("handleChatCompletions token usage", () => {
               incomplete,
               mode === "measured-replay"
                 ? {
-                    usage: { scope: "context", source: "dom-pill", fidelity: "confirmed", totalTokens: 4000 },
+                    // Request-scoped network total becomes the retained context anchor (not a DOM pill).
+                    usage: {
+                      scope: "request",
+                      source: "network",
+                      fidelity: "exact",
+                      promptTokens: 4000,
+                      completionTokens: 0,
+                    },
                   }
                 : {},
             )
@@ -1154,6 +1163,7 @@ describe("handleChatCompletions token usage", () => {
         expect(usage.prompt_tokens).toBe(baseline + estimateTokens(calls.at(-1).prompt))
         expect(usage.completion_tokens).toBe(estimateTokens(final))
         expect(usage.total_tokens).toBe(usage.prompt_tokens + usage.completion_tokens)
+        expect(usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
         expect(threadContextUsage(KEY)?.totalTokens).toBe(usage.total_tokens)
       })
     }

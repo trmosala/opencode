@@ -54,6 +54,7 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.lsp).toBe(true)
   expect(config.small_model).toBe(SEED_SMALL_MODEL)
   expect(config.agent).toEqual(SEED_AGENTS)
+  expect(config.compaction).toBeUndefined()
   await rm(dir, { recursive: true, force: true })
 })
 
@@ -61,11 +62,18 @@ test("injected config content seeds task-routed explore/general CM models", () =
   const config = JSON.parse(o1CodeConfigContent())
   expect(config.small_model).toBe(SEED_SMALL_MODEL)
   expect(config.agent).toEqual(SEED_AGENTS)
+  expect(config.compaction).toBeUndefined()
   expect(config.agent.explore.model).toBe("cookiemonster/CM_Gemini-3.7-Flash_Medium")
   expect(config.agent.general.model).toBe("cookiemonster/CM_Opus5.5-Medium")
   expect(config.agent.title.model).toBe(SEED_SMALL_MODEL)
   expect(config.agent.summary.model).toBe(SEED_SMALL_MODEL)
   expect(config.agent.compaction.model).toBe(SEED_SMALL_MODEL)
+})
+
+test("advertised context compacts on both paths before the proxy prompt cap", () => {
+  // Both compaction paths reserve 32k of headroom; V2 estimates 4 chars/token, the proxy cap is 600k chars.
+  const usable = COOKIE_MONSTER_PROVIDER.models[MODEL_IDS[0]].limit.context - 32_000
+  expect(usable * 4).toBeLessThan(600_000)
 })
 
 test("mergeSeedTaskAgents fills missing model/description without clobbering user values", () => {

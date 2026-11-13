@@ -263,12 +263,13 @@ threshold depends on the session path:
 
 `250K context - 32K output headroom = 218K usable`
 
-- **Session V2:** `packages/core/src/session/compaction.ts` subtracts the
-  request's generation maximum or, when absent, the routed model's output limit,
-  while also respecting its compaction buffer. With the advertised 128K output
-  limit and no narrower request value, that is:
+- **Session V2:** `packages/core/src/session/compaction.ts` reserves
+  `max(buffer, min(output || buffer, 32_000))` for headroom, matching legacy
+  OpenCode's `OUTPUT_TOKEN_MAX` so a large advertised output limit does not
+  shrink most of the window. With the advertised 128K output limit, the default
+  20K buffer, and no narrower request `maxTokens`, that is:
 
-`250K context - 128K output headroom = 122K usable`
+`250K context - 32K output headroom = 218K usable`
 
 `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, request generation settings, and
 compaction configuration can move these thresholds. Neither local threshold

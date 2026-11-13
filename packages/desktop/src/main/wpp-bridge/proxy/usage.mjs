@@ -13,11 +13,9 @@ export function resolveUsage({
     return result(network, measurement)
   }
 
-  const context = confirmedContextUsage(measurement, completionEstimate)
-  if (context) {
-    return result(context, measurement)
-  }
-
+  // DOM pill is whole-thread WPP context, not a request prompt. Publishing it as OpenAI
+  // prompt_tokens makes SessionCompaction.due() fire early once measured anchors work.
+  // Keep the pill on evidence for logs/UI; OpenAI usage falls through to the estimate.
   const retained = continued ? (finiteToken(retainedContextTokens) ?? 0) : 0
   const prompt = (finiteToken(promptTokens) ?? 0) + retained
   const usage = standardUsage(prompt, completionEstimate)
@@ -26,6 +24,7 @@ export function resolveUsage({
     source: "estimate",
     fidelity: "estimated",
     totalTokens: usage.total_tokens,
+    ...(pillObservation(measurement) ? { observation: pillObservation(measurement) } : {}),
     ...(retained > 0 ? { retainedContextTokens: retained } : {}),
   })
 }
@@ -38,23 +37,22 @@ function exactNetworkUsage(measurement) {
   return standardUsage(prompt, completion, measurement.cachedTokens, measurement.reasoningTokens)
 }
 
-function confirmedContextUsage(measurement, completionEstimate) {
+function pillObservation(measurement) {
   if (measurement?.source !== "dom-pill" || measurement.scope !== "context") return undefined
-  const total = finiteToken(measurement.totalTokens)
-  if (total === null) return undefined
-  const completion = Math.min(completionEstimate, total)
-  return standardUsage(total - completion, completion)
+  return measurement.observation
 }
 
 function standardUsage(prompt, completion, cached, reasoning) {
+  const cachedTokens = finiteToken(cached)
+  const reasoningTokens = finiteToken(reasoning)
+  // Always emit cached_tokens so OpenCode's openai-compat path sets noCache = prompt_tokens
+  // (undefined details leave input at 0 and hasMeasuredPrompt never anchors).
   const usage = {
     prompt_tokens: prompt,
     completion_tokens: completion,
     total_tokens: prompt + completion,
+    prompt_tokens_details: { cached_tokens: cachedTokens !== null ? Math.min(cachedTokens, prompt) : 0 },
   }
-  const cachedTokens = finiteToken(cached)
-  const reasoningTokens = finiteToken(reasoning)
-  if (cachedTokens !== null) usage.prompt_tokens_details = { cached_tokens: Math.min(cachedTokens, prompt) }
   if (reasoningTokens !== null)
     usage.completion_tokens_details = { reasoning_tokens: Math.min(reasoningTokens, completion) }
   return usage

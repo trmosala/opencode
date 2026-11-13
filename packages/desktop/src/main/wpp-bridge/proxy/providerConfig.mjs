@@ -3,12 +3,13 @@ import { dirname, join } from "node:path"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { MODEL_IDS, RENAMED_MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs"
 
-// Advertised model context/output limits. Context is kept below the proxy's O1_CODE_MAX_PROMPT_CHARS
-// (600k chars ≈ ~150k tok) so OpenCode auto-compacts before the proxy hard-rejects the serialized
-// prompt: 250k - 128k = 122k tok usable ≈ ~488k chars, comfortably under the cap. Also injected via
-// OPENCODE_CONFIG_CONTENT (see o1CodeConfigContent) so this wins even on a machine whose seeded
-// opencode.json still carries the old value.
-export const O1_CODE_CONTEXT_LIMIT = 250000
+// Advertised model context/output limits. The context limit is bounded by the proxy's serialized-prompt
+// cap (O1_CODE_MAX_PROMPT_CHARS, default 600k chars), not WPP's ~250k window: OpenCode must auto-compact
+// before the proxy returns 413. Both compaction paths reserve 32k of output headroom, so 160k leaves
+// 128k usable — about 512k chars at core's 4 chars/token (V2) and 384k at the proxy's 3 chars/token
+// (V1, which compacts on reported usage). Also injected via OPENCODE_CONFIG_CONTENT (see
+// o1CodeConfigContent) so this wins even on a machine whose seeded opencode.json carries an old value.
+export const O1_CODE_CONTEXT_LIMIT = 160000
 export const O1_CODE_OUTPUT_LIMIT = 128000
 
 // CM Browser is the desktop's normal browser. Chrome DevTools remains an opt-in

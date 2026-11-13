@@ -13,6 +13,9 @@ const DEFAULT_BUFFER = 20_000
 const DEFAULT_KEEP_TOKENS = 8_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const SUMMARY_OUTPUT_TOKENS = 4_096
+// Match legacy OpenCode OUTPUT_TOKEN_MAX so a large advertised output limit does not
+// reserve most of the context window for auto-compaction headroom.
+const OUTPUT_TOKEN_MAX = 32_000
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Objective
@@ -81,6 +84,9 @@ type Input = {
 }
 
 const estimate = (value: unknown) => Token.estimate(JSON.stringify(value))
+
+export const reservedTokens = (output: number, buffer: number) =>
+  Math.max(buffer, Math.min(output || buffer, OUTPUT_TOKEN_MAX))
 
 const truncate = (value: string) =>
   value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
@@ -236,7 +242,7 @@ export const make = (dependencies: Dependencies) => {
     const output = input.request.generation?.maxTokens ?? input.model.route.defaults.limits?.output ?? 0
     if (
       estimate({ system: input.request.system, messages: input.request.messages, tools: input.request.tools }) <=
-      context - Math.max(output, config.buffer)
+      context - reservedTokens(output, config.buffer)
     )
       return false
     return yield* compactAfterOverflow(input)
