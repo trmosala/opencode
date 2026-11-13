@@ -54,11 +54,12 @@ test("routes only the Assistant panel, excluding contributor chats, editors and 
   }
   const builder = { ...frame, url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational" }
   expect(assistantFrame({ mainFrame: { framesInSubtree: [builder, frame] } })).toBe(frame)
-  expect(isAssistantChatUrl("https://open-web-assistant-cs.wpp.ai/chat/project/other")).toBe(true)
+  expect(isAssistantChatUrl("https://open-web-assistant-cs.wpp.ai/chat/project/foundational")).toBe(true)
   for (const url of [
     builder.url,
     "invalid",
     "https://open-web-assistant-cs.wpp.ai.evil.test/chat/project/ai-assistant",
+    "https://open-web-assistant-cs.wpp.ai/chat/project/other",
     "https://open-web-assistant-cs.wpp.ai/chat/project",
   ]) {
     expect(isAssistantChatUrl(url)).toBe(false)

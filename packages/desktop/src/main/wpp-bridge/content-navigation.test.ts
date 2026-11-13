@@ -172,6 +172,18 @@ describe("WPP Assistant side-panel navigation", () => {
     expect(() => h.hooks.requireAgentSelected("CM_Astra")).toThrow("o1_code_wrong_agent")
   })
 
+  test("keeps waiting while a greeting streams into an existing bubble", async () => {
+    const h = await harness()
+    h.state.users = []
+    const greeting = element("Hel")
+    h.state.assistants = [greeting]
+    h.state.onTick = () => {
+      if (h.state.time <= 1500) greeting.textContent += "l"
+    }
+    await h.hooks.waitForGreetingSettlement(h.state.composer, { timeoutMs: 5000 })
+    expect(h.state.time).toBeGreaterThanOrEqual(2500)
+  })
+
   test("arm rejects pending work introduced after settlement", async () => {
     const h = await harness()
     await h.hooks.startFreshChat()

@@ -687,18 +687,19 @@ export function submissionStartedAt(result: unknown, earliest: number) {
   return typeof at === "number" && Number.isFinite(at) && at >= earliest && at <= Date.now() ? at : Infinity
 }
 
-async function waitForAssistantBridge(
+export async function waitForAssistantBridge(
   contents: BrowserWindow["webContents"],
   controller: Controller,
   signal?: AbortSignal,
 ) {
   const deadline = Date.now() + 30000
-  // Require the composer to report ready for two CONSECUTIVE polls before declaring the bridge
-  // usable. inspectChat runs inside the assistant iframe, so its readiness reflects the real chat
-  // composer (the only cross-origin-safe truth — the host-page iframe.src attribute is stale under
-  // SPA routing). A single transient "ready" can be seen mid-redirect, after which the navigation
-  // wipes the composer we then fill → post-login submit_or_ui_failure. Stability debounces that.
-  let stable = 0
+  // Require the composer to report ready continuously for 500ms before declaring the bridge usable.
+  // inspectChat runs inside the assistant iframe, so its readiness reflects the real chat composer
+  // (the only cross-origin-safe truth — the host-page iframe.src attribute is stale under SPA
+  // routing). A transient "ready" can be seen mid-redirect, after which the navigation wipes the
+  // composer we then fill → post-login submit_or_ui_failure. A time window rather than a poll count
+  // keeps that debounce independent of the polling interval.
+  let readySince = 0
   while (Date.now() < deadline) {
     throwIfClientAborted(signal)
     const state = (await withClientAbort(
@@ -706,10 +707,10 @@ async function waitForAssistantBridge(
       signal,
     )) as { ok?: boolean; ready?: boolean } | null
     if (state?.ok && state.ready) {
-      stable += 1
-      if (stable >= 2) return
+      readySince ||= Date.now()
+      if (Date.now() - readySince >= 500) return
     } else {
-      stable = 0
+      readySince = 0
     }
     await withClientAbort(wait(100), signal)
   }

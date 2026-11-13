@@ -52,7 +52,7 @@ describe("published WPP agent chat", () => {
 
   test("recognizes the agent chat, excluding the editor and assistant panel", () => {
     expect(isAgentChatUrl("https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational?model=agent")).toBe(true)
-    expect(isAgentChatUrl("https://open-web-agent-builder-cs.wpp.ai/chat/project/next-leaf")).toBe(true)
+    expect(isAgentChatUrl("https://open-web-agent-builder-cs.wpp.ai/chat/project/next-leaf")).toBe(false)
     expect(isAgentChatUrl("https://open-web-agent-builder-cs.wpp.ai/chat/project")).toBe(false)
     expect(isAgentChatUrl("https://open-web-agent-builder-cs.wpp.ai/agent/project/edit/agent")).toBe(false)
     expect(isAgentChatUrl("https://open-web-assistant-cs.wpp.ai/chat/project")).toBe(false)

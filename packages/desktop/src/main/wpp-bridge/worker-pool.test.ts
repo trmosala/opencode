@@ -11,7 +11,7 @@ import {
   wppProjectAccessError,
 } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
-import { WorkerPool, submissionStartedAt, toggleWorkerWindows } from "./worker-pool"
+import { WorkerPool, submissionStartedAt, toggleWorkerWindows, waitForAssistantBridge } from "./worker-pool"
 import { createCdpNetworkReducer } from "./cdp-network-recorder"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 import { commitThread, resetThread, threadContextUsage } from "./proxy/sessionThreads.mjs"
@@ -28,7 +28,8 @@ test("concurrent jobs retain their own worker correlation and log retirement rea
   const completions = new Map<number, (value: unknown) => void>()
   const workers = [1, 2].map((id) => ({
     id,
-    window: { isDestroyed: () => false, destroy: () => {} },
+    // setTitle keeps this test independent of O1_CODE_SHOW_WORKERS in the developer's shell.
+    window: { isDestroyed: () => false, destroy: () => {}, setTitle: () => {} },
     agent: "test-agent",
     protocolAgent: "test-agent",
     sessionKey: `private-owner-${id}`,
@@ -70,6 +71,25 @@ test("concurrent jobs retain their own worker correlation and log retirement rea
   } finally {
     pool.destroy()
   }
+})
+
+test("waits for 500ms of continuous composer readiness before declaring the bridge usable", async () => {
+  // A transient ready between redirects must not count; the old two-poll debounce returned ~100ms later.
+  const ready = [true, false, true]
+  let polls = 0
+  let lastNotReadyAt = Date.now()
+  await waitForAssistantBridge(
+    {} as never,
+    {
+      inspectChat: async () => {
+        const value = ready[Math.min(polls++, ready.length - 1)]
+        if (!value) lastNotReadyAt = Date.now()
+        return { ok: true, ready: value }
+      },
+    } as never,
+  )
+  expect(Date.now() - lastNotReadyAt).toBeGreaterThanOrEqual(500)
+  expect(polls).toBeGreaterThan(4)
 })
 
 const worker = (

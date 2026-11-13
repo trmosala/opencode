@@ -1,14 +1,16 @@
 ;(() => {
+  // Exact chat leaves only, kept in sync with isAssistantChatUrl and isAgentChatUrl. A wildcard leaf
+  // also admits other same-origin chat frames.
   function isAssistantChatFrame() {
     return (
       location.hostname === "open-web-assistant-cs.wpp.ai" &&
-      /^\/chat\/[^/]+\/[^/]+\/?$/.test(location.pathname)
+      /^\/chat\/[^/]+\/(?:ai-assistant|foundational)\/?$/.test(location.pathname)
     )
   }
   function isDedicatedChatFrame() {
     return (
       location.hostname === "open-web-agent-builder-cs.wpp.ai" &&
-      /^\/chat\/[^/]+\/[^/]+\/?$/.test(location.pathname)
+      /^\/chat\/[^/]+\/foundational\/?$/.test(location.pathname)
     )
   }
   function isChatFrame() {
@@ -225,7 +227,7 @@
     emitProgressPhase(jobId, "settling")
     await waitForTextarea(SETUP_TIMEOUT_MS)
     if (continueThread || isDedicatedChatFrame()) requireAgentSelected(expectedAgent)
-    // One settle per job. Fresh chats settle inside startFreshChat; continue turns settle at submit.
+    // Fresh chats settle inside startFreshChat and again after an agent switch; continue turns settle at submit.
     const freshChat = continueThread
       ? await continueExistingChat()
       : await startFreshChat(
@@ -243,6 +245,9 @@
       throw error
     }
     requireAgentSelected(expectedAgent)
+    // ensureAgentSelected records an activation only when it had to open the picker. Switching agent can
+    // start a new greeting after New Chat already settled, and live turns do not pin expectedPrompt.
+    if (agentSelection.activationMethod) await waitForGreetingSettlement(textarea)
     textarea = await waitForTextarea(SETUP_TIMEOUT_MS)
     const attachments = await attachImages(job?.payload?.images || [], textarea, SETUP_TIMEOUT_MS)
     if (
@@ -622,7 +627,10 @@
       const assistants = Array.from(
         root.querySelectorAll(".chat-message--assistant, [data-message-author-role='assistant']"),
       )
-      const next = `${state.version}:${assistants.length}:${root.childElementCount || 0}`
+      // The last bubble's text length catches a greeting still streaming into an existing message,
+      // without serializing the whole transcript on every 100ms poll.
+      const lastLength = assistants.at(-1)?.textContent?.length || 0
+      const next = `${state.version}:${assistants.length}:${root.childElementCount || 0}:${lastLength}`
       const busy =
         state.pending > 0 ||
         !textarea ||
@@ -1085,7 +1093,7 @@
       )
       textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }))
       textarea.dispatchEvent(new Event("change", { bubbles: true }))
-      // Fresh turns already settled after New Chat; a second 1s-idle wait here only adds latency.
+      // Fresh turns already settled after New Chat and any agent switch; a second 1s-idle wait only adds latency.
       if (settleGreeting) await waitForGreetingSettlement(textarea, { timeoutMs: Math.max(1, deadline - Date.now()) })
       if (textarea !== findVisibleTextarea() || textarea.isConnected === false) continue
       await waitForSendButton(textarea, Math.min(15000, Math.max(1, deadline - Date.now())))

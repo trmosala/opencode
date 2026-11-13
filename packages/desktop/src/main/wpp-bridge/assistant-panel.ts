@@ -1,8 +1,10 @@
+// Exact chat leaves only. A wildcard leaf also matches other same-origin chat frames, so assistantFrame
+// would report a thread desync or route to the wrong frame.
 export function isAssistantChatUrl(value: string) {
   const url = URL.parse(value)
   return (
     url?.origin === "https://open-web-assistant-cs.wpp.ai" &&
-    /^\/chat\/[^/]+\/[^/]+\/?$/.test(url.pathname)
+    /^\/chat\/[^/]+\/(?:ai-assistant|foundational)\/?$/.test(url.pathname)
   )
 }
 
