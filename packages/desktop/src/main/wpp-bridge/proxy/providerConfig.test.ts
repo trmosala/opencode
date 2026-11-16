@@ -58,16 +58,11 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   await rm(dir, { recursive: true, force: true })
 })
 
-test("injected config content seeds task-routed explore/general CM models", () => {
+test("injected config content leaves small_model and agents to the user-editable disk seed", () => {
   const config = JSON.parse(o1CodeConfigContent())
-  expect(config.small_model).toBe(SEED_SMALL_MODEL)
-  expect(config.agent).toEqual(SEED_AGENTS)
+  expect(config.small_model).toBeUndefined()
+  expect(config.agent).toBeUndefined()
   expect(config.compaction).toBeUndefined()
-  expect(config.agent.explore.model).toBe("cookiemonster/CM_Gemini-3.7-Flash_Medium")
-  expect(config.agent.general.model).toBe("cookiemonster/CM_Opus5.5-Medium")
-  expect(config.agent.title.model).toBe(SEED_SMALL_MODEL)
-  expect(config.agent.summary.model).toBe(SEED_SMALL_MODEL)
-  expect(config.agent.compaction.model).toBe(SEED_SMALL_MODEL)
 })
 
 test("advertised context compacts on both paths before the proxy prompt cap", () => {
@@ -578,8 +573,7 @@ for (const browser of [false, true]) {
         mode: { review: { permission: { "ae_*": "deny" } } },
       }
       expect({ ...policy.permission, ...config.permission }.ae_execute).toBe("deny")
-      expect(config.agent).toEqual(SEED_AGENTS)
-      expect(config.small_model).toBe(SEED_SMALL_MODEL)
+      expect(config.agent).toBeUndefined()
       expect(config.mode).toBeUndefined()
       expect(config.tools).toBeUndefined()
     })
@@ -627,8 +621,6 @@ test("injected config is self-contained for a clean bundled OpenCode install", (
   })
   expect(config.lsp).toBe(true)
   expect(config.plugin).toEqual([plugin])
-  expect(config.small_model).toBe(SEED_SMALL_MODEL)
-  expect(config.agent).toEqual(SEED_AGENTS)
   expect(config.permission).toEqual({
     browser_read_state: "allow",
     browser_search_history: "allow",
