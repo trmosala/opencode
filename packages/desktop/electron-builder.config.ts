@@ -66,6 +66,11 @@ const getBase = (appId: string): Configuration => ({
     desktopName: `${appId}.desktop`,
   },
   asarUnpack: ["**/node_modules/@opencode/pty-*/bin/**"],
+  // Every packaged native module ships an ABI-stable N-API prebuilt (@parcel/watcher-*,
+  // @lydell/node-pty-*, @msgpackr-extract/*). @electron/rebuild only detects prebuilds inside a
+  // module's own prebuilds/ folder, so it compiles @parcel/watcher from binding.gyp, which needs a
+  // C++ toolchain and produces a build/Release binary that index.js never loads.
+  npmRebuild: false,
   files: [
     "package.json",
     "out/**/*",

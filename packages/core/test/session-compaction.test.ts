@@ -45,3 +45,13 @@ test("compaction describes tool media without embedding base64", () => {
   expect(serialized).toBe("Image read successfully\n[Attached image/png: pixel.png]")
   expect(serialized).not.toContain(base64)
 })
+
+test("reservedTokens caps CookieMonster-sized output headroom at 32k", () => {
+  expect(SessionCompaction.reservedTokens(128_000, 20_000)).toBe(32_000)
+  expect(160_000 - SessionCompaction.reservedTokens(128_000, 20_000)).toBe(128_000)
+})
+
+test("reservedTokens keeps the buffer when output is smaller", () => {
+  expect(SessionCompaction.reservedTokens(4_096, 20_000)).toBe(20_000)
+  expect(SessionCompaction.reservedTokens(0, 20_000)).toBe(20_000)
+})

@@ -204,6 +204,11 @@ async function writeZip(output: string, entries: Entry[]) {
 }
 
 function initConsoleTransport() {
+  // Async EPIPE from closed stdout/stderr bypasses the sync writeFn try/catch and
+  // becomes Electron's uncaught-exception dialog — swallow it and stop console logs.
+  ignoreBrokenPipe(process.stdout)
+  ignoreBrokenPipe(process.stderr)
+
   if (app.isPackaged) {
     log.transports.console.level = false
     return
@@ -218,6 +223,13 @@ function initConsoleTransport() {
       log.transports.console.level = false
     }
   }
+}
+
+function ignoreBrokenPipe(stream: NodeJS.WriteStream | null | undefined) {
+  stream?.on("error", (err) => {
+    if (!isBrokenPipe(err)) throw err
+    log.transports.console.level = false
+  })
 }
 
 function isBrokenPipe(err: unknown) {

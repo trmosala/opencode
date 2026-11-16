@@ -43,6 +43,61 @@ describe("WPP greeting capture boundary", () => {
     expect(h.requests()).toEqual([])
   })
 
+  test("records a chat stream from another lambda region and a versioned chat path", async () => {
+    const h = await harness()
+    h.arm("prompt")
+    const lambda = h.fetch("https://abc.lambda-url.us-east-1.on.aws/")
+    const lambdaBody = h.stream("text/event-stream")
+    await lambda
+    lambdaBody.enqueue(new TextEncoder().encode(sse("east")))
+    lambdaBody.close()
+    await h.idle()
+    expect(h.records().at(-1)).toMatchObject({ runId: "prompt", finalText: "east", done: true })
+
+    const next = h.fetch("/v2/chat/completions")
+    const nextBody = h.stream("text/event-stream")
+    await next
+    nextBody.enqueue(new TextEncoder().encode(sse("v2")))
+    nextBody.close()
+    await h.idle()
+    expect(h.records().at(-1)).toMatchObject({ runId: "prompt", finalText: "v2", done: true })
+  })
+
+  test("admits an unknown POST only when its event stream parses as chat", async () => {
+    const h = await harness()
+    h.arm("prompt")
+    const noise = h.fetch("/internal/notifications")
+    const noiseBody = h.stream("text/event-stream")
+    await noise
+    noiseBody.enqueue(new TextEncoder().encode('data: {"kind":"ping"}\n\n'))
+    noiseBody.close()
+    await Bun.sleep(30)
+    await h.idle()
+    expect(h.records()).toEqual([])
+    expect(h.state().failure).toBeNull()
+
+    const chat = h.fetch("/internal/completions")
+    const chatBody = h.stream("text/event-stream")
+    await chat
+    chatBody.enqueue(new TextEncoder().encode(sse("moved")))
+    chatBody.close()
+    for (let i = 0; i < 40 && !h.records().some((record) => record.done); i++) await Bun.sleep(5)
+    await h.idle()
+    expect(h.records().at(-1)).toMatchObject({ runId: "prompt", finalText: "moved", done: true })
+  })
+
+  test("does not record heap telemetry even when it is an event stream", async () => {
+    const h = await harness()
+    h.arm("prompt")
+    const heap = h.fetch("https://c.eu.heap-api.com/api/capture")
+    h.respond(new Response(sse("nope"), { headers: { "content-type": "text/event-stream" } }))
+    await heap
+    await Bun.sleep(30)
+    await h.idle()
+    expect(h.records()).toEqual([])
+    expect(h.state().failure).toBeNull()
+  })
+
   test("records a lambda SSE when armed without expectedPrompt (live job path)", async () => {
     const h = await harness()
     h.arm("prompt")

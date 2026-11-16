@@ -232,9 +232,17 @@ async function startCli(input: ListenOptions, content: string, url: string) {
     child.once("error", reject)
     child.once("exit", (code, signal) => reject(new Error(`OpenCode CLI exited before ready (${code ?? signal})`)))
   })
-  const exited = new Promise<void>((resolve) =>
-    child.exitCode !== null ? resolve() : child.once("exit", () => resolve()),
-  )
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null) {
+      resolve()
+      return
+    }
+    child.once("exit", (code, signal) => {
+      // Front proxy stays up and answers bare 502 after this; log so server.log shows the real cause.
+      console.error(`OpenCode CLI exited after ready (code=${code ?? "null"} signal=${signal ?? "null"})`)
+      resolve()
+    })
+  })
   return {
     url: ready,
     stop: async () => {

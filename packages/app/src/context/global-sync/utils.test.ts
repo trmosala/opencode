@@ -81,6 +81,19 @@ describe("normalizeProviderList", () => {
           limit: { context: 128_000, output: 8_192 },
         },
         {
+          id: "unset",
+          modelID: "unset",
+          providerID: "openai",
+          name: "Unset",
+          capabilities: { tools: false, input: ["text"], output: ["text"] },
+          variants: [],
+          time: { released: 0 },
+          cost: [],
+          status: "active",
+          enabled: true,
+          limit: { context: 1, output: 1 },
+        },
+        {
           id: "gpt-old",
           modelID: "gpt-old",
           providerID: "openai",
@@ -107,7 +120,9 @@ describe("normalizeProviderList", () => {
       capabilities: { toolcall: true, attachment: true },
       cost: { input: 1, output: 2 },
       variants: { high: {} },
+      release_date: "1970-01-01",
     })
+    expect(result.all.get("openai")?.models.unset?.release_date).toBe("")
   })
 
   test("preserves an empty current default", () => {

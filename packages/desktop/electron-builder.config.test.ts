@@ -107,6 +107,13 @@ test("copies runtime icons outside the app archive for windows and tray", async 
   })
 })
 
+test("skips the native source rebuild because packaged modules ship N-API prebuilts", async () => {
+  const module = await import("./electron-builder.config.ts?npm-rebuild")
+  const config = module.default as Configuration
+
+  expect(config.npmRebuild).toBe(false)
+})
+
 test("bundles the CLI outside the dev app archive", async () => {
   const previous = process.env.OPENCODE_CHANNEL
   process.env.OPENCODE_CHANNEL = "dev"

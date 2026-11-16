@@ -9,6 +9,7 @@ import { MODEL_PROFILES } from "./modelProfiles.mjs"
 
 const {
   handleChatCompletions,
+  loginRequiredFailure,
   shouldRetryFreshReplay,
   shouldRecoverIncompleteTask,
   shouldRecoverMissingRequiredToolCall,
@@ -335,6 +336,23 @@ describe("handleChatCompletions capture retry", () => {
       type: "wpp_auth_required",
       retryCount: 0,
     })
+  })
+
+  test("does not reclassify image attachment desync or project load timeout as auth-required", async () => {
+    let authMarked = false
+    const bridge = {
+      checkAuthState: async () => "WPP page is asking for sign-in",
+      markAuthRequired: () => {
+        authMarked = true
+      },
+    }
+    for (const type of ["o1_code_image_attachment_desync", "o1_code_project_load_timeout"]) {
+      authMarked = false
+      const failure = typedError(type)
+      const result = await loginRequiredFailure(bridge, failure)
+      expect(result).toBe(failure)
+      expect(authMarked).toBe(false)
+    }
   })
 
   // A logged-IN probe (null reason) must leave the original failure untouched — no false auth pop.
@@ -918,7 +936,7 @@ describe("incomplete task recovery", () => {
 })
 
 describe("handleChatCompletions token usage", () => {
-  test("uses a confirmed changed WPP token pill as the context total", async () => {
+  test("does not publish DOM-pill totals as OpenAI usage", async () => {
     commitThread(KEY, body(user("hello")), assistant("previous"))
     const response = fakeResponse()
     const bridge = {
@@ -945,9 +963,9 @@ describe("handleChatCompletions token usage", () => {
 
     expect(response.statusCode).toBe(200)
     const usage = JSON.parse(response.body).usage
-    expect(usage.total_tokens).toBe(117219)
+    expect(usage.total_tokens).not.toBe(117219)
+    expect(usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
     expect(usage.completion_tokens).toBeGreaterThan(0)
-    expect(usage.completion_tokens).toBeLessThanOrEqual(usage.total_tokens)
     expect(usage.prompt_tokens + usage.completion_tokens).toBe(usage.total_tokens)
   })
 
@@ -1045,10 +1063,11 @@ describe("handleChatCompletions token usage", () => {
           ? bridgeRun("second")
           : bridgeRun("first", {
               usage: {
-                scope: "context",
-                source: "dom-pill",
-                fidelity: "confirmed",
-                totalTokens: 400,
+                scope: "request",
+                source: "network",
+                fidelity: "exact",
+                promptTokens: 400,
+                completionTokens: 0,
               },
             }),
     }
@@ -1135,7 +1154,14 @@ describe("handleChatCompletions token usage", () => {
               incomplete,
               mode === "measured-replay"
                 ? {
-                    usage: { scope: "context", source: "dom-pill", fidelity: "confirmed", totalTokens: 4000 },
+                    // Request-scoped network total becomes the retained context anchor (not a DOM pill).
+                    usage: {
+                      scope: "request",
+                      source: "network",
+                      fidelity: "exact",
+                      promptTokens: 4000,
+                      completionTokens: 0,
+                    },
                   }
                 : {},
             )
@@ -1166,6 +1192,7 @@ describe("handleChatCompletions token usage", () => {
         expect(usage.prompt_tokens).toBe(baseline + estimateTokens(calls.at(-1).prompt))
         expect(usage.completion_tokens).toBe(estimateTokens(final))
         expect(usage.total_tokens).toBe(usage.prompt_tokens + usage.completion_tokens)
+        expect(usage.prompt_tokens_details).toEqual({ cached_tokens: 0 })
         expect(threadContextUsage(KEY)?.totalTokens).toBe(usage.total_tokens)
       })
     }

@@ -11,7 +11,7 @@ import {
   wppProjectAccessError,
 } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
-import { WorkerPool, submissionStartedAt, toggleWorkerWindows } from "./worker-pool"
+import { WorkerPool, submissionStartedAt, toggleWorkerWindows, waitForAssistantBridge } from "./worker-pool"
 import { createCdpNetworkReducer } from "./cdp-network-recorder"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 import { commitThread, resetThread, threadContextUsage } from "./proxy/sessionThreads.mjs"
@@ -28,7 +28,8 @@ test("concurrent jobs retain their own worker correlation and log retirement rea
   const completions = new Map<number, (value: unknown) => void>()
   const workers = [1, 2].map((id) => ({
     id,
-    window: { isDestroyed: () => false, destroy: () => {} },
+    // setTitle keeps this test independent of O1_CODE_SHOW_WORKERS in the developer's shell.
+    window: { isDestroyed: () => false, destroy: () => {}, setTitle: () => {} },
     agent: "test-agent",
     protocolAgent: "test-agent",
     sessionKey: `private-owner-${id}`,
@@ -70,6 +71,25 @@ test("concurrent jobs retain their own worker correlation and log retirement rea
   } finally {
     pool.destroy()
   }
+})
+
+test("waits for 500ms of continuous composer readiness before declaring the bridge usable", async () => {
+  // A transient ready between redirects must not count; the old two-poll debounce returned ~100ms later.
+  const ready = [true, false, true]
+  let polls = 0
+  let lastNotReadyAt = Date.now()
+  await waitForAssistantBridge(
+    {} as never,
+    {
+      inspectChat: async () => {
+        const value = ready[Math.min(polls++, ready.length - 1)]
+        if (!value) lastNotReadyAt = Date.now()
+        return { ok: true, ready: value }
+      },
+    } as never,
+  )
+  expect(Date.now() - lastNotReadyAt).toBeGreaterThanOrEqual(500)
+  expect(polls).toBeGreaterThan(4)
 })
 
 const worker = (
@@ -770,8 +790,103 @@ describe("worker startup helpers", () => {
     } finally {
       clearInterval(telemetry)
     }
-    expect(Date.now() - completedAt).toBeGreaterThanOrEqual(5000)
+    expect(Date.now() - completedAt).toBeGreaterThanOrEqual(1000)
     expect(contents.debugger.listenerCount("message")).toBe(0)
+  }, 10000)
+
+  test("ignores background Fetch traffic after the project UI is ready", async () => {
+    const navigation = Promise.withResolvers<void>()
+    const contents = Object.assign(new EventEmitter(), {
+      loadURL: () => navigation.promise,
+      debugger: new EventEmitter(),
+      getURL: () => "https://example.test/project",
+      executeJavaScript: async () => ({ ready: true, signature: "host" }),
+      mainFrame: {
+        framesInSubtree: [
+          {
+            url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
+            executeJavaScript: async () => ({ ready: false, signature: "busy-child" }),
+          },
+        ],
+      },
+    })
+    const loading = loadWorkerProject(contents, "https://example.test/project", 8000)
+    navigation.resolve()
+    await Bun.sleep(25)
+    const chatter = setInterval(() => {
+      contents.debugger.emit("message", {}, "Network.requestWillBeSent", {
+        requestId: `xhr-${Date.now()}`,
+        type: "Fetch",
+      })
+    }, 100)
+    const started = Date.now()
+    try {
+      await loading
+    } finally {
+      clearInterval(chatter)
+    }
+    expect(Date.now() - started).toBeLessThan(7000)
+    expect(contents.debugger.listenerCount("message")).toBe(0)
+  }, 10000)
+
+  test("assistant mode settles on the host control even when child frames stay busy", async () => {
+    const navigation = Promise.withResolvers<void>()
+    let childPolls = 0
+    const contents = Object.assign(new EventEmitter(), {
+      loadURL: () => navigation.promise,
+      debugger: new EventEmitter(),
+      getURL: () => "https://example.test/project",
+      executeJavaScript: async () => ({ ready: true, signature: "host-control" }),
+      mainFrame: {
+        framesInSubtree: [
+          {
+            url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
+            executeJavaScript: async () => {
+              childPolls += 1
+              return { ready: false, signature: "spinner" }
+            },
+          },
+        ],
+      },
+    })
+    const loading = loadWorkerProject(contents, "https://example.test/project", 8000, undefined, "assistant")
+    navigation.resolve()
+    const started = Date.now()
+    await loading
+    expect(Date.now() - started).toBeLessThan(7000)
+    expect(childPolls).toBe(0)
+  }, 10000)
+
+  test("assistant quiet gate ignores child signature churn", async () => {
+    const navigation = Promise.withResolvers<void>()
+    let childPolls = 0
+    let childSig = 0
+    const contents = Object.assign(new EventEmitter(), {
+      loadURL: () => navigation.promise,
+      debugger: new EventEmitter(),
+      getURL: () => "https://example.test/project",
+      executeJavaScript: async () => ({ ready: true, signature: "host-control" }),
+      mainFrame: {
+        framesInSubtree: [
+          {
+            url: "https://open-web-agent-builder-cs.wpp.ai/agent/x",
+            executeJavaScript: async () => {
+              childPolls += 1
+              childSig += 1
+              return { ready: false, signature: `churn-${childSig}` }
+            },
+          },
+        ],
+      },
+    })
+    const loading = loadWorkerProject(contents, "https://example.test/project", 8000, undefined, "assistant")
+    navigation.resolve()
+    const started = Date.now()
+    await loading
+    // Host stayed ready; without top-only signature this would never settle while childSig churned.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1000)
+    expect(Date.now() - started).toBeLessThan(3000)
+    expect(childPolls).toBe(0)
   }, 10000)
 
   test.each(["timeout", "roster", "abort", "failure"])("cleans up project load on %s", async (mode) => {

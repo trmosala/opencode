@@ -26,7 +26,7 @@ const RELAY_SOURCE = `
 })();
 `
 
-export type ProgressFrame = { seq: number; finalText: string }
+export type ProgressFrame = { seq?: number; finalText?: string; phase?: string }
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
 type Route = { frame: WebFrameMain; token: string; active: boolean; mode: "assistant" | "agent" }
 

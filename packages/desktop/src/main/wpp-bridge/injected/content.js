@@ -1,4 +1,6 @@
 ;(() => {
+  // Exact chat leaves only, kept in sync with isAssistantChatUrl and isAgentChatUrl. A wildcard leaf
+  // also admits other same-origin chat frames.
   function isAssistantChatFrame() {
     return (
       location.hostname === "open-web-assistant-cs.wpp.ai" &&
@@ -222,11 +224,10 @@
 
     disarmNetworkCapture()
     const jobTimeoutMs = Number(job.timeoutMs || SETUP_TIMEOUT_MS)
-    const initialTextarea = await waitForTextarea(SETUP_TIMEOUT_MS)
+    emitProgressPhase(jobId, "settling")
+    await waitForTextarea(SETUP_TIMEOUT_MS)
     if (continueThread || isDedicatedChatFrame()) requireAgentSelected(expectedAgent)
-    // Fresh turns wipe the thread in startFreshChat (which settles after New Chat). Settling here
-    // only helps continue turns that must be idle before paste/submit.
-    if (continueThread) await waitForGreetingSettlement(initialTextarea)
+    // Fresh chats settle inside startFreshChat and again after an agent switch; continue turns settle at submit.
     const freshChat = continueThread
       ? await continueExistingChat()
       : await startFreshChat(
@@ -244,16 +245,22 @@
       throw error
     }
     requireAgentSelected(expectedAgent)
-    await waitForGreetingSettlement(textarea)
+    // ensureAgentSelected records an activation only when it had to open the picker. Switching agent can
+    // start a new greeting after New Chat already settled, and live turns do not pin expectedPrompt.
+    if (agentSelection.activationMethod) await waitForGreetingSettlement(textarea)
     textarea = await waitForTextarea(SETUP_TIMEOUT_MS)
     const attachments = await attachImages(job?.payload?.images || [], textarea, SETUP_TIMEOUT_MS)
-    if (attachments.attached > 0 && !(await waitForAttachmentReady(textarea, 15000))) {
+    if (
+      attachments.attached > 0 &&
+      !(await waitForAttachmentReady(textarea, 15000, attachments.minChips ?? attachments.attached))
+    ) {
       throw imageAttachmentDesync(new Error("o1_code_image_attachment_desync"))
     }
     let capture
     let beforeAssistantMessage
     let beforeTokenPill
     let beforeSubmitDiagnostics
+    emitProgressPhase(jobId, "submitting")
     const submitted = await submitPrompt(
       textarea,
       prompt,
@@ -291,6 +298,7 @@
       submitted,
       ignoredAssistantErrorText,
     })
+    emitProgressPhase(jobId, "waiting-network")
     let networkResponse = await waitForNetworkResponse({
       runId: capture.runId,
       timeoutMs: jobTimeoutMs,
@@ -454,6 +462,11 @@
     }
   }
 
+  function emitProgressPhase(jobId, phase) {
+    if (!jobId || !phase) return
+    emitToController({ type: "O1_CODE_BRIDGE_JOB_PROGRESS", jobId, frame: { phase } })
+  }
+
   function forwardProgressRecord(record) {
     const state = progressDispatchers.get(record?.runId)
     if (!state) {
@@ -479,7 +492,7 @@
       return null
     }
 
-    return { seq, finalText }
+    return { seq, finalText, phase: "streaming" }
   }
   function updateRecorderStatus(data) {
     if (data.status === "ready") {
@@ -614,7 +627,10 @@
       const assistants = Array.from(
         root.querySelectorAll(".chat-message--assistant, [data-message-author-role='assistant']"),
       )
-      const next = JSON.stringify([state.version, root.textContent || "", assistants.length])
+      // The last bubble's text length catches a greeting still streaming into an existing message,
+      // without serializing the whole transcript on every 100ms poll.
+      const lastLength = assistants.at(-1)?.textContent?.length || 0
+      const next = `${state.version}:${assistants.length}:${root.childElementCount || 0}:${lastLength}`
       const busy =
         state.pending > 0 ||
         !textarea ||
@@ -724,7 +740,7 @@
 
   async function attachImages(images, textarea, timeoutMs) {
     if (!Array.isArray(images) || images.length === 0) {
-      return { requested: 0, attached: 0 }
+      return { requested: 0, attached: 0, minChips: 0 }
     }
 
     // Snapshot composer thumbnails before attaching so waitForAttachmentReady can distinguish a
@@ -781,6 +797,7 @@
       return {
         requested: images.length,
         attached: pastedOk,
+        minChips: baselineChips + pastedOk,
         method: "paste",
         chipsRegistered,
         names: images.map((image) => image.name),
@@ -821,6 +838,7 @@
     return {
       requested: images.length,
       attached: transfer.files.length,
+      minChips: baselineChips + transfer.files.length,
       method: "file-input",
       pasteError: pasteResult?.error || null,
       names: images.map((image) => image.name),
@@ -840,6 +858,15 @@
   function composerAttachmentChipCount(textarea) {
     const root = chatRootFor(textarea)
     return root.querySelectorAll("[class*='file-upload-list-item'], [class*='file-upload-name']").length
+  }
+
+  // Upload chips / list only — ambient chat "loading"/"spinner" outside this region must not block submit.
+  function composerUploadRegion(textarea) {
+    const root = chatRootFor(textarea)
+    const list = root.querySelector("[class*='file-upload-list']")
+    if (list) return list
+    const chip = root.querySelector("[class*='file-upload-list-item'], [class*='file-upload-name']")
+    return chip ? chip.parentElement || chip : null
   }
 
   async function waitForAttachmentChips(textarea, targetCount, timeoutMs) {
@@ -886,16 +913,20 @@
     })
   }
 
-  // True while any upload-progress affordance (spinner/progress bar/aria-busy/"uploading" text)
-  // is visible in the composer root. SVG className is an object, so read the class attribute.
+  // True while an upload-progress affordance is visible in the upload-chip region only. Scanning the
+  // whole chat root matched ambient WPP "loading"/"spinner" chrome and false-failed every image turn.
   function hasUploadProgressIndicator(textarea) {
-    const root = chatRootFor(textarea)
+    const root = composerUploadRegion(textarea)
+    if (!root) return false
 
     if (root.querySelector("[aria-busy='true'], [role='progressbar'], progress")) {
       return true
     }
 
-    return Array.from(root.querySelectorAll("[class], [aria-label], [title]")).some((el) => {
+    const nodes = root.matches?.("[class], [aria-label], [title]") ? [root] : []
+    nodes.push(...root.querySelectorAll("[class], [aria-label], [title]"))
+
+    return nodes.some((el) => {
       if (!isVisible(el)) {
         return false
       }
@@ -908,12 +939,11 @@
     })
   }
 
-  // "Ready" = the attachment has registered AND no upload-progress affordance remains. WPP renders a
-  // pasted/uploaded image as a named file-upload chip (NOT an inline <img>), so accept EITHER a freshly
-  // decoded thumbnail OR a present file chip — keying only on the thumbnail made this always miss and
-  // burn the full timeout. Requiring no progress affordance still waits out an in-flight upload.
-  function isAttachmentReady(textarea) {
-    const hasAttachment = hasFreshDecodedThumbnail(textarea) || composerAttachmentChipCount(textarea) > 0
+  // "Ready" = our chips (or a fresh thumbnail) are present AND no upload-progress affordance remains
+  // in the chip region. minChips is baseline+attached so leftover chips alone don't satisfy the gate.
+  function isAttachmentReady(textarea, minChips = 1) {
+    const hasAttachment =
+      hasFreshDecodedThumbnail(textarea) || composerAttachmentChipCount(textarea) >= Math.max(1, minChips)
     return hasAttachment && !hasUploadProgressIndicator(textarea)
   }
 
@@ -921,12 +951,12 @@
   // (so we don't race a transient first paint before the upload settles), or false on timeout.
   // ponytail: DOM-poll heuristic — switch to the pageRecorder network signal (it wraps fetch+XHR
   // in the MAIN world) if the composer DOM stops exposing upload state.
-  async function waitForAttachmentReady(textarea, timeoutMs = 15000) {
+  async function waitForAttachmentReady(textarea, timeoutMs = 15000, minChips = 1) {
     const startedAt = Date.now()
     let stableTicks = 0
 
     while (Date.now() - startedAt < timeoutMs) {
-      if (isAttachmentReady(textarea)) {
+      if (isAttachmentReady(textarea, minChips)) {
         stableTicks += 1
         if (stableTicks >= 2) {
           return true
@@ -1063,7 +1093,7 @@
       )
       textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: prompt }))
       textarea.dispatchEvent(new Event("change", { bubbles: true }))
-      // Fresh turns already settled after New Chat; a second 1s-idle wait here only adds latency.
+      // Fresh turns already settled after New Chat and any agent switch; a second 1s-idle wait only adds latency.
       if (settleGreeting) await waitForGreetingSettlement(textarea, { timeoutMs: Math.max(1, deadline - Date.now()) })
       if (textarea !== findVisibleTextarea() || textarea.isConnected === false) continue
       await waitForSendButton(textarea, Math.min(15000, Math.max(1, deadline - Date.now())))
@@ -3331,6 +3361,8 @@
       isAttachmentReady,
       hasFreshDecodedThumbnail,
       hasUploadProgressIndicator,
+      composerUploadRegion,
+      composerAttachmentChipCount,
       composerImageFingerprints,
       ATTACH_BUTTON_LABEL,
       STOP_BUTTON_LABEL,

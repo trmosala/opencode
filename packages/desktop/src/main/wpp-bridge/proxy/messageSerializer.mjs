@@ -89,29 +89,25 @@ export function serializeChatCompletionRequest(body, { sinceIndex = 0, purpose =
     ),
   }
 
-  return JSON.stringify(envelope, null, 2)
+  return JSON.stringify(envelope)
 }
 
 export function serializeIncompleteTaskContinuationRequest(body, { purpose = "chat" } = {}) {
   const tools = serializeTools(body.tools)
   const profile = resolveRequestModelProfile(body)
   const { toolFormat } = profile
-  return JSON.stringify(
-    {
-      type: CM_REQUEST_TYPE,
-      version: CM_REQUEST_VERSION,
-      mode: "continue",
-      purpose,
-      toolCallProtocol: toolCallProtocol(toolFormat),
-      completionProtocol: CM_TASK_COMPLETE_PROTOCOL,
-      instructions: [toolCallInstructions(toolFormat, profile)],
-      tools,
-      resumeIncomplete: true,
-      messages: [],
-    },
-    null,
-    2,
-  )
+  return JSON.stringify({
+    type: CM_REQUEST_TYPE,
+    version: CM_REQUEST_VERSION,
+    mode: "continue",
+    purpose,
+    toolCallProtocol: toolCallProtocol(toolFormat),
+    completionProtocol: CM_TASK_COMPLETE_PROTOCOL,
+    instructions: [toolCallInstructions(toolFormat, profile)],
+    tools,
+    resumeIncomplete: true,
+    messages: [],
+  })
 }
 
 // A terminal answer that violates an explicit first-tool requirement is recovered through a

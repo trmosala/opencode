@@ -6,6 +6,7 @@ export async function loadWorkerProject(
   contents: EventEmitter & {
     loadURL(url: string): Promise<void>
     getURL(): string
+    executeJavaScript?(code: string, userGesture?: boolean): Promise<unknown>
     debugger: EventEmitter
     mainFrame: { framesInSubtree: { url: string; executeJavaScript(code: string): Promise<unknown> }[] }
   },
@@ -47,8 +48,12 @@ export async function loadWorkerProject(
         return
       // Background streams (including LaunchDarkly) outlive page loading; beacons don't gate the UI.
       if (["EventSource", "WebSocket", "Ping"].includes(Reflect.get(params, "type"))) return
+      const isDocument = Reflect.get(params, "type") === "Document"
+      // Once the project UI reports ready, only Document navigations keep us waiting — background
+      // XHR/Fetch otherwise starve the 5s quiet gate for minutes.
+      if (pageReady && !isDocument) return
       // A cross-process iframe document can start in the parent target and finish in its child target.
-      pending.add(Reflect.get(params, "type") === "Document" ? `document:${requestId}` : key)
+      pending.add(isDocument ? `document:${requestId}` : key)
       lastActivity = Date.now()
     }
     if (method === "Network.responseReceived") {
@@ -76,37 +81,57 @@ export async function loadWorkerProject(
       const frames = contents.mainFrame.framesInSubtree.filter(
         (frame) => frame.url === contents.getURL() || isWppFrameUrl(frame.url),
       )
-      const pages = await observe(() =>
-        Promise.all(
-          frames.map((frame) =>
-            frame.executeJavaScript(
-              projectPageStateExpression(chatMode === "assistant" && frame.url === contents.getURL()),
+      // The project shell (and assistant popover button) live on the top-level page. framesInSubtree
+      // only has child iframes, so without this the host control was never observed and load waited
+      // on agent-builder spinner noise for minutes.
+      const top =
+        typeof contents.executeJavaScript === "function"
+          ? await observe(() =>
+              contents.executeJavaScript!(projectPageStateExpression(chatMode === "assistant")),
+            )
+          : undefined
+      // Assistant + top eval: ignore child frames entirely. Their roster signatures churn for minutes
+      // and used to keep resetting the quiet gate even after the host control was ready.
+      const useTopOnly = chatMode === "assistant" && top !== undefined
+      const pages: unknown[] = []
+      if (useTopOnly) {
+        pages.push(top)
+      } else {
+        const childPages = await observe(() =>
+          Promise.all(
+            frames.map((frame) =>
+              frame.executeJavaScript(
+                projectPageStateExpression(chatMode === "assistant" && frame.url === contents.getURL()),
+              ),
             ),
           ),
-        ),
-      )
-      const builders = frames.filter(
-        (frame) => URL.parse(frame.url)?.origin === "https://open-web-agent-builder-cs.wpp.ai",
-      )
-      if (chatMode === "agent")
-        pages.push(
-          builders.length === 1
-            ? await observe(() => builders[0].executeJavaScript(agentRosterStateExpression()))
-            : undefined,
         )
+        if (top !== undefined) pages.push(top)
+        pages.push(...childPages)
+        const builders = frames.filter(
+          (frame) => URL.parse(frame.url)?.origin === "https://open-web-agent-builder-cs.wpp.ai",
+        )
+        if (chatMode === "agent")
+          pages.push(
+            builders.length === 1
+              ? await observe(() => builders[0].executeJavaScript(agentRosterStateExpression()))
+              : undefined,
+          )
+      }
       const signature = JSON.stringify(
         pages.map((page) => (page && typeof page === "object" ? Reflect.get(page, "signature") : null)),
       )
-      const ready =
-        pages.length > 0 &&
-        pages.every((page) => page && typeof page === "object" && Reflect.get(page, "ready") === true)
+      const ready = useTopOnly
+        ? Boolean(top && typeof top === "object" && Reflect.get(top, "ready") === true)
+        : pages.length > 0 &&
+          pages.every((page) => page && typeof page === "object" && Reflect.get(page, "ready") === true)
       if (!ready || ready !== pageReady || typeof signature !== "string" || signature !== pageSignature) {
         pageSignature = typeof signature === "string" ? signature : ""
         pageReady = ready
         lastActivity = Date.now()
       }
-      // shortcut: five quiet seconds approximate lazy-load completion; use a WPP completion signal when exposed.
-      if (ready && pending.size === 0 && Date.now() - lastActivity >= 5000) return
+      // ponytail: one quiet second stands in for lazy-load completion. Upgrade when WPP exposes a load-complete signal.
+      if (ready && pending.size === 0 && Date.now() - lastActivity >= 1000) return
       await observe(() => new Promise<void>((resolve) => setTimeout(resolve, 250)))
     }
   } finally {

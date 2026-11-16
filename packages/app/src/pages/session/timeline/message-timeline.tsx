@@ -129,14 +129,41 @@ const markBoundaryGesture = (input: {
   }
 }
 
+function formatThinkingElapsed(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds))
+  const minutes = Math.floor(total / 60)
+  const rem = total % 60
+  return `${minutes}:${String(rem).padStart(2, "0")}`
+}
+
 function TimelineThinkingRow(props: { reasoningHeading?: string; showReasoningSummaries: boolean }) {
   const language = useLanguage()
+  const startedAt = Date.now()
+  const [elapsedSec, setElapsedSec] = createSignal(0)
+
+  onMount(() => {
+    const timer = setInterval(() => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const label = createMemo(() =>
+    language.t("ui.sessionTurn.status.thinkingWithElapsed", {
+      elapsed: formatThinkingElapsed(elapsedSec()),
+    }),
+  )
+  // Prefer real reasoning headings; otherwise stage existing status copy so long silent WPP
+  // waits still look alive (elapsed on the shimmer is the freeze detector).
+  const statusLine = createMemo(() => {
+    if (props.reasoningHeading) return props.reasoningHeading
+    if (elapsedSec() < 8) return language.t("ui.sessionTurn.status.gatheringThoughts")
+    return language.t("ui.sessionTurn.status.consideringNextSteps")
+  })
 
   return (
     <div data-slot="session-turn-thinking">
-      <TextShimmer text={language.t("ui.sessionTurn.status.thinking")} />
+      <TextShimmer text={label()} />
       <Show when={!props.showReasoningSummaries}>
-        <TextReveal text={props.reasoningHeading} class="session-turn-thinking-heading" travel={25} duration={700} />
+        <TextReveal text={statusLine()} class="session-turn-thinking-heading" travel={25} duration={700} />
       </Show>
     </div>
   )

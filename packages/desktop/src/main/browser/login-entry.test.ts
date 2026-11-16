@@ -5,15 +5,18 @@ import { BrowserWindow } from "electron"
 import { createVaultAccess } from "./vault-access"
 
 if (process.env.CM_LOGIN_ENTRY_TEST_CHILD !== "1") {
-  test("native account entry cancels and clears late secret responses", () => {
-    const result = Bun.spawnSync([process.execPath, "test", import.meta.path], {
+  test("native account entry cancels and clears late secret responses", async () => {
+    // Not Bun.spawnSync: after any earlier node:child_process spawnSync in this runner (cm-ae staging),
+    // Bun's next timed synchronous spawn can be killed at once. Async Bun.spawn is unaffected.
+    const child = Bun.spawn([process.execPath, "test", import.meta.path], {
       cwd: join(import.meta.dir, "../../.."),
       env: { ...process.env, CM_LOGIN_ENTRY_TEST_CHILD: "1" },
       timeout: 15_000,
       stdout: "pipe",
       stderr: "pipe",
     })
-    expect(result.exitCode, Buffer.concat([result.stdout, result.stderr]).toString()).toBe(0)
+    const output = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
+    expect(await child.exited, output.join("")).toBe(0)
   }, 20_000)
 } else {
   const access = createVaultAccess(async () => {})

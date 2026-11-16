@@ -2,7 +2,11 @@ import http from "node:http"
 import { handleChatCompletions, listModels, writeJson } from "./openaiCompat.mjs"
 import { extensionBridge } from "./extensionBridge.mjs"
 import { renderStatusPage } from "./statusPage.mjs"
-import { shouldIgnoreListenError } from "./server-startup.mjs"
+import {
+  probeCookieMonsterBridgeOccupant,
+  proxyPortConflictError,
+  shouldIgnoreListenError,
+} from "./server-startup.mjs"
 
 const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1"
 const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787)
@@ -44,8 +48,13 @@ export async function startServerWithActions({
     })
   } catch (error) {
     if (shouldIgnoreListenError(error)) {
-      console.log(`o1-code-openai-proxy: already running on http://${host}:${port}/ — nothing to do.`)
-      return
+      // Only treat EADDRINUSE as success when the occupant is CookieMonster's worker-pool bridge.
+      // A foreign wpp-chat-cli extension queue on this port would otherwise swallow every turn.
+      if (await probeCookieMonsterBridgeOccupant(host, port)) {
+        console.log(`o1-code-openai-proxy: already running on http://${host}:${port}/ — nothing to do.`)
+        return
+      }
+      throw proxyPortConflictError(host, port)
     }
 
     throw error

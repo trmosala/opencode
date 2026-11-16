@@ -6,8 +6,13 @@ import { MODEL_IDS, MODEL_PROFILES, RENAMED_MODEL_IDS, resolveRequestModelProfil
 import {
   COOKIE_MONSTER_PROVIDER,
   ensureO1CodeProvider,
+  mergeSeedTaskAgents,
   O1_CODE_MCP,
   o1CodeConfigContent,
+  SEED_AGENTS,
+  SEED_SMALL_MODEL,
+  SEED_TASK_AGENTS,
+  SEED_UTILITY_AGENTS,
   WPP_PROVIDER,
 } from "./providerConfig.mjs"
 
@@ -47,7 +52,55 @@ test("creates opencode.json with the exact CookieMonster project roster", async 
   expect(config.provider.wpp).toBeUndefined()
   expect(config.mcp).toEqual(O1_CODE_MCP)
   expect(config.lsp).toBe(true)
+  expect(config.small_model).toBe(SEED_SMALL_MODEL)
+  expect(config.agent).toEqual(SEED_AGENTS)
+  expect(config.compaction).toBeUndefined()
   await rm(dir, { recursive: true, force: true })
+})
+
+test("injected config content leaves small_model and agents to the user-editable disk seed", () => {
+  const config = JSON.parse(o1CodeConfigContent())
+  expect(config.small_model).toBeUndefined()
+  expect(config.agent).toBeUndefined()
+  expect(config.compaction).toBeUndefined()
+})
+
+test("advertised context compacts on both paths before the proxy prompt cap", () => {
+  // Both compaction paths reserve 32k of headroom; V2 estimates 4 chars/token, the proxy cap is 600k chars.
+  const usable = COOKIE_MONSTER_PROVIDER.models[MODEL_IDS[0]].limit.context - 32_000
+  expect(usable * 4).toBeLessThan(600_000)
+})
+
+test("mergeSeedTaskAgents fills missing model/description without clobbering user values", () => {
+  const empty = mergeSeedTaskAgents({})
+  expect(empty.changed).toBe(true)
+  expect(empty.agent).toEqual(SEED_AGENTS)
+
+  const custom = mergeSeedTaskAgents({
+    explore: { model: "cookiemonster/CM_GPT-5.6-Sol_High", description: "mine" },
+    review: { permission: { ae_execute: "deny" } },
+  })
+  expect(custom.changed).toBe(true)
+  expect(custom.agent.explore).toEqual({
+    model: "cookiemonster/CM_GPT-5.6-Sol_High",
+    description: "mine",
+    mode: "subagent",
+  })
+  expect(custom.agent.general).toEqual(SEED_TASK_AGENTS.general)
+  expect(custom.agent.title).toEqual(SEED_UTILITY_AGENTS.title)
+  expect(custom.agent.review).toEqual({ permission: { ae_execute: "deny" } })
+
+  const already = mergeSeedTaskAgents({ ...SEED_AGENTS })
+  expect(already.changed).toBe(false)
+
+  const keepUtility = mergeSeedTaskAgents({
+    ...SEED_TASK_AGENTS,
+    title: { model: "cookiemonster/CM_GPT-5.6-Sol_High" },
+  })
+  expect(keepUtility.changed).toBe(true)
+  expect(keepUtility.agent.title).toEqual({ model: "cookiemonster/CM_GPT-5.6-Sol_High" })
+  expect(keepUtility.agent.summary).toEqual(SEED_UTILITY_AGENTS.summary)
+  expect(keepUtility.agent.compaction).toEqual(SEED_UTILITY_AGENTS.compaction)
 })
 
 test("advertises only the Sol 6.1 family with explicit native variants and a medium default", () => {
@@ -538,7 +591,12 @@ test("global seed preserves user plugins and all permission settings, and never 
     }
     await writeFile(file, JSON.stringify(user))
     await ensureO1CodeProvider(file)
-    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject(user)
+    const merged = JSON.parse(await readFile(file, "utf8"))
+    expect(merged).toMatchObject(user)
+    expect(merged.small_model).toBe(SEED_SMALL_MODEL)
+    expect(merged.agent.explore).toEqual(SEED_TASK_AGENTS.explore)
+    expect(merged.agent.general).toEqual(SEED_TASK_AGENTS.general)
+    expect(merged.agent.title).toEqual(SEED_UTILITY_AGENTS.title)
     await rm(file)
     await ensureO1CodeProvider(file)
     const fresh = JSON.parse(await readFile(file, "utf8"))

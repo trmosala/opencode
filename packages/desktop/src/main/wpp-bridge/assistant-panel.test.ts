@@ -4,6 +4,7 @@ import {
   assistantFrame,
   assistantPanelStateExpression,
   clickAssistantControlExpression,
+  freshChatInShellExpression,
   prepareAssistantChat,
   isAssistantChatUrl,
   openAssistantPanel,
@@ -55,11 +56,13 @@ test("routes only the Assistant panel, excluding contributor chats, editors and 
   }
   const builder = { ...frame, url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational" }
   expect(assistantFrame({ mainFrame: { framesInSubtree: [builder, frame] } })).toBe(frame)
+  expect(isAssistantChatUrl("https://open-web-assistant-cs.wpp.ai/chat/project/foundational")).toBe(true)
   for (const url of [
     builder.url,
     "invalid",
     "https://open-web-assistant-cs.wpp.ai.evil.test/chat/project/ai-assistant",
     "https://open-web-assistant-cs.wpp.ai/chat/project/other",
+    "https://open-web-assistant-cs.wpp.ai/chat/project",
   ]) {
     expect(isAssistantChatUrl(url)).toBe(false)
   }
@@ -81,7 +84,7 @@ test("a settled Viewer page needs Assistant access, not agent-card menu buttons"
       get readyState() {
         return loaded ? "complete" : "interactive"
       },
-      images: [],
+      images: [{ complete: false }],
       querySelectorAll: (selector: string) => {
         if (selector.includes("aria-busy")) return busy ? [control] : []
         return selector === "[data-testid='assistant-popover-button-new']" ? [control] : []
@@ -91,9 +94,10 @@ test("a settled Viewer page needs Assistant access, not agent-card menu buttons"
   })
   expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(false)
   loaded = true
+  // Incomplete images and leftover spinners must not block once the assistant control is ready.
   expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(true)
   busy = true
-  expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(false)
+  expect(vm.runInContext(projectPageStateExpression(true), context).ready).toBe(true)
 })
 
 test("opens the panel once and waits for its iframe without clicking agent cards", async () => {
@@ -363,4 +367,101 @@ test("trusts the frame tree only when it can be read and no hidden assistant ifr
       },
     ),
   ).rejects.toMatchObject({ type: "o1_code_assistant_popover_timeout", diagnostics: { iframePresent: true } })
+})
+
+test("fails fast when the Assistant button never mounts on a settled page and attaches panelState", async () => {
+  let time = 0
+  const absent = { open: false, buttonFound: false, iframePresent: false, ready: true }
+  const error = await openAssistantPanel(
+    {
+      executeJavaScript: async () => absent,
+      sendInputEvent: () => {
+        throw new Error("must not click")
+      },
+    },
+    {
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms
+      },
+      timeoutMs: 60000,
+      absentControlMs: 1000,
+    },
+  ).catch((caught) => caught)
+  expect(error).toMatchObject({
+    type: "o1_code_assistant_popover_timeout",
+    panelState: absent,
+    diagnostics: { buttonFound: false, iframePresent: false },
+  })
+  expect(time).toBe(1000)
+})
+
+test("keeps the full deadline while the button is present, the page is loading or a frame is mounting", async () => {
+  for (const state of [
+    { open: false, buttonFound: true, ready: true },
+    { open: false, buttonFound: false, ready: false },
+    { open: false, buttonFound: false, iframePresent: true, ready: true },
+  ]) {
+    let time = 0
+    await expect(
+      openAssistantPanel(
+        {
+          executeJavaScript: async () => state,
+          sendInputEvent: () => {
+            throw new Error("must not click")
+          },
+        },
+        {
+          now: () => time,
+          sleep: async (ms) => {
+            time += ms
+          },
+          timeoutMs: 2000,
+          absentControlMs: 500,
+        },
+      ),
+    ).rejects.toMatchObject({ type: "o1_code_assistant_popover_timeout" })
+    expect(time).toBe(2000)
+  }
+})
+
+test("New Chat clicks whatever wpp-action-button version hosts the more icon", async () => {
+  let opened = false
+  const item = {
+    textContent: "New Chat",
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ width: 80, height: 24, top: 40, bottom: 64, left: 10, right: 90 }),
+    click() {},
+  }
+  const button = {
+    getBoundingClientRect: () => ({ width: 28, height: 28, top: 4, bottom: 32, left: 12, right: 40 }),
+    click() {
+      opened = true
+    },
+  }
+  const host = {
+    tagName: "WPP-ACTION-BUTTON-V4-9-0",
+    parentElement: null,
+    shadowRoot: { querySelector: (selector: string) => (selector === "button" ? button : null) },
+  }
+  const frame = {
+    getBoundingClientRect: () => ({ width: 320, height: 400, top: 36, bottom: 436, left: 0, right: 320 }),
+  }
+  const result = await vm.runInContext(
+    freshChatInShellExpression(),
+    vm.createContext({
+      document: {
+        querySelector: (selector: string) => (selector.includes("iframe") ? frame : null),
+        querySelectorAll: (selector: string) => {
+          if (selector === "[data-testid='wpp-icon-more']") return [{ tagName: "SPAN", parentElement: host }]
+          if (selector === "[role='menuitem']") return opened ? [item] : []
+          return []
+        },
+      },
+      getComputedStyle: () => ({ visibility: "visible", display: "block" }),
+      setTimeout,
+      clearTimeout,
+    }),
+  )
+  expect(result).toEqual({ ok: true, clicked: true })
 })

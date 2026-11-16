@@ -35,6 +35,14 @@ const families = [
     id: "CM_Gemini-3.7-Flash",
     fixed: ["CM_Gemini-3.7-Flash_Low", "CM_Gemini-3.7-Flash_Medium", "CM_Gemini-3.7-Flash_High"],
   },
+  {
+    id: "CM_Gemini4_Carbon",
+    fixed: ["CM_Gemini4_Carbon_Low", "CM_Gemini4_Carbon_Medium", "CM_Gemini4_Carbon_High"],
+  },
+  {
+    id: "CM_Gemini4",
+    fixed: ["CM_Gemini4_Low", "CM_Gemini4_Medium", "CM_Gemini4_High"],
+  },
 ]
 const available = families.map((family) => ({ id: family.id, provider: { id: "cookiemonster" } }))
 const fixed = families.flatMap((family) => family.fixed.map((id) => [id, family.id]))
@@ -94,5 +102,22 @@ describe("CookieMonster default model visibility", () => {
 
   test("keeps a fixed route when no models are available", () => {
     expect(isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID: "CM_GPT6_Sol_High" }, [])).toBe(false)
+  })
+
+  test("keeps an unlisted effort on a known family", () => {
+    expect(
+      isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID: "CM_GPT6.1_Sol_High" }, [
+        ...available,
+        { id: "CM_GPT6.1_Sol", provider: { id: "cookiemonster" } },
+      ]),
+    ).toBe(false)
+  })
+
+  test("hides a new effort suffix when that family is available", () => {
+    expect(
+      isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID: "CM_Future_Model_High" }, [
+        { id: "CM_Future_Model", provider: { id: "cookiemonster" } },
+      ]),
+    ).toBe(true)
   })
 })

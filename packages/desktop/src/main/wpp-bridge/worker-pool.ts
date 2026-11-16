@@ -147,12 +147,14 @@ export class WorkerPool {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const queuedAt = Date.now()
+    onProgress?.({ phase: "opening-chat" })
     const worker = await this.acquire(
       (job.payload?.model || DEFAULT_MODEL_ID).trim(),
       (job.payload?.sessionKey || "").trim(),
       job.payload?.subagent === true,
       signal,
       job,
+      onProgress,
     )
     this.jobs.set(worker.id, { runId: job.runId, jobId: job.id })
     this.record(worker.id, "job-started", {
@@ -272,6 +274,7 @@ export class WorkerPool {
     subagent = false,
     signal?: AbortSignal,
     job?: { id?: string; runId?: string },
+    onProgress?: (frame: ProgressFrame) => void,
   ): Promise<Worker> {
     // Wait out a busy same-session tab before adopting/growing, so concurrent turns of one session
     // never fork its WPP thread. The loop re-selects each poll (the tab may free, be reaped, or the
@@ -311,7 +314,7 @@ export class WorkerPool {
         return worker
       }
 
-      const worker = await this.spawn(agent, sessionKey, subagent, signal, job)
+      const worker = await this.spawn(agent, sessionKey, subagent, signal, job, onProgress)
       if (signal?.aborted) {
         this.discard(worker.id, "o1_code_client_aborted")
         throw clientAbortedError()
@@ -425,6 +428,7 @@ export class WorkerPool {
     subagent: boolean,
     signal?: AbortSignal,
     job?: { id?: string; runId?: string },
+    onProgress?: (frame: ProgressFrame) => void,
   ): Promise<Worker> {
     throwIfClientAborted(signal)
     const window = createWorkerWindow()
@@ -432,7 +436,10 @@ export class WorkerPool {
     this.startingWorkers.set(id, { window, agent, sessionKey, subagent })
     this.jobs.set(id, { runId: job?.runId, jobId: job?.id })
     const startedAt = Date.now()
-    const stage = (phase: string) => this.record(id, "startup-stage", { phase, elapsedMs: Date.now() - startedAt })
+    const stage = (phase: string) => {
+      this.record(id, "startup-stage", { phase, elapsedMs: Date.now() - startedAt })
+      onProgress?.({ phase })
+    }
     observeWorkerWindow(window.webContents, (event, details, level) => this.record(id, event, details, level))
     stage("created")
     if (workersVisible) {
@@ -511,6 +518,9 @@ export class WorkerPool {
           {
             type: error && typeof error === "object" ? (Reflect.get(error, "type") ?? "unknown") : "unknown",
             elapsedMs: Date.now() - startedAt,
+            ...(error && typeof error === "object" && Reflect.get(error, "panelState") !== undefined
+              ? { panelState: Reflect.get(error, "panelState") }
+              : {}),
           },
           "error",
         )
@@ -680,18 +690,19 @@ export function submissionStartedAt(result: unknown, earliest: number) {
   return typeof at === "number" && Number.isFinite(at) && at >= earliest && at <= Date.now() ? at : Infinity
 }
 
-async function waitForAssistantBridge(
+export async function waitForAssistantBridge(
   contents: BrowserWindow["webContents"],
   controller: Controller,
   signal?: AbortSignal,
 ) {
   const deadline = Date.now() + 30000
-  // Require the composer to report ready for two CONSECUTIVE polls before declaring the bridge
-  // usable. inspectChat runs inside the assistant iframe, so its readiness reflects the real chat
-  // composer (the only cross-origin-safe truth — the host-page iframe.src attribute is stale under
-  // SPA routing). A single transient "ready" can be seen mid-redirect, after which the navigation
-  // wipes the composer we then fill → post-login submit_or_ui_failure. Stability debounces that.
-  let stable = 0
+  // Require the composer to report ready continuously for 500ms before declaring the bridge usable.
+  // inspectChat runs inside the assistant iframe, so its readiness reflects the real chat composer
+  // (the only cross-origin-safe truth — the host-page iframe.src attribute is stale under SPA
+  // routing). A transient "ready" can be seen mid-redirect, after which the navigation wipes the
+  // composer we then fill → post-login submit_or_ui_failure. A time window rather than a poll count
+  // keeps that debounce independent of the polling interval.
+  let readySince = 0
   while (Date.now() < deadline) {
     throwIfClientAborted(signal)
     const state = (await withClientAbort(
@@ -699,12 +710,12 @@ async function waitForAssistantBridge(
       signal,
     )) as { ok?: boolean; ready?: boolean } | null
     if (state?.ok && state.ready) {
-      stable += 1
-      if (stable >= 2) return
+      readySince ||= Date.now()
+      if (Date.now() - readySince >= 500) return
     } else {
-      stable = 0
+      readySince = 0
     }
-    await withClientAbort(wait(500), signal)
+    await withClientAbort(wait(100), signal)
   }
   throwIfClientAborted(signal)
   await throwIfAuthRequired(contents)

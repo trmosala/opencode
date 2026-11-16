@@ -21,6 +21,9 @@ import { copyUserApp, diskImageSource, installFromDiskImage } from "./macos-user
 const executable = "/Volumes/CM/CookieMonster.app/Contents/MacOS/CookieMonster"
 const info = JSON.stringify({ images: [{ "system-entities": [{ "mount-point": "/Volumes/CM" }] }] })
 const run = async () => info
+// Installer bundle moves need POSIX rename, chmod and symlink semantics. Windows refuses these without
+// Developer Mode, and this installer ships only on macOS.
+const posixTest = test.skipIf(process.platform === "win32")
 
 test("only identifies actual disk-image mounts, with path boundaries", async () => {
   expect(await diskImageSource(executable, run)).toBe("/Volumes/CM/CookieMonster.app")
@@ -100,7 +103,7 @@ test("confirmation, failure handling and lock handoff precede launch", async () 
   }
 })
 
-test("replaces the whole app, retains the previous bundle and preserves unrelated data", async () => {
+posixTest("replaces the whole app, retains the previous bundle and preserves unrelated data", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source", "CookieMonster.app")
   const applications = join(root, "Applications With Spaces")
@@ -134,7 +137,7 @@ test("replaces the whole app, retains the previous bundle and preserves unrelate
   }
 })
 
-test("moves read-only bundle roots and restores their modes without changing the source", async () => {
+posixTest("moves read-only bundle roots and restores their modes without changing the source", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source")
   const destination = join(root, "CookieMonster.app")
@@ -183,7 +186,7 @@ test("moves read-only bundle roots and restores their modes without changing the
   }
 })
 
-test("backup cleanup is best-effort and retries after a later successful replacement", async () => {
+posixTest("backup cleanup is best-effort and retries after a later successful replacement", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source")
   const destination = join(root, "CookieMonster.app")
@@ -238,7 +241,7 @@ test("backup cleanup is best-effort and retries after a later successful replace
   }
 })
 
-test("pruning leaves unowned, changed, symlinked and unrelated backup candidates alone", async () => {
+posixTest("pruning leaves unowned, changed, symlinked and unrelated backup candidates alone", async () => {
   for (const change of [
     "unmarked",
     "extra",
@@ -315,7 +318,7 @@ test("pruning leaves unowned, changed, symlinked and unrelated backup candidates
   }
 })
 
-test("backup ownership-write failure leaves older backups without failing the published install", async () => {
+posixTest("backup ownership-write failure leaves older backups without failing the published install", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source")
   const destination = join(root, "CookieMonster.app")
@@ -353,7 +356,7 @@ test("backup ownership-write failure leaves older backups without failing the pu
   }
 })
 
-test("failed staging, moves, permission cleanup and recovery never prune completed backups", async () => {
+posixTest("failed staging, moves, permission cleanup and recovery never prune completed backups", async () => {
   for (const failure of ["staging", "backup", "publication", "recovery", "chmod", "close"]) {
     const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
     const source = join(root, "Source")
@@ -439,7 +442,7 @@ test("failed staging, moves, permission cleanup and recovery never prune complet
   }
 })
 
-test("backup handle cleanup failures restore the moved app before reporting failure", async () => {
+posixTest("backup handle cleanup failures restore the moved app before reporting failure", async () => {
   for (const failure of ["chmod", "close"]) {
     const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
     const source = join(root, "Source")
@@ -497,7 +500,7 @@ test("backup handle cleanup failures restore the moved app before reporting fail
   }
 })
 
-test("publication handle cleanup failures retain the complete new app and any previous backup", async () => {
+posixTest("publication handle cleanup failures retain the complete new app and any previous backup", async () => {
   for (const existing of [false, true]) {
     for (const failure of ["chmod", "close"]) {
       const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
@@ -557,7 +560,7 @@ test("publication handle cleanup failures retain the complete new app and any pr
   }
 })
 
-test("permission and move failures are not masked by mode restoration or handle close failures", async () => {
+posixTest("permission and move failures are not masked by mode restoration or handle close failures", async () => {
   for (const failure of ["chmod", "rename"]) {
     const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
     const source = join(root, "Source")
@@ -613,7 +616,7 @@ test("permission and move failures are not masked by mode restoration or handle 
   }
 })
 
-test("failed staging copies leave the installed app intact and can be retried", async () => {
+posixTest("failed staging copies leave the installed app intact and can be retried", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source")
   const destination = join(root, "CookieMonster.app")
@@ -641,7 +644,7 @@ test("failed staging copies leave the installed app intact and can be retried", 
   }
 })
 
-test("rejects files, live and dangling symlinks without following or changing them", async () => {
+posixTest("rejects files, live and dangling symlinks without following or changing them", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const destination = join(root, "CookieMonster.app")
   const target = join(root, "Target")
@@ -664,7 +667,7 @@ test("rejects files, live and dangling symlinks without following or changing th
   }
 })
 
-test("rejects self-replacement and destinations changed while copying", async () => {
+posixTest("rejects self-replacement and destinations changed while copying", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source")
   const destination = join(root, "CookieMonster.app")
@@ -689,7 +692,7 @@ test("rejects self-replacement and destinations changed while copying", async ()
   }
 })
 
-test("concurrent first installs publish only one complete bundle", async () => {
+posixTest("concurrent first installs publish only one complete bundle", async () => {
   const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
   const source = join(root, "Source")
   const destination = join(root, "CookieMonster.app")
@@ -712,60 +715,63 @@ test("concurrent first installs publish only one complete bundle", async () => {
   }
 })
 
-test("publication failures restore the old app or retain its backup without overwriting concurrent data", async () => {
-  for (const scenario of ["restore", "restore-fails", "concurrent-destination"]) {
-    const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
-    const source = join(root, "Source")
-    const destination = join(root, "CookieMonster.app")
-    try {
-      await mkdir(source)
-      await writeFile(join(source, "version"), "new")
-      await mkdir(destination)
-      await writeFile(join(destination, "version"), "old")
-      await chmod(destination, 0o555)
-      await expect(
-        copyUserApp(
-          source,
-          root,
-          async (_file, args) => {
-            await cp(args[3], args[4], { recursive: true })
-            return ""
-          },
-          async (from, to) => {
-            expect((await lstat(from)).mode & 0o200).toBe(0o200)
-            if (String(from).includes("CookieMonster Install-")) {
-              if (scenario === "concurrent-destination") await writeFile(join(destination, "sentinel"), "concurrent")
-              throw new Error("publication failed")
-            }
-            if (scenario === "restore-fails" && String(from).includes("CookieMonster Backup-")) {
-              throw new Error("restoration failed")
-            }
-            await rename(from, to)
-          },
-        ),
-      ).rejects.toThrow("publication failed")
-      const backup = (await readdir(root)).find((name) => name.startsWith("CookieMonster Backup-"))
-      expect(backup).toBeDefined()
-      if (!backup) throw new Error("Missing previous bundle")
-      if (scenario === "restore") {
-        expect(await readFile(join(destination, "version"), "utf8")).toBe("old")
-        expect((await lstat(destination)).mode & 0o777).toBe(0o555)
-        await expect(lstat(join(root, backup, "CookieMonster.app"))).rejects.toMatchObject({ code: "ENOENT" })
-        continue
+posixTest(
+  "publication failures restore the old app or retain its backup without overwriting concurrent data",
+  async () => {
+    for (const scenario of ["restore", "restore-fails", "concurrent-destination"]) {
+      const root = await mkdtemp(join(tmpdir(), "cm-install-test-"))
+      const source = join(root, "Source")
+      const destination = join(root, "CookieMonster.app")
+      try {
+        await mkdir(source)
+        await writeFile(join(source, "version"), "new")
+        await mkdir(destination)
+        await writeFile(join(destination, "version"), "old")
+        await chmod(destination, 0o555)
+        await expect(
+          copyUserApp(
+            source,
+            root,
+            async (_file, args) => {
+              await cp(args[3], args[4], { recursive: true })
+              return ""
+            },
+            async (from, to) => {
+              expect((await lstat(from)).mode & 0o200).toBe(0o200)
+              if (String(from).includes("CookieMonster Install-")) {
+                if (scenario === "concurrent-destination") await writeFile(join(destination, "sentinel"), "concurrent")
+                throw new Error("publication failed")
+              }
+              if (scenario === "restore-fails" && String(from).includes("CookieMonster Backup-")) {
+                throw new Error("restoration failed")
+              }
+              await rename(from, to)
+            },
+          ),
+        ).rejects.toThrow("publication failed")
+        const backup = (await readdir(root)).find((name) => name.startsWith("CookieMonster Backup-"))
+        expect(backup).toBeDefined()
+        if (!backup) throw new Error("Missing previous bundle")
+        if (scenario === "restore") {
+          expect(await readFile(join(destination, "version"), "utf8")).toBe("old")
+          expect((await lstat(destination)).mode & 0o777).toBe(0o555)
+          await expect(lstat(join(root, backup, "CookieMonster.app"))).rejects.toMatchObject({ code: "ENOENT" })
+          continue
+        }
+        expect(await readFile(join(root, backup, "CookieMonster.app", "version"), "utf8")).toBe("old")
+        expect((await lstat(join(root, backup, "CookieMonster.app"))).mode & 0o777).toBe(0o555)
+        if (scenario === "restore-fails") {
+          await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" })
+          continue
+        }
+        expect(await readFile(join(destination, "sentinel"), "utf8")).toBe("concurrent")
+      } finally {
+        await chmod(destination, 0o755).catch(() => {})
+        for (const name of (await readdir(root)).filter((name) => name.startsWith("CookieMonster Backup-"))) {
+          await chmod(join(root, name, "CookieMonster.app"), 0o755).catch(() => {})
+        }
+        await rm(root, { recursive: true, force: true })
       }
-      expect(await readFile(join(root, backup, "CookieMonster.app", "version"), "utf8")).toBe("old")
-      expect((await lstat(join(root, backup, "CookieMonster.app"))).mode & 0o777).toBe(0o555)
-      if (scenario === "restore-fails") {
-        await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" })
-        continue
-      }
-      expect(await readFile(join(destination, "sentinel"), "utf8")).toBe("concurrent")
-    } finally {
-      await chmod(destination, 0o755).catch(() => {})
-      for (const name of (await readdir(root)).filter((name) => name.startsWith("CookieMonster Backup-"))) {
-        await chmod(join(root, name, "CookieMonster.app"), 0o755).catch(() => {})
-      }
-      await rm(root, { recursive: true, force: true })
     }
-  }
-})
+  },
+)

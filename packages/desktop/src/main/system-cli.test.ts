@@ -64,15 +64,18 @@ test.skipIf(process.platform !== "win32")("validates a command's real exit code 
   )
 })
 
-test.skipIf(process.platform !== "win32")("environment notification propagates native broadcast failure", async () => {
-  const result = await execFileAsync(
-    "pwsh",
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      `
+test.skipIf(process.platform !== "win32")(
+  "environment notification propagates native broadcast failure",
+  async () => {
+    const result = await execFileAsync(
+      // Match the shipped installer and system-cli.ts, which run Windows PowerShell 5.1, not pwsh.
+      join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `
     $ErrorActionPreference = "Stop"
     $tokens = $null
     $errors = $null
@@ -100,15 +103,18 @@ namespace CookieMonster {
     }
     Write-Output 'PASS'
   `,
-    ],
-    { windowsHide: true },
-  )
-  expect(result.stdout.trim()).toBe("PASS")
-})
+      ],
+      { windowsHide: true },
+    )
+    expect(result.stdout.trim()).toBe("PASS")
+  },
+  30_000,
+)
 
 const transform = (action: "TransformInstall" | "TransformUninstall", value: string) =>
   execFileAsync(
-    "pwsh",
+    // Match the shipped installer and system-cli.ts, which run Windows PowerShell 5.1, not pwsh.
+    join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     [
       "-NoLogo",
       "-NoProfile",
@@ -125,17 +131,22 @@ const transform = (action: "TransformInstall" | "TransformUninstall", value: str
     { windowsHide: true },
   ).then((result) => result.stdout.trim())
 
-test.skipIf(process.platform !== "win32")("installs the exact CookieMonster command directory once", async () => {
-  expect(await transform("TransformInstall", "")).toBe(owned)
-  expect(await transform("TransformInstall", "C:\\Windows;C:\\Tools")).toBe(`${owned};C:\\Windows;C:\\Tools`)
-  expect(await transform("TransformInstall", `${owned};C:\\Windows`)).toBe(`${owned};C:\\Windows`)
-  expect(await transform("TransformInstall", `C:\\Windows;${owned};C:\\Tools`)).toBe(`C:\\Windows;${owned};C:\\Tools`)
-  expect(
-    await transform("TransformInstall", `C:\\Windows;c:\\program files\\cookiemonster\\resources\\cli\\;${owned}`),
-  ).toBe(`C:\\Windows;${owned}`)
-  expect(await transform("TransformInstall", `"${owned}\\";C:\\Windows`)).toBe(`${owned};C:\\Windows`)
-  expect(await transform("TransformInstall", `${owned}-old;C:\\Windows`)).toBe(`${owned};${owned}-old;C:\\Windows`)
-})
+test.skipIf(process.platform !== "win32")(
+  "installs the exact CookieMonster command directory once",
+  async () => {
+    expect(await transform("TransformInstall", "")).toBe(owned)
+    expect(await transform("TransformInstall", "C:\\Windows;C:\\Tools")).toBe(`${owned};C:\\Windows;C:\\Tools`)
+    expect(await transform("TransformInstall", `${owned};C:\\Windows`)).toBe(`${owned};C:\\Windows`)
+    expect(await transform("TransformInstall", `C:\\Windows;${owned};C:\\Tools`)).toBe(`C:\\Windows;${owned};C:\\Tools`)
+    expect(
+      await transform("TransformInstall", `C:\\Windows;c:\\program files\\cookiemonster\\resources\\cli\\;${owned}`),
+    ).toBe(`C:\\Windows;${owned}`)
+    expect(await transform("TransformInstall", `"${owned}\\";C:\\Windows`)).toBe(`${owned};C:\\Windows`)
+    expect(await transform("TransformInstall", `${owned}-old;C:\\Windows`)).toBe(`${owned};${owned}-old;C:\\Windows`)
+    // Seven sequential Windows PowerShell 5.1 launches exceed bun's 5s default.
+  },
+  30_000,
+)
 
 test.skipIf(process.platform !== "win32")(
   "uninstall removes only the exact CookieMonster command directory",
@@ -146,4 +157,5 @@ test.skipIf(process.platform !== "win32")(
     )
     expect(await transform("TransformUninstall", `${owned}-old;C:\\Windows`)).toBe(`${owned}-old;C:\\Windows`)
   },
+  30_000,
 )

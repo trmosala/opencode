@@ -96,6 +96,10 @@
               finishRequest(requestInfo, error)
               postRecord({ ...requestInfo, done: true, error: error.message })
             })
+        } else if (shouldSniffChatStream(requestInfo)) {
+          sniffChatStream(response, requestInfo).catch((error) => {
+            if (pendingRequests.has(requestInfo)) finishRequest(requestInfo, error)
+          })
         }
         return response
       } catch (error) {
@@ -143,6 +147,7 @@
       const tracked = shouldRecordRequest(requestInfo)
       const cleanup = tracked ? recordXhr(this, requestInfo) : () => {}
       if (tracked) startRequest(requestInfo)
+      else if (shouldSniffChatStream(requestInfo)) sniffXhr(this, requestInfo)
       try {
         return originalSend.apply(this, args)
       } catch (error) {
@@ -178,14 +183,21 @@
     } else if (!isModelEndpoint(endpoint)) {
       return false
     }
+    return telemetryAllows(request)
+  }
+
+  function shouldSniffChatStream(request) {
+    if (request.method !== "POST") return false
+    if (activeRunId && expectedPrompt !== null) return false
+    if (isModelEndpoint(safeUrl(request.url))) return false
+    return telemetryAllows(request)
+  }
+
+  function telemetryAllows(request) {
     if (typeof window.__o1CodeShouldRecordRequest === "function") {
       try {
         return window.__o1CodeShouldRecordRequest(request)
       } catch {}
-    }
-
-    if (request.method !== "POST") {
-      return false
     }
 
     const requestUrl = String(request.url || "")
@@ -195,12 +207,16 @@
     return !(
       host.includes("datadoghq") ||
       host.startsWith("dataplane.rum.") ||
+      host.includes("heap-api") ||
+      host.includes("heapanalytics") ||
       host === "google-analytics.com" ||
       host.endsWith(".google-analytics.com") ||
       host === "events.launchdarkly.com" ||
       url?.pathname.startsWith("/api/az/") ||
       requestUrl.includes("datadoghq") ||
       requestUrl.includes("dataplane.rum.") ||
+      requestUrl.includes("heap-api") ||
+      requestUrl.includes("heapanalytics") ||
       requestUrl.includes("/v1/project/") ||
       requestUrl.includes("/v1/tools/") ||
       requestUrl.includes("/v1/oauth/")
@@ -210,9 +226,114 @@
   function isModelEndpoint(url) {
     return Boolean(
       url &&
-        (/^\/(?:v1|api)\/chat(?:\/completions)?\/?$/.test(url.pathname) ||
-          (url.hostname.endsWith(".lambda-url.eu-west-1.on.aws") && url.pathname === "/")),
+        (/^\/(?:v\d+|api)\/chat(?:\/completions)?\/?$/.test(url.pathname) ||
+          (/\.lambda-url\.[^.]+\.on\.aws$/i.test(url.hostname) && url.pathname === "/")),
     )
+  }
+
+  function chunkLooksLikeChat(text) {
+    return /"choices"\s*:/.test(text) && /"(?:delta|message|tool_calls|toolCalls)"\s*:/.test(text)
+  }
+
+  function chatRecord(record) {
+    return Boolean(
+      record.finalText || record.eventCount || Object.keys(record.toolCallParts || {}).length || record.usage,
+    )
+  }
+
+  // Unknown paths stay out of pending until the body is a chat-shaped event stream. A long
+  // non-chat SSE is abandoned after 64KB so it cannot hold greeting settlement open.
+  async function sniffChatStream(response, requestInfo) {
+    const contentType = response.headers.get("content-type") || ""
+    if (!/text\/event-stream/i.test(contentType)) return
+    const clone = response.clone()
+    const reader = clone.body?.getReader()
+    if (!reader) return
+    const decoder = new TextDecoder()
+    let buffered = ""
+    let admitted = false
+    let record = null
+    let pending = ""
+    try {
+      while (buffered.length <= 65536) {
+        const { value, done } = await reader.read()
+        if (value) buffered += decoder.decode(value, { stream: true })
+        if (chunkLooksLikeChat(buffered) || done) break
+      }
+      if (!chunkLooksLikeChat(buffered) || requestInfo.generation !== generation) {
+        reader.cancel().catch(() => {})
+        return
+      }
+      admitted = true
+      startRequest(requestInfo)
+      if (!pendingRequests.has(requestInfo)) return
+      record = createRecord(requestInfo, {
+        responseStatus: response.status,
+        responseHeaders: headersObject(response.headers),
+      })
+      appendChunk(record, buffered)
+      pending = parseChunk(record, buffered)
+      postRecord(record)
+      while (pendingRequests.has(requestInfo)) {
+        const { value, done } = await reader.read()
+        if (value) {
+          const chunk = decoder.decode(value, { stream: !done })
+          appendChunk(record, chunk)
+          pending = parseChunk(record, pending + chunk)
+          postRecord(record)
+        }
+        if (done) break
+      }
+      if (!pendingRequests.has(requestInfo) || !record) return
+      const tail = decoder.decode()
+      if (tail) {
+        appendChunk(record, tail)
+        pending = parseChunk(record, pending + tail)
+      }
+      if (pending.trim()) parseDataLine(record, pending.trim())
+      if (!chatRecord(record)) {
+        finishRequest(requestInfo, null)
+        return
+      }
+      if (!response.ok) record.error = `HTTP ${response.status}`
+      record.done = true
+      postRecord(record)
+      finishRequest(requestInfo, response.ok ? null : new Error(`HTTP ${response.status}`))
+    } catch (error) {
+      if (admitted) finishRequest(requestInfo, error)
+      else reader.cancel().catch(() => {})
+    }
+  }
+
+  function sniffXhr(xhr, requestInfo) {
+    let admitted = false
+    const stop = () => {
+      xhr.removeEventListener("readystatechange", look)
+      xhr.removeEventListener("loadend", stop)
+    }
+    const look = () => {
+      if (admitted || requestInfo.generation !== generation) return stop()
+      if (xhr.readyState < 2) return
+      const headers = xhr.getAllResponseHeaders?.() || ""
+      if (!/text\/event-stream/i.test(headers)) return stop()
+      let text = ""
+      try {
+        text = xhr.responseText || ""
+      } catch {
+        return
+      }
+      if (!chunkLooksLikeChat(text)) {
+        if (text.length > 65536 || xhr.readyState === 4) stop()
+        return
+      }
+      admitted = true
+      stop()
+      startRequest(requestInfo)
+      recordXhr(xhr, requestInfo)
+      xhr.dispatchEvent(new Event("readystatechange"))
+    }
+    xhr.addEventListener("readystatechange", look)
+    xhr.addEventListener("loadend", stop)
   }
 
   // Compare transient request fields with the admitted prompt; never retain the request body.

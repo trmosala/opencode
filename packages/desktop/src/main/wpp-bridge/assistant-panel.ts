@@ -1,3 +1,5 @@
+// Exact chat leaves only. A wildcard leaf also matches other same-origin chat frames, so assistantFrame
+// would report a thread desync or route to the wrong frame.
 export function isAssistantChatUrl(value: string) {
   const url = URL.parse(value)
   return (
@@ -55,12 +57,11 @@ function projectPageState(
   const busy = Array.from(
     document.querySelectorAll("[aria-busy='true'], [role='progressbar'], .ant-spin-spinning"),
   ).some(visible)
+  // Control-ready is enough for assistant mode: incomplete lazy images and leftover spinners used to
+  // hold ready=false for minutes even though the popover button was already clickable.
+  const ready = document.readyState === "complete" && (requireAssistantControl ? controlReady : !busy)
   return {
-    ready:
-      document.readyState === "complete" &&
-      controlReady &&
-      Array.from(document.images).every((image) => image.complete) &&
-      !busy,
+    ready,
     // Viewers may have no agent-card controls. Observe lazy roster changes without requiring edit access.
     signature: JSON.stringify(
       Array.from(document.querySelectorAll(".agent-card-title__name")).map((name) => name.textContent?.trim() ?? ""),
@@ -98,7 +99,7 @@ function assistantPanelState(
   controlSelectors: string[],
   iframeSelector: string,
 ) {
-  const closed = {
+  const loading = {
     open: false,
     click: false,
     domClick: false,
@@ -108,8 +109,11 @@ function assistantPanelState(
     disabled: false,
     unobscured: false,
     iframePresent: false,
+    ready: false,
   }
-  if (document.readyState !== "complete") return closed
+  if (document.readyState !== "complete") return loading
+  // `ready` lets the host fail fast on a settled page whose Assistant button never mounts.
+  const closed = { ...loading, ready: true }
   const visible = (element: Element) => {
     const rect = element.getBoundingClientRect()
     const style = getComputedStyle(element)
@@ -170,6 +174,9 @@ function assistantPanelState(
   }
 }
 
+// Fail fast when the popover control never mounts — sitting the full timeout just burns minutes of "thinking".
+const ABSENT_CONTROL_MS = 15000
+
 export async function openAssistantPanel(
   contents: {
     mainFrame?: { framesInSubtree?: { url: string }[] }
@@ -186,24 +193,27 @@ export async function openAssistantPanel(
     now = Date.now,
     sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     timeoutMs = 240000,
+    absentControlMs = ABSENT_CONTROL_MS,
     signal,
   }: {
     now?: () => number
     sleep?: (ms: number) => Promise<void>
     timeoutMs?: number
+    absentControlMs?: number
     signal?: AbortSignal
   } = {},
 ) {
   const deadline = now() + timeoutMs
   let nextClickAt = 0
   let clickCount = 0
+  let absentSince: number | undefined
   let lastState: unknown
   const flag = (key: string) => {
     const value = lastState && typeof lastState === "object" ? Reflect.get(lastState, key) : undefined
     return typeof value === "boolean" ? value : undefined
   }
-  const expire = () =>
-    assistantError("o1_code_assistant_popover_timeout", {
+  const expire = () => {
+    const error = assistantError("o1_code_assistant_popover_timeout", {
       phase: "assistant-popover",
       clickCount,
       buttonFound: flag("buttonFound"),
@@ -212,6 +222,10 @@ export async function openAssistantPanel(
       unobscured: flag("unobscured"),
       iframePresent: flag("iframePresent"),
     })
+    // The worker pool logs the last raw page observation next to the bounded diagnostics.
+    if (lastState !== undefined) Reflect.set(error, "panelState", lastState)
+    return error
+  }
   while (now() < deadline) {
     const state = await navigationWait(
       () => contents.executeJavaScript(assistantPanelStateExpression(), true),
@@ -225,6 +239,13 @@ export async function openAssistantPanel(
       // The assistant frame can live in a shadow root the page probe does not search. Trust the frame
       // tree only when the page has not reported a mounted but hidden assistant iframe.
       if (Reflect.get(state, "iframePresent") !== true && assistantChatFrameCount(contents) === 1) return
+      // Fail fast only on a settled page with no Assistant button and no assistant iframe still mounting.
+      const absent =
+        Reflect.get(state, "ready") === true &&
+        Reflect.get(state, "buttonFound") === false &&
+        Reflect.get(state, "iframePresent") !== true
+      absentSince = absent ? (absentSince ?? now()) : undefined
+      if (absentSince !== undefined && now() - absentSince >= absentControlMs) throw expire()
       const x = Reflect.get(state, "x")
       const y = Reflect.get(state, "y")
       const nativeClick = Reflect.get(state, "click") === true && typeof x === "number" && typeof y === "number"
@@ -352,9 +373,17 @@ async function freshChatInShellPage() {
   if (!frame || !isVisible(frame)) return { ok: false, clicked: false, reason: "assistant-frame-not-found" }
 
   const frameRect = frame.getBoundingClientRect()
+  const actionHost = (node: Element) => {
+    let current: Element | null = node
+    while (current) {
+      if (current.tagName.toLowerCase().startsWith("wpp-action-button")) return current
+      current = current.parentElement
+    }
+    return node.parentElement
+  }
   const candidates = Array.from(document.querySelectorAll("[data-testid='wpp-icon-more']"))
     .map((icon) => {
-      const host = icon.closest("wpp-action-button-v4-3-0") || icon.parentElement
+      const host = actionHost(icon)
       const control = host?.shadowRoot?.querySelector("button") || host || icon
       if (!isClickable(control)) return null
       const rect = control.getBoundingClientRect()

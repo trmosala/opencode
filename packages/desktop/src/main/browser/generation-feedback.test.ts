@@ -7,15 +7,18 @@ import { nativeT } from "../native-translations"
 
 // Bun module mocks persist across files; isolate this Electron boundary.
 if (process.env.CM_GENERATION_FEEDBACK_TEST !== "1") {
-  test("generation recovery feedback through browserCommand", () => {
-    const result = Bun.spawnSync([process.execPath, "test", import.meta.path], {
+  test("generation recovery feedback through browserCommand", async () => {
+    // Not Bun.spawnSync: after any earlier node:child_process spawnSync in this runner (cm-ae staging),
+    // Bun's next timed synchronous spawn can be killed at once. Async Bun.spawn is unaffected.
+    const child = Bun.spawn([process.execPath, "test", import.meta.path], {
       cwd: join(import.meta.dir, "../../.."),
       env: { ...process.env, CM_GENERATION_FEEDBACK_TEST: "1" },
       stdout: "pipe",
       stderr: "pipe",
       timeout: 20_000,
     })
-    expect(result.exitCode, Buffer.concat([result.stdout, result.stderr]).toString()).toBe(0)
+    const output = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
+    expect(await child.exited, output.join("")).toBe(0)
   }, 25_000)
 } else {
   const directory = mkdtempSync(join(tmpdir(), "cm-generation-feedback-"))

@@ -44,17 +44,23 @@ export class ExtensionBridge {
   // Publish a cumulative progress frame for a job. Frames carry a monotonic seq and the full
   // text-so-far; out-of-order or duplicate frames (seq <= the stored seq) are dropped so the
   // best-effort POST transport from the extension self-heals against reordering. The
-  // authoritative result still arrives via complete().
+  // authoritative result still arrives via complete(). Phase-only frames update health without
+  // fanning out as content (used for operator status while setup is still silent).
   pushProgress(jobId, frame = {}) {
-    if (!jobId || !this.jobs.has(jobId)) {
+    const job = jobId ? this.jobs.get(jobId) : null
+    if (!job) {
       return { ok: true, matched: false }
+    }
+
+    if (typeof frame.phase === "string" && frame.phase.trim()) {
+      job.progressPhase = frame.phase.trim()
     }
 
     const seq = Number(frame.seq)
     const finalText = typeof frame.finalText === "string" ? frame.finalText : ""
 
     if (!Number.isFinite(seq)) {
-      return { ok: true, matched: false }
+      return { ok: true, matched: true, phaseOnly: true }
     }
 
     const previous = this.lastProgress.get(jobId)
@@ -62,7 +68,9 @@ export class ExtensionBridge {
       return { ok: true, matched: true, stale: true }
     }
 
-    const next = { seq, finalText }
+    if (finalText) job.progressPhase = "streaming"
+
+    const next = { seq, finalText, phase: job.progressPhase || undefined }
     this.lastProgress.set(jobId, next)
 
     const listeners = this.progressListeners.get(jobId)
@@ -92,6 +100,8 @@ export class ExtensionBridge {
 
     return {
       ok: true,
+      // Distinguishes this Electron worker-pool bridge from legacy extension-queue proxies on :8787.
+      executor: "worker-pool",
       pendingJobs: activeJobs.filter((job) => job.state === "queued").length,
       inFlightJobs: activeJobs.filter((job) => job.state === "leased" || job.state === "running").length,
       jobs: activeJobs.map((job) => this.jobHealth(job, now)),
@@ -198,6 +208,7 @@ export class ExtensionBridge {
       completedAt: job.completedAt,
       completedAtMs: job.completedAtMs,
       durationMs: job.durationMs,
+      progressPhase: job.progressPhase || null,
       diagnostics: job.diagnostics,
       resultSummary: job.resultSummary,
     }
@@ -226,6 +237,7 @@ export class ExtensionBridge {
       attempts: job.attempts,
       completedAt: job.completedAt,
       durationMs: job.durationMs,
+      progressPhase: job.progressPhase || null,
       diagnostics: job.diagnostics,
       resultSummary: job.resultSummary,
     }
@@ -351,6 +363,7 @@ export class ExtensionBridge {
       completedAt: null,
       completedAtMs: null,
       durationMs: null,
+      progressPhase: null,
       diagnostics: null,
       resultSummary: null,
     }

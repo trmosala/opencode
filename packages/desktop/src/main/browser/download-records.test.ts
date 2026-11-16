@@ -341,7 +341,8 @@ test("live admission survives history rollover and reopening; crashed admissions
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
-})
+  // ~405 fsync'd atomic store rewrites; Windows fsync is slow enough to exceed bun's 5s default.
+}, 30_000)
 
 test("only actual complete regular files are revealable; missing, truncated and replaced files fail closed", () => {
   const dir = mkdtempSync(join(tmpdir(), "cm-download-files-"))

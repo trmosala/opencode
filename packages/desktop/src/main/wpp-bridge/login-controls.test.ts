@@ -9,15 +9,18 @@ import { nativeT } from "../native-translations"
 // Isolate mocks of native dialogs/OS verification/storage from the desktop suite.
 // Field safety is exercised separately in a real Electron isolated-world fixture.
 if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
-  test("WPP login controls enforce native consent and lifecycle cancellation", () => {
-    const result = Bun.spawnSync([process.execPath, "test", import.meta.path], {
+  test("WPP login controls enforce native consent and lifecycle cancellation", async () => {
+    // Not Bun.spawnSync: after any earlier node:child_process spawnSync in this runner (cm-ae staging),
+    // Bun's next timed synchronous spawn can be killed at once. Async Bun.spawn is unaffected.
+    const child = Bun.spawn([process.execPath, "test", import.meta.path], {
       cwd: join(import.meta.dir, "../../.."),
       env: { ...process.env, CM_WPP_LOGIN_TEST_CHILD: "1" },
       timeout: 15_000,
       stdout: "pipe",
       stderr: "pipe",
     })
-    expect(result.exitCode, Buffer.concat([result.stdout, result.stderr]).toString()).toBe(0)
+    const output = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
+    expect(await child.exited, output.join("")).toBe(0)
   }, 20_000)
 } else {
   const account = {
@@ -122,12 +125,19 @@ if (process.env.CM_WPP_LOGIN_TEST_CHILD !== "1") {
       if (code.includes(account.password)) delivered.resolve()
       return true
     })
-    current.contents.emit("did-finish-load")
-    await new Promise<void>((resolve) => setImmediate(resolve))
-    expect(verify).not.toHaveBeenCalled()
-    state.ready = true
-    await delivered.promise
-    expect(verify).toHaveBeenCalledTimes(1)
+    // The autofill poll is unref'd. Under bun test nothing else holds the event loop open while this
+    // test awaits, so the poll never fires; Electron keeps the loop alive in the real app.
+    const keepAlive = setInterval(() => {}, 100)
+    try {
+      current.contents.emit("did-finish-load")
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(verify).not.toHaveBeenCalled()
+      state.ready = true
+      await delivered.promise
+      expect(verify).toHaveBeenCalledTimes(1)
+    } finally {
+      clearInterval(keepAlive)
+    }
   }, 2000)
 
   test.each(["missing", "ambiguous"])("%s matching saved account is not filled", async (kind) => {
