@@ -1341,6 +1341,37 @@ describe("handleChatCompletions session serialization", () => {
   })
 })
 
+describe("serialized prompt cap", () => {
+  test("rejects an over-cap prompt as a standard context overflow without calling WPP", async () => {
+    const previous = process.env.O1_CODE_MAX_PROMPT_CHARS
+    process.env.O1_CODE_MAX_PROMPT_CHARS = "100"
+    const response = fakeResponse()
+    const calls = []
+    const bridge = {
+      hasSession: () => false,
+      run: async (prompt) => {
+        calls.push(prompt)
+        return bridgeRun("done")
+      },
+    }
+    try {
+      await withNoRunLogs(() =>
+        handleChatCompletions({ headers: {} }, response, body(user("x".repeat(500))), { bridge }),
+      )
+    } finally {
+      if (previous == null) delete process.env.O1_CODE_MAX_PROMPT_CHARS
+      else process.env.O1_CODE_MAX_PROMPT_CHARS = previous
+    }
+
+    expect(calls).toHaveLength(0)
+    expect(response.statusCode).toBe(413)
+    expect(JSON.parse(response.body).error).toMatchObject({
+      type: "o1_code_prompt_too_large",
+      code: "context_length_exceeded",
+    })
+  })
+})
+
 function body(...messages) {
   return { model: "CM_Opus5.5-XHigh", stream: false, messages }
 }

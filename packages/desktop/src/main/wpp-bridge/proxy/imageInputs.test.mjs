@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import {
   collectImageInputs,
+  imagePlaceholderText,
   MAX_IMAGE_HEIGHT,
   MAX_IMAGE_INPUT_BYTES,
   MAX_IMAGE_INPUTS,
@@ -79,6 +83,28 @@ describe("collectImageInputs", () => {
         { role: "user", content: [image(pngHeader(8000, Math.floor(MAX_IMAGE_PIXELS / 8000) + 1))] },
       ]),
     ).toThrow("resolution is too large")
+  })
+})
+
+describe("imagePlaceholderText", () => {
+  test("saves the image to the stash directory and references its path", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-attach-"))
+    const previous = process.env.O1_CODE_ATTACHMENT_DIR
+    process.env.O1_CODE_ATTACHMENT_DIR = dir
+    try {
+      const text = imagePlaceholderText(image(), 1)
+      const file = text.match(/saved at (.+)\]$/)?.[1]
+
+      expect(text).toStartWith(`[attached image 1: image/png, ${PNG_1X1.length} bytes, saved at `)
+      expect(file && dirname(file)).toBe(dir)
+      expect(await Bun.file(file).bytes()).toEqual(new Uint8Array(PNG_1X1))
+      // Content-addressed: the same bytes always map to the same file.
+      expect(imagePlaceholderText(image(), 2)).toBe(text.replace("image 1", "image 2"))
+    } finally {
+      if (previous === undefined) delete process.env.O1_CODE_ATTACHMENT_DIR
+      if (previous !== undefined) process.env.O1_CODE_ATTACHMENT_DIR = previous
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

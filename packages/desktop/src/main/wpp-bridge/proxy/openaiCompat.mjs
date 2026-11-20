@@ -35,7 +35,8 @@ import { buildContextMetrics, buildResponseMetrics } from "./contextMetrics.mjs"
 import { estimateTokens } from "./tokenEstimate.mjs"
 import { resolveUsage } from "./usage.mjs"
 import { DEFAULT_MODEL_ID, MODEL_IDS, resolveRequestModelProfile } from "./modelProfiles.mjs"
-const DEFAULT_MAX_PROMPT_CHARS = 600000
+// Must stay above O1_CODE_CONTEXT_LIMIT's usable window in chars plus serialization overhead (providerConfig.mjs).
+const DEFAULT_MAX_PROMPT_CHARS = 850000
 const STREAM_KEEP_ALIVE_MS = 10000
 
 // Stable anchors from OpenCode's compaction prompt (packages/core/src/session/compaction.ts),
@@ -218,6 +219,8 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         error: {
           message: promptTooLargeMessage(prompt),
           type: "o1_code_prompt_too_large",
+          // OpenCode's standard overflow code makes V1 and V2 auto-compact and retry instead of surfacing the cap.
+          code: "context_length_exceeded",
           promptChars: prompt.length,
           maxPromptChars: maxPromptChars(),
           estimatedTokens: context.input.estimatedTokens,
@@ -303,6 +306,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
       const error = new Error(promptTooLargeMessage(value))
       error.statusCode = 413
       error.type = "o1_code_prompt_too_large"
+      error.code = "context_length_exceeded"
       throw error
     }
     let retryCount = 0
@@ -447,6 +451,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
             error: {
               message: failure.message,
               type: failure.type || "o1_code_proxy_error",
+              code: failure.code || undefined,
               kind: failure.kind || undefined,
               capture: failure.capture || failure.diagnostics?.capture || undefined,
               retryCount,

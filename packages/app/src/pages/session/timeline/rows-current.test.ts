@@ -204,4 +204,76 @@ describe("current session timeline rows", () => {
 
     expect(result.rows.map((row) => row._tag)).toEqual(["UserMessage", "AssistantPart"])
   })
+
+  const failedTurn = [
+    { id: "msg_user", type: "user", text: "recover", time: { created: 1 } },
+    {
+      id: "msg_failed",
+      type: "assistant",
+      agent: "build",
+      model: { id: "model", providerID: "provider" },
+      content: [],
+      error: { type: "ProviderError", message: "temporary failure" },
+      time: { created: 2, completed: 3 },
+    },
+  ] satisfies SessionMessageInfo[]
+
+  test("marks a failed attempt as recovering while the turn is still busy", () => {
+    const normalized = normalizeSessionMessages("ses_1", failedTurn)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      failedTurn,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "busy",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map((row) => row._tag)).toEqual(["UserMessage", "Error", "Thinking"])
+    expect(result.rows.find((row) => row._tag === "Error")).toMatchObject({
+      recovering: true,
+      text: "temporary failure",
+    })
+  })
+
+  test("leaves the live error to the retry row while retrying", () => {
+    const normalized = normalizeSessionMessages("ses_1", failedTurn)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      failedTurn,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "retry",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map((row) => row._tag)).toEqual(["UserMessage", "Retry"])
+  })
+
+  test("shows a final failure card once the turn stops", () => {
+    const normalized = normalizeSessionMessages("ses_1", failedTurn)
+    const messages = new Map(normalized.messages.map((message) => [message.id, message]))
+
+    const result = Timeline.constructSessionMessageRows(
+      failedTurn,
+      (messageID) => messages.get(messageID),
+      (messageID) => normalized.parts.get(messageID) ?? [],
+      true,
+      "idle",
+      true,
+      normalized.messages.filter((message) => message.role === "user"),
+    )
+
+    expect(result.rows.map((row) => row._tag)).toEqual(["UserMessage", "Error"])
+    expect(result.rows.find((row) => row._tag === "Error")).toMatchObject({
+      recovering: false,
+      text: "temporary failure",
+    })
+  })
 })

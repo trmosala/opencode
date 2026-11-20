@@ -161,7 +161,8 @@ export function writeChatCompletionError(response, error) {
       error: {
         message: error?.message || "CookieMonster bridge request failed.",
         type,
-        code: type,
+        // Keep a standard provider code (e.g. context_length_exceeded) so OpenCode can classify the failure.
+        code: error?.code || type,
       },
     }),
   )

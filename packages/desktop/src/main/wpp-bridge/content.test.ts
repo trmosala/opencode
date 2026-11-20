@@ -4,7 +4,8 @@ import vm from "node:vm"
 
 type ContentHarness = {
   imageAttachmentDesync: (error: Error) => Error & { statusCode?: number; type?: string }
-  isAttachmentReady: (textarea: unknown, minChips?: number) => boolean
+  isAttachmentReady: (textarea: unknown, minChips?: number, expected?: number) => boolean
+  composerAttachmentChipCount: (textarea: unknown) => number
   hasUploadProgressIndicator: (textarea: unknown) => boolean
   pickTokenPill: (elements: unknown[]) => { value: number; text: string } | null
   waitForUpdatedTokenPill: (
@@ -52,6 +53,20 @@ describe("WPP content image attachment", () => {
 
     expect(harness.hasUploadProgressIndicator(textarea)).toBe(true)
     expect(harness.isAttachmentReady(textarea, 1)).toBe(false)
+  })
+
+  test("counts a chip with a nested name label once", () => {
+    const textarea = fakeComposer({ chips: 1, namedChips: true, ambientSpinner: false, chipSpinner: false })
+
+    expect(harness.composerAttachmentChipCount(textarea)).toBe(1)
+    expect(harness.isAttachmentReady(textarea, 2, 2)).toBe(false)
+  })
+
+  test("is ready only once every expected image has a chip", () => {
+    const textarea = fakeComposer({ chips: 2, namedChips: true, ambientSpinner: false, chipSpinner: false })
+
+    expect(harness.composerAttachmentChipCount(textarea)).toBe(2)
+    expect(harness.isAttachmentReady(textarea, 2, 2)).toBe(true)
   })
 })
 
@@ -222,10 +237,13 @@ function append(parent: FakeEl, child: FakeEl) {
   return child
 }
 
-function fakeComposer(opts: { chips: number; ambientSpinner: boolean; chipSpinner: boolean }) {
+function fakeComposer(opts: { chips: number; namedChips?: boolean; ambientSpinner: boolean; chipSpinner: boolean }) {
   const root = fakeEl("chat-input")
   const list = append(root, fakeEl("file-upload-list"))
-  for (let i = 0; i < opts.chips; i++) append(list, fakeEl("file-upload-list-item"))
+  for (let i = 0; i < opts.chips; i++) {
+    const chip = append(list, fakeEl("file-upload-list-item"))
+    if (opts.namedChips) append(chip, fakeEl("file-upload-name"))
+  }
   if (opts.chipSpinner) append(list, fakeEl("upload-spinner loading"))
   if (opts.ambientSpinner) append(root, fakeEl("thinking-spinner loading"))
   const textarea = fakeEl("composer")

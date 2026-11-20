@@ -249,7 +249,7 @@ The four numbered files above are the spine. These carry the rest of the behavio
 - `proxy/modelProfiles.mjs` — **the model roster.** Maps each `CM_*` model id to its WPP agent name, `toolFormat` (`xml` | `json`), and `commentaryPhase`. `DEFAULT_MODEL_ID` absorbs unknown ids. Adding or renaming a WPP agent starts here; `providerConfig.mjs` derives the advertised provider models from it.
 - `proxy/messageSerializer.mjs` — builds the envelope. Fresh vs `continue` (delta) mode, folds the tool instructions into the last delegated instruction, tags assistant messages `commentary`/`final_answer` for phase-aware agents, and owns two recovery variants: `serializeIncompleteTaskContinuationRequest` for a turn that stopped early, and `serializeToolRecoveryRequest` for a turn that answered in prose when a tool call was required.
 - `proxy/toolCallReminder.mjs` — the injected instruction text: XML, JSON, and phased tool-call reminders plus the task-completion contract, and the compact tool-router prompt used by the recovery turn.
-- `proxy/imageInputs.mjs` + `imageDimensions.mjs` — image input validation: `data:` URLs only, PNG/JPEG/WebP, header magic bytes must match the declared type, at most 12 images, 10 MB each and 40 MB total, 8192x8192 and 32 MP. Rejects with `400 invalid_image_input`.
+- `proxy/imageInputs.mjs` + `imageDimensions.mjs` — image input validation: `data:` URLs only, PNG/JPEG/WebP, header magic bytes must match the declared type, at most 12 images, 10 MB each and 40 MB total, 8192x8192 and 32 MP. Rejects with `400 invalid_image_input`. Only the latest user turn is pasted into WPP, so every image placeholder also saves a content-addressed copy under `<tmp>/opencode/cm-attachments` (inside OpenCode's pre-approved `Global.Path.tmp`) and names its path; the agent can `read` an earlier image back into the next turn.
 - `proxy/sessionThreads.mjs` — the session-to-WPP-thread mirror behind `continue` mode. Hashes instructions, tools, protocol, and every non-system message; a `continue` requires a live pinned tab, an unchanged context hash, the prior request as an exact prefix, and the WPP assistant echo at the expected boundary. Any mismatch degrades silently to a fresh replay, which is safe because the body still holds the full logical conversation. `acquireThreadTurn` serializes the whole decide → submit → commit lifecycle per session, because the worker pool locks the tab but deltas are computed before a worker is acquired. `resetThread` runs on any failure. Disable with `O1_CODE_THREAD_CONTINUITY=0`.
   WPP ownership keys include client, runtime UUID, Session and agent. V1 and V2 emit runtime identity only for the `cookiemonster` provider. V1 strips configured/plugin case variants of identity headers before applying its own values; V2 request headers take precedence over route defaults. Original opencode-provider client headers remain. Clients missing runtime identity use unpinned fresh replay on every turn. Explicit CLI `--attach` uses the receiving backend's runtime and existing same-process execution coordinator.
 
@@ -284,9 +284,21 @@ All optional; effective default in parentheses.
 | `O1_CODE_MAX_PROMPT_CHARS`                                        | hard-reject a serialized prompt above this size                    |
 | `O1_CODE_THREAD_CONTINUITY`                                       | `0` disables delta `continue` turns (always replay fresh)          |
 | `O1_CODE_ARTIFACT_DIR`                                            | absolute override for generated-media output                       |
+| `O1_CODE_ATTACHMENT_DIR`                                          | input-image copies (`<tmp>/opencode/cm-attachments`)               |
 | `O1_CODE_PROXY_LOGS` / `_LOG_DIR` / `_LOG_PAYLOADS` / `_LOG_KEEP` | run logging                                                        |
 | `O1_CODE_VERBOSE_RECORDER`                                        | `1` adds recorder diagnostics for non-recordable requests          |
 | `CM_BRAND` / `CM_UNSIGNED`                                        | packaging: brand as CookieMonster / strip signing and notarization |
+
+### billion-context (optional, opt-in)
+
+CM does not bundle [billion-context](https://github.com/ranxianglei/billion-context). Users who want its context compression install it globally, and the CM sidecar picks it up from the global OpenCode config.
+
+- Install: `npm i -g billion-context`. OpenCode 2.x needs a shim directory that re-exports `billion-context/dist/agent/opencode-native.js`, listed under `plugins` in `~/.config/opencode/opencode.jsonc`.
+- Set `"compaction": { "auto": false }` in the same config. Otherwise OpenCode's own compaction and billion-context both compact the session.
+- Do not run `bili start` with its default port. It binds 8787, which collides with the WPP bridge proxy. The plugin's self-spawned proxies use the 18787+ range.
+- billion-context reads each CM model's `limit.context` from the disk `opencode.json` seed. `ensureO1CodeProvider` refreshes windows earlier CM releases seeded (250k/160k/140k with 128k output) to `O1_CODE_CONTEXT_LIMIT`, and keeps custom limits. A stale seeded window makes it nudge, fold and clamp output too late against WPP's real limit.
+- Do not also load it from `OPENCODE_CONFIG_CONTENT`: a global copy plus a bundled copy compresses twice.
+- Check routing in `~/.local/state/billion-context/bili.log`: `[window] model=CM_... source=plugin native=200000` means it sees the current window.
 
 ### Agent browser tools (`packages/cm-browser`)
 

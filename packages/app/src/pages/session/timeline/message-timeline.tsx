@@ -1246,7 +1246,14 @@ export function MessageTimeline(props: {
         return (
           <TimelineRowFrame row={errorRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <Card variant="error" class="error-card">
+              <Card
+                variant={errorRow().recovering ? "warning" : "error"}
+                class="error-card"
+                data-recovering={errorRow().recovering || undefined}
+              >
+                <Show when={errorRow().recovering}>
+                  <div data-slot="session-turn-error-recovering">{language.t("session.error.recovering")}</div>
+                </Show>
                 {errorRow().text}
               </Card>
             </div>

@@ -79,6 +79,11 @@
     overflow-y: auto;
   }
 
+  [data-slot="session-turn-error-recovering"] {
+    font-weight: var(--font-weight-medium);
+    margin-bottom: 4px;
+  }
+
   [data-slot="session-turn-assistant-content"] {
     width: 100%;
     min-width: 0;
