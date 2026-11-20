@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { detectImageMimeType, readImageDimensions } from "./imageDimensions.mjs"
 
 export const MAX_IMAGE_INPUTS = 12
@@ -51,7 +55,37 @@ export function imagePlaceholderText(part, index) {
     return `[attached image ${index}]`
   }
 
-  return `[attached image ${index}: ${parsed.mimeType}, ${parsed.sizeBytes} bytes]`
+  const file = stashImage(parsed)
+  return `[attached image ${index}: ${parsed.mimeType}, ${parsed.sizeBytes} bytes${file ? `, saved at ${file}` : ""}]`
+}
+
+// Only the latest user turn is pasted into WPP; earlier images survive only as placeholders. Every
+// image is therefore also written, content-addressed, under OpenCode's temp directory
+// (Global.Path.tmp, which agents may read without an external-directory prompt) so the agent can
+// open any of them again with its read tool, one image per turn.
+export function imageStashDir(env = process.env) {
+  return env.O1_CODE_ATTACHMENT_DIR || join(tmpdir(), "opencode", "cm-attachments")
+}
+
+function stashImage(parsed) {
+  if (!SUPPORTED_IMAGE_INPUT_TYPES.has(parsed.mimeType)) return null
+  const dir = imageStashDir()
+  const file = join(
+    dir,
+    `${createHash("sha256").update(parsed.buffer).digest("hex")}.${extensionForMimeType(parsed.mimeType)}`,
+  )
+  // A failed write only drops the path from the placeholder; it must never fail the turn.
+  try {
+    if (existsSync(file)) return file
+    mkdirSync(dir, { recursive: true })
+    // Write then rename so a crash never leaves a truncated file that existsSync would trust.
+    const partial = `${file}.${process.pid}.partial`
+    writeFileSync(partial, parsed.buffer)
+    renameSync(partial, file)
+    return file
+  } catch {
+    return null
+  }
 }
 
 function parseImageUrlPart(part, index) {
@@ -138,6 +172,7 @@ function parseDataImageUrl(url) {
   return {
     mimeType,
     base64,
+    buffer,
     sizeBytes: buffer.length,
     detectedMimeType: detectImageMimeType(buffer),
     dimensions: readImageDimensions(buffer),
