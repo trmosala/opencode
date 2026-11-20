@@ -1,6 +1,7 @@
 name: cookiemonster-desktop
 
-# Builds signed and notarized CookieMonster macOS DMG/zip artifacts; uploads only the validated DMG.
+# Builds signed and notarized CookieMonster macOS DMG/zip artifacts. Uploads the validated DMG plus the
+# auto-update files (zip, zip blockmap and latest-mac.yml) that installed apps read from the Latest release.
 #
 # macOS is the sole supported CookieMonster target. Signing uses the Developer ID certificate and App
 # Store Connect API key in the APPLE_* secrets (APPLE_API_KEY holds the key ID, APPLE_API_KEY_PATH the
@@ -52,6 +53,18 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
+
+      - name: Resolve release version
+        # Each _NN revision needs its own semver (<base>-cm.<N>), or electron-updater treats it as installed.
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          if [[ ! "$REVISION" =~ ^[0-9]{2}$ ]]; then
+            echo "Revision must contain exactly two digits." >&2
+            exit 1
+          fi
+          version=$(node -p "require('./packages/desktop/package.json').version")
+          echo "CM_VERSION=${version}-cm.$((10#$REVISION))" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
@@ -124,6 +137,30 @@ jobs:
             xcrun stapler validate "$dmg"
           done
 
+      - name: Refresh DMG checksum in latest-mac.yml
+        # Stapling rewrites the DMG after electron-builder hashed it. The updater downloads the zip (whose app
+        # is already notarized and stapled), but keep the DMG entry truthful and pin the metadata to this revision.
+        # The DMG blockmap is stale for the same reason, so it is not published.
+        working-directory: packages/desktop/dist
+        run: |
+          node <<'EOF'
+          const fs = require("node:fs")
+          const crypto = require("node:crypto")
+          const assert = require("node:assert/strict")
+          const text = fs.readFileSync("latest-mac.yml", "utf8")
+          assert(text.includes(`version: ${process.env.CM_VERSION}\n`), "latest-mac.yml version must match CM_VERSION")
+          assert(/^path: cookiemonster-mac-[^\n]+\.zip$/m.test(text), "latest-mac.yml must point at the zip")
+          const updated = text.replace(
+            /(- url: (cookiemonster-mac-[^\n]+\.dmg)\n\s+sha512: )[^\n]+(\n\s+size: )\d+/g,
+            (_, head, name, sizeHead) => {
+              const bytes = fs.readFileSync(name)
+              return head + crypto.createHash("sha512").update(bytes).digest("base64") + sizeHead + bytes.length
+            },
+          )
+          fs.writeFileSync("latest-mac.yml", updated)
+          EOF
+          cat latest-mac.yml
+
       - name: List packaged output
         run: ls -la packages/desktop/dist
 
@@ -136,7 +173,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cookiemonster-macos
-          path: packages/desktop/dist/cookiemonster-mac-*.dmg
+          path: |
+            packages/desktop/dist/cookiemonster-mac-*.dmg
+            packages/desktop/dist/cookiemonster-mac-*.zip
+            packages/desktop/dist/cookiemonster-mac-*.zip.blockmap
+            packages/desktop/dist/latest-mac.yml
           if-no-files-found: error
           retention-days: 7
 
@@ -179,11 +220,14 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           shopt -s nullglob
-          files=(release-assets/cookiemonster-mac-*.dmg)
-          if (( ${#files[@]} != 1 )); then
-            echo "Expected exactly one validated CookieMonster DMG." >&2
+          dmgs=(release-assets/cookiemonster-mac-*.dmg)
+          zips=(release-assets/cookiemonster-mac-*.zip)
+          if (( ${#dmgs[@]} != 1 || ${#zips[@]} != 1 )) || [[ ! -f "${zips[0]}.blockmap" || ! -f release-assets/latest-mac.yml ]]; then
+            echo "Expected one validated DMG, one zip with its blockmap, and latest-mac.yml." >&2
             exit 1
           fi
+          # latest-mac.yml and the zip are what installed apps auto-update from.
+          files=("${dmgs[0]}" "${zips[0]}" "${zips[0]}.blockmap" release-assets/latest-mac.yml)
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "$RELEASE_NAME"
           else
