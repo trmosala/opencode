@@ -252,7 +252,12 @@
     const attachments = await attachImages(job?.payload?.images || [], textarea, SETUP_TIMEOUT_MS)
     if (
       attachments.attached > 0 &&
-      !(await waitForAttachmentReady(textarea, 15000, attachments.minChips ?? attachments.attached))
+      !(await waitForAttachmentReady(
+        textarea,
+        15000,
+        attachments.minChips ?? attachments.attached,
+        attachments.attached,
+      ))
     ) {
       throw imageAttachmentDesync(new Error("o1_code_image_attachment_desync"))
     }
@@ -754,52 +759,54 @@
     // WPP's bucket but the agent only gets a file reference (no vision), which is the bug this fixes.
     // Only the main process can synthesize a trusted paste (clipboard.writeImage + webContents.paste),
     // so we focus the composer and hand off via requestMainAction. See controller-injection.ts.
+    // Paste one image at a time and wait for WPP to register it before the next. Pasting the whole
+    // batch back-to-back let WPP drop later pastes while it was still ingesting the first one, and
+    // the turn was then submitted with a single image.
+    const pasteTimeoutMs = Math.max(20000, Math.min(Number(timeoutMs) || 60000, 60000))
+    const registerTimeoutMs = Math.min(Number(timeoutMs) || 15000, 15000)
+    let pastedOk = 0
     let pasteResult = null
-    try {
-      textarea.focus()
-      pasteResult = await requestMainAction(
-        "pasteImages",
-        {
-          images: images.map((image) => ({ name: image.name, mimeType: image.mimeType, data: image.data })),
-        },
-        Math.max(20000, Math.min(Number(timeoutMs) || 60000, 60000)),
-      )
-    } catch (error) {
-      throw imageAttachmentDesync(error)
-    }
-
-    const pastedOk =
-      pasteResult && Array.isArray(pasteResult.pasted)
-        ? pasteResult.pasted.filter((entry) => entry && entry.ok).length
-        : 0
-
-    if (pasteResult && Array.isArray(pasteResult.pasted) && pastedOk < images.length) {
-      if (pastedOk > 0) {
-        throw imageAttachmentDesync(new Error(`Trusted paste attached only ${pastedOk} of ${images.length} images.`))
+    for (const image of images) {
+      try {
+        textarea.focus()
+        pasteResult = await requestMainAction(
+          "pasteImages",
+          { images: [{ name: image.name, mimeType: image.mimeType, data: image.data }] },
+          pasteTimeoutMs,
+        )
+      } catch (error) {
+        throw imageAttachmentDesync(error)
       }
-      const error = new Error("Trusted paste could not decode any selected image.")
-      error.statusCode = 400
-      error.type = "invalid_image_input"
-      throw error
+
+      // No per-image outcome means trusted paste is unavailable. Fall back to the file input only
+      // before anything was pasted, otherwise the fallback would double-attach.
+      if (!Array.isArray(pasteResult?.pasted)) {
+        if (pastedOk > 0)
+          throw imageAttachmentDesync(new Error(`Trusted paste attached only ${pastedOk} of ${images.length} images.`))
+        break
+      }
+
+      if (!pasteResult.pasted[0]?.ok) {
+        if (pastedOk > 0)
+          throw imageAttachmentDesync(new Error(`Trusted paste attached only ${pastedOk} of ${images.length} images.`))
+        const error = new Error("Trusted paste could not decode any selected image.")
+        error.statusCode = 400
+        error.type = "invalid_image_input"
+        throw error
+      }
+
+      pastedOk += 1
+      if (!(await waitForAttachmentChips(textarea, baselineChips + pastedOk, pastedOk, registerTimeoutMs))) {
+        throw imageAttachmentDesync(new Error(`WPP did not register pasted image ${pastedOk} of ${images.length}.`))
+      }
     }
 
     if (pastedOk === images.length) {
-      // Wait until the pasted upload chips register (count rose past baseline) so we don't submit
-      // before WPP has taken the attachment. waitForAttachmentReady (chip-aware) then gates submit.
-      // We proceed regardless of this result: the pixels are already pasted, and waitForAttachmentReady
-      // re-gates submit downstream — falling back to file-input here would double-attach. The boolean
-      // is surfaced (chipsRegistered) purely for observability when the chips were slow to register.
-      const chipsRegistered = await waitForAttachmentChips(
-        textarea,
-        baselineChips + pastedOk,
-        Math.min(Number(timeoutMs) || 15000, 15000),
-      )
       return {
         requested: images.length,
         attached: pastedOk,
         minChips: baselineChips + pastedOk,
         method: "paste",
-        chipsRegistered,
         names: images.map((image) => image.name),
       }
     }
@@ -855,9 +862,15 @@
   // Count the composer's file-attachment chips (WPP renders every attachment — including pasted
   // images — as a named "file-upload-list-item", not an inline <img>). Used to detect that a paste
   // registered (count rose past the pre-attach baseline).
+  // A chip's nested name label also matches, so count only outermost matches. Counting both made one
+  // pasted image look like two, and a two-image gate passed with a single attachment.
+  const ATTACHMENT_CHIP_SELECTOR = "[class*='file-upload-list-item'], [class*='file-upload-name']"
+
   function composerAttachmentChipCount(textarea) {
     const root = chatRootFor(textarea)
-    return root.querySelectorAll("[class*='file-upload-list-item'], [class*='file-upload-name']").length
+    return Array.from(root.querySelectorAll(ATTACHMENT_CHIP_SELECTOR)).filter(
+      (chip) => !chip.parentElement?.closest?.(ATTACHMENT_CHIP_SELECTOR),
+    ).length
   }
 
   // Upload chips / list only — ambient chat "loading"/"spinner" outside this region must not block submit.
@@ -869,10 +882,10 @@
     return chip ? chip.parentElement || chip : null
   }
 
-  async function waitForAttachmentChips(textarea, targetCount, timeoutMs) {
+  async function waitForAttachmentChips(textarea, targetCount, expected, timeoutMs) {
     const startedAt = Date.now()
     while (Date.now() - startedAt < timeoutMs) {
-      if (composerAttachmentChipCount(textarea) >= targetCount && !hasUploadProgressIndicator(textarea)) {
+      if (isAttachmentReady(textarea, targetCount, expected)) {
         return true
       }
       await wait(150)
@@ -900,17 +913,20 @@
   // True once a composer thumbnail that was NOT present pre-attach has finished decoding
   // (complete && naturalWidth>0) — i.e. the upload rendered, not just a placeholder chip.
   function hasFreshDecodedThumbnail(textarea) {
+    return freshDecodedThumbnailCount(textarea) > 0
+  }
+
+  // Distinct decoded thumbnails that were absent pre-attach, so each registered image counts once.
+  function freshDecodedThumbnailCount(textarea) {
     const root = chatRootFor(textarea)
     const baseline = attachmentBaselineImages || new Set()
 
-    return Array.from(root.querySelectorAll("img")).some((img) => {
-      const key = img.currentSrc || img.getAttribute("src") || ""
-      if (!key || baseline.has(key)) {
-        return false
-      }
-
-      return img.complete && img.naturalWidth > 0
-    })
+    return new Set(
+      Array.from(root.querySelectorAll("img"))
+        .filter((img) => img.complete && img.naturalWidth > 0)
+        .map((img) => img.currentSrc || img.getAttribute("src") || "")
+        .filter((key) => key && !baseline.has(key)),
+    ).size
   }
 
   // True while an upload-progress affordance is visible in the upload-chip region only. Scanning the
@@ -940,10 +956,12 @@
   }
 
   // "Ready" = our chips (or a fresh thumbnail) are present AND no upload-progress affordance remains
-  // in the chip region. minChips is baseline+attached so leftover chips alone don't satisfy the gate.
-  function isAttachmentReady(textarea, minChips = 1) {
+  // in the chip region. minChips is baseline+attached so leftover chips alone don't satisfy the gate;
+  // expected is the attached count, so one fresh thumbnail cannot stand in for several images.
+  function isAttachmentReady(textarea, minChips = 1, expected = 1) {
     const hasAttachment =
-      hasFreshDecodedThumbnail(textarea) || composerAttachmentChipCount(textarea) >= Math.max(1, minChips)
+      composerAttachmentChipCount(textarea) >= Math.max(1, minChips) ||
+      freshDecodedThumbnailCount(textarea) >= Math.max(1, expected)
     return hasAttachment && !hasUploadProgressIndicator(textarea)
   }
 
@@ -951,12 +969,12 @@
   // (so we don't race a transient first paint before the upload settles), or false on timeout.
   // ponytail: DOM-poll heuristic — switch to the pageRecorder network signal (it wraps fetch+XHR
   // in the MAIN world) if the composer DOM stops exposing upload state.
-  async function waitForAttachmentReady(textarea, timeoutMs = 15000, minChips = 1) {
+  async function waitForAttachmentReady(textarea, timeoutMs = 15000, minChips = 1, expected = 1) {
     const startedAt = Date.now()
     let stableTicks = 0
 
     while (Date.now() - startedAt < timeoutMs) {
-      if (isAttachmentReady(textarea, minChips)) {
+      if (isAttachmentReady(textarea, minChips, expected)) {
         stableTicks += 1
         if (stableTicks >= 2) {
           return true
@@ -3360,6 +3378,7 @@
       waitForAttachmentReady,
       isAttachmentReady,
       hasFreshDecodedThumbnail,
+      freshDecodedThumbnailCount,
       hasUploadProgressIndicator,
       composerUploadRegion,
       composerAttachmentChipCount,
