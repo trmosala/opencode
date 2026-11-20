@@ -210,8 +210,7 @@ export function o1CodeConfigContent(browserPlugin, aePlugin, chromeDevTools = pr
     provider: {
       cookiemonster: COOKIE_MONSTER_PROVIDER,
     },
-    small_model: SEED_SMALL_MODEL,
-    agent: { ...SEED_AGENTS },
+    // small_model/agent are seeded on disk only: this blob outranks opencode.json and would clobber user picks.
     // Chrome's persistent setting is user-controlled, rather than overridden by
     // this high-precedence blob. Fresh installs are off.
     mcp: {
