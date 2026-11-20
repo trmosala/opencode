@@ -190,7 +190,26 @@ export namespace Timeline {
       assistantGroupIndex += 1
     })
 
-    if (isActive && status === "busy" && !error && (showReasoning ? assistantPartRefs.length === 0 : true)) {
+    // A failed attempt on a turn that is still running is history; the live session status is the current outcome.
+    const recovering = !!error && isActive && status !== "idle"
+    const errorData = error?.data?.message
+    const errorRow = error
+      ? new TimelineRow.Error({
+          userMessageID: userMessage.id,
+          text: unwrapErrorMessage(
+            typeof errorData === "string"
+              ? errorData
+              : errorData === undefined || errorData === null
+                ? ""
+                : String(errorData),
+          ),
+          recovering,
+        })
+      : undefined
+    // While retrying, the Retry row already shows the live error, so the earlier failure is not repeated.
+    if (errorRow && recovering && status === "busy") rows.push(errorRow)
+
+    if (isActive && status === "busy" && (showReasoning ? assistantPartRefs.length === 0 : true)) {
       const heading = assistantMessages
         .flatMap((message) => getMessageParts(message.id))
         .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
@@ -216,17 +235,7 @@ export namespace Timeline {
       )
     }
 
-    if (error) {
-      const data = error.data?.message
-      rows.push(
-        new TimelineRow.Error({
-          userMessageID: userMessage.id,
-          text: unwrapErrorMessage(
-            typeof data === "string" ? data : data === undefined || data === null ? "" : String(data),
-          ),
-        }),
-      )
-    }
+    if (errorRow && !recovering) rows.push(errorRow)
 
     return rows
   }
