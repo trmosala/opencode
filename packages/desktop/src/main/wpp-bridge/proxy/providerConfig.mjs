@@ -4,12 +4,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { MODEL_IDS, RENAMED_MODEL_IDS, resolveModelProfile } from "./modelProfiles.mjs"
 
 // Advertised model context/output limits. The context limit is bounded by the proxy's serialized-prompt
-// cap (O1_CODE_MAX_PROMPT_CHARS, default 600k chars), not WPP's ~250k window: OpenCode must auto-compact
-// before the proxy returns 413. Both compaction paths reserve 32k of output headroom, so 160k leaves
-// 128k usable — about 512k chars at core's 4 chars/token (V2) and 384k at the proxy's 3 chars/token
-// (V1, which compacts on reported usage). Also injected via OPENCODE_CONFIG_CONTENT (see
-// o1CodeConfigContent) so this wins even on a machine whose seeded opencode.json carries an old value.
-export const O1_CODE_CONTEXT_LIMIT = 160000
+// cap (O1_CODE_MAX_PROMPT_CHARS, default 850k chars) and matches WPP's 200,000-token window: OpenCode must
+// auto-compact before the proxy returns 413. Both compaction paths reserve 32k of output headroom, so 200k
+// leaves 168k usable — about 672k chars at core's 4 chars/token (V2) and 504k at the proxy's 3 chars/token
+// (V1, which compacts on reported usage), keeping ~178k chars of the cap spare for serialized tool and
+// instruction overhead. Also injected via OPENCODE_CONFIG_CONTENT (see o1CodeConfigContent) so this wins
+// even on a machine whose seeded opencode.json carries an old value.
+export const O1_CODE_CONTEXT_LIMIT = 200000
 export const O1_CODE_OUTPUT_LIMIT = 128000
 
 // CM Browser is the desktop's normal browser. Chrome DevTools remains an opt-in
@@ -181,6 +182,20 @@ function isCookieMonsterProvider(provider) {
   )
 }
 
+// Context windows earlier CM releases seeded, always paired with the 128k output limit.
+const PRIOR_SEED_CONTEXT_LIMITS = new Set([250000, 160000, 140000])
+
+function isPriorSeedLimit(limit) {
+  return (
+    !!limit &&
+    typeof limit === "object" &&
+    Object.keys(limit).length === 2 &&
+    limit.output === O1_CODE_OUTPUT_LIMIT &&
+    limit.context !== O1_CODE_CONTEXT_LIMIT &&
+    PRIOR_SEED_CONTEXT_LIMITS.has(limit.context)
+  )
+}
+
 // Resolve the user's global opencode.json the same way the sidecar does (xdg-basedir's config dir).
 export function o1CodeConfigFile() {
   return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode", "opencode.json")
@@ -302,9 +317,17 @@ export async function ensureO1CodeProvider(file = o1CodeConfigFile()) {
           : {}
       const mergedCost = { ...seedModel.cost, ...existingCost }
       const family = existingModel.family ?? seedModel.family
-      if (JSON.stringify(existingCost) === JSON.stringify(mergedCost) && existingModel.family === family) continue
+      // billion-context and external OpenCode sessions read this disk seed, so a stale seeded window
+      // (e.g. the old 250k) makes them compress too late. Only limits CM itself seeded are refreshed.
+      const limit = isPriorSeedLimit(existingModel.limit) ? seedModel.limit : existingModel.limit
+      if (
+        JSON.stringify(existingCost) === JSON.stringify(mergedCost) &&
+        existingModel.family === family &&
+        limit === existingModel.limit
+      )
+        continue
 
-      existingModels[modelKey] = { ...existingModel, family, cost: mergedCost }
+      existingModels[modelKey] = { ...existingModel, family, cost: mergedCost, ...(limit ? { limit } : {}) }
       changed = true
     }
   }

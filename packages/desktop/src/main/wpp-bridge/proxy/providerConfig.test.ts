@@ -70,10 +70,10 @@ test("injected config content seeds task-routed explore/general CM models", () =
   expect(config.agent.compaction.model).toBe(SEED_SMALL_MODEL)
 })
 
-test("advertised context compacts on both paths before the proxy prompt cap", () => {
-  // Both compaction paths reserve 32k of headroom; V2 estimates 4 chars/token, the proxy cap is 600k chars.
+test("advertised context leaves room for serialized tool and instruction overhead", () => {
+  // Both compaction paths reserve 32k of headroom; V2 estimates 4 chars/token, the proxy cap is 850k chars.
   const usable = COOKIE_MONSTER_PROVIDER.models[MODEL_IDS[0]].limit.context - 32_000
-  expect(usable * 4).toBeLessThan(600_000)
+  expect(850_000 - usable * 4).toBeGreaterThanOrEqual(160_000)
 })
 
 test("mergeSeedTaskAgents fills missing model/description without clobbering user values", () => {
@@ -340,6 +340,37 @@ test("fills missing project models and cost keys without overriding custom value
   expect(models[firstAgent].cost).toEqual({ input: 9, output: 30, cache_read: 0.5, cache_write: 0 })
   expect(models[firstAgent].family).toBe("gpt-5")
   await rm(dir, { recursive: true, force: true })
+})
+
+test("refreshes stale seeded context limits but keeps custom limits", async () => {
+  const { dir, file } = await tmpFile()
+  try {
+    const [stale, custom] = MODEL_IDS
+    await writeFile(
+      file,
+      JSON.stringify({
+        provider: {
+          cookiemonster: {
+            ...COOKIE_MONSTER_PROVIDER,
+            models: {
+              ...COOKIE_MONSTER_PROVIDER.models,
+              [stale]: { ...COOKIE_MONSTER_PROVIDER.models[stale], limit: { context: 250000, output: 128000 } },
+              [custom]: { ...COOKIE_MONSTER_PROVIDER.models[custom], limit: { context: 100000, output: 16000 } },
+            },
+          },
+        },
+      }),
+    )
+    await ensureO1CodeProvider(file)
+    const first = await readFile(file, "utf8")
+    const models = JSON.parse(first).provider.cookiemonster.models
+    expect(models[stale].limit).toEqual({ context: 200000, output: 128000 })
+    expect(models[custom].limit).toEqual({ context: 100000, output: 16000 })
+    await ensureO1CodeProvider(file)
+    expect(await readFile(file, "utf8")).toBe(first)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test("removes retired project models from the seeded CookieMonster provider", async () => {
