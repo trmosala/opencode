@@ -32,4 +32,6 @@ export function resolveAppIdentity(channel: Channel, branded: boolean, packaged:
 }
 
 export const APP_IDENTITY = resolveAppIdentity(CHANNEL, import.meta.env.CM_BRAND, app.isPackaged)
-export const UPDATER_ENABLED = app.isPackaged && CHANNEL !== "dev"
+// Only branded CookieMonster builds update, and only from the fork (see update-feed.ts). Unbranded builds would
+// otherwise follow upstream OpenCode release feeds and replace CookieMonster with stock OpenCode.
+export const UPDATER_ENABLED = app.isPackaged && CHANNEL !== "dev" && import.meta.env.CM_BRAND

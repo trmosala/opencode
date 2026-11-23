@@ -85,7 +85,7 @@ const require = __cjs_mod__.createRequire(import.meta.url);
       ],
     },
     define: {
-      "import.meta.env.VITE_CM_BRAND": JSON.stringify(Boolean(process.env.CM_BRAND)),
+      "import.meta.env.VITE_CM_BRAND": JSON.stringify(process.env.CM_BRAND === "1"),
     },
     publicDir: "../../../app/public",
     root: "src/renderer",

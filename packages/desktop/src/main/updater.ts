@@ -6,6 +6,7 @@ import { getLogger } from "./logging"
 import { getStore } from "./store"
 import { setAppQuitting } from "./windows"
 import { nativeT } from "./native-translations"
+import { CM_UPDATE_FEED } from "./update-feed"
 
 const { autoUpdater } = pkg
 const key = "ready"
@@ -13,6 +14,8 @@ const key = "ready"
 export function setupAutoUpdater(stop: () => Promise<void>) {
   const logger = getLogger()
   autoUpdater.logger = logger
+  // Ignore whatever feed packaging wrote into app-update.yml; CookieMonster only ever updates from the fork.
+  autoUpdater.setFeedURL({ ...CM_UPDATE_FEED })
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = true

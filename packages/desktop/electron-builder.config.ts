@@ -6,6 +6,7 @@ import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
 import { CM_AE_STAGE_FILES, stageCmAeBundle } from "./src/cm-ae"
+import { CM_UPDATE_FEED } from "./src/main/update-feed"
 
 // Fork CI has no Apple certificate and no Azure Trusted Signing account. CM_UNSIGNED=1 strips every
 // signing and notarization step so electron-builder emits unsigned installers instead of failing on
@@ -221,7 +222,7 @@ function applyBranding(cfg: Configuration): Configuration {
     },
     artifactName: "cookiemonster-${os}-${arch}.${ext}",
     // channel pinned so a -cm.N prerelease version still emits latest*.yml, not cm*.yml
-    publish: { provider: "github", owner: "trmosala", repo: "opencode", channel: "latest" },
+    publish: { ...CM_UPDATE_FEED },
   }
 }
 
