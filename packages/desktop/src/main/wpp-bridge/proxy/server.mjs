@@ -1,16 +1,16 @@
 import http from "node:http"
+import { createHash, timingSafeEqual } from "node:crypto"
 import { handleChatCompletions, listModels, writeJson } from "./openaiCompat.mjs"
+import { writeChatCompletionError } from "./streamAdapter.mjs"
 import { extensionBridge } from "./extensionBridge.mjs"
+import { setRunLogDir } from "./logging.mjs"
 import { renderStatusPage } from "./statusPage.mjs"
-import {
-  probeCookieMonsterBridgeOccupant,
-  proxyPortConflictError,
-  shouldIgnoreListenError,
-} from "./server-startup.mjs"
+import { probeCookieMonsterBridgeOccupant, proxyPortConflictError, shouldIgnoreListenError } from "./server-startup.mjs"
 
 const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1"
 const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787)
 export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1"]
 
 export async function startServer(options = {}) {
   return startServerWithActions(options)
@@ -22,19 +22,28 @@ export async function startServerWithActions({
   openLogin = null,
   checkAuth = null,
   chatMode = "assistant",
+  token = null,
+  logDir = null,
 } = {}) {
+  // The proxy drives an authenticated WPP session: never expose it beyond this machine.
+  if (!LOOPBACK_HOSTS.includes(String(host).toLowerCase())) {
+    throw proxyStartupError(
+      `Refusing to bind the O1-Code proxy to non-loopback host ${host}.`,
+      "o1_code_proxy_non_loopback_host",
+    )
+  }
+  // Every route that does work or exposes diagnostics requires this per-launch bearer token.
+  if (typeof token !== "string" || token.length < 16) {
+    throw proxyStartupError("The O1-Code proxy requires a per-launch access token.", "o1_code_proxy_token_missing")
+  }
+  if (logDir) setRunLogDir(logDir)
   extensionBridge.setChatMode(chatMode)
   if (typeof openLogin === "function") extensionBridge.onAuthRequired = openLogin
   const server = http.createServer(async (request, response) => {
     try {
-      await route(request, response, { openLogin, checkAuth })
+      await route(request, response, { openLogin, checkAuth, token })
     } catch (error) {
-      writeJson(response, error.statusCode || 500, {
-        error: {
-          message: error.message,
-          type: error.type || "o1_code_proxy_error",
-        },
-      })
+      writeRouteError(response, error)
     }
   })
 
@@ -50,7 +59,8 @@ export async function startServerWithActions({
     if (shouldIgnoreListenError(error)) {
       // Only treat EADDRINUSE as success when the occupant is CookieMonster's worker-pool bridge.
       // A foreign wpp-chat-cli extension queue on this port would otherwise swallow every turn.
-      if (await probeCookieMonsterBridgeOccupant(host, port)) {
+      // A CookieMonster bridge from another launch holds a different token, so it cannot serve us.
+      if (await probeCookieMonsterBridgeOccupant(host, port, { token })) {
         console.log(`o1-code-openai-proxy: already running on http://${host}:${port}/ — nothing to do.`)
         return
       }
@@ -64,8 +74,37 @@ export async function startServerWithActions({
   return server
 }
 
+// Once an SSE stream has started, a JSON error can no longer be written: close the stream with an
+// error frame instead (or just end it when the response is already finished).
+export function writeRouteError(response, error) {
+  if (!response.headersSent) {
+    writeJson(response, error?.statusCode || 500, {
+      error: {
+        message: error?.message,
+        type: error?.type || "o1_code_proxy_error",
+      },
+    })
+    return
+  }
+  if (response.writableEnded) return
+  if (String(response.getHeader("content-type") || "").startsWith("text/event-stream")) {
+    writeChatCompletionError(response, error)
+    return
+  }
+  response.end()
+}
+
 async function route(request, response, actions = {}) {
   const url = new URL(request.url, "http://127.0.0.1")
+
+  // DNS-rebinding defence: a browser page on an attacker-controlled name that resolves to loopback
+  // still sends its own Host header.
+  if (!isLoopbackHostHeader(request.headers.host, request.socket.localPort)) {
+    writeJson(response, 403, {
+      error: { message: "Host header must name the loopback O1-Code proxy.", type: "forbidden_host" },
+    })
+    return
+  }
 
   if (!enforceBrowserOrigin(request, response)) {
     return
@@ -86,6 +125,16 @@ async function route(request, response, actions = {}) {
 
   if (request.method === "GET" && url.pathname === "/health") {
     writeJson(response, 200, { ok: true })
+    return
+  }
+
+  if (
+    (url.pathname.startsWith("/v1/") || url.pathname.startsWith("/bridge/")) &&
+    !hasBearerToken(request.headers.authorization, actions.token)
+  ) {
+    writeJson(response, 401, {
+      error: { message: "Missing or invalid O1-Code proxy access token.", type: "unauthorized" },
+    })
     return
   }
 
@@ -173,12 +222,23 @@ function writeCors(response, request) {
   response.setHeader("vary", "origin")
 }
 
-export function isAllowedBrowserOrigin(origin) {
-  if (!origin) {
-    return true
-  }
+// Constant-time comparison of a request's `Authorization: Bearer <token>` against the launch token.
+// Hashing first gives both sides one length, so timingSafeEqual never throws or leaks the length.
+export function hasBearerToken(header, token) {
+  const presented = /^Bearer\s+(\S+)\s*$/i.exec(String(header || ""))?.[1]
+  if (!presented || typeof token !== "string" || !token) return false
+  return timingSafeEqual(createHash("sha256").update(presented).digest(), createHash("sha256").update(token).digest())
+}
 
-  if (String(origin).startsWith("chrome-extension://")) {
+export function isLoopbackHostHeader(host, port) {
+  const match = /^(127\.0\.0\.1|localhost|\[::1\])(?::(\d+))?$/i.exec(String(host || ""))
+  if (!match) return false
+  return Number(match[2] ?? 80) === Number(port)
+}
+
+export function isAllowedBrowserOrigin(origin) {
+  // Server-to-server callers (the OpenCode sidecar) send no Origin; they still need the bearer token.
+  if (!origin) {
     return true
   }
 
@@ -194,10 +254,6 @@ export function isAllowedBrowserOrigin(origin) {
 export function isAllowedBrowserRequest(headers = {}) {
   const origin = headers.origin
   const fetchSite = headers["sec-fetch-site"]
-
-  if (isAllowedBrowserOrigin(origin) && String(origin || "").startsWith("chrome-extension://")) {
-    return true
-  }
 
   if (fetchSite === "cross-site") {
     return false
@@ -236,6 +292,13 @@ export async function readJson(request, maxBytes = MAX_REQUEST_BODY_BYTES) {
     error.statusCode = 400
     throw error
   }
+}
+
+function proxyStartupError(message, type) {
+  const error = new Error(message)
+  error.statusCode = 500
+  error.type = type
+  return error
 }
 
 function requestTooLarge(maxBytes) {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import type { WebContents, WebFrameMain } from "electron"
 import { installInRootAndChildTargets } from "./cdp-targets"
 import { SpawnGate } from "./spawn-gate"
@@ -29,6 +30,17 @@ const RELAY_SOURCE = `
 export type ProgressFrame = { seq?: number; finalText?: string; phase?: string }
 type Pending = { resolve: (result: unknown) => void; reject: (error: Error) => void }
 type Route = { frame: WebFrameMain; token: string; active: boolean; mode: "assistant" | "agent" }
+
+// Typed so the pool can tell "content.js may still be running this turn" apart from a settled failure:
+// a worker that timed out mid-request must be discarded, never released back for reuse.
+export const CONTROLLER_TIMEOUT_TYPE = "o1_code_controller_timeout"
+
+export function controllerTimeoutError(type: string, timeoutMs: number) {
+  return Object.assign(new Error(`Timed out waiting for ${type} after ${timeoutMs} ms.`), {
+    type: CONTROLLER_TIMEOUT_TYPE,
+    statusCode: 504,
+  })
+}
 
 export function rejectPendingRequests(pending: Map<string, Pending>, error: Error) {
   for (const waiter of pending.values()) waiter.reject(error)
@@ -135,7 +147,7 @@ export async function installController(
             ? setTimeout(() => {
                 current.active = false
                 pending.delete(requestId)
-                reject(new Error(`Timed out waiting for ${type} after ${timeoutMs} ms.`))
+                reject(controllerTimeoutError(type, timeoutMs))
               }, timeoutMs)
             : null
         pending.set(requestId, {
@@ -237,13 +249,21 @@ async function handleMainRequest(contents: WebContents, route: Route, frame: Mai
   )
 }
 
+// WPP only routes a TRUSTED paste through its vision pipeline (a synthetic paste/drop or a file-input
+// upload arrives as an untrusted event or a plain file reference), so images still travel through the
+// OS clipboard. Keep that window short: restore as soon as the page has dispatched the paste event
+// (its DataTransfer is materialized during dispatch), and never restore over something the user
+// copied in the meantime.
 async function pasteImagesIntoComposer(contents: WebContents, route: Route, images: PasteImage[]) {
   const { clipboard, ClipboardItem, nativeImage } = await import("electron")
+  const fingerprint = async () => clipboardFingerprint(await snapshotClipboard(await clipboard.read()))
   await clipboardGate.acquire()
   try {
     if (!(await controllerRouteActive(contents, route))) throw new Error("WPP image paste was cancelled.")
     const saved = await snapshotClipboard(await clipboard.read())
     const pasted: { name: string; ok: boolean; reason?: string }[] = []
+    let wrote = false
+    let written: string | undefined
     try {
       for (const image of images) {
         const name = image.name || "image"
@@ -259,20 +279,64 @@ async function pasteImagesIntoComposer(contents: WebContents, route: Route, imag
             "image/png": new Blob([new Uint8Array(native.toPNG())], { type: "image/png" }),
           }),
         ])
+        wrote = true
+        // Read back through the same path used at restore time, so platform conversions compare equal.
+        written = await fingerprint()
         if (!(await controllerRouteActive(contents, route))) throw new Error("WPP image paste was cancelled.")
         if (contents.focusedFrame !== route.frame) throw new Error("WPP image composer lost focus.")
+        await route.frame.executeJavaScript(PASTE_OBSERVER_SOURCE)
         contents.paste()
-        await delay(800)
+        await waitForPasteDispatch(route.frame)
         pasted.push({ name, ok: true })
       }
     } finally {
-      if (saved.length === 0) clipboard.clear()
-      if (saved.length > 0) await clipboard.write(saved.map((item) => new ClipboardItem(item)))
+      // An unreadable clipboard keeps the previous always-restore behaviour.
+      const current = written === undefined ? undefined : await fingerprint().catch(() => written)
+      if (wrote && current === written) {
+        if (saved.length === 0) clipboard.clear()
+        if (saved.length > 0) await clipboard.write(saved.map((item) => new ClipboardItem(item)))
+      }
     }
     return { requested: images.length, pasted }
   } finally {
     clipboardGate.release()
   }
+}
+
+const PASTE_SEEN_KEY = "__wppBridgePasteSeen"
+const PASTE_OBSERVER_SOURCE = `
+window.${PASTE_SEEN_KEY} = false;
+window.addEventListener("paste", () => { window.${PASTE_SEEN_KEY} = true }, { capture: true, once: true });
+true;
+`
+const PASTE_DISPATCH_TIMEOUT_MS = 800
+
+// Polls run as separate tasks, so seeing the flag means the paste event (and the page's synchronous
+// clipboardData read) has finished. Falls back to the previous fixed 800ms wait when it never shows.
+export async function waitForPasteDispatch(
+  frame: { executeJavaScript(code: string): Promise<unknown> },
+  timeoutMs = PASTE_DISPATCH_TIMEOUT_MS,
+  pollMs = 25,
+) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if ((await frame.executeJavaScript(`window.${PASTE_SEEN_KEY} === true`).catch(() => false)) === true) return true
+    await delay(pollMs)
+  }
+  return false
+}
+
+// Digest of every clipboard format and payload, to tell whether anything was copied after our write.
+export async function clipboardFingerprint(items: Record<string, Blob | Electron.ClipboardBookmark>[]) {
+  const hash = createHash("sha256")
+  for (const item of items) {
+    hash.update("\0item")
+    for (const [type, value] of Object.entries(item)) {
+      hash.update(`\0${type}\0`)
+      hash.update(value instanceof Blob ? await value.bytes() : JSON.stringify(value))
+    }
+  }
+  return hash.digest("hex")
 }
 
 export async function snapshotClipboard(

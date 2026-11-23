@@ -20,6 +20,10 @@ let netLogPath: string | undefined
 let logger: MainLogger
 export const getLogger = () => logger
 
+// WPP proxy run logs live with the app's own logs. The process chdirs to the home directory, so a
+// cwd-relative default would litter ~/logs.
+export const wppRunLogDir = () => process.env.O1_CODE_PROXY_LOG_DIR || join(app.getPath("logs"), "wpp-bridge")
+
 export function initLogging() {
   initRunDirectory()
   log.transports.file.maxSize = 5 * 1024 * 1024
@@ -74,7 +78,7 @@ export async function exportDebugLogs() {
     await writeZip(output, [
       { name: "manifest.json", data: Buffer.from(JSON.stringify(manifest(), null, 2)) },
       ...collect(root, "desktop"),
-      ...collect(process.env.O1_CODE_PROXY_LOG_DIR || join(process.cwd(), "logs"), "bridge"),
+      ...collect(wppRunLogDir(), "bridge"),
       ...serverLogRoots().flatMap((dir, i) => collect(dir, `server-${i + 1}`)),
       ...collect(app.getPath("crashDumps"), "crashpad"),
     ])

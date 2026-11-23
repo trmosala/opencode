@@ -330,8 +330,8 @@ export class ExtensionBridge {
 
   createWorkerJob(prompt, options, timeoutMs) {
     const createdAtMs = Date.now()
-    const url =
-      options.url || process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || WPP_COOKIE_MONSTER_PROJECT_URL
+    // Main-process configuration only: never a caller-supplied URL (see workerChatUrl).
+    const url = workerChatUrl()
     return {
       id: crypto.randomUUID(),
       runId: options.runId,
@@ -530,6 +530,12 @@ function responseCounts(response) {
   }
 }
 export const extensionBridge = new ExtensionBridge()
+
+// The page the authenticated worker partition loads. Only the main process environment can change it;
+// poolFor() destroys and rebuilds the pool on a URL change, so a request must never pick it.
+export function workerChatUrl() {
+  return process.env.O1_CODE_TARGET_URL || process.env.WPP_RECORDER_URL || WPP_COOKIE_MONSTER_PROJECT_URL
+}
 
 // Shape the raw extension `complete()` result into the one run envelope callers consume. The
 // single place the ambiguous finalText/toolCallParts location (top-level vs nested under

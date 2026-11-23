@@ -16,7 +16,7 @@ export function isCookieMonsterBridgeHealth(body) {
 export async function probeCookieMonsterBridgeOccupant(
   host,
   port,
-  { fetchImpl = globalThis.fetch, timeoutMs = 1500 } = {},
+  { fetchImpl = globalThis.fetch, timeoutMs = 1500, token = "" } = {},
 ) {
   if (typeof fetchImpl !== "function") return false
   const controller = new AbortController()
@@ -24,6 +24,7 @@ export async function probeCookieMonsterBridgeOccupant(
   try {
     const response = await fetchImpl(`http://${host}:${port}/bridge/health`, {
       method: "GET",
+      headers: { authorization: `Bearer ${token}` },
       signal: controller.signal,
     })
     if (!response?.ok) return false

@@ -76,12 +76,14 @@ export function renderStatusPage() {
 </div>
 
 <script>
+// /bridge/* requires the per-launch proxy token; pass it as /status#token=<token>.
+const authHeaders = { authorization: 'Bearer ' + new URLSearchParams(location.hash.slice(1)).get('token') };
 async function refresh() {
   document.getElementById('updated').textContent = '';
   try {
     const [healthRes, bridgeRes] = await Promise.all([
       fetch('/health').then(r => r.ok ? r.json() : Promise.reject(new Error('health failed'))),
-      fetch('/bridge/health').then(r => r.json())
+      fetch('/bridge/health', { headers: authHeaders }).then(r => r.ok ? r.json() : Promise.reject(new Error('bridge health ' + r.status)))
     ]);
     setDot('proxyDot', 'ok'); setText('proxyVal', 'listening on 127.0.0.1:8787');
     const auth = bridgeRes.auth || {};
@@ -114,7 +116,7 @@ async function refresh() {
   document.getElementById('updated').textContent = '— updated ' + new Date().toLocaleTimeString();
 }
 async function openLogin() {
-  await fetch('/bridge/login', { method: 'POST' }).catch(() => null);
+  await fetch('/bridge/login', { method: 'POST', headers: authHeaders }).catch(() => null);
 }
 function setDot(id, state) {
   const el = document.getElementById(id);

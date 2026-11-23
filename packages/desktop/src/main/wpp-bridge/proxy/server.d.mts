@@ -7,4 +7,6 @@ export function startServer(options?: {
   port?: number
   openLogin?: () => void | Promise<void>
   checkAuth?: () => Promise<{ status: string }>
+  token: string
+  logDir?: string
 }): Promise<void>

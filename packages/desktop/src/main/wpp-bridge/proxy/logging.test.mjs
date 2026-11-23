@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { runLogRecord } from "./logging.mjs"
+import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { runLogRecord, setRunLogDir, writeRunLog } from "./logging.mjs"
 
 describe("runLogRecord", () => {
   const record = {
@@ -24,6 +27,7 @@ describe("runLogRecord", () => {
         chunks: [{ text: "private streamed chunk" }],
         events: [{ text: "private event text" }],
         unparsed: ["private unparsed payload"],
+        alternateAssistantTexts: ["private alternate assistant text"],
       },
     },
     response: {
@@ -60,9 +64,66 @@ describe("runLogRecord", () => {
     expect(JSON.stringify(out)).not.toContain("private composer value")
     expect(JSON.stringify(out)).not.toContain("private composer preview")
     expect(JSON.stringify(out)).not.toContain("private DOM response")
+    expect(out.o1Code.response.alternateAssistantTexts).toEqual({ omittedByDefault: true, count: 1 })
+    expect(JSON.stringify(out)).not.toContain("private alternate assistant text")
   })
 
   test("retains payloads only when explicitly enabled", () => {
     expect(runLogRecord(record, true)).toBe(record)
+  })
+})
+
+describe("writeRunLog", () => {
+  const withEnv = async (values, fn) => {
+    const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]))
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    try {
+      return await fn()
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  }
+
+  test("has no cwd-relative default directory", async () => {
+    setRunLogDir(null)
+    const result = await withEnv({ O1_CODE_PROXY_LOGS: undefined, O1_CODE_PROXY_LOG_DIR: undefined }, () =>
+      writeRunLog({ id: "run-default" }),
+    )
+    expect(result).toBe(null)
+  })
+
+  test("writes into the directory configured by the main process", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "wpp-run-log-"))
+    setRunLogDir(directory)
+    try {
+      const result = await withEnv({ O1_CODE_PROXY_LOGS: undefined, O1_CODE_PROXY_LOG_DIR: undefined }, () =>
+        writeRunLog({ id: "run-configured" }),
+      )
+      expect(result?.startsWith(directory)).toBe(true)
+      expect(await readdir(directory)).toHaveLength(1)
+    } finally {
+      setRunLogDir(null)
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("resolves null instead of rejecting when the directory is unwritable", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "wpp-run-log-"))
+    const blocker = join(directory, "file")
+    await Bun.write(blocker, "")
+    try {
+      const result = await withEnv({ O1_CODE_PROXY_LOGS: "1", O1_CODE_PROXY_LOG_DIR: join(blocker, "logs") }, () =>
+        writeRunLog({ id: "run-unwritable" }),
+      )
+      expect(result).toBe(null)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

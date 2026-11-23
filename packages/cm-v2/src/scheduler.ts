@@ -12,6 +12,8 @@ import { prepareWorktree } from "../../opencode/src/schedule/worktree"
 const git = promisify(execFile)
 const bridge = () =>
   `http://${process.env.O1_CODE_PROXY_HOST ?? "127.0.0.1"}:${process.env.O1_CODE_PROXY_PORT ?? "8787"}`
+// The WPP proxy requires the per-launch token the desktop passes to the sidecar.
+const bridgeHeaders = () => ({ authorization: `Bearer ${process.env.O1_CODE_PROXY_TOKEN ?? ""}` })
 
 export async function openScheduler(client: OpenCodeClient, notify: (item: Occurrence) => Promise<void>) {
   const session = async (id: string) =>
@@ -94,15 +96,20 @@ export async function openScheduler(client: OpenCodeClient, notify: (item: Occur
                 .defaults({ agent: row?.agent }, { location: { directory: item.directory } })
             ).model)
       if (model?.providerID !== "cookiemonster") return true
-      const response = await fetch(bridge() + "/bridge/auth", { signal: AbortSignal.timeout(15000) }).catch(
-        () => undefined,
-      )
+      const response = await fetch(bridge() + "/bridge/auth", {
+        headers: bridgeHeaders(),
+        signal: AbortSignal.timeout(15000),
+      }).catch(() => undefined)
       if (!response?.ok) return false
       const state: unknown = await response.json()
       return !!state && typeof state === "object" && "status" in state && state.status === "signed-in"
     },
     requestLogin: async () => {
-      const response = await fetch(bridge() + "/bridge/login", { method: "POST", signal: AbortSignal.timeout(15000) })
+      const response = await fetch(bridge() + "/bridge/login", {
+        method: "POST",
+        headers: bridgeHeaders(),
+        signal: AbortSignal.timeout(15000),
+      })
       if (!response.ok) throw new Error("Could not open WPP sign-in")
     },
     reconcile: async (item) => (await receipt(item)).state,

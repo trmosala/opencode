@@ -6,14 +6,20 @@
 //
 // The proxy keeps serving its HTTP /v1 surface (the OpenCode server sidecar reaches it over
 // localhost; its server-to-server fetch sends no Origin, which the proxy's origin guard allows).
+// Every /v1 and /bridge route requires WPP_PROXY_TOKEN as `Authorization: Bearer <token>`: the
+// sidecar sends it as the cookiemonster provider apiKey and reads it from O1_CODE_PROXY_TOKEN.
 // The extension job queue (/bridge/jobs|results|...) is gone: jobs run in-process via the webview
-// worker pool. Only /bridge/health and /bridge/login remain, feeding the diagnostic status page.
+// worker pool. Only /bridge/health, /bridge/auth and /bridge/login remain.
 
+import { randomBytes } from "node:crypto"
 import { getStore } from "../store"
+import { wppRunLogDir } from "../logging"
 import { startServer } from "./proxy/server.mjs"
 
 const DEFAULT_HOST = process.env.O1_CODE_PROXY_HOST || "127.0.0.1"
 const DEFAULT_PORT = Number(process.env.O1_CODE_PROXY_PORT || 8787)
+// Random per launch, never persisted: only this app's own sidecar can drive the WPP session.
+export const WPP_PROXY_TOKEN = randomBytes(32).toString("base64url")
 
 let starting: Promise<void> | null = null
 
@@ -39,6 +45,8 @@ export function startWppBridge(options: WppBridgeOptions = {}): Promise<void> {
     chatMode: getStore().get("wppChatMode") === "agent" ? "agent" : "assistant",
     openLogin: options.openLogin,
     checkAuth: options.checkAuth,
+    token: WPP_PROXY_TOKEN,
+    logDir: wppRunLogDir(),
   }).catch((error) => {
     // Reset so a later retry can re-attempt instead of being pinned to a rejected promise.
     starting = null

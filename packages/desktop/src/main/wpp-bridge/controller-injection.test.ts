@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import vm from "node:vm"
 import {
+  clipboardFingerprint,
   controllerRouteActive,
+  controllerTimeoutError,
   rejectPendingRequests,
   routeOutboundFrame,
   snapshotClipboard,
+  waitForPasteDispatch,
   type ProgressFrame,
 } from "./controller-injection"
 
@@ -224,5 +227,46 @@ describe("Assistant controller route", () => {
     route.active = false
     pending.resolve(true)
     expect(await check).toBe(false)
+  })
+})
+
+test("controller timeouts are typed so the pool discards the mid-turn worker", () => {
+  expect(controllerTimeoutError("O1_CODE_BRIDGE_RUN_JOB", 1000)).toMatchObject({
+    message: "Timed out waiting for O1_CODE_BRIDGE_RUN_JOB after 1000 ms.",
+    type: "o1_code_controller_timeout",
+    statusCode: 504,
+  })
+})
+
+describe("trusted image paste clipboard window", () => {
+  test("returns as soon as the page has dispatched the paste event", async () => {
+    const window: Record<string, unknown> = {}
+    const context = vm.createContext({ window })
+    const frame = { executeJavaScript: async (code: string) => vm.runInContext(code, context) }
+    setTimeout(() => (window.__wppBridgePasteSeen = true), 30)
+    const startedAt = Date.now()
+    expect(await waitForPasteDispatch(frame, 800, 5)).toBe(true)
+    expect(Date.now() - startedAt).toBeLessThan(400)
+  })
+
+  test("falls back to the bounded wait when no paste event is observed", async () => {
+    const frame = { executeJavaScript: async () => false }
+    const startedAt = Date.now()
+    expect(await waitForPasteDispatch(frame, 60, 5)).toBe(false)
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(55)
+  })
+
+  test("restores only while the clipboard still holds what was written", async () => {
+    const written = await clipboardFingerprint([{ "image/png": new Blob([new Uint8Array([1, 2, 3, 4])]) }])
+    expect(await clipboardFingerprint([{ "image/png": new Blob([new Uint8Array([1, 2, 3, 4])]) }])).toBe(written)
+    // The user copied text, or another image, while the paste was in flight.
+    expect(await clipboardFingerprint([{ "text/plain": new Blob(["copied"]) }])).not.toBe(written)
+    expect(await clipboardFingerprint([{ "image/png": new Blob([new Uint8Array([9, 9, 9, 9])]) }])).not.toBe(written)
+    expect(
+      await clipboardFingerprint([
+        { "image/png": new Blob([new Uint8Array([1, 2, 3, 4])]), "text/plain": new Blob(["caption"]) },
+      ]),
+    ).not.toBe(written)
+    expect(await clipboardFingerprint([])).not.toBe(written)
   })
 })

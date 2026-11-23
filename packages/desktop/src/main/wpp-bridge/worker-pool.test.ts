@@ -5,9 +5,11 @@ import {
   classifyWppAuthState,
   classifyWppProjectAccessState,
   classifyWppSessionProbe,
+  isWppChatFrameUrl,
   isWppFrameUrl,
   loadWorkerProject,
   wppAuthRequiredError,
+  wppAuthStateFromFrames,
   wppProjectAccessError,
 } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
@@ -16,6 +18,7 @@ import { createCdpNetworkReducer } from "./cdp-network-recorder"
 import { WPP_COOKIE_MONSTER_PROJECT_URL } from "./proxy/wppProject.mjs"
 import { commitThread, resetThread, threadContextUsage } from "./proxy/sessionThreads.mjs"
 import type { WorkerLogWriter } from "./worker-logging"
+import { controllerTimeoutError } from "./controller-injection"
 
 const DESKTOP_KEY = JSON.stringify(["desktop", "runtime-D", "sess-A", "CM_Opus5.5-High"])
 const CLI_KEY = JSON.stringify(["cli", "runtime-A", "sess-A", "CM_Opus5.5-High"])
@@ -71,6 +74,108 @@ test("concurrent jobs retain their own worker correlation and log retirement rea
   } finally {
     pool.destroy()
   }
+})
+
+function fakeWorker(id: number, runJob: () => Promise<unknown>, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    window: { isDestroyed: () => false, destroy: () => {}, setTitle: () => {} },
+    agent: "test-agent",
+    protocolAgent: "test-agent",
+    sessionKey: `owner-${id}`,
+    subagent: false,
+    busy: false,
+    lastUsed: Date.now(),
+    controller: { runJob },
+    netWitness: { summarizeWindow: () => ({ cdpRequestSeen: true, cdpStatus: 200, cdpFinished: true }) },
+    ...overrides,
+  }
+}
+
+test("a controller timeout discards the worker instead of releasing a mid-turn tab", async () => {
+  const records: { id: number; event: string; details: Record<string, unknown> }[] = []
+  const pool = new WorkerPool({
+    chatUrl: "https://example.test/chat",
+    log: (id, event, details) => records.push({ id, event, details }),
+  })
+  let destroyed = false
+  const worker = fakeWorker(
+    1,
+    async () => {
+      throw controllerTimeoutError("O1_CODE_BRIDGE_RUN_JOB", 1000)
+    },
+    {
+      window: {
+        isDestroyed: () => destroyed,
+        destroy: () => {
+          destroyed = true
+        },
+        setTitle: () => {},
+      },
+    },
+  )
+  Reflect.get(pool, "workers").set(worker.id, worker)
+  try {
+    await expect(
+      pool.run({ id: "job-1", payload: { model: worker.agent, sessionKey: worker.sessionKey, continueThread: true } }),
+    ).rejects.toMatchObject({ type: "o1_code_controller_timeout", statusCode: 504 })
+    expect(Reflect.get(pool, "workers").has(worker.id)).toBe(false)
+    expect(destroyed).toBe(true)
+    expect(records.find((record) => record.event === "worker-discarded")?.details.reason).toBe(
+      "o1_code_controller_timeout",
+    )
+    expect(records.some((record) => record.event === "worker-released")).toBe(false)
+  } finally {
+    pool.destroy()
+  }
+})
+
+describe("destroyed pool", () => {
+  test("a request waiting on a busy session tab fails typed once the pool is destroyed", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat", log: () => {} })
+    let spawned = 0
+    Reflect.set(pool, "spawn", async () => {
+      spawned++
+      throw new Error("must not spawn")
+    })
+    const busy = fakeWorker(1, async () => ({}), { busy: true })
+    Reflect.get(pool, "workers").set(busy.id, busy)
+    const acquiring = pool.acquire(busy.agent, busy.sessionKey)
+    await Bun.sleep(10)
+    pool.destroy()
+    await expect(acquiring).rejects.toMatchObject({ type: "o1_code_worker_pool_destroyed", statusCode: 503 })
+    expect(spawned).toBe(0)
+  })
+
+  test("a request queued on the spawn gate never spawns into a destroyed pool", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat", log: () => {} })
+    let spawned = 0
+    Reflect.set(pool, "spawn", async () => {
+      spawned++
+      throw new Error("must not spawn")
+    })
+    const gate = Reflect.get(pool, "spawnGate")
+    const held: Promise<void>[] = []
+    for (let index = 0; index < 32; index++) held.push(gate.acquire())
+    await Promise.all(held.slice(0, 1))
+    const acquiring = pool.acquire("test-agent")
+    await Bun.sleep(10)
+    pool.destroy()
+    for (let index = 0; index < 32; index++) gate.release()
+    await expect(acquiring).rejects.toMatchObject({ type: "o1_code_worker_pool_destroyed" })
+    expect(spawned).toBe(0)
+  })
+
+  test("spawn refuses to open a window after destroy", async () => {
+    const pool = new WorkerPool({ chatUrl: "https://example.test/chat", log: () => {} })
+    pool.destroy()
+    await expect(pool.run({ id: "job-1", payload: { model: "test-agent" } })).rejects.toMatchObject({
+      type: "o1_code_worker_pool_destroyed",
+    })
+    await expect(Reflect.get(pool, "spawn").call(pool, "test-agent", "", false)).rejects.toMatchObject({
+      type: "o1_code_worker_pool_destroyed",
+    })
+  })
 })
 
 test("waits for 500ms of continuous composer readiness before declaring the bridge usable", async () => {
@@ -947,7 +1052,10 @@ describe("worker startup helpers", () => {
 
   test("classifies login-like WPP startup states as auth required", () => {
     expect(classifyWppAuthState({ url: "https://idp.example.com/oauth/authorize" })).toContain("login")
-    expect(classifyWppAuthState({ text: "Your session expired. Sign in again." })).toContain("sign-in")
+    expect(classifyWppAuthState({ signInText: "Your session expired. Sign in again." })).toContain("sign-in")
+    expect(classifyWppAuthState({ passwordField: true })).toContain("sign-in form")
+    // Visible page text alone (which includes chat history) never decides login.
+    expect(classifyWppAuthState({ text: "Your session expired. Sign in again." })).toBe(null)
     expect(classifyWppAuthState({ url: WPP_COOKIE_MONSTER_PROJECT_URL, text: "AI Assistant" })).toBe(null)
 
     const error = wppAuthRequiredError("WPP page is asking for sign-in") as Error & {
@@ -956,6 +1064,54 @@ describe("worker startup helpers", () => {
     }
     expect(error.statusCode).toBe(401)
     expect(error.type).toBe("wpp_auth_required")
+  })
+
+  test("a chat transcript that mentions login never reads as logged out", () => {
+    const transcript = "Sure — here is how to fix the login page. Users who log in see: Sign in with SSO."
+    const frames = [
+      { url: WPP_COOKIE_MONSTER_PROJECT_URL, passwordField: false, dialogText: "", text: "AI Assistant" },
+      {
+        url: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant",
+        passwordField: false,
+        dialogText: transcript,
+        text: transcript,
+      },
+      {
+        url: "https://open-web-agent-builder-cs.wpp.ai/chat/project/foundational",
+        passwordField: false,
+        dialogText: transcript,
+        text: transcript,
+      },
+    ]
+    const state = wppAuthStateFromFrames(WPP_COOKIE_MONSTER_PROJECT_URL, frames)
+    expect(state.signInText).not.toContain("login")
+    expect(state.text).not.toContain("login")
+    expect(classifyWppAuthState(state)).toBe(null)
+    // Each probe frame on its own, too.
+    expect(frames.map((frame) => classifyWppAuthState(wppAuthStateFromFrames(frame.url, [frame])))).toEqual([
+      null,
+      null,
+      null,
+    ])
+  })
+
+  test("still detects sign-in structure in any frame and sign-in dialogs in the workspace shell", () => {
+    expect(
+      classifyWppAuthState(
+        wppAuthStateFromFrames(WPP_COOKIE_MONSTER_PROJECT_URL, [
+          { url: "https://open-web-assistant-cs.wpp.ai/chat/project/ai-assistant", passwordField: true },
+        ]),
+      ),
+    ).toContain("sign-in form")
+    expect(
+      classifyWppAuthState(
+        wppAuthStateFromFrames(WPP_COOKIE_MONSTER_PROJECT_URL, [
+          { url: WPP_COOKIE_MONSTER_PROJECT_URL, dialogText: "Your session expired. Please sign in again." },
+        ]),
+      ),
+    ).toContain("asking for sign-in")
+    expect(isWppChatFrameUrl("https://open-web-assistant-cs.wpp.ai/chat")).toBe(true)
+    expect(isWppChatFrameUrl(WPP_COOKIE_MONSTER_PROJECT_URL)).toBe(false)
   })
 
   test("reports project authorization separately from login", () => {

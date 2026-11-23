@@ -10,12 +10,14 @@ import { MODEL_PROFILES } from "./modelProfiles.mjs"
 const {
   handleChatCompletions,
   loginRequiredFailure,
+  requestTimeoutMs,
   shouldRetryFreshReplay,
   shouldRecoverIncompleteTask,
   shouldRecoverMissingRequiredToolCall,
 } = await import("./openaiCompat.mjs")
 const { commitThread, resetThread, threadContextUsage } = await import("./sessionThreads.mjs")
 const { estimateTokens } = await import("./tokenEstimate.mjs")
+const { serializeChatCompletionRequest } = await import("./messageSerializer.mjs")
 
 const IDENTITY = { "x-opencode-client": "cli", "x-opencode-runtime-id": "runtime-A" }
 const KEY = JSON.stringify(["cli", "runtime-A", "sess-A", "CM_Opus5.5-XHigh"])
@@ -1370,6 +1372,132 @@ describe("serialized prompt cap", () => {
       code: "context_length_exceeded",
     })
   })
+})
+
+describe("over-cap fresh replay", () => {
+  for (const stream of [true, false]) {
+    test(`${stream ? "streams" : "returns"} a typed error when the retry's full replay exceeds the cap`, async () => {
+      const history = [user("x".repeat(400)), assistant("previous")]
+      const request = { ...body(...history, user("more")), stream }
+      const delta = serializeChatCompletionRequest(request, { sinceIndex: 2 }).length
+      const full = serializeChatCompletionRequest(request, { sinceIndex: 0 }).length
+      expect(delta).toBeLessThan(full)
+      commitThread(KEY, body(...history.slice(0, 1)), history[1])
+      const previous = process.env.O1_CODE_MAX_PROMPT_CHARS
+      process.env.O1_CODE_MAX_PROMPT_CHARS = String(Math.floor((delta + full) / 2))
+      const response = fakeResponse()
+      const calls = []
+      const bridge = {
+        hasSession: () => true,
+        // Logged out, yet a context overflow must not be relabeled as a login failure.
+        checkAuthState: async () => "logged out",
+        markAuthRequired: () => {
+          throw new Error("must not pop sign-in for a prompt-size failure")
+        },
+        run: async (_prompt, options) => {
+          calls.push(options)
+          throw typedError("o1_code_recorder_not_armed")
+        },
+      }
+      try {
+        await withNoRunLogs(() =>
+          handleChatCompletions({ headers: { ...IDENTITY, "x-session-affinity": "sess-A" } }, response, request, {
+            bridge,
+          }),
+        )
+      } finally {
+        if (previous == null) delete process.env.O1_CODE_MAX_PROMPT_CHARS
+        else process.env.O1_CODE_MAX_PROMPT_CHARS = previous
+      }
+
+      expect(calls).toHaveLength(1)
+      expect(calls[0].continueThread).toBe(true)
+      if (stream) {
+        expect(response.statusCode).toBe(200)
+        expect(response.body).toContain('"type":"o1_code_prompt_too_large"')
+        expect(response.body).toContain('"code":"context_length_exceeded"')
+        expect(response.body.trimEnd().endsWith("data: [DONE]")).toBe(true)
+        return
+      }
+      expect(response.statusCode).toBe(413)
+      expect(JSON.parse(response.body).error).toMatchObject({
+        type: "o1_code_prompt_too_large",
+        code: "context_length_exceeded",
+      })
+    })
+  }
+})
+
+describe("client-supplied bridge options", () => {
+  test("never forwards a request-body URL and bounds the timeout", async () => {
+    const calls = []
+    const bridge = {
+      hasSession: () => false,
+      run: async (_prompt, options) => {
+        calls.push(options)
+        return bridgeRun("done")
+      },
+    }
+    for (const o1_code_timeout_ms of [120000, -1, "60000", Infinity, 10 * 60 * 60 * 1000]) {
+      await withNoRunLogs(() =>
+        handleChatCompletions(
+          { headers: {} },
+          fakeResponse(),
+          { ...body(user("hello")), o1_code_url: "https://attacker.example/phish", o1_code_timeout_ms },
+          { bridge },
+        ),
+      )
+    }
+    expect(calls.every((call) => !("url" in call))).toBe(true)
+    expect(calls.map((call) => call.timeoutMs)).toEqual([120000, undefined, undefined, undefined, undefined])
+  })
+
+  test("requestTimeoutMs accepts only finite positive values within an hour", () => {
+    expect(requestTimeoutMs(1)).toBe(1)
+    expect(requestTimeoutMs(60 * 60 * 1000)).toBe(60 * 60 * 1000)
+    expect(requestTimeoutMs(60 * 60 * 1000 + 1)).toBeUndefined()
+    expect(requestTimeoutMs(0)).toBeUndefined()
+    expect(requestTimeoutMs(NaN)).toBeUndefined()
+    expect(requestTimeoutMs("1000")).toBeUndefined()
+    expect(requestTimeoutMs(undefined)).toBeUndefined()
+  })
+})
+
+describe("run log failures", () => {
+  for (const stream of [false, true]) {
+    test(`an unwritable log directory never fails a successful ${stream ? "streaming" : "nonstreaming"} turn`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), "wpp-unwritable-log-"))
+      const blocker = join(directory, "not-a-directory")
+      await Bun.write(blocker, "")
+      const previous = Object.fromEntries(
+        ["O1_CODE_PROXY_LOGS", "O1_CODE_PROXY_LOG_DIR"].map((key) => [key, process.env[key]]),
+      )
+      process.env.O1_CODE_PROXY_LOGS = "1"
+      process.env.O1_CODE_PROXY_LOG_DIR = join(blocker, "logs")
+      const response = fakeResponse()
+      try {
+        await handleChatCompletions(
+          { headers: {} },
+          response,
+          { ...body(user("hello")), stream },
+          { bridge: { hasSession: () => false, run: async () => bridgeRun("done") } },
+        )
+      } finally {
+        for (const [key, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+        await rm(directory, { recursive: true, force: true })
+      }
+      expect(response.statusCode).toBe(200)
+      expect(response.headers["x-o1-code-proxy-log"]).toBeUndefined()
+      if (stream) {
+        expect(response.body).toContain("done")
+        return
+      }
+      expect(JSON.parse(response.body).choices[0].message.content).toBe("done")
+    })
+  }
 })
 
 function body(...messages) {

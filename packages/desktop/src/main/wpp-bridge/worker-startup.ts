@@ -146,7 +146,47 @@ type DestroyableWindow = {
 
 export type StartupAuthState = {
   url?: string | null
+  // Visible page text of the workspace shell frames, used only for the project-access check.
   text?: string | null
+  // Text of visible dialogs in the workspace shell frames: where a "session expired" prompt renders.
+  signInText?: string | null
+  // A visible password input in any WPP frame — structure a chat transcript can't produce.
+  passwordField?: boolean
+}
+
+// What one WPP frame reports about its auth surface (see WPP_FRAME_AUTH_SIGNALS_SCRIPT).
+export type WppFrameAuthSignals = { url: string; passwordField?: unknown; dialogText?: unknown; text?: unknown }
+
+export const WPP_FRAME_AUTH_SIGNALS_SCRIPT = `
+(() => {
+  const visible = (element) => element.getClientRects().length > 0
+  const dialogs = Array.from(
+    document.querySelectorAll("[role='dialog'], [role='alertdialog'], dialog[open], [aria-modal='true']"),
+  ).filter(visible)
+  return {
+    passwordField: Array.from(document.querySelectorAll("input[type='password']")).some(visible),
+    dialogText: dialogs.map((element) => element.innerText || "").join("\\n").slice(0, 4000),
+    text: String(document.body?.innerText || document.documentElement?.innerText || "").slice(0, 4000),
+  }
+})()
+`
+
+// Assistant and agent-builder chats render on *.wpp.ai. Their text includes the model transcript, so a
+// conversation that merely mentions "login" must never read as a sign-in prompt.
+export function isWppChatFrameUrl(url: string) {
+  const host = URL.parse(url)?.hostname ?? ""
+  return host === "wpp.ai" || host.endsWith(".wpp.ai")
+}
+
+// Fold per-frame signals into one classifier input. Text only counts from workspace shell frames.
+export function wppAuthStateFromFrames(url: string, frames: WppFrameAuthSignals[]): StartupAuthState {
+  const shell = frames.filter((frame) => !isWppChatFrameUrl(frame.url))
+  return {
+    url,
+    text: shell.map((frame) => (typeof frame.text === "string" ? frame.text : "")).join("\n"),
+    signInText: shell.map((frame) => (typeof frame.dialogText === "string" ? frame.dialogText : "")).join("\n"),
+    passwordField: frames.some((frame) => frame.passwordField === true),
+  }
 }
 
 const LOGIN_URL_PATTERN = /login|signin|sign-in|sso|oauth|authorize|auth|identity|idp/i
@@ -175,7 +215,9 @@ export function classifyWppAuthState(state: StartupAuthState) {
   const url = String(state.url || "")
   if (LOGIN_URL_PATTERN.test(url)) return "WPP page is on a login or identity-provider URL"
 
-  const text = String(state.text || "").slice(0, 4000)
+  if (state.passwordField === true) return "WPP page is showing a sign-in form"
+
+  const text = String(state.signInText || "").slice(0, 4000)
   if (LOGIN_TEXT_PATTERN.test(text)) return "WPP page is asking for sign-in"
 
   return null

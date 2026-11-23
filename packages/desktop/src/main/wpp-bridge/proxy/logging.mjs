@@ -7,20 +7,35 @@ const DEFAULT_LOG_KEEP = 200
 // root debug log, which lives outside logDir — is never touched by pruning.
 const RUN_LOG_PATTERN = /^\d{4}-\d{2}-\d{2}T.*\.json$/u
 
+// Set by the Electron main process to the app's logs directory. There is deliberately no cwd-relative
+// fallback: main chdirs to the home directory, which would scatter run logs into ~/logs.
+let configuredLogDir = null
+
+export function setRunLogDir(dir) {
+  configuredLogDir = dir || null
+}
+
+// Diagnostic only: resolves to the written path, or null when logging is off or the write failed.
+// Never rejects, so a full disk or unwritable directory can't fail an otherwise successful turn.
 export async function writeRunLog(record) {
-  if (process.env.O1_CODE_PROXY_LOGS === "0") {
+  const logDir = process.env.O1_CODE_PROXY_LOG_DIR || configuredLogDir
+  if (process.env.O1_CODE_PROXY_LOGS === "0" || !logDir) {
     return null
   }
 
-  const logDir = process.env.O1_CODE_PROXY_LOG_DIR || join(process.cwd(), "logs")
   const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}-${record.id || "run"}.json`
   const path = join(logDir, fileName)
 
-  await mkdir(logDir, { recursive: true })
-  await writeFile(path, `${JSON.stringify(redact(runLogRecord(record)), null, 2)}\n`, "utf8")
-  await pruneRunLogs(logDir).catch(() => {})
-
-  return path
+  return mkdir(logDir, { recursive: true })
+    .then(() => writeFile(path, `${JSON.stringify(redact(runLogRecord(record)), null, 2)}\n`, "utf8"))
+    .then(async () => {
+      await pruneRunLogs(logDir).catch(() => {})
+      return path
+    })
+    .catch((error) => {
+      console.warn("o1-code-openai-proxy: failed to write run log", error?.message || error)
+      return null
+    })
 }
 
 // System instructions, tool results, and user content are necessary for the live relay but should
@@ -70,7 +85,7 @@ const PAYLOAD_FIELDS = new Set([
   "thinkingText",
   "ignoredAssistantErrorText",
 ])
-const PAYLOAD_COLLECTION_FIELDS = new Set(["chunks", "events", "unparsed", "toolCallParts"])
+const PAYLOAD_COLLECTION_FIELDS = new Set(["chunks", "events", "unparsed", "toolCallParts", "alternateAssistantTexts"])
 
 function omitNestedPayloads(value) {
   if (Array.isArray(value)) return value.map(omitNestedPayloads)

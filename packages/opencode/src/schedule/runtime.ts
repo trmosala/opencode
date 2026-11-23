@@ -27,6 +27,8 @@ let opening: Promise<Scheduler> | undefined
 let failure: unknown
 const bridge = () =>
   "http://" + (process.env.O1_CODE_PROXY_HOST ?? "127.0.0.1") + ":" + (process.env.O1_CODE_PROXY_PORT ?? "8787")
+// The WPP proxy requires the per-launch token the desktop passes to the sidecar.
+const bridgeHeaders = () => ({ authorization: `Bearer ${process.env.O1_CODE_PROXY_TOKEN ?? ""}` })
 
 function inDirectory<A, E, R>(directory: string, effect: Effect.Effect<A, E, R>) {
   return InstanceStore.Service.use((store) => store.provide({ directory }, effect))
@@ -99,7 +101,10 @@ async function authenticate(item: Occurrence) {
       )
     ).providerID
   if (providerID !== "cookiemonster") return true
-  const response = await fetch(bridge() + "/bridge/auth", { signal: AbortSignal.timeout(15000) }).catch(() => undefined)
+  const response = await fetch(bridge() + "/bridge/auth", {
+    headers: bridgeHeaders(),
+    signal: AbortSignal.timeout(15000),
+  }).catch(() => undefined)
   if (!response) return false
   if (!response.ok) return false
   const state: unknown = await response.json().catch(() => undefined)
@@ -241,7 +246,11 @@ export async function startScheduler() {
     reconcile,
     execute,
     requestLogin: async () => {
-      const response = await fetch(bridge() + "/bridge/login", { method: "POST", signal: AbortSignal.timeout(15000) })
+      const response = await fetch(bridge() + "/bridge/login", {
+        method: "POST",
+        headers: bridgeHeaders(),
+        signal: AbortSignal.timeout(15000),
+      })
       if (!response.ok) throw new Error("Could not open WPP sign-in")
     },
     notify: async (item) => {

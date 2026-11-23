@@ -14,7 +14,7 @@ import { createWorkerWindow } from "./session"
 import { openAssistantPanel } from "./assistant-panel"
 import { agentChatProjectId, openAgentChat } from "./agent-chat"
 import { armTargetAttach } from "./cdp-targets"
-import { installController, type Controller, type ProgressFrame } from "./controller-injection"
+import { CONTROLLER_TIMEOUT_TYPE, installController, type Controller, type ProgressFrame } from "./controller-injection"
 import { installRecorder } from "./recorder-injection"
 import { installNetworkWitness, type NetworkWitness } from "./cdp-network-recorder"
 import { captureFailureError, captureHealth, decideCaptureVerdict } from "./capture-verdict"
@@ -26,8 +26,11 @@ import {
   classifyWppSessionProbe,
   isWppFrameUrl,
   loadWorkerProject,
+  WPP_FRAME_AUTH_SIGNALS_SCRIPT,
   wppAuthRequiredError,
+  wppAuthStateFromFrames,
   wppProjectAccessError,
+  type WppFrameAuthSignals,
 } from "./worker-startup"
 import { selectWorkerSlot, shouldReapWorker, ttlForWorker, type WorkerView } from "./worker-slot"
 import { SpawnGate } from "./spawn-gate"
@@ -108,6 +111,9 @@ export class WorkerPool {
   private readonly jobs = new Map<number, { runId?: string; jobId?: string }>()
   private readonly reapTimer: NodeJS.Timeout
   private readonly spawnGate = new SpawnGate(MAX_CONCURRENT_SPAWNS)
+  // Set once by destroy(). Requests already waiting in acquire() or the spawn gate must not open
+  // windows into a pool nothing will ever reap.
+  private destroyed = false
 
   constructor(options: WorkerPoolOptions) {
     this.chatUrl = options.chatUrl
@@ -253,7 +259,9 @@ export class WorkerPool {
       const type = error && typeof error === "object" ? Reflect.get(error, "type") : undefined
       this.record(worker.id, "job-failed", { type: type ?? "unknown", durationMs: Date.now() - queuedAt }, "error")
       if (error && typeof error === "object") Reflect.set(error, "worker", correlation)
-      if (type === "o1_code_client_aborted" || isPreSubmitFailureType(type)) {
+      // A controller timeout leaves content.js still driving the turn in that tab: releasing it would
+      // hand a mid-turn composer to the next job.
+      if (type === "o1_code_client_aborted" || type === CONTROLLER_TIMEOUT_TYPE || isPreSubmitFailureType(type)) {
         this.discard(worker.id, type)
       }
       throw error
@@ -283,6 +291,7 @@ export class WorkerPool {
     const queuedAt = Date.now()
     for (;;) {
       throwIfClientAborted(signal)
+      this.throwIfDestroyed()
       this.prune()
       const slot = selectWorkerSlot(this.view(), agent, sessionKey)
       if (slot.action === "reuse") {
@@ -303,6 +312,7 @@ export class WorkerPool {
     })
     try {
       throwIfClientAborted(signal)
+      this.throwIfDestroyed()
       // A worker may have freed (or been spawned for this agent) while we waited for a spawn slot.
       // A still-busy same-session tab now reads as "wait" here; we do NOT keep polling under the gate
       // (that would hold a spawn slot idle) — spawn a fresh thread instead, the same timeout fallback.
@@ -318,6 +328,10 @@ export class WorkerPool {
       if (signal?.aborted) {
         this.discard(worker.id, "o1_code_client_aborted")
         throw clientAbortedError()
+      }
+      if (this.destroyed) {
+        this.discard(worker.id, "pool-destroyed")
+        throw poolDestroyedError()
       }
       worker.busy = true
       return worker
@@ -402,7 +416,12 @@ export class WorkerPool {
     worker.protocolEndpoint = url ? url.origin + url.pathname : undefined
   }
 
+  private throwIfDestroyed() {
+    if (this.destroyed) throw poolDestroyedError()
+  }
+
   destroy() {
+    this.destroyed = true
     clearInterval(this.reapTimer)
     livePools.delete(this)
     for (const [id, worker] of this.startingWorkers) {
@@ -431,12 +450,16 @@ export class WorkerPool {
     onProgress?: (frame: ProgressFrame) => void,
   ): Promise<Worker> {
     throwIfClientAborted(signal)
+    this.throwIfDestroyed()
     const window = createWorkerWindow()
     const id = window.webContents.id
     this.startingWorkers.set(id, { window, agent, sessionKey, subagent })
     this.jobs.set(id, { runId: job?.runId, jobId: job?.id })
     const startedAt = Date.now()
+    // Every startup step runs between stages, so this is where a destroy() during startup is noticed;
+    // cleanupWindowOnFailure then closes the window instead of adding it to the dead pool.
     const stage = (phase: string) => {
+      this.throwIfDestroyed()
       this.record(id, "startup-stage", { phase, elapsedMs: Date.now() - startedAt })
       onProgress?.({ phase })
     }
@@ -494,6 +517,7 @@ export class WorkerPool {
       stage("waiting-for-composer")
       await waitForAssistantBridge(window.webContents, controller, signal)
       throwIfClientAborted(signal)
+      this.throwIfDestroyed()
 
       const worker: Worker = {
         id: window.webContents.id,
@@ -622,6 +646,13 @@ function withClientAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
   })
 }
 
+function poolDestroyedError() {
+  const error = new Error("The WPP worker pool was shut down before a worker was available.")
+  Reflect.set(error, "statusCode", 503)
+  Reflect.set(error, "type", "o1_code_worker_pool_destroyed")
+  return error
+}
+
 function clientAbortedError() {
   const error = new Error("The OpenAI-compatible client disconnected before the WPP turn completed.")
   Reflect.set(error, "statusCode", 499)
@@ -723,51 +754,39 @@ export async function waitForAssistantBridge(
 }
 
 async function throwIfAuthRequired(contents: StartupContents) {
-  const state = await readStartupAuthState(contents)
+  const state = wppAuthStateFromFrames(contents.getURL(), await readWppFrameAuthSignals(contents))
   const accessReason = classifyWppProjectAccessState(state)
   if (accessReason) throw wppProjectAccessError(accessReason, state)
   const reason = classifyWppAuthState(state)
   if (reason) throw wppAuthRequiredError(reason, state)
 }
 
-async function readStartupAuthState(contents: StartupContents) {
+// The one frame read shared by startup and the post-failure probe. Every WPP frame is read because
+// the composer is a cross-origin iframe the top frame's DOM can't see; chat-frame text is discarded
+// by wppAuthStateFromFrames so a transcript mentioning "login" can't relabel a failure as logged out.
+async function readWppFrameAuthSignals(contents: StartupContents): Promise<WppFrameAuthSignals[]> {
   const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
-  const texts = await Promise.all(
-    frames.map((frame) =>
-      frame
-        .executeJavaScript(
-          `
-    (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
-  `,
-          true,
-        )
-        .catch(() => ""),
-    ),
+  return Promise.all(
+    frames.map(async (frame) => {
+      const signals = await frame.executeJavaScript(WPP_FRAME_AUTH_SIGNALS_SCRIPT, true).catch(() => null)
+      return { ...(signals && typeof signals === "object" ? signals : {}), url: frame.url }
+    }),
   )
-  return { url: contents.getURL(), text: texts.map((text) => (typeof text === "string" ? text : "")).join("\n") }
 }
 
-// Post-failure logout probe (checkAuthState). Pass 1: classify every WPP frame's URL + visible text
-// — catches a hard logout and a sign-in UI rendered inside the composer iframe. Pass 2: re-fetch
-// each frame's own document from inside that frame — catches the soft logout where dead cookies
-// leave the cached SPA shell rendering normally (no login URL, no sign-in text anywhere). Each
-// frame's location.href is post-redirect, so a redirect or 401/403 on the re-fetch is decisive.
+// Post-failure logout probe (checkAuthState). Pass 1: classify each WPP frame's URL and sign-in
+// structure — catches a hard logout and a sign-in form rendered inside the composer iframe. Pass 2:
+// re-fetch each frame's own document from inside that frame — catches the soft logout where dead
+// cookies leave the cached SPA shell rendering normally (no login URL or sign-in UI anywhere). Each
+// frame's location.href is post-redirect, so a redirect or 401 on the re-fetch is decisive.
 async function probeWppAuthState(contents: BrowserWindow["webContents"]): Promise<string | null> {
+  const signals = await readWppFrameAuthSignals(contents)
+  const reason = signals
+    .map((frame) => classifyWppAuthState(wppAuthStateFromFrames(frame.url, [frame])))
+    .find((value) => value !== null)
+  if (reason) return reason
+
   const frames = contents.mainFrame.framesInSubtree.filter((frame) => isWppFrameUrl(frame.url))
-
-  for (const frame of frames) {
-    const text = await frame
-      .executeJavaScript(
-        `
-      (() => String(document.body?.innerText || document.documentElement?.innerText || ""))()
-    `,
-        true,
-      )
-      .catch(() => "")
-    const reason = classifyWppAuthState({ url: frame.url, text: String(text || "") })
-    if (reason) return reason
-  }
-
   for (const frame of frames) {
     const probe = await frame
       .executeJavaScript(
@@ -779,8 +798,8 @@ async function probeWppAuthState(contents: BrowserWindow["webContents"]): Promis
         true,
       )
       .catch(() => null)
-    const reason = classifyWppSessionProbe(probe)
-    if (reason) return reason
+    const expired = classifyWppSessionProbe(probe)
+    if (expired) return expired
   }
 
   return null

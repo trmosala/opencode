@@ -24,6 +24,9 @@ export const WPP_ASSISTANT_ORIGINS = [
 
 const configuredSessions = new WeakSet<Session>()
 const recoveredWebContents = new Set<number>()
+// Hidden worker windows (createWorkerWindow without show). Their requests never trigger the
+// partition-wide reset below; a logged-out worker fails its turn and the visible sign-in flow resets.
+const workerWebContents = new Set<number>()
 export const wppAuth = createWppAuthState(async () => {
   const contents = BrowserWindow.getAllWindows()
     .map((win) => win.webContents)
@@ -52,7 +55,14 @@ export function wppSession(): Session {
       // Session.fetch has no page WebContents; don't recursively probe our own checks.
       if (details.statusCode === 200 && !details.fromCache && details.webContents) void wppAuth.check()
     }
-    if (!isExpiredWppSession(details) || !details.webContents || recoveredWebContents.has(details.webContents.id)) {
+    // Clearing cookies/localStorage hits the whole partition: never act on a hidden worker's request,
+    // which would wipe and reload every busy worker mid-turn. Only a visible/probe context resets.
+    if (
+      !isExpiredWppSession(details) ||
+      !details.webContents ||
+      workerWebContents.has(details.webContents.id) ||
+      recoveredWebContents.has(details.webContents.id)
+    ) {
       return
     }
 
@@ -86,7 +96,7 @@ export function wppSession(): Session {
 // phase) owns lifecycle, LRU reuse, and per-agent affinity across N of these.
 export function createWorkerWindow({ show = false } = {}): BrowserWindow {
   const current = wppSession()
-  return new BrowserWindow({
+  const window = new BrowserWindow({
     show,
     width: 1440,
     height: 1000,
@@ -106,6 +116,12 @@ export function createWorkerWindow({ show = false } = {}): BrowserWindow {
       sandbox: true,
     },
   })
+  if (!show) {
+    const id = window.webContents.id
+    workerWebContents.add(id)
+    window.webContents.once("destroyed", () => workerWebContents.delete(id))
+  }
+  return window
 }
 
 let loginWindow: BrowserWindow | null = null

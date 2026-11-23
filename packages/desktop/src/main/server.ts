@@ -11,6 +11,7 @@ import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
 import { o1CodeConfigContent } from "./wpp-bridge/proxy/providerConfig.mjs"
+import { WPP_PROXY_TOKEN } from "./wpp-bridge"
 import { resolveCmAePlugin } from "../cm-ae"
 import { createSidecarEnv } from "./sidecar-env"
 
@@ -77,6 +78,8 @@ export async function spawnLocalServer(
     cwd: process.cwd(),
     env: {
       ...createSidecarEnv(bundledConfigContent),
+      // Direct (non-provider) callers of the WPP proxy, e.g. the CM scheduler's /bridge/auth gate.
+      O1_CODE_PROXY_TOKEN: WPP_PROXY_TOKEN,
       ...(app.isPackaged
         ? { CM_V2_FEATURE_PLUGIN: pathToFileURL(join(process.resourcesPath, "cm-v2-features")).href }
         : {}),
@@ -251,6 +254,9 @@ function bundledConfigContent() {
       }),
     ),
   )
+  // The proxy requires its per-launch token; OpenCode sends the provider apiKey as the bearer token.
+  // Only this in-memory blob carries it, so the on-disk opencode.json seed never holds a live secret.
+  content.provider.cookiemonster.options.apiKey = WPP_PROXY_TOKEN
   content.plugin = [
     ...(content.plugin ?? []),
     app.isPackaged

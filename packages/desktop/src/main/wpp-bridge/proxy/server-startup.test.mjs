@@ -23,14 +23,16 @@ describe("server startup", () => {
   test("probes /bridge/health before treating EADDRINUSE as ours", async () => {
     const calls = []
     const fetchImpl = async (url, init) => {
-      calls.push({ url, method: init?.method })
+      calls.push({ url, method: init?.method, authorization: init?.headers?.authorization })
       return {
         ok: true,
         json: async () => ({ ok: true, executor: COOKIEMONSTER_BRIDGE_EXECUTOR }),
       }
     }
-    expect(await probeCookieMonsterBridgeOccupant("127.0.0.1", 8787, { fetchImpl })).toBe(true)
-    expect(calls).toEqual([{ url: "http://127.0.0.1:8787/bridge/health", method: "GET" }])
+    expect(await probeCookieMonsterBridgeOccupant("127.0.0.1", 8787, { fetchImpl, token: "launch-token" })).toBe(true)
+    expect(calls).toEqual([
+      { url: "http://127.0.0.1:8787/bridge/health", method: "GET", authorization: "Bearer launch-token" },
+    ])
   })
 
   test("rejects foreign or unreachable occupants", async () => {

@@ -38,6 +38,7 @@ import { DEFAULT_MODEL_ID, MODEL_IDS, resolveRequestModelProfile } from "./model
 // Must stay above O1_CODE_CONTEXT_LIMIT's usable window in chars plus serialization overhead (providerConfig.mjs).
 const DEFAULT_MAX_PROMPT_CHARS = 850000
 const STREAM_KEEP_ALIVE_MS = 10000
+const MAX_REQUEST_TIMEOUT_MS = 60 * 60 * 1000
 
 // Stable anchors from OpenCode's compaction prompt (packages/core/src/session/compaction.ts),
 // confirmed against a captured /compact run log. Both live in the LAST user message.
@@ -49,6 +50,14 @@ const COMPACTION_PROMPT_ANCHORS = [
 function maxPromptChars() {
   const configured = Number(process.env.O1_CODE_MAX_PROMPT_CHARS)
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_PROMPT_CHARS
+}
+
+// A client may shorten or extend the worker deadline, but only to a finite positive value within an
+// hour; anything else falls back to the bridge default.
+export function requestTimeoutMs(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= MAX_REQUEST_TIMEOUT_MS
+    ? value
+    : undefined
 }
 
 function promptTooLargeMessage(prompt) {
@@ -246,9 +255,10 @@ export async function handleChatCompletions(request, response, body, { bridge = 
 
     const bridgeOptionsFor = (runContinueThread, attempt) => ({
       runId: id,
-      timeoutMs: body.o1_code_timeout_ms,
+      // The workspace URL is main-process configuration only (extensionBridge); a request body must
+      // never steer the authenticated partition to another page.
+      timeoutMs: requestTimeoutMs(body.o1_code_timeout_ms),
       target,
-      url: body.o1_code_url,
       model: agentName,
       sessionKey,
       subagent,
@@ -342,126 +352,87 @@ export async function handleChatCompletions(request, response, body, { bridge = 
     }
     const validateBridgeRun = async (run) => recoverIncompleteTask(await recoverMissingRequiredToolCall(run))
 
-    if (body.stream) {
-      openChatCompletionStream(response, { id, model, created })
+    if (body.stream) openChatCompletionStream(response, { id, model, created })
 
-      try {
-        o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread))
-      } catch (error) {
-        let failure = error
-        if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
-          if (continuity) resetThread(sessionKey)
-          retryCount = 1
+    // One fresh-replay retry for pre-submit failures. Everything that can throw — including the
+    // retry's own prompt-size check — stays inside the handled path, so a streaming turn always ends
+    // with an SSE error frame rather than escaping after its headers were sent.
+    let failure = null
+    try {
+      o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread))
+    } catch (error) {
+      failure = error
+      if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
+        if (continuity) resetThread(sessionKey)
+        retryCount = 1
+        try {
           prompt = freshRetryPrompt(toolRecoveryCount > 0)
           context = buildContextMetrics(body, { prompt, serializableMessages, images })
-          streamSession = createStreamSession({ sentenceQuarantine: hasTools })
-          streamProgressEnabled = !hasTools || !commentaryPhase
-          try {
-            o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false))
-            failure = null
-          } catch (retryError) {
-            failure = retryError
+          if (body.stream) {
+            streamSession = createStreamSession({ sentenceQuarantine: hasTools })
+            streamProgressEnabled = !hasTools || !commentaryPhase
           }
-        }
-        if (failure) {
-          // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
-          // watermark so the next turn replays fresh rather than extending a delta we can't trust.
-          if (continuity) resetThread(sessionKey)
-          if (failure?.type === "o1_code_client_aborted") return
-          // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
-          // instead of a bare capture/recorder error.
-          failure = await loginRequiredFailure(bridge, failure)
-          await writeRunLog({
-            id,
-            startedAt,
-            finishedAt: new Date().toISOString(),
-            request: redact(body),
-            prompt,
-            context,
-            images: imageLogSummary(images),
-            error: {
-              message: failure.message,
-              type: failure.type || "o1_code_proxy_error",
-              statusCode: failure.statusCode || 500,
-              kind: failure.kind || undefined,
-              capture: failure.capture || failure.diagnostics?.capture || undefined,
-              diagnostics: agentChatTimeoutDiagnostics(failure),
-              retryCount,
-            },
-            worker: failure.worker,
-            bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined,
-          }).catch(() => null)
-
-          // A bridge failure is not a successful assistant turn. Preserve the stream protocol but
-          // emit its error envelope so OpenCode surfaces a provider failure instead of persisting the
-          // diagnostic as text and terminating on finish_reason=stop.
-          writeChatCompletionError(response, failure)
-          return
+          o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false))
+          failure = null
+        } catch (retryError) {
+          failure = retryError
         }
       }
-    } else {
-      try {
-        o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, continueThread))
-      } catch (error) {
-        let failure = error
-        if (shouldRetryFreshReplay(error, { streamSession, isCompaction })) {
-          if (continuity) resetThread(sessionKey)
-          retryCount = 1
-          prompt = freshRetryPrompt(toolRecoveryCount > 0)
-          context = buildContextMetrics(body, { prompt, serializableMessages, images })
-          try {
-            o1CodeRun = await validateBridgeRun(await runBridgeTurn(prompt, false))
-            failure = null
-          } catch (retryError) {
-            failure = retryError
-          }
-        }
-        if (failure) {
-          if (continuity) resetThread(sessionKey)
-          if (failure?.type === "o1_code_client_aborted") return
-          // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
-          // instead of a bare capture/recorder error.
-          failure = await loginRequiredFailure(bridge, failure)
-          const logPath = await writeRunLog({
-            id,
-            startedAt,
-            finishedAt: new Date().toISOString(),
-            request: redact(body),
-            prompt,
-            context,
-            images: imageLogSummary(images),
-            error: {
-              message: failure.message,
-              type: failure.type || "o1_code_proxy_error",
-              statusCode: failure.statusCode || 500,
-              kind: failure.kind || undefined,
-              capture: failure.capture || failure.diagnostics?.capture || undefined,
-              diagnostics: agentChatTimeoutDiagnostics(failure),
-              retryCount,
-            },
-            worker: failure.worker,
-            bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined,
-          })
+    }
+    if (failure) {
+      // The thread may be in an unknown state (incl. content.js's o1_code_thread_desync) — drop the
+      // watermark so the next turn replays fresh rather than extending a delta we can't trust.
+      if (continuity) resetThread(sessionKey)
+      if (failure?.type === "o1_code_client_aborted") return
+      // Retry exhausted: if the live WPP session is actually logged out, surface that (and pop SSO)
+      // instead of a bare capture/recorder error.
+      failure = await loginRequiredFailure(bridge, failure)
+      const logPath = await writeRunLog({
+        id,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        request: redact(body),
+        prompt,
+        context,
+        images: imageLogSummary(images),
+        error: {
+          message: failure.message,
+          type: failure.type || "o1_code_proxy_error",
+          statusCode: failure.statusCode || 500,
+          kind: failure.kind || undefined,
+          capture: failure.capture || failure.diagnostics?.capture || undefined,
+          diagnostics: agentChatTimeoutDiagnostics(failure),
+          retryCount,
+        },
+        worker: failure.worker,
+        bridgeResult: failure.bridgeResult ? redact(failure.bridgeResult) : undefined,
+      })
 
-          if (logPath) {
-            response.setHeader("x-o1-code-proxy-log", logPath)
-          }
-
-          writeJson(response, failure.statusCode || 500, {
-            error: {
-              message: failure.message,
-              type: failure.type || "o1_code_proxy_error",
-              code: failure.code || undefined,
-              kind: failure.kind || undefined,
-              capture: failure.capture || failure.diagnostics?.capture || undefined,
-              retryCount,
-              log: logPath || undefined,
-              run_id: id,
-            },
-          })
-          return
-        }
+      if (body.stream) {
+        // A bridge failure is not a successful assistant turn. Preserve the stream protocol but
+        // emit its error envelope so OpenCode surfaces a provider failure instead of persisting the
+        // diagnostic as text and terminating on finish_reason=stop.
+        writeChatCompletionError(response, failure)
+        return
       }
+
+      if (logPath) {
+        response.setHeader("x-o1-code-proxy-log", logPath)
+      }
+
+      writeJson(response, failure.statusCode || 500, {
+        error: {
+          message: failure.message,
+          type: failure.type || "o1_code_proxy_error",
+          code: failure.code || undefined,
+          kind: failure.kind || undefined,
+          capture: failure.capture || failure.diagnostics?.capture || undefined,
+          retryCount,
+          log: logPath || undefined,
+          run_id: id,
+        },
+      })
+      return
     }
     const finalText = o1CodeRun.response.finalText
     const toolCallParts = o1CodeRun.response.toolCallParts
@@ -525,7 +496,7 @@ export async function handleChatCompletions(request, response, body, { bridge = 
         usageEvidence: resolvedUsage.evidence,
       },
     }
-    const logPath = body.stream ? await writeRunLog(logRecord).catch(() => null) : await writeRunLog(logRecord)
+    const logPath = await writeRunLog(logRecord)
 
     // Streaming already flushed its head, so headers can only be attached on the non-stream path; the
     // run log still records responseSource for streaming turns either way.
@@ -787,6 +758,7 @@ function agentChatTimeoutDiagnostics(failure) {
 // Pre-submit attach / cold-load failures are not "please log in" — probing auth after them false-popped SSO.
 const AUTH_RECLASSIFY_SKIP_TYPES = new Set([
   "wpp_auth_required",
+  "o1_code_prompt_too_large",
   "o1_code_task_incomplete",
   "o1_code_required_tool_not_called",
   "o1_code_image_attachment_desync",
