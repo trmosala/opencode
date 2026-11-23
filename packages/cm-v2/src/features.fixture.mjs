@@ -153,6 +153,13 @@ try {
     assert.equal(allowed.status, 200, await allowed.text())
     assert.equal(allowed.headers.get("access-control-allow-origin"), "oc://renderer")
   }
+  // Bodies are rejected before buffering: unauthenticated POSTs get 401, oversized authenticated ones 413.
+  const oversized = "x".repeat(256 * 1024)
+  assert.equal((await fetch(url + "/schedule", { method: "POST", body: oversized })).status, 401)
+  assert.equal(
+    (await fetch(url + "/schedule", { method: "POST", headers: { authorization }, body: oversized })).status,
+    413,
+  )
   const retained = (await request("/schedule")).data.schedules.find((item) => item.id === "sch_legacy_fixture")
   assert.equal(retained.revision, 7)
   assert.equal(retained.runs, 3)

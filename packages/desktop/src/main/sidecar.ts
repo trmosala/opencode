@@ -64,6 +64,14 @@ async function start(command: StartCommand) {
       database: await prepareDatabase(import.meta.env.OPENCODE_CHANNEL),
       config: { content: process.env.OPENCODE_CONFIG_CONTENT },
       cli: command.cli,
+      // A dead CLI behind a live front proxy looks connected but answers 502 forever; exit so the host sees it.
+      onCliExit: (code, signal) => {
+        parentPort.postMessage({
+          type: "error",
+          error: serializeError(new Error(`OpenCode CLI exited (code=${code ?? "null"} signal=${signal ?? "null"})`)),
+        })
+        setImmediate(() => process.exit(1))
+      },
     })
     parentPort.postMessage({ type: "ready" })
   } catch (error) {

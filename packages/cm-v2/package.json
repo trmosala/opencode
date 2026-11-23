@@ -3,6 +3,9 @@
   "version": "2.2.5",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "bun script/build.ts",
     "typecheck": "tsgo --noEmit",

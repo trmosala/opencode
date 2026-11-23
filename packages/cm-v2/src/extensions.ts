@@ -43,6 +43,12 @@ export class Extensions {
   client?: OpenCodeClient
   constructor(readonly password: string) {}
 
+  static authorized(password: string, header: string | undefined) {
+    const expected = Buffer.from(`Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`)
+    const actual = Buffer.from(header ?? "")
+    return actual.length === expected.length && timingSafeEqual(actual, expected)
+  }
+
   initialize(client: OpenCodeClient, configDirectory?: string, project = true) {
     this.client = client
     this.skills = new ManagedSkills(client, configDirectory, project)
@@ -57,9 +63,7 @@ export class Extensions {
     )
       return undefined
     return Effect.gen({ self: this }, function* () {
-      const expected = Buffer.from(`Basic ${Buffer.from(`opencode:${this.password}`).toString("base64")}`)
-      const actual = Buffer.from(request.headers.authorization ?? "")
-      if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
+      if (!Extensions.authorized(this.password, request.headers.authorization))
         return HttpServerResponse.jsonUnsafe({ message: "Authentication required" }, { status: 401 })
       if (request.method !== "GET" && request.method !== "POST")
         return HttpServerResponse.jsonUnsafe({ message: "Method not allowed" }, { status: 405 })

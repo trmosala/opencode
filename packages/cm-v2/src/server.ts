@@ -22,6 +22,8 @@ export type ListenOptions = {
   // The official OpenCode CLI binary. It serves the API so model providers see a genuine OpenCode client.
   cli: string
   config?: ServerOptions["config"]
+  // Called when the CLI dies after startup without being stopped, so the host can stop serving a dead API.
+  onCliExit?: (code: number | null, signal: NodeJS.Signals | null) => void
 }
 
 // CookieMonster's front listener keeps the address, origin policy and CM routes the desktop already uses, and
@@ -57,7 +59,9 @@ export async function listen(input: ListenOptions) {
       return
     }
     if (isExtensionRoute(incoming.url)) {
-      void serveExtension(extensionHandler, incoming, response)
+      serveExtension(extensionHandler, extensions.password, incoming, response).catch(() =>
+        response.headersSent ? response.destroy() : response.writeHead(500).end(),
+      )
       return
     }
     const forward = request(
@@ -146,15 +150,33 @@ function isExtensionRoute(url = "/") {
   )
 }
 
+// Matches the 128 KiB JSON limit the extension routes enforce after parsing.
+const MaxExtensionBody = 128 * 1024
+
 async function serveExtension(
   handler: (request: Request) => Promise<Response>,
+  password: string,
   incoming: IncomingMessage,
   response: ServerResponse,
 ) {
-  const body =
-    incoming.method === "GET" || incoming.method === "HEAD" || incoming.method === "OPTIONS"
-      ? undefined
-      : new Uint8Array(Buffer.concat(await incoming.toArray()))
+  const reads = incoming.method !== "GET" && incoming.method !== "HEAD" && incoming.method !== "OPTIONS"
+  // Reject unauthenticated or oversized bodies before buffering them; preflight stays with the CORS handler.
+  if (reads && !Extensions.authorized(password, incoming.headers.authorization)) {
+    incoming.resume()
+    response.writeHead(401, { "content-type": "application/json" }).end('{"message":"Authentication required"}')
+    return
+  }
+  if (reads && Number(incoming.headers["content-length"] ?? 0) > MaxExtensionBody) {
+    incoming.resume()
+    response.writeHead(413).end()
+    return
+  }
+  const body = reads ? await readBounded(incoming, MaxExtensionBody) : undefined
+  if (body === null) {
+    response.writeHead(413, { connection: "close" }).end()
+    incoming.destroy()
+    return
+  }
   const reply = await handler(
     new Request(new URL(incoming.url ?? "/", "http://localhost").href, {
       method: incoming.method,
@@ -166,6 +188,17 @@ async function serveExtension(
   )
   response.writeHead(reply.status, Object.fromEntries(reply.headers))
   response.end(Buffer.from(await reply.arrayBuffer()))
+}
+
+async function readBounded(incoming: IncomingMessage, limit: number) {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of incoming) {
+    size += chunk.length
+    if (size > limit) return null
+    chunks.push(chunk)
+  }
+  return new Uint8Array(Buffer.concat(chunks))
 }
 
 function tunnel(incoming: IncomingMessage, socket: Duplex, head: Buffer, port: number, tunnels: Set<Duplex>) {
@@ -232,20 +265,23 @@ async function startCli(input: ListenOptions, content: string, url: string) {
     child.once("error", reject)
     child.once("exit", (code, signal) => reject(new Error(`OpenCode CLI exited before ready (${code ?? signal})`)))
   })
+  const state = { stopping: false }
   const exited = new Promise<void>((resolve) => {
     if (child.exitCode !== null) {
       resolve()
       return
     }
     child.once("exit", (code, signal) => {
-      // Front proxy stays up and answers bare 502 after this; log so server.log shows the real cause.
-      console.error(`OpenCode CLI exited after ready (code=${code ?? "null"} signal=${signal ?? "null"})`)
       resolve()
+      if (state.stopping) return
+      console.error(`OpenCode CLI exited after ready (code=${code ?? "null"} signal=${signal ?? "null"})`)
+      input.onCliExit?.(code, signal)
     })
   })
   return {
     url: ready,
     stop: async () => {
+      state.stopping = true
       child.stdin?.end()
       const timer = setTimeout(() => child.kill("SIGKILL"), 10_000)
       await exited

@@ -169,20 +169,42 @@ export default {
           definition: Schema.optional(Schema.Unknown),
         }),
         execute: async (input, tool) => {
+          const definition =
+            input.action === "create" || input.action === "update" ? Definition.parse(input.definition) : undefined
+          const session = definition ? await ctx.session.get({ sessionID: tool.sessionID }) : undefined
+          // A schedule may only queue prompts into sessions from the caller's own workspace.
+          if (definition?.target.type === "existing_session") {
+            const target = await ctx.session.get({ sessionID: definition.target.sessionID })
+            if (target.location.directory !== session?.location.directory)
+              throw new Error("Scheduled prompts can only target sessions in this workspace")
+          }
+          // "Always allow" is scoped to the exact target, never to every future schedule.
+          const resource = !definition
+            ? `schedule:${input.id ?? ""}`
+            : definition.target.type === "existing_session"
+              ? `session:${definition.target.sessionID}`
+              : `directory:${definition.target.directory}`
           if (input.action !== "list")
             await ctx.permission.assert({
               sessionID: tool.sessionID,
               agent: tool.agent,
               action: "schedule",
-              resources: [input.id ?? "create"],
-              save: ["*"],
-              metadata: { action: input.action },
+              resources: [resource],
+              save: [resource],
+              metadata: {
+                action: input.action,
+                ...(input.id ? { id: input.id } : {}),
+                ...(definition
+                  ? {
+                      name: definition.name,
+                      target: definition.target,
+                      schedule: definition.schedule,
+                      prompt: definition.prompt,
+                    }
+                  : {}),
+              },
               source: { type: "tool", messageID: tool.messageID, id: tool.id },
             })
-          const definition =
-            input.action === "create" || input.action === "update" ? Definition.parse(input.definition) : undefined
-          const session =
-            definition?.target.type === "new_session" ? await ctx.session.get({ sessionID: tool.sessionID }) : undefined
           const selected =
             definition?.target.type === "new_session"
               ? {
