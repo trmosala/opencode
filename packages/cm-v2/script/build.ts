@@ -33,7 +33,7 @@ const result = await Bun.build({
   plugins: [shared],
 })
 if (!result.success) throw new AggregateError(result.logs, "CookieMonster V2 runtime build failed")
-console.log("CookieMonster V2 runtime built from published @opencode 2.2.5")
+console.log("CookieMonster V2 runtime built from published @opencode 2.4.1")
 
 // Plugins run inside the official OpenCode CLI (Bun), which resolves a plugin's imports from its own directory.
 // Packaged resources have no node_modules beside them, so each plugin bundles its dependencies.

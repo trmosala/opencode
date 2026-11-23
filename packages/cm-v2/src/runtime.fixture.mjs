@@ -203,7 +203,7 @@ assert.equal(
 )
 const allowed = await fetch(`${url}/api/info`, { headers: { authorization, origin: "oc://renderer" } })
 assert.equal(allowed.headers.get("access-control-allow-origin"), "oc://renderer")
-assert.equal((await client.server.info()).version, "2.2.5")
+assert.equal((await client.server.info()).version, "2.4.1")
 assert.equal((await client.session.get({ sessionID })).title, "Preserved title")
 assert.equal((await client.session.get({ sessionID: "ses_previous_next" })).id, "ses_previous_next")
 const previousMessages = await client.message.list({ sessionID: "ses_previous_next" })
@@ -241,7 +241,7 @@ assert.ok(
 )
 assert.equal(primary[0].headers["x-opencode-client"], "desktop")
 // Model requests come from the official CLI, so providers see its genuine identity.
-assert.match(primary[0].headers["user-agent"], /^opencode\/latest\/2\.2\.5\/desktop$/)
+assert.match(primary[0].headers["user-agent"], /^opencode\/latest\/2\.4\.1\/desktop$/)
 assert.equal(primary[0].headers["x-opencode-session-id"], task.id)
 assert.match(primary[0].headers["x-opencode-runtime-id"], /^[a-f0-9-]{36}$/)
 assert.equal(primary[0].headers["x-opencode-runtime-id"], primary[1].headers["x-opencode-runtime-id"])

@@ -180,6 +180,7 @@ Key packages beyond the upstream core:
 - `packages/desktop` — Electron shell: `src/main`, `src/preload`, `src/renderer`. Hosts the WPP bridge.
 - `packages/app` — shared Solid.js UI (session layout, prompt input, browser panel) used by web and desktop.
 - `packages/cm-browser` — `@cookiemonster/cm-browser`, a CookieMonster-only OpenCode **plugin** that exposes the embedded browser panel to the agent as tools. Private workspace package, bundled to `dist/plugin.mjs`. It runs inside the OpenCode sidecar, not the WPP bridge — see "Agent browser tools" below.
+- `packages/cm-v2` — `@cookiemonster/cm-v2`, the desktop sidecar runtime. It runs the official published `@opencode/cli` (version pinned in `packages/desktop/scripts/utils.ts`, matching the `@opencode/*` pins in `cm-v2` and `cm-browser` and the desktop version) behind a front proxy that adds CookieMonster's `/schedule`, `/skill/*` and `/worktree/reset` routes. Since `@opencode` 2.3 the server never waits for plugins to load: an RPC call into a CookieMonster plugin that reaches a Location before the plugin has activated fails with `rpc.unavailable`. Wrap every such call in `whenLoaded` from `cm-v2/src/features-rpc.ts`, and make one-shot test clients poll `plugin.list` for the plugin they need.
 
 Common commands:
 

@@ -25,12 +25,12 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@opencode/client": "2.2.5",
-    "@opencode/plugin": "2.2.5",
-    "@opencode/server": "2.2.5",
+    "@opencode/client": "2.4.1",
+    "@opencode/plugin": "2.4.1",
+    "@opencode/server": "2.4.1",
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",
-    "effect": "4.0.6"
+    "effect": "4.1.0"
   }
 }

@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 import type { OpenCodeClient, SessionMessageInfo } from "@opencode/client"
 import { Scheduler, Busy, type Occurrence } from "../../opencode/src/schedule/engine"
 import { Definition } from "../../opencode/src/schedule/definition"
-import { scheduleRuntimeRpc } from "./features-rpc"
+import { scheduleRuntimeRpc, whenLoaded } from "./features-rpc"
 import { prepareWorktree } from "../../opencode/src/schedule/worktree"
 
 const git = promisify(execFile)
@@ -76,9 +76,9 @@ export async function openScheduler(client: OpenCodeClient, notify: (item: Occur
           target.workspace.baseRef + "^{commit}",
         ])
       const location = { directory: target.directory }
-      const resolved = await client
-        .rpc(scheduleRuntimeRpc)
-        .defaults({ agent: target.agent, model: target.model }, { location })
+      const resolved = await whenLoaded(() =>
+        client.rpc(scheduleRuntimeRpc).defaults({ agent: target.agent, model: target.model }, { location }),
+      )
       return {
         definition: Definition.parse({ ...definition, target: { ...target, ...resolved } }),
         directory: target.directory,
@@ -91,9 +91,11 @@ export async function openScheduler(client: OpenCodeClient, notify: (item: Occur
           ? item.definition.target.model
           : (row?.model ??
             (
-              await client
-                .rpc(scheduleRuntimeRpc)
-                .defaults({ agent: row?.agent }, { location: { directory: item.directory } })
+              await whenLoaded(() =>
+                client
+                  .rpc(scheduleRuntimeRpc)
+                  .defaults({ agent: row?.agent }, { location: { directory: item.directory } }),
+              )
             ).model)
       if (model?.providerID !== "cookiemonster") return true
       const response = await fetch(bridge() + "/bridge/auth", {

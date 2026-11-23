@@ -12,7 +12,7 @@ import { OpenCode } from "@opencode/client"
 import { Extensions } from "./extensions"
 import { openScheduler } from "./scheduler"
 import z from "zod"
-import { featuresRpc } from "./features-rpc"
+import { featuresRpc, whenLoaded } from "./features-rpc"
 
 export type ListenOptions = {
   hostname: string
@@ -109,14 +109,16 @@ export async function listen(input: ListenOptions) {
   const client = OpenCode.make({ baseUrl: cli.url, headers: { authorization } })
   extensions.initialize(client, input.config?.directory, input.config?.project !== false)
   await openScheduler(client, async (item) => {
-    await client.rpc(featuresRpc).notify(
-      {
-        sessionID: item.sessionID,
-        name: item.definition.name,
-        state: item.state,
-        detail: item.detail ?? "Scheduled run completed",
-      },
-      { location: { directory: item.directory } },
+    await whenLoaded(() =>
+      client.rpc(featuresRpc).notify(
+        {
+          sessionID: item.sessionID,
+          name: item.definition.name,
+          state: item.state,
+          detail: item.detail ?? "Scheduled run completed",
+        },
+        { location: { directory: item.directory } },
+      ),
     )
   })
     .then((scheduler) => {

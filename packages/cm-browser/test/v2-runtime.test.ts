@@ -9,7 +9,7 @@ import { Effect, Exit, Scope } from "effect"
 import { HttpServer } from "effect/http"
 import { requests, respond } from "./v2-port.fixture"
 
-// Real published @opencode/server 2.2.5 runtime, real plugin loading, scripted OpenAI-compatible model.
+// Real published @opencode/server 2.4.1 runtime, real plugin loading, scripted OpenAI-compatible model.
 const turns: unknown[][] = []
 const script: Array<(body: { tools?: { function: { name: string; parameters: unknown } }[] }) => unknown> = []
 const llm = Bun.serve({

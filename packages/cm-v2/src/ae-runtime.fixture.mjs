@@ -76,7 +76,7 @@ const config = {
     plugin: [
       [
         plugin,
-        { dataDir, timeoutMs: 2000, heartbeatMs: 60000, releaseMetadata: { cookieMonsterVersion: "2.2.5-cm.fixture" } },
+        { dataDir, timeoutMs: 2000, heartbeatMs: 60000, releaseMetadata: { cookieMonsterVersion: "2.4.1-cm.fixture" } },
       ],
     ],
     model: "mock/m",
@@ -105,8 +105,14 @@ try {
     baseUrl,
     headers: { authorization: `Basic ${Buffer.from("opencode:ae-fixture").toString("base64")}` },
   })
-  await client.agent.list({ location: { directory: root } })
-  const plugins = await client.plugin.list({ location: { directory: root } })
+  // @opencode 2.3+ activates plugins in the background; one-shot clients poll plugin.list until theirs loads.
+  const listPlugins = async (directory, deadline = Date.now() + 15000) => {
+    const listed = await client.plugin.list({ location: { directory } })
+    if (JSON.stringify(listed).includes('"cm-ae"') || Date.now() >= deadline) return listed
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    return listPlugins(directory, deadline)
+  }
+  const plugins = await listPlugins(root)
   console.log(
     "AE plugin roster",
     JSON.stringify(plugins.data.filter((plugin) => JSON.stringify(plugin).includes("cm-ae"))),
@@ -135,7 +141,7 @@ try {
     code: bootstrap.code,
   })
   credential = paired.credential
-  assert.ok(JSON.stringify(paired).includes("2.2.5-cm.fixture"), "Release metadata crosses the directory wrapper")
+  assert.ok(JSON.stringify(paired).includes("2.4.1-cm.fixture"), "Release metadata crosses the directory wrapper")
   const state = {
     project: { id: "fixture-project", saved: true, path: join(root, "fixture.aep") },
     items: [],
@@ -366,7 +372,7 @@ try {
   const other = join(root, "other")
   await mkdir(other)
   await client.agent.list({ location: { directory: other } })
-  assert.ok(JSON.stringify(await client.plugin.list({ location: { directory: other } })).includes('"cm-ae"'))
+  assert.ok(JSON.stringify(await listPlugins(other)).includes('"cm-ae"'))
   await send("/heartbeat", { project: state.project, capabilities: state.capabilities, busy: false })
   const code = await readFile(new URL("render-worker.mjs", plugin.endsWith("/") ? plugin : plugin + "/"), "utf8")
   assert.ok(code.length > 1000)

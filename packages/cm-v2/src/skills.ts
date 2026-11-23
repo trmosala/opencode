@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto"
 import type { OpenCodeClient } from "@opencode/client"
 import { Permission } from "@opencode/core/permission"
 import { ManagedSkill } from "../../opencode/src/skill/managed"
-import { featuresRpc } from "./features-rpc"
+import { featuresRpc, whenLoaded } from "./features-rpc"
 
 export class ManagedSkills {
   private reviews = new Map<string, { digest: string; expires: number }>()
@@ -16,7 +16,7 @@ export class ManagedSkills {
   ) {}
 
   async fresh(directory: string) {
-    const result = await this.client.rpc(featuresRpc).refresh({}, { location: { directory } })
+    const result = await whenLoaded(() => this.client.rpc(featuresRpc).refresh({}, { location: { directory } }))
     // Discovery may expose the same file through multiple roots. Keep distinct sources.
     return [...new Map(result.skills.map((skill) => [skill.source, skill])).values()]
   }
@@ -181,12 +181,14 @@ export class ManagedSkills {
         )
           throw new Error("Skill is denied by CM permissions.")
       for (const skill of list) {
-        await this.client
-          .rpc(featuresRpc)
-          .refresh(
-            { selected: [{ name: skill.name, source: skill.source, revision: skill.revision }] },
-            { location: { directory } },
-          )
+        await whenLoaded(() =>
+          this.client
+            .rpc(featuresRpc)
+            .refresh(
+              { selected: [{ name: skill.name, source: skill.source, revision: skill.revision }] },
+              { location: { directory } },
+            ),
+        )
         await this.client.experimental.session.skill({ sessionID: input.sessionID, id: skill.id, resume: false })
       }
       return { selected: input.selected }
