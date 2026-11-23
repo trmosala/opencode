@@ -1,6 +1,6 @@
 # HANDOVER — WPP bridge reliability work (for Codex)
 
-Repo: `/Users/Tiisetso/Documents/opencode` · Branch: `session-thread-pinning` ·
+Branch: `session-thread-pinning` ·
 All paths below are under `packages/desktop/src/main/wpp-bridge/`.
 
 This file is a handover. Sections below are: (A) what's **already applied** in the

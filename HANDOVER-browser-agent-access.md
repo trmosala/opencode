@@ -17,7 +17,7 @@ Preserve tab identity, revocation, and checks that prevent acting on the wrong o
 
 ## Confirmed failure
 
-In the CookieMonster dev session `Lets try and do my time`, the user authorized the Teams and WorkBook tabs and asked the agent to use calendar events for the week of 28 September through 4 October 2026.
+In a CookieMonster dev session, the user authorized the Teams and WorkBook tabs and asked the agent to use calendar events for the week of 28 September through 4 October 2026.
 
 The agent could read the WorkBook timesheet rows. After clicking Calendar in Teams, it repeatedly read only the Teams navigation/header and asked the user to open the calendar manually.
 
@@ -39,7 +39,7 @@ This establishes a gap between the visible page and the content exposed to the a
 
 ## Relevant implementation
 
-The running dev instance comes from `D:/Workarea/CookieMonster/teams-login`, branch `teams-login`. That worktree contains the separate long Microsoft login redirect fix. The main checkout is `D:/Workarea/CookieMonster/opencode`, where another agent has ongoing browser changes. Coordinate with that work before editing.
+The running dev instance came from a separate `teams-login` worktree that also carried the long Microsoft login redirect fix.
 
 Relevant repository paths:
 
@@ -66,13 +66,4 @@ Do not enter or submit timesheets as part of validating this browser fix. The cu
 
 ## Evidence location
 
-The local dev transcript is in the read-only inspected database:
-
-```text
-C:/Users/TiisetsoMosala/.local/share/opencode/opencode-dev.db
-session: ses_f03def34dffecENXJGaB4fMoU7
-Teams tab: ecefda6d-5b29-498b-b8ce-a5fe59ccf7b2
-WorkBook tab: d77b32b9-be47-4732-a298-0df9a6039307
-```
-
-The `part` table stores tool state as JSON in `data`. Inspect only the relevant browser tool calls; the session also contains private chat/calendar information that is unnecessary for this diagnosis.
+The failing transcript lives in the reporter's local dev database (not in this repository). Inspect only the relevant browser tool calls; the session also contains private chat/calendar information that is unnecessary for this diagnosis.

@@ -1,7 +1,5 @@
 # HANDOVER — WPP token counting and the approximately 250K context window
 
-Repo: `E:\Work\Development\CookieMonster`
-
 Status: **implemented**. This handover was reconciled with the live code and WPP
 UI on 2026-09-22 while resolving issue #3.
 
