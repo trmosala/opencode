@@ -8,6 +8,7 @@ import type { Registration } from "@opencode/plugin/promise/registration"
 import { ManagedSkill } from "../../opencode/src/skill/managed"
 import { Definition } from "../../opencode/src/schedule/definition"
 import { featuresRpc, scheduleRuntimeRpc } from "./features-rpc"
+import z from "zod"
 
 export default {
   id: "cookiemonster.features",
@@ -169,6 +170,21 @@ export default {
           definition: Schema.optional(Schema.Unknown),
         }),
         execute: async (input, tool) => {
+          const request = async (body?: unknown) => {
+            const response = await fetch(`${process.env.CM_V2_FEATURE_URL}/schedule`, {
+              method: body === undefined ? "GET" : "POST",
+              headers: {
+                authorization: `Basic ${Buffer.from(`opencode:${process.env.CM_V2_FEATURE_PASSWORD}`).toString("base64")}`,
+                "content-type": "application/json",
+              },
+              ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+              signal: tool.signal,
+            })
+            const text = await response.text()
+            if (!response.ok) throw new Error(`Schedule request failed (${response.status}): ${text}`)
+            return text
+          }
+          if (input.action === "list") return { content: [{ type: "text", text: await request() }] }
           const definition =
             input.action === "create" || input.action === "update" ? Definition.parse(input.definition) : undefined
           const session = definition ? await ctx.session.get({ sessionID: tool.sessionID }) : undefined
@@ -178,33 +194,43 @@ export default {
             if (target.location.directory !== session?.location.directory)
               throw new Error("Scheduled prompts can only target sessions in this workspace")
           }
+          // Show what an id-only action (pause, resume, delete, acknowledge) would touch, not just its id.
+          const existing = input.id
+            ? z
+                .object({ schedules: z.array(z.object({ id: z.string(), definition: z.unknown() }).loose()) })
+                .parse(JSON.parse(await request()))
+                .schedules.find((item) => item.id === input.id)
+            : undefined
+          if (input.id && !existing) throw new Error(`Unknown schedule: ${input.id}`)
           // "Always allow" is scoped to the exact target, never to every future schedule.
           const resource = !definition
             ? `schedule:${input.id ?? ""}`
             : definition.target.type === "existing_session"
               ? `session:${definition.target.sessionID}`
               : `directory:${definition.target.directory}`
-          if (input.action !== "list")
-            await ctx.permission.assert({
-              sessionID: tool.sessionID,
-              agent: tool.agent,
-              action: "schedule",
-              resources: [resource],
-              save: [resource],
-              metadata: {
-                action: input.action,
-                ...(input.id ? { id: input.id } : {}),
-                ...(definition
-                  ? {
-                      name: definition.name,
-                      target: definition.target,
-                      schedule: definition.schedule,
-                      prompt: definition.prompt,
-                    }
-                  : {}),
-              },
-              source: { type: "tool", messageID: tool.messageID, id: tool.id },
-            })
+          // Saved approvals match `*` and `?` as wildcards, so a target containing them could approve everything.
+          if (/[*?]/.test(resource)) throw new Error("Schedule ids and targets cannot contain * or ?")
+          await ctx.permission.assert({
+            sessionID: tool.sessionID,
+            agent: tool.agent,
+            action: "schedule",
+            resources: [resource],
+            save: [resource],
+            metadata: {
+              action: input.action,
+              ...(input.id ? { id: input.id } : {}),
+              ...(existing ? { existing: existing.definition } : {}),
+              ...(definition
+                ? {
+                    name: definition.name,
+                    target: definition.target,
+                    schedule: definition.schedule,
+                    prompt: definition.prompt,
+                  }
+                : {}),
+            },
+            source: { type: "tool", messageID: tool.messageID, id: tool.id },
+          })
           const selected =
             definition?.target.type === "new_session"
               ? {
@@ -216,18 +242,7 @@ export default {
                   },
                 }
               : definition
-          const response = await fetch(`${process.env.CM_V2_FEATURE_URL}/schedule`, {
-            method: input.action === "list" ? "GET" : "POST",
-            headers: {
-              authorization: `Basic ${Buffer.from(`opencode:${process.env.CM_V2_FEATURE_PASSWORD}`).toString("base64")}`,
-              "content-type": "application/json",
-            },
-            ...(input.action === "list" ? {} : { body: JSON.stringify({ ...input, definition: selected }) }),
-            signal: tool.signal,
-          })
-          const text = await response.text()
-          if (!response.ok) throw new Error(`Schedule request failed (${response.status}): ${text}`)
-          return { content: [{ type: "text", text }] }
+          return { content: [{ type: "text", text: await request({ ...input, definition: selected }) }] }
         },
       }),
     )

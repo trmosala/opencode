@@ -13,7 +13,7 @@ import { DEFAULT_SERVER_URL_KEY } from "./store-keys"
 import { o1CodeConfigContent } from "./wpp-bridge/proxy/providerConfig.mjs"
 import { WPP_PROXY_TOKEN } from "./wpp-bridge"
 import { resolveCmAePlugin } from "../cm-ae"
-import { createSidecarEnv } from "./sidecar-env"
+import { createSidecarEnv, withProxyToken } from "./sidecar-env"
 
 export type HealthCheck = { wait: Promise<void> }
 
@@ -74,10 +74,12 @@ export async function spawnLocalServer(
   options: SpawnLocalServerOptions,
 ) {
   const sidecar = join(dirname(fileURLToPath(import.meta.url)), "sidecar.js")
+  const env = createSidecarEnv(bundledConfigContent)
   const child = utilityProcess.fork(sidecar, [], {
     cwd: process.cwd(),
     env: {
-      ...createSidecarEnv(bundledConfigContent),
+      ...env,
+      OPENCODE_CONFIG_CONTENT: withProxyToken(env.OPENCODE_CONFIG_CONTENT, WPP_PROXY_TOKEN),
       // Direct (non-provider) callers of the WPP proxy, e.g. the CM scheduler's /bridge/auth gate.
       O1_CODE_PROXY_TOKEN: WPP_PROXY_TOKEN,
       ...(app.isPackaged

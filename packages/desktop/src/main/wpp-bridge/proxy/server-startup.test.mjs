@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test"
 import {
   COOKIEMONSTER_BRIDGE_EXECUTOR,
   isCookieMonsterBridgeHealth,
-  probeCookieMonsterBridgeOccupant,
+  probeProxyOccupant,
+  proxyInstanceConflictError,
   proxyPortConflictError,
   shouldIgnoreListenError,
 } from "./server-startup.mjs"
@@ -29,7 +30,7 @@ describe("server startup", () => {
         json: async () => ({ ok: true, executor: COOKIEMONSTER_BRIDGE_EXECUTOR }),
       }
     }
-    expect(await probeCookieMonsterBridgeOccupant("127.0.0.1", 8787, { fetchImpl, token: "launch-token" })).toBe(true)
+    expect(await probeProxyOccupant("127.0.0.1", 8787, { fetchImpl, token: "launch-token" })).toBe("ours")
     expect(calls).toEqual([
       { url: "http://127.0.0.1:8787/bridge/health", method: "GET", authorization: "Bearer launch-token" },
     ])
@@ -37,17 +38,40 @@ describe("server startup", () => {
 
   test("rejects foreign or unreachable occupants", async () => {
     expect(
-      await probeCookieMonsterBridgeOccupant("127.0.0.1", 8787, {
+      await probeProxyOccupant("127.0.0.1", 8787, {
         fetchImpl: async () => ({ ok: true, json: async () => ({ ok: true }) }),
       }),
-    ).toBe(false)
+    ).toBe("foreign")
     expect(
-      await probeCookieMonsterBridgeOccupant("127.0.0.1", 8787, {
+      await probeProxyOccupant("127.0.0.1", 8787, {
+        fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ message: "nope" }) }),
+      }),
+    ).toBe("foreign")
+    expect(
+      await probeProxyOccupant("127.0.0.1", 8787, {
         fetchImpl: async () => {
           throw new Error("connection refused")
         },
       }),
-    ).toBe(false)
+    ).toBe("foreign")
+  })
+
+  test("recognizes another CookieMonster launch that refuses this launch's token", async () => {
+    expect(
+      await probeProxyOccupant("127.0.0.1", 8787, {
+        fetchImpl: async () => ({
+          ok: false,
+          status: 401,
+          json: async () => ({
+            error: { message: "Missing or invalid O1-Code proxy access token.", type: "unauthorized" },
+          }),
+        }),
+      }),
+    ).toBe("cookiemonster")
+    expect(proxyInstanceConflictError("127.0.0.1", 8787)).toMatchObject({
+      code: "EADDRINUSE",
+      type: "o1_code_proxy_instance_conflict",
+    })
   })
 
   test("builds a typed port-conflict error", () => {

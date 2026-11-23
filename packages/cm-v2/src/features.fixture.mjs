@@ -38,9 +38,10 @@ const model = createServer(async (request, response) => {
     })
   }
   const createSchedule = primary && JSON.stringify(body.messages).includes("USE_SCHEDULE_CREATE")
+  const wildcardSchedule = primary && JSON.stringify(body.messages).includes("USE_SCHEDULE_WILDCARD")
   const callSchedule =
     primary &&
-    (createSchedule || JSON.stringify(body.messages).includes("USE_SCHEDULE_TOOL")) &&
+    (createSchedule || wildcardSchedule || JSON.stringify(body.messages).includes("USE_SCHEDULE_TOOL")) &&
     !body.messages.some((message) => message.role === "tool")
   const delta = callSchedule
     ? {
@@ -53,14 +54,18 @@ const model = createServer(async (request, response) => {
             function: {
               name: "schedule",
               arguments: JSON.stringify(
-                createSchedule
+                createSchedule || wildcardSchedule
                   ? {
                       action: "create",
                       definition: {
                         schemaVersion: 1,
                         name: "Tool-created schedule",
                         prompt: "Return SCHEDULE_OK",
-                        target: { type: "new_session", directory: root, workspace: { type: "local" } },
+                        target: {
+                          type: "new_session",
+                          directory: wildcardSchedule ? join(root, "*") : root,
+                          workspace: { type: "local" },
+                        },
                         schedule: { type: "once", at: new Date(Date.now() + 3600000).toISOString() },
                       },
                     }
@@ -314,6 +319,18 @@ try {
   )
   assert.equal(inherited.definition.target.model.id, "m2", "Schedule ignored the caller's selected model")
   assert.equal(inherited.definition.target.agent, "build")
+  // A wildcard target would turn one "always allow" into approval for every directory.
+  const wildcard = await client.session.create({
+    location: { directory: root },
+    model: { providerID: "cookiemonster", id: "m2" },
+    permissions: [{ action: "schedule", resource: "*", effect: "allow" }],
+  })
+  await client.session.prompt({ sessionID: wildcard.id, text: "USE_SCHEDULE_WILDCARD" })
+  await client.experimental.session.wait({ sessionID: wildcard.id })
+  assert.ok(
+    JSON.stringify(await client.message.list({ sessionID: wildcard.id })).includes("cannot contain * or ?"),
+    "Schedule tool accepted a wildcard target",
+  )
   signedIn = false
   const waiting = await request("/schedule", {
     action: "create",

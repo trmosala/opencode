@@ -47,6 +47,13 @@ jobs:
       CM_BRAND: "1"
       CM_UNSIGNED: "0"
     steps:
+      - name: Refuse to publish from a non-default branch
+        # Checked again in the release job; failing here avoids a full signed build that cannot ship.
+        if: inputs.publish && github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          echo "Publish only from the default branch (dispatched from $GITHUB_REF)." >&2
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -212,8 +219,16 @@ jobs:
           tag="cookiemonster-v${version}_${REVISION}"
           # Re-running the same commit may retry an upload; a different commit needs a new revision,
           # otherwise installed apps already on this version never receive it.
-          if existing=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha 2>/dev/null) && [[ "$existing" != "$GITHUB_SHA" ]]; then
-            echo "$tag already points at $existing; bump the revision to release $GITHUB_SHA." >&2
+          # Fail closed: only a definite "no such tag" (404/422) counts as a new release.
+          status=$(gh api -i "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>/dev/null | head -1 | awk '{print $2}' || true)
+          if [[ "$status" == "200" ]]; then
+            existing=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha)
+            if [[ "$existing" != "$GITHUB_SHA" ]]; then
+              echo "$tag already points at $existing; bump the revision to release $GITHUB_SHA." >&2
+              exit 1
+            fi
+          elif [[ "$status" != "404" && "$status" != "422" ]]; then
+            echo "Could not check whether $tag exists (HTTP ${status:-unknown}); refusing to publish." >&2
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"

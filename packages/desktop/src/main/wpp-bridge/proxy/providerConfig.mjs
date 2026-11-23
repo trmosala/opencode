@@ -85,6 +85,8 @@ export const COOKIE_MONSTER_PROVIDER = {
   name: "CookieMonster",
   options: {
     baseURL: "http://127.0.0.1:8787/v1",
+    // Placeholder only. The proxy requires a per-launch token that exists solely in the sidecar's in-memory config,
+    // so OpenCode sessions started outside CookieMonster from this disk seed are refused (401) by design.
     apiKey: "cookiemonster-local",
   },
   models: Object.fromEntries(MODEL_IDS.map((agentName) => [agentName, projectModel(agentName)])),
@@ -203,7 +205,7 @@ export function o1CodeConfigFile() {
 
 // Self-contained config blob injected into the bundled OpenCode sidecar. A clean install must see
 // the project roster on its very first start even if the persistent opencode.json seed has not
-// completed yet. The disk seed remains useful for external OpenCode sessions and later launches.
+// completed yet. The disk seed keeps the roster for later launches; it carries no live proxy token.
 export function o1CodeConfigContent(browserPlugin, aePlugin, chromeDevTools = process.env.CM_CHROME_DEVTOOLS === "1") {
   const plugins = [browserPlugin, aePlugin].filter(Boolean)
   return JSON.stringify({

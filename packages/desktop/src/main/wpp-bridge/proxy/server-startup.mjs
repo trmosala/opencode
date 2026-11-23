@@ -13,12 +13,14 @@ export function isCookieMonsterBridgeHealth(body) {
   )
 }
 
-export async function probeCookieMonsterBridgeOccupant(
+// "ours": a bridge that accepts this launch's token. "cookiemonster": another CookieMonster launch (another user
+// or a dev build beside the packaged app), which refuses our token. "foreign": anything else on the port.
+export async function probeProxyOccupant(
   host,
   port,
   { fetchImpl = globalThis.fetch, timeoutMs = 1500, token = "" } = {},
 ) {
-  if (typeof fetchImpl !== "function") return false
+  if (typeof fetchImpl !== "function") return "foreign"
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -27,20 +29,32 @@ export async function probeCookieMonsterBridgeOccupant(
       headers: { authorization: `Bearer ${token}` },
       signal: controller.signal,
     })
-    if (!response?.ok) return false
-    return isCookieMonsterBridgeHealth(await response.json())
+    const body = await response?.json?.().catch(() => undefined)
+    if (response?.ok) return isCookieMonsterBridgeHealth(body) ? "ours" : "foreign"
+    return response?.status === 401 && body?.error?.type === "unauthorized" ? "cookiemonster" : "foreign"
   } catch {
-    return false
+    return "foreign"
   } finally {
     clearTimeout(timer)
   }
 }
 
+export function proxyInstanceConflictError(host, port) {
+  const error = new Error(
+    `Port ${host}:${port} is already used by another CookieMonster (another user or build on this computer). ` +
+      `Quit the other CookieMonster and relaunch this one.`,
+  )
+  error.statusCode = 500
+  error.code = "EADDRINUSE"
+  error.type = "o1_code_proxy_instance_conflict"
+  return error
+}
+
 export function proxyPortConflictError(host, port) {
   const error = new Error(
-    `Port ${host}:${port} is occupied by a non-CookieMonster O1-Code proxy `
-      + `(missing executor="${COOKIEMONSTER_BRIDGE_EXECUTOR}"). `
-      + `Stop the other process (often wpp-chat-cli's o1-code-openai-proxy) and relaunch CookieMonster.`,
+    `Port ${host}:${port} is occupied by a non-CookieMonster O1-Code proxy ` +
+      `(missing executor="${COOKIEMONSTER_BRIDGE_EXECUTOR}"). ` +
+      `Stop the other process (often wpp-chat-cli's o1-code-openai-proxy) and relaunch CookieMonster.`,
   )
   error.statusCode = 500
   error.code = "EADDRINUSE"

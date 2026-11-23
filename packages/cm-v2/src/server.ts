@@ -271,6 +271,7 @@ async function startCli(input: ListenOptions, content: string, url: string) {
   const exited = new Promise<void>((resolve) => {
     if (child.exitCode !== null) {
       resolve()
+      input.onCliExit?.(child.exitCode, child.signalCode)
       return
     }
     child.once("exit", (code, signal) => {

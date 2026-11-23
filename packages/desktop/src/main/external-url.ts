@@ -75,13 +75,18 @@ const PROGRAM_EXTENSIONS = new Set([
   ".zsh",
 ])
 
+const BUNDLE_EXTENSIONS = new Set([".app", ".mpkg", ".pkg", ".tool", ".workflow"])
+
 export function launchesProgram(
   paths: readonly string[],
   mode: number,
   directory: boolean,
   platform: NodeJS.Platform = process.platform,
 ) {
+  // A folder is a program only as a macOS bundle; a project folder named `three.js` is still a folder.
+  if (directory) return paths.some((path) => BUNDLE_EXTENSIONS.has(extname(path).toLowerCase()))
   if (paths.some((path) => PROGRAM_EXTENSIONS.has(extname(path).toLowerCase()))) return true
-  // macOS runs extensionless POSIX executables in Terminal. Directory execute bits only mean traversal.
-  return platform !== "win32" && !directory && (mode & 0o111) !== 0
+  // macOS runs extensionless POSIX executables in Terminal. Files with an extension open with their document handler,
+  // and exFAT/SMB mounts mark every file executable, so the execute bit only matters without one.
+  return platform !== "win32" && (mode & 0o111) !== 0 && paths.some((path) => extname(path) === "")
 }
