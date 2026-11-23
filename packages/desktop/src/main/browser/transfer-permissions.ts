@@ -38,25 +38,34 @@ export function saveTransferRule(value: BrowserTransferRule, remove = false) {
 }
 
 // Download attribution is deliberately conservative: exposure survives revocation and navigation.
-export function allowDownload(win: BrowserWindow, tab: BrowserRegistration, filename: string, url: string) {
-  if (!tab.transferGuarded) return true
-  const rule = transferRule(transferRules(), tab.contents.getURL())
-  if (rule.downloads === "block") return false
-  if (rule.downloads === "allow") return true
-  return (
-    dialog.showMessageBoxSync(win, {
-      type: "question",
-      message: nativeT("desktop.browser.transfer.download"),
-      detail: nativeT("desktop.browser.transfer.downloadDetail", {
-        origin: new URL(tab.contents.getURL()).origin,
-        filename,
-        url,
-      }),
-      buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
-      defaultId: 0,
-      cancelId: 0,
-    }) === 1
-  )
+export function downloadRule(tab: BrowserRegistration) {
+  if (!tab.transferGuarded) return "allow"
+  return transferRule(transferRules(), tab.contents.getURL()).downloads
+}
+
+// Asynchronous so main keeps running; the caller holds the DownloadItem paused until this settles.
+export async function confirmDownload(win: BrowserWindow, tab: BrowserRegistration, filename: string, url: string) {
+  const answer = await dialog.showMessageBox(win, {
+    type: "question",
+    message: nativeT("desktop.browser.transfer.download"),
+    detail: nativeT("desktop.browser.transfer.downloadDetail", {
+      origin: new URL(tab.contents.getURL()).origin,
+      filename,
+      url: downloadLabel(url),
+    }),
+    buttons: [nativeT("desktop.browser.cancel"), nativeT("desktop.browser.allow")],
+    defaultId: 0,
+    cancelId: 0,
+  })
+  return answer.response === 1
+}
+
+// data: and long signed URLs can be megabytes. Show the scheme, host and path, never the query, within a bound.
+export function downloadLabel(url: string) {
+  const parsed = URL.canParse(url) ? new URL(url) : undefined
+  const label = parsed?.host ? `${parsed.protocol}//${parsed.host}${parsed.pathname}` : url
+  if (label.length <= 200) return label
+  return `${label.slice(0, 199).replace(/[\uD800-\uDBFF]$/, "")}…`
 }
 
 export async function guardUploads(win: BrowserWindow, tab: BrowserRegistration, contents: WebContents) {

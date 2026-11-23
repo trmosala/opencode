@@ -54,6 +54,7 @@ if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
   })
 
   afterEach(() => {
+    delete process.env.CM_VAULT_LINUX_KEYRING
     mock.restore()
     Object.defineProperty(process, "platform", platform)
     if (resources) Object.defineProperty(process, "resourcesPath", resources)
@@ -196,16 +197,37 @@ if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
     expect(prompt).not.toHaveBeenCalled()
   })
 
+  test("Linux stays locked without the developer keyring opt-in, even with a secure keyring", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    const encryption = spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
+    spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue("gnome_libsecret")
+    const encrypt = mock((value: string) => Buffer.from(value))
+    safeStorage.encryptString = encrypt
+    safeStorage.decryptString = mock((value: Buffer) => value.toString())
+    for (const value of [undefined, "", "0", "true"]) {
+      if (value === undefined) delete process.env.CM_VAULT_LINUX_KEYRING
+      else process.env.CM_VAULT_LINUX_KEYRING = value
+      const access = createVaultAccess(vaultAuthentication.verify)
+      await expect(access.unlock(new BrowserWindow())).rejects.toThrow("OS authentication unavailable")
+      expect(access.status()).toBe("locked")
+    }
+    expect(encryption).not.toHaveBeenCalled()
+    expect(encrypt).not.toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   test.each(["basic_text", "unknown"])("Linux rejects insecure keyring backend %s", async (backend) => {
     Object.defineProperty(process, "platform", { value: "linux" })
+    process.env.CM_VAULT_LINUX_KEYRING = "1"
     spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
     spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue(backend)
     await expect(vaultAuthentication.verify(new BrowserWindow())).rejects.toThrow("Secure desktop keyring unavailable")
     expect(spawn).not.toHaveBeenCalled()
   })
 
-  test("Linux unlock uses its secure desktop keyring and clears the encrypted challenge", async () => {
+  test("Linux developer opt-in unlock uses its secure desktop keyring and clears the encrypted challenge", async () => {
     Object.defineProperty(process, "platform", { value: "linux" })
+    process.env.CM_VAULT_LINUX_KEYRING = "1"
     spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
     spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue("gnome_libsecret")
     const encrypt = mock((value: string) => Buffer.from(value))
@@ -221,6 +243,7 @@ if (process.env.CM_VAULT_AUTH_TEST_CHILD !== "1") {
 
   test("a failed Linux keyring round trip leaves the vault locked", async () => {
     Object.defineProperty(process, "platform", { value: "linux" })
+    process.env.CM_VAULT_LINUX_KEYRING = "1"
     spyOn(safeStorage, "isEncryptionAvailable").mockReturnValue(true)
     spyOn(safeStorage, "getSelectedStorageBackend").mockReturnValue("gnome_libsecret")
     safeStorage.encryptString = mock(() => Buffer.from("fixture"))

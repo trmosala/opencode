@@ -8,6 +8,7 @@ import {
   success,
   MAX_URL_LENGTH,
   hostAllowed,
+  clipboardShortcut,
   parseBrowserIpcRequest,
   parseBrowserIpcCancel,
   parseRequest,
@@ -681,6 +682,51 @@ test("parses explicit tab operations and rejects missing IDs and oversized input
   const message = { type: "browser_request", id: "req-1", sessionID: "ses_1", request: requests[1] } as const
   expect(parseBrowserIpcRequest(message)).toEqual(message)
   expect(parseBrowserIpcRequest({ ...message, sessionID: "" })).toBeUndefined()
+})
+
+test("press_key rejects trusted clipboard shortcuts and keeps ordinary keys", () => {
+  const context = {
+    tabID: "one",
+    origin: "http://localhost",
+    urlHash: "a".repeat(64),
+    revision: 0,
+    accessRevision: 0,
+    ownerContext: "owner-task-1",
+  }
+  const press = (key: string, modifiers: string[]) => ({ op: "press_key", tabID: "one", key, modifiers, context })
+  for (const [key, modifiers] of [
+    ["v", ["Ctrl"]],
+    ["V", ["Ctrl"]],
+    ["v", ["Ctrl", "Shift"]],
+    ["v", ["Meta"]],
+    ["c", ["Ctrl"]],
+    ["C", ["Meta"]],
+    ["x", ["Ctrl"]],
+    ["x", ["Meta", "Alt"]],
+    ["Insert", ["Shift"]],
+    ["insert", ["Ctrl"]],
+    ["Delete", ["Shift"]],
+    [" v ", ["Ctrl"]],
+  ] as const) {
+    expect(parseRequest(press(key, [...modifiers]))).toBeUndefined()
+    expect(clipboardShortcut(key, modifiers)).toBe(true)
+    const frame = { op: "prepare_frame_input", tabID: "one", frameRef: "a".repeat(36) }
+    expect(parseRequest({ ...frame, action: { op: "press_key", key, modifiers: [...modifiers] } })).toBeUndefined()
+    expect(
+      parseRequest({ ...frame, action: { op: "press_key", key: "Enter", modifiers: [...modifiers] } }),
+    ).toBeDefined()
+  }
+  for (const [key, modifiers] of [
+    ["v", []],
+    ["V", ["Shift"]],
+    ["v", ["Alt"]],
+    ["a", ["Ctrl"]],
+    ["Enter", ["Ctrl"]],
+    ["Delete", []],
+    ["Delete", ["Ctrl"]],
+    ["Backspace", ["Shift"]],
+  ] as const)
+    expect<unknown>(parseRequest(press(key, [...modifiers]))).toEqual(press(key, [...modifiers]))
 })
 
 test("write contexts are runtime-validated and survive IPC parsing", () => {

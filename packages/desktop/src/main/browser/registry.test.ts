@@ -10,6 +10,7 @@ import {
   revokeBrowserAccess,
   setBrowserAgentEnabled,
   watchBrowserAuthority,
+  forfeitBrowserResume,
 } from "./registry"
 import type { DriverContents } from "./driver"
 
@@ -100,4 +101,51 @@ test("registry resolves exact session and tab, never a fallback", () => {
   destroyed = true
   expect(browserTabs("session-one")).toEqual([])
   remove()
+})
+
+test("a vault fill during takeover keeps that tab private on resume; other paused tabs resume", () => {
+  const contents: DriverContents = {
+    mainFrame: { detached: false },
+    get focusedFrame() {
+      return this.mainFrame
+    },
+    isDestroyed: () => false,
+    isLoadingMainFrame: () => false,
+    stop: () => {},
+    getURL: () => "https://example.test/login",
+    loadURL: async () => {},
+    debugger: { isAttached: () => true, attach: () => {}, sendCommand: async () => ({}) },
+  }
+  const tab = (id: string) => ({
+    id,
+    ownerID: 1,
+    sessionID: "vault-fill-session",
+    contents,
+    agentAccess: true,
+    agentCreated: true,
+    transferGuarded: true,
+    revision: 0,
+  })
+  const filled = tab("vault-filled")
+  const untouched = tab("vault-untouched")
+  const removals = [filled, untouched].map(registerBrowserTab)
+  try {
+    // Outside a pause there is no resume grant to drop.
+    forfeitBrowserResume(filled)
+    expect(filled.agentAccess).toBe(true)
+    setBrowserTaskPaused("vault-fill-session", true)
+    expect(filled.agentAccess).toBe(false)
+    forfeitBrowserResume(filled)
+    setBrowserTaskPaused("vault-fill-session", false)
+    expect(filled.agentAccess).toBe(false)
+    expect(untouched.agentAccess).toBe(true)
+    // A later pause/resume cycle does not resurrect the forfeited grant.
+    setBrowserTaskPaused("vault-fill-session", true)
+    setBrowserTaskPaused("vault-fill-session", false)
+    expect(filled.agentAccess).toBe(false)
+    expect(untouched.agentAccess).toBe(true)
+  } finally {
+    setBrowserTaskPaused("vault-fill-session", false)
+    removals.forEach((remove) => remove())
+  }
 })

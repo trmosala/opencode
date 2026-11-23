@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import { once } from "node:events"
 import { join } from "node:path"
-import fs, { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import fs, { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { syncBuiltinESMExports } from "node:module"
 import { app, BrowserWindow, dialog, session, safeStorage, powerMonitor, shell } from "electron"
 import {
@@ -4566,13 +4566,17 @@ async function run() {
   one.view.webContents.downloadURL(`${url}download`)
   assert(await deniedDownload)
   await command({ op: "transfer-rule", rule: { origin: url, uploads: "ask", downloads: "ask" } })
-  dialog.showMessageBoxSync = () => 0
-  const declinedDownload = new Promise<boolean>((resolve) =>
-    one.view.webContents.session.once("will-download", (event) => resolve(event.defaultPrevented)),
+  // Download consent is asynchronous: the item is held paused, then cancelled on decline.
+  const approvedMessage = dialog.showMessageBox
+  dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as typeof dialog.showMessageBox
+  const declinedDownload = new Promise<string>((resolve) =>
+    one.view.webContents.session.once("will-download", (_event, item) =>
+      item.once("done", (_done, state) => resolve(state)),
+    ),
   )
   one.view.webContents.downloadURL(`${url}download`)
-  assert(await declinedDownload)
-  dialog.showMessageBoxSync = () => 1
+  assert.equal(await declinedDownload, "cancelled")
+  dialog.showMessageBox = approvedMessage
   let finishPicker: ((value: { canceled: boolean; filePaths: string[] }) => void) | undefined
   dialog.showOpenDialog = (() =>
     new Promise((resolve) => {
@@ -4740,7 +4744,8 @@ async function run() {
   }
   dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
   const allowlistFile = join(profile!, "cm-browser-allowlist.json")
-  const originalHosts = readFileSync(allowlistFile, "utf8")
+  // The legacy allowlist file is no longer seeded; it must stay irrelevant to tab access whether present or not.
+  const originalHosts = existsSync(allowlistFile) ? readFileSync(allowlistFile, "utf8") : undefined
   try {
     writeFileSync(allowlistFile, '["localhost"]')
     assert.equal((await command({ op: "state" })).tabs.find((tab) => tab.id === first)?.access?.hostAllowed, true)
@@ -4748,7 +4753,8 @@ async function run() {
     const denied = await command({ op: "state" })
     assert.equal(denied.tabs.find((tab) => tab.id === first)?.access?.hostAllowed, true)
   } finally {
-    writeFileSync(allowlistFile, originalHosts)
+    if (originalHosts === undefined) rmSync(allowlistFile, { force: true })
+    else writeFileSync(allowlistFile, originalHosts)
   }
   stage("automatic downloads")
   const directoryPicker = dialog.showOpenDialog
@@ -5694,6 +5700,7 @@ async function run() {
     stage("public download")
     await browserCommand(recoveredOwner, "live", { op: "access", tabID: liveID, enabled: true })
     dialog.showMessageBoxSync = () => 1
+    dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox
     const downloaded = new Promise<void>((resolve, reject) => {
       live.view.webContents.session.once("will-download", (_event, item) => {
         item.setSavePath(join(profile!, "public-download.json"))

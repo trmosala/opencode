@@ -8,7 +8,9 @@ import { nativeT } from "../native-translations"
 export const vaultAuthentication = {
   async verify(win: BrowserWindow) {
     if (process.platform === "linux") {
-      // Linux dev uses the logged-in desktop keyring, not a biometric reauthentication API.
+      // Linux has no OS reauthentication here: the keyring round trip only proves the desktop keyring is already
+      // unlocked and asks for nothing. Keep Linux locked unless a developer explicitly opts in.
+      if (process.env.CM_VAULT_LINUX_KEYRING !== "1") throw new Error("OS authentication unavailable")
       if (
         !safeStorage.isEncryptionAvailable() ||
         ["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend())

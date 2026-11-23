@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { WebContents } from "electron"
 import {
+  clipboardShortcut,
   success,
   type BrowserState,
   type FrameAction,
@@ -304,7 +305,8 @@ async function frameKeys(
   }
   const normalized = key === " " ? " " : key.trim().toLowerCase()
   const code = names[normalized] ?? (Array.from(key).length === 1 ? key.toUpperCase() : undefined)
-  if (!code) throw new Error("Unsupported browser key")
+  // Defense in depth behind protocol validation: never synthesize a trusted clipboard command.
+  if (!code || clipboardShortcut(key, modifiers)) throw new Error("Unsupported browser key")
   const contents = tab.contents as WebContents
   let focusedFrame: NativeFrameIdentity | undefined
   const modifierKeys: Record<Modifier, "alt" | "control" | "meta" | "shift"> = {

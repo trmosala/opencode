@@ -60,7 +60,7 @@ The earlier malformed-JSON sanitization assertion also has witnessed RED/GREEN e
 - Electron `safeStorage`: OS protection for each vault key. No plaintext fallback is permitted.
 - Electron isolated worlds: fixed form inspection/fill code; page JavaScript has no desktop preload or vault API.
 - Electron native dialogs: explicit, default-cancel save/fill consent showing origin and account. This is user consent, **not OS identity reauthentication**.
-- OS reauthentication before unlocking: Windows Hello through Microsoft's `IUserConsentVerifierInterop` (only `Verified` succeeds), and Electron Touch ID on supported Macs. The Windows helper receives no credentials or encryption keys. Unsupported devices, Linux, cancellation, missing helpers and errors remain locked; there is no ordinary-dialog fallback.
+- OS reauthentication before unlocking: Windows Hello through Microsoft's `IUserConsentVerifierInterop` (only `Verified` succeeds), and Electron Touch ID on supported Macs. The Windows helper receives no credentials or encryption keys. Unsupported devices, Linux, cancellation, missing helpers and errors remain locked; there is no ordinary-dialog fallback. The only Linux exception is the explicit developer opt-in `CM_VAULT_LINUX_KEYRING=1`, which unlocks after an Electron `safeStorage` round trip through a non-plaintext desktop keyring; it prompts for nothing when that keyring is already unlocked and is not OS reauthentication.
 - `csv-parse`: standard password export parsing; parser failures are replaced with a generic error that cannot echo records.
 
 ## Controls implemented

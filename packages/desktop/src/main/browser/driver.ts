@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { setTimeout } from "node:timers/promises"
 import {
+  clipboardShortcut,
   MAX_SNAPSHOT_BYTES,
   OPERATION_TIMEOUT_MS,
   screenshotDimensions,
@@ -355,6 +356,8 @@ async function dispatchClick(target: Target, element: SnapshotElement, button = 
 }
 
 async function dispatchKey(target: Target, key: string, modifiers: readonly Modifier[] = [], commands?: string[]) {
+  // Defense in depth behind protocol validation: never synthesize a trusted clipboard command.
+  if (clipboardShortcut(key, modifiers)) return false
   const mapped =
     KEYS[key.trim().toLowerCase()] ??
     (Array.from(key).length === 1

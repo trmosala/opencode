@@ -4,6 +4,7 @@ import type { DesktopTheme } from "@opencode-ai/ui/theme/types"
 import oc2ThemeJson from "../../../ui/src/theme/themes/oc-2.json"
 import { randomUUID } from "node:crypto"
 import { rmSync } from "node:fs"
+import { realpath, stat } from "node:fs/promises"
 import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -16,7 +17,7 @@ import { nativeT } from "./native-translations"
 import { registerBrowserOwner, openBrowserLink } from "./browser/tabs"
 import { createWindowRegistry } from "./window-registry"
 import { safeWindowURL } from "./window-state"
-import { resolveExternalURL, resolveLocalFilePath } from "./external-url"
+import { launchesProgram, resolveExternalURL, resolveLocalFilePath } from "./external-url"
 import { APP_IDENTITY } from "./constants"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -247,15 +248,32 @@ export function openExternalURL(value: string) {
   void shell.openExternal(url)
 }
 
-export function openLocalFileURL(value: string) {
+export async function openLocalFileURL(value: string) {
   const path = resolveLocalFilePath(value)
   if (!path) {
     writeLog("window", "blocked local file target", { url: value }, "warn")
     return
   }
-  void shell.openPath(path).then((error) => {
-    if (error) writeLog("window", "failed to open local file", { path, error }, "error")
-  })
+  await openLocalPath(path)
+}
+
+// Renderer-supplied paths open with the OS default handler, which would run executables, scripts, installers and
+// shortcuts. Those are only shown in the file manager.
+export async function openLocalPath(path: string) {
+  const stats = isAbsolute(path) ? await stat(path).catch(() => undefined) : undefined
+  if (!stats) {
+    writeLog("window", "blocked missing local path", { path }, "warn")
+    return ""
+  }
+  const real = await realpath(path).catch(() => path)
+  if (launchesProgram([path, real], stats.mode, stats.isDirectory())) {
+    writeLog("window", "revealed program instead of opening it", { path }, "warn")
+    shell.showItemInFolder(path)
+    return ""
+  }
+  const error = await shell.openPath(path)
+  if (error) writeLog("window", "failed to open local file", { path, error }, "error")
+  return error
 }
 
 function wireNavigationPolicy(win: BrowserWindow) {

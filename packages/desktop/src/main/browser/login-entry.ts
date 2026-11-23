@@ -36,7 +36,7 @@ export const loginEntry = {
           ? [
               "--forms",
               `--title=${nativeT("desktop.browser.account.title")}`,
-              `--text=${detail}`,
+              `--text=${zenityText(detail)}`,
               `--add-entry=${nativeT("desktop.browser.account.username")}`,
               `--add-password=${nativeT("desktop.browser.account.password")}`,
               "--separator=\n",
@@ -89,6 +89,13 @@ export const loginEntry = {
       if (signal?.aborted) child.kill()
     })
   },
+}
+
+// zenity unescapes --text with g_strcompress and then renders it as Pango markup. The origin and translated copy must
+// display literally, so escape markup and then double backslashes for the unescape pass.
+export function zenityText(value: string) {
+  const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }
+  return value.replace(/[&<>"']/g, (char) => entities[char]).replaceAll("\\", "\\\\")
 }
 
 export function decodeLoginEntry(origin: string, bytes: Buffer, linux = false) {

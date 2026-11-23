@@ -17,14 +17,24 @@ test("lifecycle defaults precede user wildcard and exact rules without overridin
   ])
   const fresh = {}
   await hooks.config!(fresh)
+  // Creation asks by default: a new tab reaches every login in the shared CM profile.
   expect(fresh).toEqual({
     permission: {
-      browser_create_tab: "allow",
+      browser_create_tab: "ask",
       browser_select_tab: "allow",
       browser_close_tab: "allow",
       desktop_set_panel: "allow",
     },
   })
+  const optIn = { permission: { browser_create_tab: "allow" } }
+  await hooks.config!(optIn as unknown as Parameters<NonNullable<typeof hooks.config>>[0])
+  expect<unknown>(optIn.permission).toEqual({
+    browser_select_tab: "allow",
+    browser_close_tab: "allow",
+    desktop_set_panel: "allow",
+    browser_create_tab: "allow",
+  })
+  expect(Object.keys(optIn.permission).at(-1)).toBe("browser_create_tab")
   for (const permission of ["ask", "deny", "allow"] as const) {
     const policy = { permission }
     // The legacy SDK type omits string and arbitrary-tool policies supported at runtime.
@@ -52,6 +62,8 @@ test("model instructions route to CM, explain autonomous tabs and forbid takeove
   expect(output.system[1]).toContain("desktop_set_panel")
   expect(output.system[1]).toContain("never grants page access or approves/discards changes")
   expect(output.system[2]).toContain("browser_create_tab then browser_navigate")
+  expect(output.system[2]).toContain("browser_create_tab asks the user for approval")
+  expect(output.system[2]).not.toContain("Do not ask the user to create or authorize")
   expect(output.system[2]).toContain("outside execute's MCP catalog")
   expect(output.system[2]).toContain("never bypass that decision")
   expect(output.system[2]).toContain("confirmation before consequential actions")

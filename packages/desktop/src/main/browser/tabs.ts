@@ -37,6 +37,7 @@ import {
 import {
   registerBrowserTab,
   revokeBrowserAccess,
+  forfeitBrowserResume,
   invalidateBrowserDocument,
   setBrowserAgentEnabled,
   browserAgentEnabled,
@@ -122,7 +123,7 @@ import {
   type PanelRequest,
   type PanelResult,
 } from "@cookiemonster/cm-browser/protocol"
-import { allowDownload, guardUploads, saveTransferRule } from "./transfer-permissions"
+import { confirmDownload, downloadRule, guardUploads, saveTransferRule } from "./transfer-permissions"
 import { transferVaultBackup } from "./vault-backup"
 import { createLeaveConfirmation } from "./leave-confirmation"
 import { browserResourceBlocker, inspectBrowserResources } from "./resource-policy"
@@ -225,6 +226,7 @@ function advanceOwnerTask(owner: Owner) {
 const contactDeliveries = new Set<string>()
 const owners = new Map<number, Owner>()
 const transfers = new Map<string, { item: DownloadItem; owner: Owner; group: Group; download: BrowserDownload }>()
+const downloadConsent = new WeakSet<DownloadItem>()
 setBrowserHistoryHandler(async (sessionID, request, signal) => {
   const owner = [...owners.values()].find(
     (entry) => entry.linkContext?.sessionID === sessionID || entry.groups.has(sessionID),
@@ -1326,9 +1328,16 @@ function createTab(
         return
       }
       const tab = target.group.tabs.find((tab) => tab.contents === source)!
-      if (!allowDownload(target.owner.win, tab, item.getFilename(), item.getURL())) {
+      const rule = downloadRule(tab)
+      if (rule === "block") {
         event.preventDefault()
         return
+      }
+      // Setup must stay synchronous inside will-download, but consent must not freeze main: hold the transfer paused
+      // until the user answers, then resume or cancel it.
+      if (rule === "ask") {
+        item.pause()
+        downloadConsent.add(item)
       }
       const download: BrowserDownload = {
         id: randomUUID(),
@@ -1346,7 +1355,7 @@ function createTab(
         download,
         URL.canParse(tab.contents.getURL()) ? new URL(tab.contents.getURL()).origin : "",
       )
-      trackDownload(event, item, download, {
+      const tracked = trackDownload(event, item, download, {
         save: (row, path) => recordDownload(row, new Set([...transfers.keys(), ...recoveringDownloads()]), path),
         checkpoint: staged?.checkpoint,
         finish: staged?.finish,
@@ -1382,6 +1391,26 @@ function createTab(
         },
         publish: () => publish(target.owner, target.group),
       })
+      if (!tracked || rule !== "ask") return
+      const owner = target.owner
+      owner.suspended++
+      layout(owner)
+      void confirmDownload(owner.win, tab, item.getFilename(), item.getURL())
+        .catch(() => false)
+        .then((allowed) => {
+          downloadConsent.delete(item)
+          if (item.getState() !== "progressing") return
+          if (allowed) {
+            item.resume()
+            return
+          }
+          download.state = "cancelled"
+          item.cancel()
+        })
+        .finally(() => {
+          owner.suspended--
+          layout(owner)
+        })
     })
     profile.setDisplayMediaRequestHandler((_request, callback) => callback({}), {
       useSystemPicker: displayCaptureSupported(),
@@ -1836,6 +1865,9 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
       transfer.group !== group ||
       !["pause", "resume", "cancel"].includes(command.action)
     )
+      throw new Error("Download is not active in this session")
+    // A download awaiting consent stays paused; only cancellation is available until the user answers.
+    if (downloadConsent.has(transfer.item) && command.action !== "cancel")
       throw new Error("Download is not active in this session")
     if (command.action === "pause") transfer.item.pause()
     if (command.action === "resume") transfer.item.resume()
@@ -2375,6 +2407,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
         throw new Error("Contact fill requires an unchanged active private tab and contact")
     }
     check(true)
+    forfeitBrowserResume(tab)
     tab.loginBusy = true
     tab.accessRevision = (tab.accessRevision ?? 0) + 1
     const token = randomUUID()
@@ -2480,6 +2513,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
             throw new Error("Generation revoked")
         }
         check(true)
+        forfeitBrowserResume(tab)
         tab.loginBusy = true
         owner.generationCheck = () => {
           try {
@@ -2564,6 +2598,7 @@ export async function browserCommand(owner: Owner, sessionID: string, value: unk
               throw new Error("Login requires an unchanged active tab with agent access off")
           }
           check(true)
+          if (command.op === "fill-login") forfeitBrowserResume(tab)
           tab.loginBusy = true
           // Invalidate any agent-access confirmation already awaiting a response.
           tab.accessRevision = (tab.accessRevision ?? 0) + 1

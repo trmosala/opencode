@@ -284,7 +284,12 @@ describe("browser tools", () => {
       const waiting = Promise.withResolvers<void>()
       const approval = Promise.withResolvers<void>()
       call.context.ask = async (input) => {
-        expect(input).toEqual({ permission: `browser_${op}`, patterns: ["*"], always: ["*"], metadata: request })
+        expect(input).toEqual({
+          permission: `browser_${op}`,
+          patterns: ["*"],
+          always: ["*"],
+          metadata: op === "create_tab" ? { ...request, url: "about:blank" } : request,
+        })
         expect(sent).toEqual([{ sessionID: "lifecycle-session", request: { op: "prepare_tab", request } }])
         waiting.resolve()
         await approval.promise
@@ -874,6 +879,22 @@ describe("browser tools", () => {
       context: state.context,
     })
     expect(key.asked).toEqual([])
+  })
+
+  test("press_key refuses clipboard shortcuts before contacting main", async () => {
+    const browser = fakePort()
+    const tools = browserTools(browser.port)
+    for (const args of [
+      { key: "v", ctrl: true },
+      { key: "c", meta: true },
+      { key: "X", ctrl: true, shift: true },
+      { key: "Insert", shift: true },
+      { key: "Delete", shift: true },
+    ])
+      await expect(tools.browser_press_key.execute({ tabID: "one", ...args }, fakeContext().context)).rejects.toThrow(
+        "Clipboard shortcuts",
+      )
+    expect(browser.sent).toEqual([])
   })
 
   test("fill forwards its opaque ref and text", async () => {

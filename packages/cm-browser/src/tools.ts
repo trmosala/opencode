@@ -1,6 +1,7 @@
 import { tool, type ToolContext, type ToolDefinition } from "@opencode-ai/plugin"
 import type { BrowserPort } from "./port"
 import {
+  clipboardShortcut,
   hostOf,
   hasFrameTarget,
   parseAccessContext,
@@ -157,7 +158,13 @@ async function runTab(port: BrowserPort, context: ToolContext, op: TabRequest["o
     .safeParse(await run(port, context, { op: "prepare_tab", request }))
   if (!prepared.success) throw new Error("Invalid browser tab preparation result.")
   const token = prepared.data.tabToken
-  await ask(context, { permission: `browser_${op}`, patterns: ["*"], always: ["*"], metadata: request })
+  // Creation always opens a blank tab; show that destination so the approval names what the agent gets.
+  await ask(context, {
+    permission: `browser_${op}`,
+    patterns: ["*"],
+    always: ["*"],
+    metadata: request.op === "create_tab" ? { ...request, url: "about:blank" } : request,
+  })
   const completed = tabState
     .extend({ tabResult: tool.schema.object({ op: tool.schema.literal(op), tabID: opaqueID }).strict() })
     .safeParse(await run(port, context, { ...request, token }))
@@ -201,7 +208,7 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
     }),
     browser_create_tab: tool({
       description:
-        "Open CookieMonster's built-in browser and create one agent-controlled blank tab in this task. Ready for browser_navigate without a tab-access prompt. Uses the shared CM browser profile and existing website logins. User takeover blocks creation until resumed. Returns the opaque tab ID; no automatic retry.",
+        "Open CookieMonster's built-in browser and create one agent-controlled blank tab in this task. Asks the user for approval unless their permission config allows it; the created tab is then ready for browser_navigate without a further tab-access prompt. Uses the shared CM browser profile and existing website logins. User takeover blocks creation until resumed. Returns the opaque tab ID; no automatic retry.",
       args: {},
       execute: (args, context) => runTab(port, context, "create_tab", args),
     }),
@@ -724,6 +731,8 @@ export function browserTools(port: BrowserPort): Record<string, ToolDefinition> 
       },
       async execute(args, context) {
         const request = { op: "press_key", tabID: args.tabID, key: args.key, modifiers: modifiers(args) } as const
+        if (clipboardShortcut(request.key, request.modifiers))
+          throw new Error("Clipboard shortcuts (copy, cut, paste) are not available in CM Browser.")
         return result(await run(port, context, await prepareWrite(port, context, request)))
       },
     }),

@@ -10,15 +10,56 @@ const exists = (path: string) =>
     .then(() => true)
     .catch(() => false)
 
+// Mirrors the renderer's "open in" lists (packages/app/src/components/session/open-in-app.tsx). Main checks,
+// resolves and launches only these, so a renderer cannot turn open-path into running an arbitrary program.
+const OPEN_WITH_APPS: Partial<Record<NodeJS.Platform, readonly string[]>> = {
+  darwin: [
+    "Visual Studio Code",
+    "Cursor",
+    "Zed",
+    "TextMate",
+    "Antigravity",
+    "Terminal",
+    "iTerm",
+    "Ghostty",
+    "Warp",
+    "Xcode",
+    "Android Studio",
+    "Sublime Text",
+  ],
+  win32: ["code", "cursor", "zed", "powershell", "Sublime Text"],
+  linux: ["code", "cursor", "zed", "Sublime Text"],
+}
+
+// Windows executables main resolved itself from an allowlisted name.
+const resolvedWindowsApps = new Set<string>()
+
+export function openWithApps(platform: NodeJS.Platform = process.platform) {
+  return OPEN_WITH_APPS[platform] ?? []
+}
+
+const allowlisted = (appName: unknown): appName is string =>
+  typeof appName === "string" && openWithApps().includes(appName)
+
+// Windows launches only a path resolveAppPath returned; elsewhere the allowlisted name itself is launched.
+export function launchableApp(app: unknown) {
+  if (process.platform === "win32") return typeof app === "string" && resolvedWindowsApps.has(app)
+  return allowlisted(app)
+}
+
 export function checkAppExists(appName: string) {
+  if (!allowlisted(appName)) return false
   if (process.platform === "win32") return true
   if (process.platform === "linux") return true
   return checkMacosApp(appName)
 }
 
-export function resolveAppPath(appName: string) {
+export async function resolveAppPath(appName: string) {
+  if (!allowlisted(appName)) return null
   if (process.platform !== "win32") return appName
-  return resolveWindowsAppPath(appName)
+  const resolved = await resolveWindowsAppPath(appName)
+  if (resolved) resolvedWindowsApps.add(resolved)
+  return resolved
 }
 
 async function checkMacosApp(appName: string) {

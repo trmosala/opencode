@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process"
 import { stat } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { basename, isAbsolute, join } from "node:path"
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type { DesktopMenuAction } from "@opencode-ai/app/desktop-menu"
 import { parseDesktopNativeBundle, type DesktopNativeBundle } from "@opencode-ai/app/i18n/desktop-native"
 
 import type { FatalRendererError, ServerReadyData, TitlebarTheme } from "../preload/types"
+import { launchableApp } from "./apps"
 import { runDesktopMenuAction } from "./desktop-menu-actions"
 import { setForceFocus } from "./debug"
 import { assertAttachmentBudget, createPickedFileAuthorizations } from "./attachment-picker"
@@ -16,6 +17,7 @@ import {
   getPinchZoomEnabled,
   getWindowID,
   openLocalFileURL,
+  openLocalPath,
   setPinchZoomEnabled,
   setTitlebar,
   updateTitlebar,
@@ -44,6 +46,10 @@ const pickerFilters = (ext?: string[]) => {
 }
 
 const pickedFiles = createPickedFileAuthorizations()
+
+// Only a CookieMonster window's own top-level document may ask main to open or launch local paths.
+const trustedSender = (event: IpcMainEvent | IpcMainInvokeEvent) =>
+  BrowserWindow.fromWebContents(event.sender) !== null && event.senderFrame === event.sender.mainFrame
 
 type Deps = {
   killSidecar: () => Promise<void> | void
@@ -290,12 +296,22 @@ export function registerIpcHandlers(deps: Deps) {
     void openBrowserLink(win, url).catch(() => undefined)
   })
 
-  ipcMain.on("open-local-file", (_event: IpcMainEvent, url: string) => {
-    openLocalFileURL(url)
+  ipcMain.on("open-local-file", (event: IpcMainEvent, url: string) => {
+    if (!trustedSender(event)) return
+    void openLocalFileURL(url)
   })
 
-  ipcMain.handle("open-path", async (_event: IpcMainInvokeEvent, path: string, app?: string) => {
-    if (!app) return shell.openPath(path)
+  ipcMain.handle("open-path", async (event: IpcMainInvokeEvent, path: string, app?: string) => {
+    if (!trustedSender(event) || typeof path !== "string") return
+    if (!app) return openLocalPath(path)
+    // Every "open in" caller passes a project folder. Requiring an existing directory keeps a terminal or editor from
+    // being handed a script to run, and the app must be one main allowlisted or resolved itself.
+    if (!launchableApp(app) || !isAbsolute(path)) return
+    const directory = await stat(path).then(
+      (stats) => stats.isDirectory(),
+      () => false,
+    )
+    if (!directory) return
     await new Promise<void>((resolve, reject) => {
       const [cmd, args] =
         process.platform === "darwin" ? (["open", ["-a", app, path]] as const) : ([app, [path]] as const)

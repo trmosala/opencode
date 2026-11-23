@@ -207,6 +207,12 @@ export function setBrowserTaskPaused(sessionID: string, paused: boolean) {
   })
   state.resume.clear()
 }
+// A vault fill during takeover leaves secrets in the page that resumed reads or unredacted screenshots would disclose.
+// The page cannot be reliably scrubbed (scripts may have copied the value), so such a tab stays private on resume
+// until the user explicitly re-grants it.
+export function forfeitBrowserResume(tab: BrowserRegistration) {
+  taskAccess.get(tab.sessionID)?.resume.delete(tab)
+}
 let agentEnabled = true
 let agentEpoch = 0
 export const browserAgentEnabled = () => agentEnabled

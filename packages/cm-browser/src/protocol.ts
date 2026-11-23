@@ -113,6 +113,15 @@ export const MODIFIERS = ["Ctrl", "Alt", "Shift", "Meta"] as const
 
 export type Modifier = (typeof MODIFIERS)[number]
 
+// Chromium turns these into trusted editing commands (on Windows/Linux Ctrl+V is a real paste), which bypass the
+// page clipboard-read denial. Normalized like the native key dispatchers; callers fail closed on a match.
+export function clipboardShortcut(key: string, modifiers: readonly Modifier[]) {
+  const name = key.trim().toLowerCase()
+  if ((modifiers.includes("Ctrl") || modifiers.includes("Meta")) && ["v", "c", "x"].includes(name)) return true
+  if (name === "insert") return modifiers.includes("Shift") || modifiers.includes("Ctrl")
+  return name === "delete" && modifiers.includes("Shift")
+}
+
 export type ElementRef = {
   readonly ref: string
   readonly tag: string
@@ -1001,7 +1010,7 @@ function parseWriteRequest(value: unknown): WriteRequest | undefined {
   const modifiers = input.modifiers.filter(
     (modifier): modifier is Modifier => typeof modifier === "string" && MODIFIERS.includes(modifier as Modifier),
   )
-  if (modifiers.length !== input.modifiers.length) return
+  if (modifiers.length !== input.modifiers.length || clipboardShortcut(input.key, modifiers)) return
   return { op: "press_key", tabID, key: input.key, modifiers }
 }
 

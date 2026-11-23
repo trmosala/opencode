@@ -33,7 +33,7 @@ if (process.env.CM_LOGIN_ENTRY_TEST_CHILD !== "1") {
     nativeSecretEntryPath: () => "fixture-entry",
     nativeSecretEntryWindow: () => "0",
   }))
-  const { decodeLoginEntry, loginEntry } = await import("./login-entry")
+  const { decodeLoginEntry, loginEntry, zenityText } = await import("./login-entry")
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!
 
   function window() {
@@ -130,5 +130,17 @@ if (process.env.CM_LOGIN_ENTRY_TEST_CHILD !== "1") {
     expect(stdout.every((byte) => byte === 0)).toBe(true)
     expect(() => decodeLoginEntry("https://wpp.okta.com", Buffer.from("user\nsecret\nextra\n"), true)).toThrow()
     expect(() => decodeLoginEntry("https://wpp.okta.com", Buffer.from("user\n\n"), true)).toThrow()
+  })
+
+  test("Linux escapes Pango markup and zenity backslash escapes in the form text", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    const detail = `Save <b>A&B</b> "x" 'y' \\074i\\076`
+    const pending = loginEntry.prompt(window(), "https://wpp.okta.com", "", detail)
+    expect(spawn.mock.calls[0][1]).toContain(
+      `--text=Save &lt;b&gt;A&amp;B&lt;/b&gt; &quot;x&quot; &apos;y&apos; \\\\074i\\\\076`,
+    )
+    finish(Object.assign(new Error("cancelled"), { code: 1 }), Buffer.alloc(0), Buffer.alloc(0))
+    expect(await pending).toBeUndefined()
+    expect(zenityText("plain https://wpp.okta.com")).toBe("plain https://wpp.okta.com")
   })
 }

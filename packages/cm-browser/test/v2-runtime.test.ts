@@ -145,7 +145,7 @@ test("browser tools register as top-level tools, run over the parent port and ge
   expect(JSON.stringify(turns.at(-1))).toContain("Use CookieMonster's built-in CM Browser browser_* tools")
 })
 
-test("lifecycle defaults allow tab creation without a prompt; a configured deny removes the tool", async () => {
+test("tab creation asks before dispatch; rejection creates nothing; a configured deny removes the tool", async () => {
   respond((request) =>
     request.op === "prepare_tab"
       ? { ok: true, result: { ...empty, tabToken: "tok" } }
@@ -156,10 +156,20 @@ test("lifecycle defaults allow tab creation without a prompt; a configured deny 
     tools = body.tools ?? []
     return { tool: { name: "browser_create_tab", arguments: "{}" } }
   })
-  await prompt("open a tab")
+  const asked: string[] = []
+  await prompt("open a tab", (request) => {
+    asked.push(`${request.action}:${request.resources.join(",")}`)
+    return "once"
+  })
+  expect(asked).toEqual(["browser_create_tab:*"])
   expect(requests.slice(before).map((entry) => entry.request.op)).toEqual(["prepare_tab", "create_tab"])
   expect(JSON.stringify(turns.at(-1))).toContain("create_tab t2")
   expect(tools.map((tool) => tool.function.name)).not.toContain("browser_navigate")
+
+  const rejected = requests.length
+  script.push(() => ({ tool: { name: "browser_create_tab", arguments: "{}" } }))
+  await prompt("open another tab", () => "reject")
+  expect(requests.slice(rejected).map((entry) => entry.request.op)).toEqual(["prepare_tab"])
 })
 
 test("browser_subagent lends tabs only after approval, to the real child, and revokes when it returns", async () => {

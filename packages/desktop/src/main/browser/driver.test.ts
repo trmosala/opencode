@@ -975,6 +975,23 @@ describe("browser driver", () => {
     expect(keys[0]?.params).toMatchObject({ key: "Enter", modifiers: 2 })
   })
 
+  test("press_key never dispatches clipboard shortcuts even if validation is bypassed", async () => {
+    const view = fake()
+    for (const [key, modifiers] of [
+      ["v", ["Ctrl"]],
+      ["V", ["Ctrl", "Shift"]],
+      ["c", ["Meta"]],
+      ["x", ["Ctrl"]],
+      ["Delete", ["Shift"]],
+      ["Insert", ["Shift"]],
+    ] as const) {
+      const response = await execute(view.target, { tabID: "one", op: "press_key", key, modifiers })
+      expect(response).toMatchObject({ ok: false, code: "bad_request" })
+    }
+    expect(view.calls.filter((call) => call.method === "Input.dispatchKeyEvent")).toEqual([])
+    expect((await execute(view.target, { tabID: "one", op: "press_key", key: "v", modifiers: [] })).ok).toBe(true)
+  })
+
   test("navigate loads the destination and returns its state", async () => {
     const view = fake()
     const response = await execute(view.target, { tabID: "one", op: "navigate", url: "https://teams.microsoft.com/" })
