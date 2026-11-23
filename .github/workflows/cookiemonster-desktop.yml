@@ -24,9 +24,10 @@ on:
         default: "01"
         type: string
 
+# Never cancel a run that may be uploading release assets.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -195,14 +196,26 @@ jobs:
       - name: Resolve release
         id: release
         env:
+          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}
         run: |
           if [[ ! "$REVISION" =~ ^[0-9]{2}$ ]]; then
             echo "Revision must contain exactly two digits." >&2
             exit 1
           fi
+          # Published builds become the Latest release every installed app updates from.
+          if [[ "$GITHUB_REF" != "refs/heads/${{ github.event.repository.default_branch }}" ]]; then
+            echo "Publish only from the default branch (dispatched from $GITHUB_REF)." >&2
+            exit 1
+          fi
           version=$(node -p "require('./packages/desktop/package.json').version")
           tag="cookiemonster-v${version}_${REVISION}"
+          # Re-running the same commit may retry an upload; a different commit needs a new revision,
+          # otherwise installed apps already on this version never receive it.
+          if existing=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha 2>/dev/null) && [[ "$existing" != "$GITHUB_SHA" ]]; then
+            echo "$tag already points at $existing; bump the revision to release $GITHUB_SHA." >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "name=CookieMonster v${version}_${REVISION}" >> "$GITHUB_OUTPUT"
 
