@@ -10,6 +10,11 @@ import { Definition } from "../../opencode/src/schedule/definition"
 import { featuresRpc, scheduleRuntimeRpc } from "./features-rpc"
 import z from "zod"
 
+const StoreView = z.object({
+  schedules: z.array(z.object({ id: z.string(), deleted: z.boolean().optional(), definition: z.unknown() }).loose()),
+  occurrences: z.array(z.object({ id: z.string(), scheduleID: z.string() }).loose()),
+})
+
 export default {
   id: "cookiemonster.features",
   async setup(ctx) {
@@ -194,14 +199,14 @@ export default {
             if (target.location.directory !== session?.location.directory)
               throw new Error("Scheduled prompts can only target sessions in this workspace")
           }
-          // Show what an id-only action (pause, resume, delete, acknowledge) would touch, not just its id.
-          const existing = input.id
-            ? z
-                .object({ schedules: z.array(z.object({ id: z.string(), definition: z.unknown() }).loose()) })
-                .parse(JSON.parse(await request()))
-                .schedules.find((item) => item.id === input.id)
-            : undefined
-          if (input.id && !existing) throw new Error(`Unknown schedule: ${input.id}`)
+          // Show what an id-only action would touch, not just its id. `acknowledge` takes an occurrence id; the others a
+          // schedule id. Only the prompt uses this; the scheduler still validates the id itself.
+          const store = input.id && input.action !== "create" ? StoreView.parse(JSON.parse(await request())) : undefined
+          const occurrence =
+            input.action === "acknowledge" ? store?.occurrences.find((item) => item.id === input.id) : undefined
+          const scheduleID = input.action === "acknowledge" ? occurrence?.scheduleID : input.id
+          const existing = store?.schedules.find((item) => item.id === scheduleID && !item.deleted)
+          if (store && input.action !== "acknowledge" && !existing) throw new Error(`Unknown schedule: ${input.id}`)
           // "Always allow" is scoped to the exact target, never to every future schedule.
           const resource = !definition
             ? `schedule:${input.id ?? ""}`
@@ -220,6 +225,7 @@ export default {
               action: input.action,
               ...(input.id ? { id: input.id } : {}),
               ...(existing ? { existing: existing.definition } : {}),
+              ...(occurrence ? { occurrence } : {}),
               ...(definition
                 ? {
                     name: definition.name,

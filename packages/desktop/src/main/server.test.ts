@@ -40,8 +40,17 @@ describe("withProxyToken", () => {
     expect(result.model).toBe("cookiemonster/m")
   })
 
-  test("leaves configs without the cookiemonster provider, or invalid JSON, untouched", () => {
-    expect(withProxyToken('{"provider":{"openai":{}}}', "launch-token")).toBe('{"provider":{"openai":{}}}')
-    expect(withProxyToken("not json", "launch-token")).toBe("not json")
+  test("adds the token for a provider merged from the disk seed", () => {
+    const result = JSON.parse(withProxyToken('{"provider":{"openai":{}}}', "launch-token"))
+    expect(result.provider.openai).toEqual({})
+    expect(result.provider.cookiemonster.options.apiKey).toBe("launch-token")
+  })
+
+  test("never sends the token to a provider pointed at another host, and passes JSONC through", () => {
+    const remote = JSON.stringify({
+      provider: { cookiemonster: { options: { baseURL: "https://example.com/v1", apiKey: "mine" } } },
+    })
+    expect(withProxyToken(remote, "launch-token")).toBe(remote)
+    expect(withProxyToken("{ // comment\n }", "launch-token")).toBe("{ // comment\n }")
   })
 })

@@ -39,9 +39,13 @@ const model = createServer(async (request, response) => {
   }
   const createSchedule = primary && JSON.stringify(body.messages).includes("USE_SCHEDULE_CREATE")
   const wildcardSchedule = primary && JSON.stringify(body.messages).includes("USE_SCHEDULE_WILDCARD")
+  const acknowledgeSchedule = primary && JSON.stringify(body.messages).includes("USE_SCHEDULE_ACK")
   const callSchedule =
     primary &&
-    (createSchedule || wildcardSchedule || JSON.stringify(body.messages).includes("USE_SCHEDULE_TOOL")) &&
+    (createSchedule ||
+      wildcardSchedule ||
+      acknowledgeSchedule ||
+      JSON.stringify(body.messages).includes("USE_SCHEDULE_TOOL")) &&
     !body.messages.some((message) => message.role === "tool")
   const delta = callSchedule
     ? {
@@ -54,22 +58,24 @@ const model = createServer(async (request, response) => {
             function: {
               name: "schedule",
               arguments: JSON.stringify(
-                createSchedule || wildcardSchedule
-                  ? {
-                      action: "create",
-                      definition: {
-                        schemaVersion: 1,
-                        name: "Tool-created schedule",
-                        prompt: "Return SCHEDULE_OK",
-                        target: {
-                          type: "new_session",
-                          directory: wildcardSchedule ? join(root, "*") : root,
-                          workspace: { type: "local" },
+                acknowledgeSchedule
+                  ? { action: "acknowledge", id: "occ_uncertain" }
+                  : createSchedule || wildcardSchedule
+                    ? {
+                        action: "create",
+                        definition: {
+                          schemaVersion: 1,
+                          name: "Tool-created schedule",
+                          prompt: "Return SCHEDULE_OK",
+                          target: {
+                            type: "new_session",
+                            directory: wildcardSchedule ? join(root, "*") : root,
+                            workspace: { type: "local" },
+                          },
+                          schedule: { type: "once", at: new Date(Date.now() + 3600000).toISOString() },
                         },
-                        schedule: { type: "once", at: new Date(Date.now() + 3600000).toISOString() },
-                      },
-                    }
-                  : { action: "list" },
+                      }
+                    : { action: "list" },
               ),
             },
           },
@@ -422,6 +428,20 @@ try {
   assert.equal(uncertainRun.admitted, true)
   assert.equal(recovered.schedules.find((item) => item.id === "sch_uncertain").runs, 1)
   assert.equal(requests.length, count, "Restart replayed provider work")
+  // `acknowledge` takes an occurrence id, not a schedule id.
+  const acknowledger = await client.session.create({
+    location: { directory: root },
+    model: { providerID: "cookiemonster", id: "m2" },
+    permissions: [{ action: "schedule", resource: "*", effect: "allow" }],
+  })
+  await client.session.prompt({ sessionID: acknowledger.id, text: "USE_SCHEDULE_ACK" })
+  await client.experimental.session.wait({ sessionID: acknowledger.id })
+  assert.equal(
+    (await request("/schedule")).data.occurrences.find((item) => item.id === "occ_uncertain").state,
+    "skipped",
+    "Schedule tool could not acknowledge an attention run: " +
+      JSON.stringify(await client.message.list({ sessionID: acknowledger.id })),
+  )
   const projectRoot = join(root, "reset-project")
   const worktree = join(root, "reset-linked")
   await mkdir(projectRoot)

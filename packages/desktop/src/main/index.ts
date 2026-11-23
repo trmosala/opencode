@@ -448,8 +448,10 @@ const main = Effect.gen(function* () {
 
     logger.log("spawning sidecar", { url })
     // A crashed sidecar is restarted on the same address and password, so open windows reconnect on their own.
-    // killSidecar clears `server` before stopping, which tells a deliberate stop apart from a crash.
-    const spawnSidecar = async (restarts: number): Promise<Awaited<ReturnType<typeof spawnLocalServer>>> => {
+    // killSidecar clears `server` before stopping, which tells a deliberate stop (quit, relaunch, kill-sidecar) apart
+    // from a crash; every step of a restart re-checks that nothing stopped the sidecar meanwhile.
+    const crashes: number[] = []
+    const spawnSidecar = async () => {
       const slot: { listener?: SidecarListener } = {}
       const spawned = await spawnLocalServer(hostname, port, password, {
         userDataPath: app.getPath("userData"),
@@ -457,23 +459,38 @@ const main = Effect.gen(function* () {
         onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
         onExit: (code) => {
           writeLog("utility", "sidecar exited", { code }, "warn")
-          if (!slot.listener || server !== slot.listener) return
-          if (restarts >= 3) {
-            logger.error("sidecar crashed too often; not restarting", { code })
-            return
-          }
-          logger.warn("sidecar crashed; restarting", { code, restart: restarts + 1 })
-          void new Promise((resolve) => setTimeout(resolve, 1000))
-            .then(() => spawnSidecar(restarts + 1))
-            .then((next) => next.health.wait)
-            .catch((error) => logger.error("sidecar restart failed", error))
+          if (slot.listener && server === slot.listener) void restartSidecar(slot.listener, code)
         },
       })
       slot.listener = spawned.listener
-      server = spawned.listener
       return spawned
     }
-    const { health } = yield* Effect.promise(() => spawnSidecar(0))
+    const restartSidecar = async (crashed: SidecarListener, code: number): Promise<void> => {
+      // At most three restarts in ten minutes; a sidecar that keeps dying needs the user, not a loop.
+      const now = Date.now()
+      crashes.splice(0, crashes.length, ...crashes.filter((time) => now - time < 10 * 60_000), now)
+      if (crashes.length > 3) {
+        logger.error("sidecar crashed too often; not restarting", { code })
+        return
+      }
+      logger.warn("sidecar crashed; restarting", { code, restart: crashes.length })
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (server !== crashed) return
+      const next = await spawnSidecar().catch((error: unknown) => {
+        logger.error("sidecar restart failed", error)
+        return undefined
+      })
+      if (server !== crashed) {
+        await next?.listener.stop()
+        return
+      }
+      // A restart that died during startup counts as another crash.
+      if (!next) return restartSidecar(crashed, code)
+      server = next.listener
+      await next.health.wait.catch((error: unknown) => logger.error("restarted sidecar failed its health check", error))
+    }
+    const { listener, health } = yield* Effect.promise(() => spawnSidecar())
+    server = listener
     yield* Deferred.succeed(serverReady, {
       url,
       username: "opencode",
