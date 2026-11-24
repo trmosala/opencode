@@ -82,7 +82,9 @@ describe("CookieMonster default model visibility", () => {
     ).toBe(false)
   })
 
-  test.each([...families.map((family) => family.id), "CM_GPT6.1_Sol"])("keeps family route %s", (modelID) => {
+  const hiddenFamilies = ["CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
+
+  test.each([...families.map((family) => family.id), ...hiddenFamilies])("keeps family route %s", (modelID) => {
     expect(isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID }, available)).toBe(false)
   })
 
@@ -94,6 +96,8 @@ describe("CookieMonster default model visibility", () => {
     "CM_Opus5.5-Custom",
     "CM_Gemini-3.7-Flash_Custom",
     "CM_GPT6.1_Sol_High",
+    "CM_GPT6.2_Sol_High",
+    "CM_Gemini4_Neon_High",
     "unrelated",
     "toString",
   ])("keeps unrelated or custom route %s", (modelID) => {
@@ -104,11 +108,11 @@ describe("CookieMonster default model visibility", () => {
     expect(isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID: "CM_GPT6_Sol_High" }, [])).toBe(false)
   })
 
-  test("keeps an unlisted effort on a known family", () => {
+  test.each(hiddenFamilies)("keeps an unlisted effort on known family %s", (familyID) => {
     expect(
-      isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID: "CM_GPT6.1_Sol_High" }, [
+      isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID: `${familyID}_High` }, [
         ...available,
-        { id: "CM_GPT6.1_Sol", provider: { id: "cookiemonster" } },
+        { id: familyID, provider: { id: "cookiemonster" } },
       ]),
     ).toBe(false)
   })

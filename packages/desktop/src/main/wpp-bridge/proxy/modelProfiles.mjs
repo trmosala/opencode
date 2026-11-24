@@ -142,6 +142,18 @@ export const MODEL_PROFILES = {
     agentName: "CM_Gemini4_High",
     toolFormat: "xml",
   },
+  "CM_GPT6.2_Sol": {
+    defaultReasoningEffort: "medium",
+    reasoningEfforts: {
+      low: "CM_GPT6.2_Sol_Low",
+      medium: "CM_GPT6.2_Sol_Medium",
+      high: "CM_GPT6.2_Sol_High",
+      xhigh: "CM_GPT6.2_Sol_XHigh",
+      max: "CM_GPT6.2_Sol_Max",
+    },
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
   "CM_GPT6.1_Sol": {
     defaultReasoningEffort: "medium",
     reasoningEfforts: {
@@ -209,6 +221,15 @@ export const MODEL_PROFILES = {
     },
     toolFormat: "xml",
   },
+  CM_Gemini4_Neon: {
+    defaultReasoningEffort: "medium",
+    reasoningEfforts: {
+      low: "CM_Gemini4_Neon_Low",
+      medium: "CM_Gemini4_Neon_Medium",
+      high: "CM_Gemini4_Neon_High",
+    },
+    toolFormat: "xml",
+  },
   CM_Gemini4_Carbon: {
     defaultReasoningEffort: "medium",
     reasoningEfforts: {
@@ -241,6 +262,11 @@ export const RENAMED_MODEL_IDS = new Map([
   ["CM_Opus 5 - Max", "CM_Opus5.5-Max"],
 ])
 
+// Families whose fixed-effort agents are never advertised. Those agents stay callable for capability
+// probes and diagnostic overrides, and unknown IDs under the reserved prefixes fail instead of falling back.
+const HIDDEN_ROUTE_FAMILIES = ["CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
+const RESERVED_MODEL_PREFIXES = ["CM_GPT6.2", "CM_GPT6.1", "CM_Gemini4_Neon"]
+
 export function resolveModelProfile(modelId) {
   const id = RENAMED_MODEL_IDS.get(modelId) ?? modelId
   const profile = Object.hasOwn(MODEL_PROFILES, id) ? MODEL_PROFILES[id] : undefined
@@ -249,11 +275,20 @@ export function resolveModelProfile(modelId) {
     return { ...profile, agentName: profile.reasoningEfforts[profile.defaultReasoningEffort] }
   }
 
-  const sol = MODEL_PROFILES["CM_GPT6.1_Sol"]
-  if (Object.values(sol.reasoningEfforts).includes(id)) {
-    return { agentName: id, toolFormat: sol.toolFormat, commentaryPhase: sol.commentaryPhase }
+  const family = HIDDEN_ROUTE_FAMILIES.map((familyId) => MODEL_PROFILES[familyId]).find((item) =>
+    Object.values(item.reasoningEfforts).includes(id),
+  )
+  if (family) {
+    return {
+      agentName: id,
+      toolFormat: family.toolFormat,
+      ...(family.commentaryPhase ? { commentaryPhase: family.commentaryPhase } : {}),
+    }
   }
-  if (typeof id === "string" && (id === "CM_GPT6.1" || id.startsWith("CM_GPT6.1_"))) {
+  if (
+    typeof id === "string" &&
+    RESERVED_MODEL_PREFIXES.some((prefix) => id === prefix || id.startsWith(`${prefix}_`))
+  ) {
     const error = new Error(`Unknown model: ${id}`)
     error.statusCode = 400
     error.type = "invalid_model"

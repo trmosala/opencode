@@ -32,7 +32,7 @@ const cookieMonsterFamilies = new Map([
 
 // Families whose fixed routes are not advertised. An effort-shaped custom id under one of these
 // stays visible; a family that is not listed here still folds by suffix.
-const knownFamilies = new Set([...cookieMonsterFamilies.values(), "CM_GPT6.1_Sol"])
+const knownFamilies = new Set([...cookieMonsterFamilies.values(), "CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"])
 
 // Longer suffixes first. " - Extra High" also ends in " - High", and "_XHigh" also ends in "_High".
 const effortSuffixes = [
