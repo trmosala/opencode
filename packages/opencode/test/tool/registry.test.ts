@@ -130,26 +130,31 @@ describe("tool.registry", () => {
       expect(ids).not.toContain("execute")
     }),
   )
-  ;["CM_GPT-5.6 Sol - High", "CM_GPT-5.6-Sol_High", "CM_GPT6_Sol_High", "CM_GPT6_Astra_Max", "CM_GPT6.1_Sol"].forEach(
-    (modelID) => {
-      it.instance(`uses apply_patch for CookieMonster ${modelID}`, () =>
-        Effect.gen(function* () {
-          const registry = yield* ToolRegistry.Service
-          const agents = yield* Agent.Service
-          const tools = yield* registry.tools({
-            providerID: ProviderV2.ID.make("cookiemonster"),
-            modelID: ModelV2.ID.make(modelID),
-            agent: yield* agents.defaultInfo(),
-          })
-          const ids = tools.map((tool) => tool.id)
+  ;[
+    "CM_GPT-5.6 Sol - High",
+    "CM_GPT-5.6-Sol_High",
+    "CM_GPT6_Sol_High",
+    "CM_GPT6_Astra_Max",
+    "CM_GPT6.1_Sol",
+    "CM_GPT6.2_Sol",
+  ].forEach((modelID) => {
+    it.instance(`uses apply_patch for CookieMonster ${modelID}`, () =>
+      Effect.gen(function* () {
+        const registry = yield* ToolRegistry.Service
+        const agents = yield* Agent.Service
+        const tools = yield* registry.tools({
+          providerID: ProviderV2.ID.make("cookiemonster"),
+          modelID: ModelV2.ID.make(modelID),
+          agent: yield* agents.defaultInfo(),
+        })
+        const ids = tools.map((tool) => tool.id)
 
-          expect(ids).toContain("apply_patch")
-          expect(ids).not.toContain("edit")
-          expect(ids).not.toContain("write")
-        }),
-      )
-    },
-  )
+        expect(ids).toContain("apply_patch")
+        expect(ids).not.toContain("edit")
+        expect(ids).not.toContain("write")
+      }),
+    )
+  })
   ;[
     { providerID: "opencode", modelID: "gpt-5.6", patch: true },
     { providerID: "opencode", modelID: "gpt6", patch: false },

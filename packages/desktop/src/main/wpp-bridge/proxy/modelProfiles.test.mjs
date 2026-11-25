@@ -42,15 +42,20 @@ const PROJECT_AGENTS = [
 ]
 
 const FAMILIES = [
+  "CM_GPT6.2_Sol",
   "CM_GPT6.1_Sol",
   "CM_GPT6_Sol",
   "CM_GPT6_Astra",
   "CM_GPT-5.6 Sol",
   "CM_Opus5.5",
   "CM_Gemini-3.7-Flash",
+  "CM_Gemini4_Neon",
   "CM_Gemini4_Carbon",
   "CM_Gemini4",
 ]
+
+// Families whose fixed-effort agents are callable but never advertised.
+const HIDDEN_ROUTE_FAMILIES = ["CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
 
 describe("CookieMonster model profiles", () => {
   test("exposes the WPP project roster under the exact agent names", () => {
@@ -160,7 +165,15 @@ describe("CookieMonster model profiles", () => {
     expect(Object.keys(MODEL_PROFILES["CM_Gemini-3.7-Flash"].reasoningEfforts)).toEqual(["low", "medium", "high"])
     expect(Object.keys(MODEL_PROFILES.CM_Gemini4_Carbon.reasoningEfforts)).toEqual(["low", "medium", "high"])
     expect(Object.keys(MODEL_PROFILES.CM_Gemini4.reasoningEfforts)).toEqual(["low", "medium", "high"])
-    for (const model of FAMILIES.slice(1)) {
+    expect(Object.keys(MODEL_PROFILES["CM_GPT6.2_Sol"].reasoningEfforts)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ])
+    expect(Object.keys(MODEL_PROFILES.CM_Gemini4_Neon.reasoningEfforts)).toEqual(["low", "medium", "high"])
+    for (const model of FAMILIES.filter((id) => !HIDDEN_ROUTE_FAMILIES.includes(id))) {
       for (const agentName of Object.values(MODEL_PROFILES[model].reasoningEfforts)) {
         expect(PROJECT_AGENTS).toContain(agentName)
       }
