@@ -154,6 +154,18 @@ export const MODEL_PROFILES = {
     toolFormat: "xml",
     commentaryPhase: true,
   },
+  "CM_GPT6.2_Astra": {
+    defaultReasoningEffort: "medium",
+    reasoningEfforts: {
+      low: "CM_GPT6.2_Astra_Low",
+      medium: "CM_GPT6.2_Astra_Medium",
+      high: "CM_GPT6.2_Astra_High",
+      xhigh: "CM_GPT6.2_Astra_XHigh",
+      max: "CM_GPT6.2_Astra_Max",
+    },
+    toolFormat: "xml",
+    commentaryPhase: true,
+  },
   "CM_GPT6.1_Sol": {
     defaultReasoningEffort: "medium",
     reasoningEfforts: {
@@ -264,7 +276,7 @@ export const RENAMED_MODEL_IDS = new Map([
 
 // Families whose fixed-effort agents are never advertised. Those agents stay callable for capability
 // probes and diagnostic overrides, and unknown IDs under the reserved prefixes fail instead of falling back.
-const HIDDEN_ROUTE_FAMILIES = ["CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
+const HIDDEN_ROUTE_FAMILIES = ["CM_GPT6.2_Sol", "CM_GPT6.2_Astra", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
 const RESERVED_MODEL_PREFIXES = ["CM_GPT6.2", "CM_GPT6.1", "CM_Gemini4_Neon"]
 
 export function resolveModelProfile(modelId) {
