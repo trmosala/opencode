@@ -63,6 +63,12 @@ describe("CookieMonster protocol capability", () => {
       "CM_GPT6.2_Sol_High",
       "CM_GPT6.2_Sol_XHigh",
       "CM_GPT6.2_Sol_Max",
+      "CM_GPT6.2_Astra",
+      "CM_GPT6.2_Astra_Low",
+      "CM_GPT6.2_Astra_Medium",
+      "CM_GPT6.2_Astra_High",
+      "CM_GPT6.2_Astra_XHigh",
+      "CM_GPT6.2_Astra_Max",
     ]) {
       const probe = buildCapabilityProbeJob({ payload: { model } })
 

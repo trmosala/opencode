@@ -82,7 +82,7 @@ describe("CookieMonster default model visibility", () => {
     ).toBe(false)
   })
 
-  const hiddenFamilies = ["CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
+  const hiddenFamilies = ["CM_GPT6.2_Sol", "CM_GPT6.2_Astra", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
 
   test.each([...families.map((family) => family.id), ...hiddenFamilies])("keeps family route %s", (modelID) => {
     expect(isSupersededCookieMonsterModel({ providerID: "cookiemonster", modelID }, available)).toBe(false)
@@ -97,6 +97,7 @@ describe("CookieMonster default model visibility", () => {
     "CM_Gemini-3.7-Flash_Custom",
     "CM_GPT6.1_Sol_High",
     "CM_GPT6.2_Sol_High",
+    "CM_GPT6.2_Astra_High",
     "CM_Gemini4_Neon_High",
     "unrelated",
     "toString",

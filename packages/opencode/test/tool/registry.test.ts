@@ -137,6 +137,7 @@ describe("tool.registry", () => {
     "CM_GPT6_Astra_Max",
     "CM_GPT6.1_Sol",
     "CM_GPT6.2_Sol",
+    "CM_GPT6.2_Astra",
   ].forEach((modelID) => {
     it.instance(`uses apply_patch for CookieMonster ${modelID}`, () =>
       Effect.gen(function* () {

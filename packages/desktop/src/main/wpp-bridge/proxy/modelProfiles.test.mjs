@@ -43,6 +43,7 @@ const PROJECT_AGENTS = [
 
 const FAMILIES = [
   "CM_GPT6.2_Sol",
+  "CM_GPT6.2_Astra",
   "CM_GPT6.1_Sol",
   "CM_GPT6_Sol",
   "CM_GPT6_Astra",
@@ -55,7 +56,7 @@ const FAMILIES = [
 ]
 
 // Families whose fixed-effort agents are callable but never advertised.
-const HIDDEN_ROUTE_FAMILIES = ["CM_GPT6.2_Sol", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
+const HIDDEN_ROUTE_FAMILIES = ["CM_GPT6.2_Sol", "CM_GPT6.2_Astra", "CM_GPT6.1_Sol", "CM_Gemini4_Neon"]
 
 describe("CookieMonster model profiles", () => {
   test("exposes the WPP project roster under the exact agent names", () => {
@@ -186,6 +187,24 @@ describe("CookieMonster model profiles", () => {
     ]) {
       expect(() => resolveRequestModelProfile({ model, reasoning_effort })).toThrow(
         expect.objectContaining({ statusCode: 400, type: "invalid_reasoning_effort" }),
+      )
+    }
+  })
+
+  test("discovers one Astra 6.2 family and keeps its fixed effort routes hidden", () => {
+    const family = MODEL_PROFILES["CM_GPT6.2_Astra"]
+    expect(Object.keys(family.reasoningEfforts)).toEqual(["low", "medium", "high", "xhigh", "max"])
+    expect(listModels().data.filter((model) => model.id.startsWith("CM_GPT6.2_Astra"))).toEqual([
+      { id: "CM_GPT6.2_Astra", object: "model", created: 0, owned_by: "cookiemonster" },
+    ])
+    expect(resolveModelProfile("CM_GPT6.2_Astra").agentName).toBe("CM_GPT6.2_Astra_Medium")
+    for (const agentName of Object.values(family.reasoningEfforts)) {
+      expect(MODEL_IDS).not.toContain(agentName)
+      expect(resolveModelProfile(agentName)).toEqual({ agentName, toolFormat: "xml", commentaryPhase: true })
+    }
+    for (const model of ["CM_GPT6.2_Astra_Auto", "CM_GPT6.2_Astra_Unknown"]) {
+      expect(() => resolveModelProfile(model)).toThrow(
+        expect.objectContaining({ statusCode: 400, type: "invalid_model" }),
       )
     }
   })
