@@ -5,6 +5,7 @@ import { createServer } from "node:http"
 import { execFileSync } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { Server } from "../../cm-v2/dist/runtime.js"
 
 const root = process.env.FIXTURE_ROOT
@@ -133,7 +134,16 @@ const config = {
     },
   }),
 }
-const server = await Server.listen({ hostname: "127.0.0.1", port: 0, password, database: join(root, "app.db"), config })
+const server = await Server.listen({
+  hostname: "127.0.0.1",
+  port: 0,
+  password,
+  database: join(root, "app.db"),
+  config,
+  cli: fileURLToPath(
+    new URL(`../../desktop/resources/opencode-cli${process.platform === "win32" ? ".exe" : ""}`, import.meta.url),
+  ),
+})
 console.log(
   "READY " +
     JSON.stringify({ url: `http://127.0.0.1:${server.address.port}`, password, workspace, plain, model: modelURL }),

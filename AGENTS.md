@@ -171,6 +171,8 @@ const table = sqliteTable("session", {
 
 This repo adds an Electron desktop shell ("CookieMonster") on top of upstream OpenCode. Bun 1.3+ workspaces + Turborepo; lockfile `bun.lock`; lint = oxlint, format = Prettier (no semicolons, 120 cols).
 
+The bundled OpenCode CLI supplies the desktop `claude-agent` provider. Run `claude auth login` to sign in to Claude Code. The CLI looks for `claude` on PATH unless `OPENCODE_CLAUDE_PATH` specifies the binary. The separate `packages/opencode` workspace serves the legacy CLI.
+
 **Distribution:** CookieMonster is internal Ogilvy One tooling built on WPP's own AI platform with employees' own SSO. Builds ship to the public `trmosala/opencode` repo only.
 
 **Release tags:** `cookiemonster-v<upstream>_<cm-rev>` — everything before the `_` is the canonical upstream OpenCode version; the CookieMonster revision lives after it (e.g. `cookiemonster-v1.17.11_01`). The `_NN` suffix is not valid semver, so it lives only in the git tag / release name — `packages/desktop/package.json` keeps the plain upstream version. To bake a CM revision into the app itself, set `CM_VERSION=<upstream>-cm.<N>` at package time (e.g. `1.17.11-cm.1`). It must be a prerelease, not `+build` metadata, because electron-updater ignores build metadata and would treat the revision as already installed.

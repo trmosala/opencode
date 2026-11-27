@@ -19,12 +19,13 @@ import type { State, VcsCache } from "./types"
 import { ServerScope } from "@/utils/server-scope"
 import type { CompatibleApi } from "@/utils/server-compat"
 
-type CatalogApi = Pick<CompatibleApi, "provider" | "model">
+type CatalogApi = Pick<CompatibleApi, "provider" | "model" | "integration">
 
 type ProjectApi = CompatibleApi["project"]
 
 const provider = { all: new Map(), connected: [], default: {} } satisfies NormalizedProviderListResponse
 const api = {
+  integration: { list: async () => ({ location: {}, data: [] }) },
   agent: { list: async () => ({ location: {}, data: [] }) },
   provider: { list: async () => ({ location: {}, data: [] }) },
   model: {
@@ -280,6 +281,12 @@ describe("query keys", () => {
   test("loads the current provider and model catalog", async () => {
     const calls: unknown[] = []
     const api = {
+      integration: {
+        list: async (input: unknown) => {
+          calls.push(["integration", input])
+          return { location: {}, data: [{ id: "claude-agent", name: "Claude Agent" }] }
+        },
+      },
       provider: {
         list: async (input: unknown) => {
           calls.push(["provider", input])
@@ -304,7 +311,9 @@ describe("query keys", () => {
       ["provider", { location: { directory: "/repo" } }],
       ["model", { location: { directory: "/repo" } }],
       ["default", { location: { directory: "/repo" } }],
+      ["integration", { location: { directory: "/repo" } }],
     ])
+    expect(result.all.get("claude-agent")?.name).toBe("Claude Agent")
     expect(result.connected).toEqual(["openai"])
   })
 

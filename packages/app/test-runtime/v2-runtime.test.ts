@@ -84,6 +84,7 @@ beforeAll(async () => {
       XDG_CONFIG_HOME: join(root, "config"),
       XDG_STATE_HOME: join(root, "state"),
       XDG_CACHE_HOME: join(root, "cache"),
+      OPENCODE_CLAUDE_PATH: "/nonexistent/claude",
       OPENCODE_DISABLE_AUTOUPDATE: "1",
     },
     stdin: "pipe",
@@ -392,6 +393,25 @@ describe("app adapters on the published 2.2.5 runtime", () => {
     await current.worktree.remove({ projectID: project.id, directory: worktree.directory, force: false })
     expect(await Bun.file(join(worktree.directory, "hello.ts")).exists()).toBe(false)
   }, 60_000)
+
+  test("discovers Claude Agent before connecting and stores its external login credential", async () => {
+    const input = { integrationID: "claude-agent", location: { directory: ready.workspace } }
+    const catalog = await loadProviders(ready.workspace, current, legacy(ready.workspace), Promise.resolve("v2"))
+    expect(catalog.all.get(input.integrationID)?.name).toBe("Claude Agent")
+    expect(catalog.connected).not.toContain(input.integrationID)
+    expect((await api.integration.get(input)).data.methods).toContainEqual({
+      id: "claude-login",
+      type: "external",
+      label: "Claude Code login (claude auth login)",
+    })
+    await api.integration.connect.external({ ...input, methodID: "claude-login" })
+    expect((await current.credential.list()).find((item) => item.integrationID === input.integrationID)).toMatchObject({
+      active: true,
+      value: { type: "external", methodID: "claude-login" },
+    })
+    await api.integration.disconnect(input)
+    expect((await current.credential.list()).some((item) => item.integrationID === input.integrationID)).toBe(false)
+  }, 30_000)
 
   test("credential disconnect removes stored integration keys", async () => {
     await current.credential.create({ integrationID: "openrouter", value: { type: "key", key: "fixture-key" } })

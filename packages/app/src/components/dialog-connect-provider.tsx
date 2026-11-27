@@ -40,7 +40,7 @@ import { CustomProviderForm } from "./dialog-custom-provider"
 import { decode64 } from "@/utils/base64"
 
 const CUSTOM_ID = "_custom"
-type ConnectMethod = Extract<IntegrationMethod, { type: "key" | "oauth" }>
+type ConnectMethod = Extract<IntegrationMethod, { type: "key" | "oauth" | "external" }>
 
 export function useProviderConnectController(options: { onBack?: () => void } = {}) {
   const [store, setStore] = createStore({ selected: undefined as string | undefined })
@@ -237,7 +237,7 @@ function ProviderPickerV2(props: {
     active: undefined as string | undefined,
     connecting: undefined as string | undefined,
   })
-  const featured = ["opencode", "opencode-go", "anthropic", "openai", "google", "openrouter", "vercel"]
+  const featured = ["opencode", "opencode-go", "anthropic", "claude-agent", "openai", "google", "openrouter", "vercel"]
   const custom = () => ({ id: CUSTOM_ID, name: language.t("dialog.provider.custom.label") })
   const all = createMemo(() => {
     language.locale()
@@ -429,7 +429,8 @@ function ProviderConnection(props: {
   const loading = createMemo(() => integration.loading)
   const methods = createMemo<ConnectMethod[]>(() => {
     const values = integration.latest?.methods.filter(
-      (method): method is ConnectMethod => method.type === "key" || method.type === "oauth",
+      (method): method is ConnectMethod =>
+        method.type === "key" || method.type === "oauth" || method.type === "external",
     )
     return values?.length ? values : fallback()
   })
@@ -547,33 +548,33 @@ function ProviderConnection(props: {
     const method = methods()[index]
     dispatch({ type: "method.select", index })
 
-    if (method.type === "oauth") {
-      if (method.form?.length && !inputs) {
-        dispatch({ type: "auth.prompt" })
-        return
-      }
-      dispatch({ type: "auth.pending" })
-      await serverSDK()
-        .api.integration.oauth.connect({
-          integrationID: props.provider,
-          methodID: method.id,
-          answer: inputs ?? {},
-          location: location(),
-        })
-        .then((x) => {
-          if (!alive.value) return
-          if (props.provider === "opencode" && platform.platform === "desktop") {
-            const url = new URL(x.data.url)
-            url.searchParams.set("client_id", "opencode-desktop")
-            x.data.url = url.href
-          }
-          dispatch({ type: "auth.complete", authorization: x.data })
-        })
-        .catch((e) => {
-          if (!alive.value) return
-          dispatch({ type: "auth.error", error: formatError(e, language.t("common.requestFailed")) })
-        })
+    if (method.type === "key") return
+    if (method.form?.length && !inputs) {
+      dispatch({ type: "auth.prompt" })
+      return
     }
+    dispatch({ type: "auth.pending" })
+    const input = { integrationID: props.provider, methodID: method.id, answer: inputs ?? {}, location: location() }
+    const integration = serverSDK().api.integration
+    const request = method.type === "external" ? integration.connect.external(input) : integration.oauth.connect(input)
+    await request
+      .then(async (authorization) => {
+        if (!alive.value) return
+        if (!authorization) {
+          await complete()
+          return
+        }
+        if (props.provider === "opencode" && platform.platform === "desktop") {
+          const url = new URL(authorization.data.url)
+          url.searchParams.set("client_id", "opencode-desktop")
+          authorization.data.url = url.href
+        }
+        dispatch({ type: "auth.complete", authorization: authorization.data })
+      })
+      .catch((e) => {
+        if (!alive.value) return
+        dispatch({ type: "auth.error", error: formatError(e, language.t("common.requestFailed")) })
+      })
   }
 
   function AuthPromptsView() {
@@ -582,10 +583,10 @@ function ProviderConnection(props: {
       index: 0,
     })
 
-    // 2.2.5 OAuth methods describe their questions as Form fields; string fields with options render as selects.
+    // 2.2.5 describes method questions as Form fields; string fields with options render as selects.
     const prompts = createMemo(() => {
       const value = method()
-      if (value?.type !== "oauth") return []
+      if (!value || value.type === "key") return []
       return (value.form ?? []).flatMap((field): AuthPrompt[] => {
         if (field.type !== "string") return []
         const when = field.when?.[0]
@@ -739,6 +740,7 @@ function ProviderConnection(props: {
     await serverSync()
       .refreshProviders()
       .catch(() => undefined)
+    if (!alive.value) return
     dialog.close()
     showToast({
       variant: "success",

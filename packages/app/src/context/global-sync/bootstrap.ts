@@ -46,7 +46,7 @@ import type { ServerProtocol } from "@/utils/server-protocol"
 import type { ServerApi } from "@/utils/server"
 import type { CompatibleApi } from "@/utils/server-compat"
 
-type CatalogApi = Pick<ServerApi, "provider" | "model">
+type CatalogApi = Pick<ServerApi, "provider" | "model" | "integration">
 type LocationApi = { readonly get: (input?: LocationGetInput) => Promise<LocationGetOutput> }
 
 type GlobalStore = {
@@ -265,12 +265,20 @@ export async function loadProviders(
     return normalizeProviderList(result.data!)
   }
   const location = directory ? { location: { directory } } : undefined
-  const [providers, models, defaultModel] = await Promise.all([
+  const [providers, models, defaultModel, claude] = await Promise.all([
     sdk.provider.list(location),
     sdk.model.list(location),
     sdk.model.default(location),
+    sdk.integration
+      .list(location)
+      .then((list) => list.data.find((item) => item.id === "claude-agent"))
+      .catch(() => undefined),
   ])
-  return normalizeProviderList(providers.data, models.data, defaultModel.data)
+  const catalog = normalizeProviderList(providers.data, models.data, defaultModel.data)
+  // The CLI advertises Claude Agent as an integration before it has a connected provider.
+  if (claude && !catalog.all.has(claude.id))
+    catalog.all.set(claude.id, { id: claude.id, name: claude.name, source: "custom", env: [], models: {}, options: {} })
+  return catalog
 }
 
 type AgentListApi = {
